@@ -1,0 +1,440 @@
+WinOSI disk image format & OSI disk hardware information
+V1.1 Mark Spankus 8/2015
+
+The OSI OS65D BASIC Operating System is compatible with 5.25" mini-floppy drives as well as 8" floppy drives. It was intended for home users.
+
+OS65U is the Business BASIC Operating System sold by OSI. OS65U supports 8" floppy drives and hard disk drives of 7 ,23, 36, & 74MB in size.  It uses a standard data sector size of 3584 ($E00) bytes for both hard disk and floppy systems.
+The boot track (track 0) is the same format for both OS versions, but the disk format differs between 65D and 65U in addition to the capacity differences between the 5.25 & 8" drives.
+
+The WinOSI disk image format is a simple dump of the data from the disk, starting at the end of the index hole without regard for the encoding format and delays of the data. OS65D uses 8E1 encoding, OS65U uses a combination of 8E1 and 8N1.  The physical disk can have timing gaps where no data is clocked out. This information is lost in the dump format, so the WinOSI emulator has to compensate for these gaps in software, recognizing reads and writes and ACIA resets in certain places and taking the appropriate action. Generally this works fine, however certain programs could use custom I/O routine with could fail with WinOSI.  As far as I know there is no way to read the raw data & timing from an OSI disk without special hardware.
+
+For 5.25" disks, the dump format is  stored as "tracks" of 2304($900) bytes  for 40 tracks total
+For 8" disks the dump format is stored as "tracks" of 3840 bytes ($F00)* for 77 tracks total
+  *older versions of DiskDump used tracks of $E00 bytes, but these are too small to hold a 65U disk image (WinOSI will read older disk images as well as the current ones.)
+
+
+OS65U transitions from 8E1 to 8N1 on tracks 1-76 at byte #3. There may be glitches in the data during this transition.  OS65U only writes whole tracks at a time (*verify?)
+
+OS65D uses timing gaps to allow it to write to different sectors on a disk without rewriting the whole track. 
+
+Disk format background
+----------------------
+The encoding on the disk is simple FM where a clock bit is always written then a data bit is written if a '1'.
+The OSI drives generally have a data separator (which separates the clock from the data) in each drive for every drive in the system, so when data is read from the disk it is sent out serially with the clock and data separated. Some systems share a data separator for multiple drives. The data separator in the drive makes the OSI systems unique compared to other 8bit micros. Without a data separator, other drives will not work with an OSI disk controller. The data separator itself is a simple one-shot timer which is triggered by the arrival of a bit (clock) which then directs the disk data in the one-shot window as data.
+
+The OSI disk controller uses a standard 6850 ACIA to read & write serial data from/to the disk drive. The data is usually formatted as an 11 bit word 8E1, with 8 data bits, one stop bit and even parity. Depending on OS it can also format data as 8N1, a 10 bit word format. Because the ACIA is clocked synchronously at a 1x rate of 125KHz(5.25") or 250KHz(8") it can not oversample and detected longer start bit lengths, so any extraneous noise on the disk can cause loss of synchronization of the bit stream.  The 6850 can detect framing errors, parity errors, and overrun errors and are handled by the OS.
+
+OSI does not use IRQs. So even though a chip can be programmed to generate an IRQ, the processor will not be signaled.
+
+
+Disk capacity
+=============
+
+5.25" Mini Floppy Diskettes
+---------------------------
+5.25" low density diskette, 40 tracks, 8 sector/track,  256 bytes/sector, 11 bits/byte (8E1) = 80K/disk      
+OSI uses 8E1 to give a max unformatted capacity of 2272 bytes per track (see below)          
+However other bit encodings  (8N1) could give up to 2500 bytes/track
+
+The standard speed for mini-floppy drives (5") is 300 rpm. Thus one rotation of the disk is 200 mS.                
+Stated baud-rate is 125k or 125000 bits/sec and one serial byte is 11 bits (1 start, 8 data, 1 parity, 1 stop).    
+So the theoretical absolute maximum storage per track is - (125000 x 0.2) / 11  =  2272 bytes  or 8.8 pages         
+
+OS-65D loses a bit more because it doesn't write until 10 mS after the index pulse, so - (125000 x 0.19) / 11  =  2159 bytes  or 8.4 pages and this doesn't even allow for the length of the index pulse (a few mS)? and the speed variation between drives.                                                      
+                                                                                             
+Data is clocked out at 125000 bps, 11 bit word = 11363 cps. 1Mhz clk = 88 cycles per character or 176 at 2Mhz          
+Remember a 5.25" diskette is write protected when the notch is covered.
+                  
+8" Floppy Diskette
+------------------                                                                                             
+8" single-density soft sectored diskette, 77 tracks, 12 sectors/track, 256 bytes/sector, 11 bits/byte (8E1/8N1) = 231K/disk   
+OSI uses 8E1 to give a max unformatted capacity of 3772 bytes/track (see below) 
+However other bit encodings (8N1) could give up to 3900 bytes/track                          
+                                                                                             
+The standard speed for 8" floppy dives is 360 rpm. Thus one rotation of the disk is 166.6ms                        
+Stated baud rate is 250K or 250000 bits/sec and one serial byte is 11 bits (1 start, 8 data, 1 parity, 1 stop).
+So the theoretical absolute maximum storage per track is - (250000 x 0.166 ) / 11 = 3772 or 14.7 pages
+
+OS-65D loses a bit more because it doesn't write until 10 mS after the index pulse, so - (250000 x 0.156) / 11  =  3545 bytes or 13.8 pages and this doesn't even allow for the length of the index pulse (a few mS)? and the speed variation between drives. 
+
+OS-65U writes 3584 bytes as 8N1 with 3 bytes as 8E1 plus delay                                                   
+Data clocked out at 250000 bps, 11 bit word = 22727 cps; 10bit word = 25,000 cps; 
+1Mhz clk = 44/40 cycles per character or 88/80 at 2Mhz
+An 8" disk is write protected when a notch is present.  Also unlike 5.25" diskettes, an 8" single-density diskette physically differs from a double-density diskette in the position of the index hole.   
+
+OS65D disk format                                                               
+=================                 
+Track 0 format                                                                               
+10 millisecond delay after index hole                                                        
+0,1 load address of the track in hi,lo form                                                  
+2, page count of how much data is written on track 0, usually 8 (5.25") or 12 (8")
+3+ data                                                                                      
+                                                                                             
+Track 1-n Format                                                                             
+10 millisecond delay after index hole
+0,1 -a 2 byte start code $43, $57                                                            
+2,  -BCD track number                                                                        
+3,  -track type code (always $58)                                                            
+(sector data follows)                                                                        
+                                                                                             
+There can be any mixture of various length sectors. The total page count can not exceed 8 pages (8*256) 5.25" or 12 pages (12*256) 8" if more than one sector is on a track                         
+
+Each sector is written in the following format:                                              
+-previous sector length (4 if none before) times 800 microseconds of delay                   
+-sector start code $76                                                                       
+-sector number in binary                                                                     
+-sector length (#pages) in binary                                                            
+-sector data                                                                                 
+-(end of sector mark $47, $53)                                                         
+                                                                                             
+Directory Format                                                                             
+2 sectors (1 & 2) on track 12 (track 8 for 8") hold the directory information.                     
+Each entry requires 8 bytes. There are a total of 64 entries. The entries are                
+formatted as follows:                                                                        
+0-5 ASCII 6 character filename                                                               
+6 BCD first track of file                                                                    
+7 BCD Last track of file                                                                     
+
+
+OS65U disk format
+=================
+OS65U sector size is 3584, one sector per track on 8" floppy 
+OS65U writes the track header in 8E1 (3 bytes) ($80, trkLo, trkHi) then switches to 8N1 to write the sector data of 3584 ($E00) bytes.
+
+Track 0 format                                                                               
+10 millisecond delay after index hole Reset ACIA 8E1                                                    
+0,1 load address of the track in hi,lo form                                                  
+2, page count of how much data is written on track 0, usually 8                             
+3+ data                                                                                      
+                                                                                             
+Track 1-76 format                                                                            
+wait for end of index hole, reset ACIA to 8E1                                                                 
+$80, tkLo, tkHi 
+Reset ACIA 8N1 +few ms delay                                                
+$0F or $1F marker?, $E00 (3584) bytes data       
+
+OS65U occupies 1st 25088 (0x6200) bytes or 7 sectors of a disk
+Directory is stored on sector (track) 8 in file "Direct$", 
+There are 16 bytes per entry                             
+6 bytes for filename,                                                               
+2 bytes password LO, HI,                                                            
+1 byte  file attributes                                                             
+3 bytes starting position ll, mm, hh                                                     
+3 bytes files size ll, mm, hh                                                     
+1 byte semaphore   0x00                                                           
+                                                                                     
+attributes bit 7 - dir flag                                                            
+           bit 6                                                                     
+           bit 5                                                                     
+           bit 4 \                                                                 
+           bit 3  |-- 3 bits file type: 0 = basic, 1 = data else 'other'             
+           bit 2 /                                                                 
+           bit 1 \ __ 2 bits access:  0=none 1=Read, 2=Write, 3=R/W                  
+           bit 0 /                                                                   
+                                                                                     
+End of directory has null file name                                                  
+A deleted file has 0x01 for file name                                                  
+Each file has a password.  A password is entered as 4 chars upper-case ASCII, 'A' to ']'  
+	if 1st char is A-P then subtract 'A'(65) else = 0x0F  = c1                          
+	if 2nd char is N-] then subtract 'N'(78) else = 0x0F  = c2                          
+	if 3rd char is A-P then subtract 'A' else = 0x0F      = c3                              
+	if 4th char is N-] then subtract 'N' else = 0x0F      = c4                              
+	PL = c1 << 4 | c2                                                                   
+	PH = c3 << 4 | c4                                                                   
+so password 'PASS' = F, F, F, 5  PL = FF, PH = F5 on directory                      
+password 'ANAN' = 0, 0, 0, 0                                                        
+                                                                                 
+The DIREC* file specifies size of directory in it's length (size) field.                
+A whole track is 0E length,  partial track could be '04' length, leaving space for other files on that disk.
+
+OS65U file format
+-----------------
+
+
+OS65U devices: 
+#3, #8 Serial RS-232
+#5 8-bit Parallel Centronics printer
+#6 12bit Parallel Diablo printer
+Device A - the floppy diskette
+Device E - Winchester hard disk
+Device B - 2nd floppy disk
+Device C & D custom configured 2nd side of device A & B
+
+
+Hardware
+========
+OSI does not use IRQ
+
+OSI disk controller address(es):
+C000-C003 = PIA  (Decodes to C000-C00F) (C000/C040/C080/C0C0)
+C010-C011 = ACIA (Decodes to C010-C01F) (C010/C050/C090/C0D0)
+C020-C03F = NULLREAD ($C0) (C020/C060/C0A0/C0E0)
+
+C000 = PORT A or DDR A
+C001 = Control Reg A
+C002 = PORT B or DDR B
+C003 = Control Reg B
+C010 = Serial Control
+C011 = Serial Data
+
+6821/6520 PIA @ $C000-C003
+--------------------------
+<- input,  -> output
+
+PA0 <- !Drive 1 Ready	(0 = drive #1 ready)
+PA1 <- !TRACK 00		(0 = head on trk 0)
+PA2 <- !FAULT (nc)      (0 = fault)
+PA3 <- !SECTOR (nc)     (0 = sector index (not used))
+PA4 <- !Drive 2 Ready	(0 = drive #2 ready)
+PA5 <- !Write Protect	(0 = write protect)
+PA6 -> Drive Select		(0 = drive #2/#4, 1 = drive #1/#3)
+PA7 <- !INDEX           (0 = @ index hole)
+
+PB0 -> !WRITE ENABLE	(0 = write)
+PB1 -> !ERASE ENABLE	(leave 1 on 5.25") - used on 8" drives (0 = erase enable on, 
+                        200us after Write is on, 530us after write off)
+PB2 -> !STEP IN			(0 = to track 39/76)
+PB3 -> !RESET STEP 		(step on 1->0 transition)
+PB4 -> !FAULT RESET  	(leave 1) (0 = reset)
+PB5 -> Drive Enable		(1 = drive ON) (Or Drive/Side sel. 4 drive system 1=drive 1&2,0=drive 3&4 )
+PB6 -> !LOW CURRENT 	(leave 1) (0 for trk 43-76, 1 for track 0-42)
+PB7 -> !HEAD LOAD		(0 = head on disk)
+
+CA1 <- 20ms clock on 8"
+CA2
+CB1 <- 400 mSec clock for RTC operations (2.5x/sec) 5.25",  1000ms for 8"
+CB2
+
+Data Direction Registers:
+PORT A configure all for input except PA6
+Port B configure all for output  
+
+6821/6520 PIA details
+
+           +-----+  +-----+
+      Vss  |  1  +--+  40 | CA1
+      AA0  |  2        39 | CA2
+      PA1  |  3        38 | !IRQA
+      PA2  |  4        37 | !IRQB
+      PA3  |  5        36 | RS0
+      PA4  |  6        35 | RS1
+      PA5  |  7        34 | !RES
+      PA6  |  8        33 | D0
+      PA7  |  9        32 | D1
+      PB0  | 10        31 | D2
+      PB1  | 11        30 | D3
+      pB2  | 12        29 | D4
+      PB3  | 13        28 | D5
+      PB4  | 14        27 | D6
+      PB5  | 15        26 | D7
+      PB6  | 16        25 | ENABLE
+      PB7  | 17        24 | CS2
+      CB1  | 18        23 | !CS3
+      CB2  | 19        22 | CS1
+      Vcc  | 20        21 | R/W
+           +--------------+
+
+The 6821 PIA has two 8-bit I/O ports, A and B, which are mostly identical in function.  
+All 8 bits can be set to input (1 in the DDR) or output (0 in the DDR) independently. Bit 2 in CRx determines whether the DDRx or Px are accessed.  Each port has 2 control lines: CA1, CA2, CB1, CB2. The Cx1 are input only, the Cx2 can be input or output.
+
+PIAs have two interrupt lines: IRQA and IRQB. They may go low on a change on the inputs of the Cxy lines. These interrupts may be enabled on either an 1->0 or an 0->1 transition. The selected transition is called the"active" transition. The flags which register that an active transition has occurred are reset by reading the appropriate PORT register.
+
+Register map:
+0x0  PORT A or DDR A: Data Direction Register A
+0x1  CRA: Control Register A
+0x2  PORT B or DDR B: Data Direction Register B
+0x3  CRB: Control Register B
+
+Control registers:
+CRA:
+
+bit   meaning
+---   -------
+ 7    CA1 active transition flag. 1= 0->1, 0= 1->0
+ 6    CA2 active transition flag. 1= 0->1, 0= 1->0
+ 5    CA2 direction           1 = out        | 0 = in
+                    ------------+------------+---------------------
+ 4    CA2 control   Handshake=0 | Manual=1   | Active: High=1 Low=0
+ 3    CA2 control   On Read=0   | CA2 High=1 | IRQ on=1, IRQ off=0
+                    Pulse  =1   | CA2 Low=0  |
+ 2    Port A control: DDRA = 0, PORTA = 1
+ 1    CA1 control: Active High = 1, Low = 0	 CA1 bit7 set on H->L(0) or L->H(1)
+ 0    CA1 control: IRQ on=1, off = 0
+
+CRB works identical for CB1 and CB2, except for the differences in
+handshaking.
+
+The Cx2 handshake is not identical between ports. For port A, the handshake is on reading the PORT A register, for CB2 the handshake is sent on writing the PORT B register.
+
+On the listening side:
+
+BIT 3 LOW with CA2: CA2 is now controlled by two events:
+    (i) CA1 active transition sets it high ("Data Valid")
+    (ii) a READ operation sets it low ("Data Accepted").
+
+On the talking side:
+
+BIT 3 LOW with CB2: CB2 is now controlled by two events:
+    (i) CB1 active transition sets it high ("Ready For Data")
+    (ii) a WRITE operation sets it low ("Data Valid").
+
+Bit 2 HIGH: Causes pulse output, CA2 or CB2 going low for one cycle only
+after a read or write operation. This pulse may be too short for some uses.
+
+6850 ACIA (asynchronous communications interface adapter) details @ $C010
+---------------------------------------------------------
+
+          6850
+    +------\/------+
+ 1 -|Vss       /CTS|- 24
+ 2 -|RxD       /DCD|- 23
+ 3 -|RxClk       D0|- 22
+ 4 -|TxClk       D1|- 21
+ 5 -|/RTS        D2|- 20
+ 6 -|TxD         D3|- 19
+ 7 -|/IRQ        D4|- 18
+ 8 -|CS0         D5|- 17
+ 9 -|/CS2        D6|- 16
+10 -|CS1         D7|- 15
+11 -|RS           E|- 14
+12 -|Vcc        R/W|- 13
+    +--------------+ 
+
+address 1 read	 = data bits 0-7
+address 1 write  = data bits 0-7
+
+address 0 write
+DB0 = divide sel 0     00 = /1	 10 = /64
+DB1 = divide sel 1     01 = /16	 11 = master reset
+DB2 = word sel 0		 000 = 7e2	011 = 7o1		110 = 8e1
+DB3 = word sel 1		 001 = 7o2	100 = 8n2		111 = 8o1
+DB4 = word sel 2		 010 = 7e1	101 = 8n1
+DB5 = transmit ctrl 0 00 = -RTS low xmit irq disable
+DB6 = transmit ctrl 1 01 = -RTS low xmit irq enable
+                      10 = -RTS high xmit irq disable
+                      11 = -RTS low, xmit a break lvl, irq disable
+DB7 = receive irq enable
+
+address 0 read
+DB0 = RX buff full
+DB1 = TX buff empty
+DB2 = -DCD			(1 when DCD not present)
+DB3 = -CTS			(1 when transmit is inhibited)
+DB4 = Framing error	(1 when error, lack of start/stop bits or break condition)
+DB5 = RX overrun
+DB6 = Parity Error   (1 when # of 1 bits != selected parity)
+DB7 = IRQ            (1 when IRQ present)  cleared by read of rx or write to tx
+
+rxIRQ is set when Receive Data Register is full, overrun, or there is a low to high  transition on the DCD signal line.
+txIRQ is set when the Transmit Data Register is empty
+
+
+
+
+
+
+Hard Disk Information (incomplete)
+----------------------------------
+Only supported with OS65U
+
+OSI Hard Disk Interface
+The OSI hard disk controller consists of 7(+?) memory mapped I/O addresses starting at $C200
+The disk controller can transfer data to or from 4K of shared memory which is mapped to $E000 to $EFFF.
+Different disk I/O for different controllers (OSI596 vs OSI
+
+Under 65U the hard disk is formatted with sectors that match the size of the 8" floppy disk $E00/3584 bytes.
+
+The boot track is located at track ---?
+
+Disk Geometry	for Winchester 74MB hard drive
+Cylinder (0 to 338) (track?)  -> 72,898,560 bytes total
+Track    (0 to 11)  (head?)
+Sector   (0 to 4)
+sector is 3584 bytes long  (14 * 256)
+
+Sector translation table 74M (absolute disk address of sector)
+-------------------------------------
+$c200 bit 7=1=cyln >=256
+$c201 cyln lo
+$c200 then write track(head)
+         $C203   $C204   $C205   $C206   $C207
+sector 0 dv=$10  du=$00  dy=$25  dx=$07 
+sector 1 dv=$50  du=$07  dy=$65  dx=$0E
+sector 2 dv=$90  du=$0E  dy=$55  dx=$15
+sector 3 dv=$D0  du=$15  dy=$E5  dx=$1C
+sector 4 dv=$10  du=$1D  dy=$25  dx=$24  $00 on read, then $80, then $00
+         dv+=3 on read                   $40 on write, then $c0, then $40
+
+------------------------------------------------------------------------------------
+ SA1004 physical: 8.4MB/drive formatted. 256bytes/sector, 32 sectors/track, 
+                  8.4Kbytes/track, 2.1MB/surface.
+                  256 cylinders, 1024 tracks (cyln * head), 4 heads, 2 platters
+From Shugart manual:
+SA1000 soft sector format: each track is divided into 32 sectors, each sector has data field of 256 bytes, the beginning of each sector is defined by an ID field. The ID field contains the physical sector address plus cylinder and head information. The ID field is followed by a user data field. The beginning of both the ID field and data field are flagged by unique  characters called address marks. An address mark is two bytes in length, the first byte is always an A1 data pattern. This is followed by an FE or F8 pattern. FE is used to define an ID address mark, F8 is a data address mark.
+
+cyln   (0 to 255)  (track?)   -> 7,340,032 bytes total
+track  (0 to 3)    (head)
+sector (0 to 1)    (?)
+
+The only addresses that are available to READ are $C202 & $C207
+Control Registers
+C200 = cylinder hi (bit 7) & track (bit0-6) 
+C201 = cylinder lo
+C202 = controller status
+       write                      read  $D9 = OK, $C4 = FAIL
+       bit 7
+       bit 6
+       bit 5 1 = initiate step	
+       bit 4 1 = init/reset?        1 = (not ready?)		
+       bit 3
+       bit 2
+       bit 1 1 = step dir higher    1 =  trk 0 sensed
+       bit 0 1 = disk on (?)        1 =  disk busy              
+      
+C203 = sector offset registers 
+C204
+C205
+C206
+
+C207 = write                      read
+        bit 7 1=start operation  1=ctrlr busy
+        bit 6 1=write 0=read
+
+C280 - ?? access to clock in next register ??
+
+$E010 - start of DMA memory
+
+ E000-E00E (zero out)
+ E00F = 1
+
+DATA $10, $00, $50, $07, $90, $0E, $D0, $15, $10, $1D, $15, $07
+
+
+Sector translation table 10M
+-------------------------------------
+          $C203   $C204   $C205   $C206
+sector 0 dv=$72  du=$00  dy=$62  dx=$08
+           
+            $10     $00   $10+$15 $00+$07
+            $50     $07
+            $90     $0E
+            $D0     $15
+            $10     $1D
+if read operation dv += 3;
+after setting C203-C206, wait until $C202 = D9, then execute
+
+OSI Boot track format
+code executes at $E018 
+Sector is 3584/$E00 bytes long last two bytes contain checksum of track
+
+
+OSI HD sizes
+TS = track size, HS = hard disk size, CS = cylinder size, SS = sector size
+
+SS = 3584
+CD-74  HS = 72,898,560: CD=1: CS=215,040: TS = 17920  (S9 = 60, s8 =5)
+CD-36  HS = 36,449,280: CD=4: CS=107,520: TS = 17920
+CD-23  HS = 23,166,976: CD=2: CS=114,688: TS = 14336
+CD-7   HS =  7,311,360: CD=3: CS= 28,672: TS = 7168   (s9 = 8, s8 = 2)
+
+

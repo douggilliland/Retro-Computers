@@ -1,0 +1,317 @@
+Random 65u notes, hardware followed by disk format...
+
+
+// OSI 505 board
+// C000-C003 = PIA (decoded to C000-C00F) (C000/C040/C080/C0C0)
+// C010-C011 = ACIA (Decode to C010-C01F) (C010/C050/C090/C0D0)
+// C020-C03F = NULLREAD (C020/C060/C0A0/C0E0)
+
+// C000 = PORT A or DDR A
+// C001 = Control Reg A
+// C002 = PORT B or DDR B
+// C003 = Control Reg B
+// C010 = Serial data
+// C011 = Serial Control
+
+// PA0 <- !Drive 1 Ready		(0 = drive 1 ready)
+// PA1 <- !TRACK 00			(0 = head on trk 0)
+// PA2 <- !FAULT (nc)
+// PA3 <- !SECTOR (nc)
+// PA4 <- !Drive 2 Ready		(0 = drive 2 ready)
+// PA5 <- !Write Protect		(0 = write protect)
+// PA6 -> Drive Select			(0 = drv 2, 1 = drv 1)
+// PA7 <- !INDEX
+//
+// PB0 -> !WRITE ENABLE			(0 = write)
+// PB1 -> !ERASE ENABLE (nc)		(leave 1)
+// PB2 -> !STEP IN			(0 = to trk 39)
+// PB3 -> !RESET STEP 		    	(step on 1->0 transition)
+// PB4 -> !FAULT RESET (nc)		(leave 1)
+// PB5 -> Drive Enable			(1 = drive ON) (Or Drive/Side sel. 4 drive system 1=drive 0&1,0=drive 2&3 )
+// PB6 -> !LOW CURRENT (nc)		(leave 1)
+// PB7 -> !HEAD LOAD			(0 = head on disk)
+//
+// CA1 <- 20ms clk on 8"
+// CA2
+// CB1 <- 400 mSec clk for RTC operations (2.5x/sec) 5.25",	1000ms for 8"
+// CB2 
+//
+// 6821/6520 PIA
+//
+//
+//
+//            +-----+  +-----+
+//       Vss  |  1  +--+  40 | CA1
+//       AA0  |  2        39 | CA2
+//       PA1  |  3        38 | !IRQA
+//       PA2  |  4        37 | !IRQB
+//       PA3  |  5        36 | RS0
+//       PA4  |  6        35 | RS1
+//       PA5  |  7        34 | !RES
+//       PA6  |  8        33 | D0
+//       PA7  |  9        32 | D1
+//       PB0  | 10        31 | D2
+//       PB1  | 11        30 | D3
+//       pB2  | 12        29 | D4
+//       PB3  | 13        28 | D5
+//       PB4  | 14        27 | D6
+//       PB5  | 15        26 | D7
+//       PB6  | 16        25 | ENABLE
+//       PB7  | 17        24 | CS2
+//       CB1  | 18        23 | !CS3
+//       CB2  | 19        22 | CS1
+//       Vcc  | 20        21 | R/W
+//            +--------------+
+//
+
+/*
+The PIA has two 8-bit I/O ports, A and B, which are mostly identical in
+function.  All 8 bits can be set to input (1 in the DDR) or output (0 in
+the DDR) independently. Bit 2 in CRx determines whether the DDRx or Px are
+accessed.  Each port has 2 control lines: CA1, CA2, CB1, CB2. The Cx1 are
+input only, the Cx2 can be input or output.
+
+PIAs have two interrupt lines: IRQA and IRQB. They may go low on a change
+on the inputs of the Cxy lines. These interrupts may be enabled on either
+an 1->0 or an 0->1 transition. The selected transition is called the
+"active" transition. The flags which register that an active transition has
+occurred are reset by reading the appropriate PORT register.
+
+Register map:
+
+0x0  PORT A or DDR A: Data Direction Register A
+0x1  CRA: Control Register A
+0x2  PORT B or DDR B: Data Direction Register B
+0x3  CRB: Control Register B
+
+Control registers:
+
+CRA:
+
+bit   meaning
+---   -------
+ 7    CA1 active transition flag. 1= 0->1, 0= 1->0
+ 6    CA2 active transition flag. 1= 0->1, 0= 1->0
+ 5    CA2 direction           1 = out        | 0 = in
+                    ------------+------------+---------------------
+ 4    CA2 control   Handshake=0 | Manual=1   | Active: High=1 Low=0
+ 3    CA2 control   On Read=0   | CA2 High=1 | IRQ on=1, IRQ off=0
+                    Pulse  =1   | CA2 Low=0  |
+ 2    Port A control: DDRA = 0, PORTA = 1
+ 1    CA1 control: Active High = 1, Low = 0	 CA1 bit7 set on H->L(0) or L->H(1)
+ 0    CA1 control: IRQ on=1, off = 0
+
+CRB works identical for CB1 and CB2, except for the differences in
+handshaking.
+
+The Cx2 handshake is not identical between ports. For port A, the handshake
+is on reading the PORT A register, for CB2 the handshake is sent on writing
+the PORT B register.
+
+On the listening side:
+
+BIT 3 LOW with CA2: CA2 is now controlled by two events:
+    (i) CA1 active transition sets it high ("Data Valid")
+    (ii) a READ operation sets it low ("Data Accepted").
+
+On the talking side:
+
+BIT 3 LOW with CB2: CB2 is now controlled by two events:
+    (i) CB1 active transition sets it high ("Ready For Data")
+    (ii) a WRITE operation sets it low ("Data Valid").
+
+Bit 2 HIGH: Causes pulse output, CA2 or CB2 going low for one cycle only
+after a read or write operation. This pulse may be too short for some uses.
+
+For operation with a sending and a receiving PIA one would connect
+
+talker      listener
+------      --------
+Port B   -> Port A
+CB2      -> CA1 with active = 1->0 (data valid)
+CB1     <-  CA2 with active = 1->0 (data accepted and ready for more)
+//   <- input  -> output
+// PA0 <- !Drive 1 Ready		(0 = drive 1 ready)
+// PA1 <- !TRACK 00			(0 = head on trk 0)
+// PA2 <- !FAULT (nc)
+// PA3 <- !SECTOR (nc)
+// PA4 <- !Drive 2 Ready		(0 = drive 2 ready)
+// PA5 <- !Write Protect		(0 = write protect)
+// PA6 -> Drive Select			(0 = drv 2, 1 = drv 1)
+// PA7 <- !INDEX
+//
+// PB0 -> !WRITE ENABLE			(0 = write)
+// PB1 -> !ERASE ENABLE (nc)		(leave 1)
+// PB2 -> !STEP IN			(0 = to trk 39)
+// PB3 -> !RESET STEP 		    	(step on 1->0 transition)
+// PB4 -> !FAULT RESET (nc)		(leave 1)
+// PB5 -> Drive Enable			(1 = drive ON) (Or Drive/Side sel. 4 drive system 1=drive 0&1,0=drive 2&3 )
+// PB6 -> !LOW CURRENT (nc)		(leave 1)
+// PB7 -> !HEAD LOAD			(0 = head on disk)
+ddr bit = 1 = input
+
+PORT A All input
+Port B all output except - 0x20 PB5
+
+//
+// 6850
+//
+//           6850
+//     +------\/------+
+//  1 -|Vss       /CTS|- 24
+//  2 -|RxD       /DCD|- 23
+//  3 -|RxClk       D0|- 22
+//  4 -|TxClk       D1|- 21
+//  5 -|/RTS        D2|- 20
+//  6 -|TxD         D3|- 19
+//  7 -|/IRQ        D4|- 18
+//  8 -|CS0         D5|- 17
+//  9 -|/CS2        D6|- 16
+// 10 -|CS1         D7|- 15
+// 11 -|RS           E|- 14
+// 12 -|Vcc        R/W|- 13
+//     +--------------+ 
+//
+// address 0 read	 = data bits 0-7
+// address 0 write   = data bits 0-7
+//
+// address 1 write
+// DB0 = divide sel 0     00 = /1	 10 = /64
+// DB1 = divide sel 1	  01 = /16	 11 = master reset
+// DB2 = word sel 0		 000 = 7e2	011 = 7o1		110 = 8e1
+// DB3 = word sel 1		 001 = 7o2	100 = 8n2		111 = 8o1
+// DB4 = word sel 2		 010 = 7e1	101 = 8n1
+// DB5 = transmit ctrl 0 00 = -RTS low xmit irq disable
+// DB6 = transmit ctrl 1 01 = -RTS low xmit irq enable
+//                       10 = -RTS high xmit irq disable
+//                       11 = -RTS low, xmit a break lvl, irq disable
+// DB7 = receive irq enable
+//
+// address 1 read
+// DB0 = RX buff full
+// DB1 = TX buff empty
+// DB2 = -DCD			(1 when DCD not present)
+// DB3 = -CTS			(1 when transmit is inhibited)
+// DB4 = Framing error	(1 when error, lack of start/stop bits or break condition)
+// DB5 = RX overrun
+// DB6 = Parity Error   (1 when # of 1 bits != selected parity)
+// DB7 = IRQ            (1 when IRQ present)  cleared by read of rx or write to tx
+
+// rxIRQ is set when Receive Data Register is full, overrun, or there is a low to high 
+// transition on the DCD signal line.
+//
+// txIRQ is set when the Transmit Data Register is empty,
+
+
+
+=========================================================================================
+
+
+
+
+//
+// OS65U sector size is 3584, one sector per track on 8" floppy 
+//
+// 8E1 = 11bits/byte
+// Data clocked out at 250000 bps, 11 bit word =22727 cps. 1Mhz clk = 44 cycles
+// per character or 88 at 2Mhz
+//
+// Track 0 format (8N1)
+// 0,1 load address of the track in hi,lo form
+// 2, page count of how much data is written on track 0
+// 3+ data
+//----------------------------------------------------------
+// track 1-77+
+// 0x80, tk#lo, tk#hi, xx, xx <start of data>
+//
+// Directory is stored in file Direct$, 16 bytes per entry
+// 6 bytes for filename, 
+// 2 bytes password LO, HI,
+// 1 byte  file attributes  
+// 3 bytes starting pos ll, mm, hh 
+// 3 bytes files size  	ll, mm, hh
+// 1 bytes semaphore(?) 0x00
+
+//attributes bit 7=dir flag
+//           bit 6
+//           bit 5
+//           bit 4 - \
+//           bit 3 - -- 3 bits file type: 0 = basic, 1 = data else 'other'
+//           bit 2 - /
+//           bit 1 \ __ 2 bits access:  0=none 1=Read, 2=Write, 3=R/W
+//           bit 0 /
+//
+// End of directory has null filename
+// deleted file has 0x01 for filename
+// password is entered as 4 chars uppercase ASCII, A to ]
+// if 1st char is A-P then subtract 'A'(65) else = 0x0F  = c1
+// if 2nd char is N-] then subtract 'N'(78) else = 0x0F  = c2
+// if 3rd char is A-P then subtract 'A' else = 0x0F	 = c3
+// if 4th char is N-] then subtract 'N' else = 0x0F	 = c4
+// PL = c1 << 4 | c2
+// PH = c3 << 4 | c4
+// so password 'PASS' =	F, F, F, 5  PL = FF, PH = F5 on directory
+// password 'ANAN' = 0, 0, 0, 0
+
+
+
+
+
+
+
+
+
+OPEN "FNAME","PASS",CN
+
+CLOSE CN
+INDEX CN=xxxx  (starts at 0)
+
+
+OS65U file header format
+
+NAME#TYPE#EODF#BODF#RECLENGTH#NUMBER OF RECORDS#
+
+The first 52 characters of the file are reserved for this information,
+allocated as follows: NAME-5 (8-4)CR (carriage return) 1 (5), TYPE-2 (6,7) CR-l
+(8), EODF-18 (9-18) (end of data file), CR-l(19), BODF-18
+(28-29) (beginning of data file), CR-l (38) , RECORD
+LENGTH-18 (31-48), CR-l (41), NUMBER OF RECORDS -18 (42-51),
+CR-l (52).
+
+Immediately following this is Field names-Field parameters,
+(length of field holding data, not length of field name).
+Using for an example, the first three field names in
+"ADS", we would see the following: 
+
+CLASSIFICATION#4#ITEM#21#DESC-l#21#DE---
+ ^             ^      ^         ^  ^
+53            68      75       85 88
+NOTICE!! The 4 represents 3 spaces for data and 1 CR, 
+the 21 means 28 data and 1 CR.
+The first character of the fourth field name (DESC-2)
+would start at character (byte?) 88 on the disk data
+file ADS. This would continue on until all field names and
+field parameters are entered.
+The computer then computes the number of characters (bytes)
+used, and the beginning of data file (BODF) is the next
+physical character on the disk. In the file "ADS" (see
+PEEK May '85 listing), you will note that BODF is at 171.
+EODF (end of data file) will naturally be 171 plus (248 *
+NR),248 being length of a record in ADS. NOTE!! If you
+have 958 available records in the file, but only the first
+38 have data in them, then the EODF is at the end of the 38th
+record.
+Next, we need to visualize two things. 
+1. The absolute address of data in the file (constant). 
+2. The offset address of data in the file (relative). 
+Also, we need a name for the pointer that
+locates' (points to) a specific address, (location). Let's
+call this pointer an INDEX (because that's what OSI calls
+it) •
+Let's look at record #3 of our ADS data file. If we set the
+INDEX at 651, we find that this is the first CHR in record
+three.
+
+
+
+starts @5780  calls 2F40
