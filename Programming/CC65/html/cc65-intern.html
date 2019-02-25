@@ -1,0 +1,168 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 3.2 Final//EN">
+<HTML>
+<HEAD>
+ <LINK REL="stylesheet" TYPE="text/css" HREF="doc.css">
+ <META NAME="GENERATOR" CONTENT="LinuxDoc-Tools 0.9.69">
+ <TITLE>cc65 internals</TITLE>
+</HEAD>
+<BODY>
+<H1>cc65 internals</H1>
+
+<H2>
+<A HREF="mailto:bbbradsmith@users.noreply.github.com">Brad Smith</A></H2>
+<HR>
+<EM>Internal details of cc65 code generation,
+such as calling assembly functions from C.</EM>
+<HR>
+<P>
+<H2><A NAME="toc1">1.</A> <A HREF="cc65-intern.html#s1">Calling assembly functions from C</A></H2>
+
+<UL>
+<LI><A NAME="toc1.1">1.1</A> <A HREF="cc65-intern.html#ss1.1">Calling conventions</A>
+<LI><A NAME="toc1.2">1.2</A> <A HREF="cc65-intern.html#ss1.2">Prologue, before the function call</A>
+<LI><A NAME="toc1.3">1.3</A> <A HREF="cc65-intern.html#ss1.3">Epilogue, after the function call</A>
+</UL>
+
+<HR>
+<H2><A NAME="s1">1.</A> <A HREF="#toc1">Calling assembly functions from C</A></H2>
+
+
+
+<H2><A NAME="ss1.1">1.1</A> <A HREF="#toc1.1">Calling conventions</A>
+</H2>
+
+
+<P>There are two calling conventions used in cc65:</P>
+<P>
+<UL>
+<LI><CODE>cdecl</CODE> - passes all parameters on the C-stack.
+
+</LI>
+<LI><CODE>fastcall</CODE> - passes the rightmost parameter in
+registers <CODE>A/X/sreg</CODE> and all others on the C-stack.
+
+</LI>
+</UL>
+</P>
+<P>The default convention is <CODE>fastcall</CODE>, but this can be changed with
+the <CODE>--all-cdecl</CODE> command line option. If a convention is specified in
+the function's declaration, that convention will be used instead.
+Variadic functions will always use <CODE>cdecl</CODE> convention.</P>
+<P>If the <CODE>--standard</CODE> command line option is used,
+the <CODE>cdecl</CODE> and <CODE>fastcall</CODE> keywords will not be available.
+The standard compliant variations <CODE>__cdecl__</CODE> and <CODE>__fastcall__</CODE> are always available.</P>
+<P>If a function has a prototype, parameters are pushed to the C-stack as their respective types
+(i.e. a <CODE>char</CODE> parameter will push 1 byte), but if a function has no prototype, default
+promotions will apply. This means that with no prototype, <CODE>char</CODE> will be promoted
+to <CODE>int</CODE> and be pushed as 2 bytes. K &amp; R style function prototypes may be used,
+but they will function the same as if no prototype was used.</P>
+
+<H2><A NAME="ss1.2">1.2</A> <A HREF="#toc1.2">Prologue, before the function call</A>
+</H2>
+
+
+<P>If the function is declared as fastcall, the rightmost argument will be loaded into
+the <CODE>A/X/sreg</CODE> registers:</P>
+<P>
+<UL>
+<LI><CODE>A</CODE> - 8-bit parameter, or low byte of larger types
+
+</LI>
+<LI><CODE>X</CODE> - 16-bit high byte, or second byte of 32-bits
+
+</LI>
+<LI><CODE>sreg</CODE> - Zeropage pseudo-register including high 2 bytes of 32-bit parameter
+
+</LI>
+</UL>
+</P>
+<P>All other parameters will be pushed to the C-stack from left to right.
+The rightmost parameter will have the lowest address on the stack,
+and multi-byte parameters will have their least significant byte at the lower address.</P>
+<P>The <CODE>sp</CODE> pseudo-register is a zeropage pointer to the base of the C-stack.
+If the function has no prototype or is variadic
+the <CODE>Y</CODE> register will contain the number of bytes pushed to the stack for this function.</P>
+<P>Example:
+<BLOCKQUOTE><CODE>
+<PRE>
+// C prototype
+void cdecl foo(unsigned bar, unsigned char baz);
+
+; C-stack layout within the function:
+;
+;            +------------------+
+;            | High byte of bar |
+; Offset 2 ->+------------------+
+;            | Low byte of bar  |
+; Offset 1 ->+------------------+
+;            | baz              |
+; Offset 0 ->+------------------+
+
+; Example code for accessing bar. The variable is in A/X after this code snippet:
+;
+    ldy     #2      ; Offset of high byte of bar
+    lda     (sp),y  ; High byte now in A
+    tax             ; High byte now in X
+    dey             ; Offset of low byte of bar
+    lda     (sp),y  ; Low byte now in A
+</PRE>
+</CODE></BLOCKQUOTE>
+</P>
+
+<H2><A NAME="ss1.3">1.3</A> <A HREF="#toc1.3">Epilogue, after the function call</A>
+</H2>
+
+
+
+<H3>Return requirements</H3>
+
+
+<P>If the function has a return value, it will appear in the <CODE>A/X/sreg</CODE> registers.</P>
+<P>Functions with an 8-bit return value (<CODE>char</CODE> or <CODE>unsigned char</CODE>) are expected
+to promote this value to a 16-bit integer on return, and store the high byte in <CODE>X</CODE>.
+The compiler will depend on the promoted value in some cases (e.g. implicit conversion to <CODE>int</CODE>),
+and failure to return the high byte in <CODE>X</CODE> will cause unexpected errors.
+This problem does not apply to the <CODE>sreg</CODE> pseudo-register, which is only
+used if the return type is 32-bit.</P>
+<P>If the function has a void return type, the compiler will not depend on the result
+of <CODE>A/X/sreg</CODE>, so these may be clobbered by the function.</P>
+<P>The C-stack pointer <CODE>sp</CODE> must be restored by the function to its value before the
+function call prologue. It may pop all of its parameters from the C-stack
+(e.g. using the <CODE>runtime</CODE> function <CODE>popa</CODE>),
+or it could adjust <CODE>sp</CODE> directly.
+If the function has no prototype, or is variadic the <CODE>Y</CODE> register contains the
+number of bytes pushed to the stack on entry, which may be added to <CODE>sp</CODE> to restore its original state.</P>
+<P>The internal pseudo-register <CODE>regbank</CODE> must not be changed by the function.</P>
+
+<H3>Clobbered state</H3>
+
+
+<P>The <CODE>Y</CODE> register may be clobbered by the function.
+The compiler will not depend on its state after a function call.</P>
+<P>The <CODE>A/X/sreg</CODE> registers may be clobbered if any of them
+are not used by the return value (see above).</P>
+<P>Many of the internal pseudo-registers used by cc65 are available for
+free use by any function called by C, and do not need to be preserved.
+Note that if another C function is called from your assembly function,
+it may clobber any of these itself:</P>
+<P>
+<UL>
+<LI><CODE>tmp1 .. tmp4</CODE>
+
+</LI>
+<LI><CODE>ptr1 .. ptr4</CODE>
+
+</LI>
+<LI><CODE>regsave</CODE>
+
+</LI>
+<LI><CODE>sreg</CODE> (if unused by return)
+
+</LI>
+</UL>
+</P>
+
+
+
+</BODY>
+</HTML>
