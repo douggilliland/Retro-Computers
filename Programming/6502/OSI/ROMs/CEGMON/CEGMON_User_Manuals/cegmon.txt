@@ -1,0 +1,539 @@
+(warning: this document is incomplete and is likely to contain OCR errors)
+
+			         CEGMON
+
+                          Machine-code monitor
+
+CEGMON's machine-code monitor has been designed specifically to simplify the
+development of short machine-code routines, especially those intended to link
+to BASIC. While it is not as comprehensive as OSI's Extended Monitor (ExMon),
+it can be co-resident with both BASIC and Assembler, and is immediately
+available without loading tape - a great advantage for educational users. We
+expect it to be most useful for developing short routines of up to thirty or
+so lines, and for testing and debugging larger routines being developed with 
+the Assembler. This section does assume a basic knowledge of the principles
+of machine-code programming for the 6502 (the monitor will provide the
+practice!). Three useful reference books are:
+
+Programming the 6502, Rodnay Zaks (Sybex) - good and mostly complete
+introduction to the 6502, but earlier editions had a few important
+inaccuracies.
+
+6502 Assembly Language Programming Lance A. Leventhal (Osborne/McGraw-Hill) -
+solid, full of examples of programming for internal routines and I/O through
+PIAs, VIAs, ACIAs etc., in assembly mnemonics. Beware the unusual
+page-numbering!
+
+6502 Software Design, Leo J. Scanlon (Blacksburg) - many practical examples,
+mostly based around the AIM65 system, but still useful.
+
+On start-up via 'M', the monitor's prompt - a '>' - appears after the screen
+is cleared. At this point the monitor is in its address/command mode, and
+normally expecting input from the keyboard. The commands available are:
+
+/   jump to data mode, leaving current address unchanged.
+.   'do nothing' - loop back to get address.
+L   sets load flag - calls for input from the BASIC load vector at $FFEB.
+S   save machine code.
+M   do memory block move.
+T   do tabular dump/display of memory contents.
+Z   set a breakpoint.
+R   restart from a breakpoint.
+U   jump to user routine.
+
+If none of these are given as a reply, the system expects four hex digits to
+make up an address (see Error-handling later). On completion of the address
+(the 'current address'), the system prints a '/', then the contents of that
+address as a hex pair, and a space. The system is then in the data mode loop,
+and the following commands are available:
+
+.   return to address mode.
+/   re-open current address, to correct a mis-type.
+G   start execution at the current address.
+'   enter text entry loop.
+,   increment current address.
+LF  (line feed) - increment current address, do CR/LF,
+    display new current address and contents on next line.
+CR  (carriage return) - as for LF, but do CR only;
+    display by overwriting on same line.
+^   (up-arrow, SHIFT-N) - as for LF, but decrement current address.
+
+Otherwise the system expects both digits of a hex pair, stores the complete
+byte at the current address, and loops back to the start of the data mode for
+a new command or value.
+
+Command/address mode:
+
+/   jump to data mode
+
+On start-up the current address is set to $0000; thereafter it is not changed
+on a restart, such as on an error recovery.
+
+L   load
+
+The machine-code load flag at $FB is set; the system then restarts at the
+beginning of the data mode loop. It then expects input from the ACIA - either
+from tape or from an RS-232 serial interface - in the old SYNMON format of '.'
+to define address. '/' to define data, data transmitted in the form of hex
+pairs separated by a CR, and concluded by '.', an address and 'G' for an
+auto-start. The only difference from SYNMON's load is that the former contents
+of the current address are displayed on the current line as well as the
+address and its new contents. The load loop can run at up to 4800 baud on a 1
+MHz machine.
+
+Note that normal error-checking is disabled during load - see Error-handling
+below - and that the system will not accept input from the keyboard until the
+load flag is cleared, either in your program, or by a re-entry into the
+monitor's command-mode. As with loading tapes for BASIC or Assembler, loading
+can be halted by hitting the SPACE bar; the monitor then restarts in its
+command mode, with normal error-checking resumed.
+
+S   save
+
+Syntax:  .Saaaa,bbbb>cccc  where aaaa is the start address of the code to be
+saved, bbbb is the last address inclusive of the code, and cccc is the restart
+address - either to the beginning of the routine for autostart, or to the
+monitor for further work (see List of locations, routines and subroutines
+later). Code is saved from aaaa to bbbb inclusive - aaaa thru bbbb; the
+routine automatically provides the ',' and '>' prompts. It then waits until
+the RETURN key is pressed on the keyboard - to give you time to start your
+recorder - and then prints out the code in the SYNMON load format. (It will
+start after any key is pressed; but RETURN is advised, since it will also
+output ten nulls to the tape before the actual 'save' starts). The 'start'
+and 'go' addresses and hex codes are displayed on the screen; the CR which
+separates each data byte, however, is output direct to the ACIA. As a result,
+this routine is not fully vectored for user-defined output - it can only be
+used through the ACIA, to cassette port or RS-232 interface.
+
+On completion of the save, the BASIC save flag is cleared, and the system
+restarts in the command mode.
+
+M   memory block move
+
+Syntax:  .Maaaa,bbbb>cccc  where aaaa is the start of the code to be moved,
+bbbb is the end inclusive - aaaa thru bbbb - and cccc is the new start
+location. The routine does not erase the code at the previous locations,
+though it may over-write it if the new locations overlap the old. If the new
+start is between the old start and end addresses, it will over-write the
+remaining code before it has been copied - if you need to do this kind of
+move, copy to a 'safe' area first, and then copy back to the new area.
+
+T   tabular display
+
+Syntax:  .Taaaa,bbbb  where aaaa is the start address of the code to be
+displayed, and bbbb is the last address inclusive -aaaa thru bbbb. The ','
+prompt is supplied by the routine. The contents of the memory are displayed as
+a table of eight-byte blocks (sixteen-byte blocks - C2), each block preceded
+by the address of the first byte of the block (on C1s, the address is printed
+between each line of the table). If you want to display more than a screenful,
+it's advisable to slow the print speed down by placing a delay value in $0206
+before calling the T routine; to send the display out to a printer, set the
+OUTVEC 'save' flag at $0205 to $FF before you start.
+On completion, the system restarts in the command/address mode, displaying the
+'>' prompt.
+
+Z   zero - set a breakpoint
+
+Syntax:   .Zaaaa  where aaaa is the address at which the breakpoint is to be
+inserted. Z sets up at $01C0 (OSI's IRQ/BRK address) the pointer to CEGMON's
+breakpoint handler; saves the current contents of the chosen address in
+BRKVAL; and replaces it with a BRK opcode ($00). Note that a breakpoint
+cannot be set at any ROM address! - see Using breakpoints later. The routine
+then exits back to the command mode, displaying the '>' prompt.
+
+R   restart from breakpoint
+
+Collects its start address and the contents of the registers, processor status
+and stack pointer from the break-table, and restarts the program at that
+address by executing an RTI instruction - see Using breakpoints later.
+Inappropriate use of R will usually cause a system hang-up or crash - it
+should only be used to restart from a break-point.
+
+U   jump to user routine
+
+Causes the system to 'jump-indirect' to a routine whose start address is held
+in $0233-34 - the low byte of the address in $0233, the high byte in $0234.
+Useful for calls to regularly-used locations like the Assembler restart, or
+where the 'current address' should be left unchanged.
+
+Data mode:
+
+.   exit to command/address mode
+
+When in the data mode, '.' must be typed before calling for any of the command
+mode's commands or for a new address. If it is forgotten, the command mode's
+command letters will be treated as errors; while the intended new 'address'
+will be treated as two hex pairs, the second overwriting the first at the
+unchanged current address!
+
+/   re-open current address
+
+Leave current address unchanged, to place a new value at the current address -
+used if the value just typed was incorrect.
+
+G   'go'
+
+Sets all registers to $00, and starts execution at the current address.
+Usually used with the syntax .aaaaG - but make sure that the '.' command
+precedes the aaaa address!
+
+'   start text mode
+
+The text mode expects ASCII text rather than hex digits. Control characters
+such as the 'window' - clear and cursor controls, and also graphics
+characters, can also be typed direct into memory. Where the text is to be
+printed to screen later via the BASIC output vector (OUTVEC), errors may be
+corrected by RUBOUT, but both it and the character it 'deletes' will be
+stored in memory; otherwise no editing is possible without exiting back to
+the data mode. Each new character is stored directly and the current address
+is incremented.
+
+A second ' will exit back to the data mode on the same line; a ',' will be
+printed after it, for clarification. but the current address will not be
+further incremented.
+
+The text-entry mode can also be exited by typing a CR (carriage return); this
+returns to the data mode, but printing on the next line, displaying the
+updated current address and its contents.
+
+,   increment current address
+
+Used to space succeeding entries into memory. If more than one ',' is typed,
+the current address will be incremented accordingly, and the contents of the
+'skipped' addresses will be left unchanged.
+
+LF  line-feed - increment current address, display on next line
+
+This is the same as on OSI's ExMon - the current address is incremented, a
+CR/LF (carriage-return/line-feed) is issued, and the new current address and
+its contents are displayed on the next line.
+
+CR  carriage-return - increment current address, display on current line
+
+This differs from OSI's ExMon, where CR is used to exit to the command mode.
+Its use here is mainly to allow fast tape load without scrolling; it is
+identical to LF, except that a carriage- return only (without line-feed) is
+issued. See also the use of CR in the (text) mode above.
+
+^   up-arrow (SHIFT-N) - decrement current address, display on next line
+This is the same as in ExMon. The routine is identical to LF, except that the
+current address is decremented rather than incremented.
+
+Using breakpoints
+
+Breakpoints are a useful part of the debugging toolkit for machine-code work.
+They force the program execution to halt, rather like the STOP command in
+BASIC. In CEGMON's case, the halt then presents the system registers for view
+and alteration as required.
+
+In the 6502 processor, the breakpoint is forced when the processor executes a
+BRK instruction, opcode $00; so breakpoints are set by overwriting an existing
+instruction with a BRK opcode. CEGMON does this with the Z command: a $00 is
+stored at the chosen address, and the current contents are saved, to be
+restored by the breakpoint handler when the breakpoint is hit. There are two
+restrictions on setting breakpoints: first, that the BRK instruction must
+replace an instruction byte, since if it is placed in the data or address
+bytes of an instruction, it will simply be treated as part of that data or
+address; and second, that since the breakpoint is set by replacing the
+existing instruction byte with BRK, breakpoints cannot be set at ROM
+addresses. Only one breakpoint can be set at a time, and is automatically
+cleared by the breakpoint handler after hitting the breakpoint.
+
+To test a program by using breakpoints, set a breakpoint at a likely location,
+and start the program running with a .aaaaG or U command. If nothing different
+happens, or if the program hangs up, either the breakpoint was never reached,
+or was set incorrectly and interpreted as data or address. When the program
+hits the breakpoint, a check is made that this is a BRK and not an IRQ
+interrupt (which is ignored); the registers and corrected program counter (see
+Zaks, p.111, 235; Leventhal, 14-2, 3) are saved in a table; the previous
+opcode is restored at the break-point, replacing the BRK opcode; and the
+routine then jumps to the monitor data-mode loop, pointing to the beginning of
+the break-table. What you will see on the screen is a CR/LF done, followed by
+00E0/aa where aa is the contents of the A register at the time the breakpoint
+was reached.
+
+$00E0 is the beginning of the break-table - the same as ExMon's. You can then
+use the data mode loop to examine and/or modify the registers and program
+counter. They are stored as follows:
+
+E0  A register - accumulator
+E1  X register
+E2  Y register
+E3  P register - processor status flags, in hexadecimal form
+E4  K register - stack pointer
+E5  PCL - low byte of program counter
+E6  PCH - high byte of program counter
+
+The address shown by E5 and E6 should be the same as the breakpoint address
+that you set; if not; you have a loose BRK in your program somewhere!
+
+While in the data mode, you can change these values; you can also exit as
+usual to the command mode to set another breakpoint - or reset this one - with
+the Z command. When you've finished, and want to restart, type .R (don't
+forget the '.' !).
+
+This collects the registers' values and the program counter from the break
+table, and restarts execution. If you've only looked at the break table,
+without changing any values, the program will simply carry on where it left
+off, as if nothing had happened, and will do so until it finds another
+breakpoint or reaches its own conclusion.
+
+One minor problem does occur when testing programs with the Assembler still in
+memory, such as after an A3 assembly. The Assembler uses BRK as 'return to
+command-mode' statement; setting a breakpoint via CEGMON's Z command will
+over-write the Assembler's own jump and cause it to 'return' to CEGMON when
+you restart it after testing your routine. If you are working with the
+Assembler, note down the contents of $n1Co-01C2 before setting any breakpoint
+with Z, and restore them before restarting the Assembler.
+
+
+Error handling
+
+CEGMON's error handling in the machine-code monitor is similar to that in
+OSI's ExMon.  In the command mode, only the first letter after the '>' prompt
+or a command may be a command letter; thereafter, only hex digits are allowed
+until a complete four-digit hex address is built up. The same applies within
+the commands themselves - only complete four-digit addresses are allowed, as
+the syntax given for each command shows. (Note that the system supplies any
+',' or '>' prompts).
+
+Within the data mode, excluding its text input mode, the same applies: the
+first character in each time round the loop after a previous instruction or
+value may be an instruction, such as ',' or LF; thereafter, the system
+expects hex digits to make up hex pairs. A '.' or '/' may be typed at any
+time, to exit back to the command or data modes (but note that this will
+leave a part-complete address or data-byte only partly rotated into place,
+and almost certainly incorrect). All other characters are invalid. Within the
+text entry mode, no characters are invalid; the only restricted characters
+are and CR, which exit back to the main data mode loop.
+
+During text entry from the keyboard, invalid characters will be t'iInte(l, but
+immediately followed by an '?' and CR/LF, and the restarte>' prompt. You are
+then back in the command mode. The current address. however, is unchanged, as
+can be seen if you then re-enter the data mode by typing a '/'. Control
+characters like CTRL-Z - to clear the screen - are recognised, but are decoded
+as errors on completion:
+
+CTRL-Z clears the screen, but a '?' and the '>' prompt are then printed.
+During a tape load, this error checking is disabled. The inevitable 'glitch'
+characters that precede the start of each record on cassette would halt the
+load before anything had been loaded if this was not done. This does leave the
+load open to errors. However, if a digit is invalid it is simply ignored; the
+following CR bumps up the current-address counter as normal, and only the
+contents of that address are affected. If a CR is lost, the addresses will be
+out of step with the data. Normal error-checking is resumed only when the
+load-flag at $FB is cleared. As mentioned earlier, this is done automatically
+by the system at the entry to the command mode, and also if the space bar is
+hit (during load; it is also cleared by a BREAK reset. If your program
+auto-starts without entering the monitor's command mode, you will need to
+clear the flag by storing a null ($00) in it.
+
+On short programs a load can be checked simply with the T tabular display; on
+larger programs a checksum loader should probably be bootstrapped in, as on
+OSI's ExMon and Assembler - although we have found OSI's own checksum loader
+to be less reliable than a straight load! The digit-by-digit load format is
+surprisingly reliable with a reasonable tape and tape recorder: when testing
+CEGMON we used it to save the Assembler and the CEGMON source code - more than
+20K in all - and re-loaded it at 4800 baud into a C2, with no detectable
+errors.
+
+Input/output
+
+Except in the machine-code monitor, all input and output in CEGMON is through
+BASIC's vectors at $FFEB-FFF9. Since these all call their routines via
+JMP-indirect calls through further vectors stored in a table in page 2, from
+$0218-0221, any special input or output routines for printers or special
+programming purposes can be nked directly to BASIC or elsewhere by changing
+the vectors in the table in page 2.
+
+The program examples show two routines - a program to skip BASIC's masking of
+control and graphic characters on input, and a TRACE routine called by BASIC,
+via 5 CTRL-C check vector, between the execution of each BASIC statement.
+In the machine-code monitor, neither load, save nor keyboard input are
+vectored, simply to maintain compatibility with OSI's original system. All
+output to the screen, however, does go through the BASIC output vector, and
+can be sent to a printer or whatever simply being setting the BASIC 'save'
+flag at $0205 to 01. The input and output vectors are as follows:
+
+Page $FF vector through normally points to locations/contents in decimal
+
+IVEC    $FFEB   $0218-19   INPUT    $FB46   536 - 70   537 - 251
+OUTVEC  $FFEE   $021A-1B   OUTPUT   $FF9B   538 - 155  539 - 255
+CCVEC   $FFF1   $021C-1D   CTRLC    $FB94   540 - 148  541 - 251
+LDVEC   $FFF4   $021E-1F   SETLOD   $FE70   542 - 112  543 - 254
+SVVEC   $FFF7   $0220-21   SETSAV   $FE7B   544 - 123  545 - 254
+
+
+Compatibility and conflicts
+
+OSI's system software, as represented by its BASIC, Assembler, ExMon and
+SYNMON, was clearly not designed as a system at all. The Assembler and BASIC
+cannot be co-resident, and ExMon's disassembler crashes BASIC by overwriting
+the tail-end of BASIC's all-important memory scan subroutine (from $00BC to
+$00D3). BASIC's keyboard buffer starts at $0013, the Assembler's at $0080.
+And so on.
+
+In designing CEGMON, one of our main concerns was to build a monitor that
+could co-exist with all of these conflicting requirements and still contain
+the kind of features we wanted.
+
+Apart from the difficulties over BASIC's terminal width and character-counter,
+the other major problem is with the use of zero-page stores. Apart from
+SYNMON's five locations at the top end - $Fn-$FF -only one pair is reasonably
+'safe', and even that is used as a temporary store by the Assembler. The
+$E4-E5 pair is thus used in four ways by CEGMON: as a temporary pointer for
+the edit cursor, but only during each call to the keyboard; as a temporary
+store for the 'go' address of the machine-code save, but only during the
+actual save; as the store for the 'new start-of-block' address during a memory
+block move; and as part of the break-table, for the stack-pointer and PCL
+contents. This is another reason why the keyboard is called direct by CEGMON's
+machine-code monitor. The only time when the conflict may be important is when
+you are both testing and saving a routine with the Assembler still in memory,
+such as after an A3 assembly to memory. The $F9-FA pair is also used by
+CEGMON as a temporary store for addresses during screen-clear, tabular
+display, save and block move.
+
+The other important point is that CEGMON uses some of the old 'free RAM'
+starting at $0222: up to $022E for the screen handler's store-locations and
+subroutines, and to $0232 for the editor's stores. The monitor U command jump
+vectors through the $0233-0234 pair, so the 'free' RAM under CEGMON starts at
+$0235, 565~~. Programs written to start at $0222 can still be run on CEGMON,
+though only with the editor disabled and the old screen-handler called instead
+of the new. The edit flag at $0204, 516~~ must contain 0, and CTRL-E must not
+be typed at any time, or the edit-cursor will be written at random into
+memory, probably causing a program crash. The old screen handler may be called
+by changing the output vector: POKE 538,149 enables output through the old
+screen handler at $BF2D on OSI machines, while POKE 538, 155 enables output
+through the new routine. (When returning to the new handler, it's a good idea
+to home the cursor with CHR$(12) or one of the screen-clear calls).
+
+Note that a BREAK reset will not only reset the vector to point to the new
+screen handler, but also over-write the RAM area up to $0234 - so you may
+need to disable BREAK as well. No problem will arise with either the
+Assembler or ExMon, since the cassette versions of both of these start higher
+up in memory.
+
+Under the OS-65D disc operating system, the entire RAM from $0200 is used; 65D
+has its own I/O routines, and ignores those normally used by BASIC-in-ROM.
+CEGMON contains a bootstrap to boot up 65D, but from then on 65D is self-
+contained, and CEGMON's special features like the editor and screen handler
+are ignored. Patches for 65D, to enable it to use CEGMON's editor and
+screen-handler, will be made available shortly.
+
+Locations, routines and subroutines
+
+The following is a list of various useful points within CEGMON. As can be
+seen, the locations of the SYNMON equivalents have in general been retained;
+but note that in most cases the way in which they work will be somewhat
+different - output to display in the machine code monitor goes via the
+screen-handler rather than direct to screen memory, for example. One other
+important point is that, within the machine-code monitor, the Y register is
+always reset to zero, and most of its routines assume this to be the case -
+beware of this if you use these routines in your own programs.
+
+Locations
+
+For break-table locations - 00E0-E6 - and their functions, see p.8.
+
+BJABK   00E4  part of break-table, but also used as a pair to store 'go'
+BTABCL  00E5  address in during save; new block start address in move; and
+              edit cursor location during each call to keyboard.
+BRKVAL  00E7  store for opcode moved by Z when setting a breakpoint.
+LOTO    00F9  store for 'to' addresses in save, move~ and tabular display -
+HITO    00FA  see NOTEND.
+STORE   00FC  store for current data during data mode and most other routines.
+LOFROM  00FF  store 'current address' for most routines - the 'from' address
+HIFROM  00FF  in save, move and tabular display.
+DOBRK   01C0  location for IRQ/BRK jump; set to 'JMP $FA4F' by Z.
+CURDIS  0200  cursor displacement on current line.
+OLDCHR  0201  stores current character~ during SCREEN; exits containing char
+              'beneath' the cursor.
+NEWCHR  0202  park for new char for SCREEN.
+LDFLAG  0203  BASIC load flag: 00 - no load; FF - load from ACIA.
+EDELAG  0204  EDITOR flag: 00 - disable edit cursor; FF enable edit cursor.
+SVFLG   0205  BASIC save flag: 00 - skip save; 01 - enable save~to ACIA.
+SDELAY  0206  print-delay value for SCREEN; delay is delay-value times approx.
+              400 machine-cycles (i.e. times 400 micro-seconds at 1 MHz).
+COUNTR  0214  auto-repeat counter for GETKEY.
+SCRTCH  0215  returns from GETKEY with final ASCII value of key.
+LSTCHR  0216  pre-shift value of last key left here by GETKEY to test
+              auto-repeat.
+CCFLAG  0212  BASIC CTRL-C flag: 00 - enables CTRL-C break; 01 disables CTRL-C
+              break.
+DISP    022F  edit-cursor displacement from start of editor's current line.
+CURCHR  0230  store for char 'beneath' edit cursor.
+CURSLO  0231  contain start of edit cursor's current line on screen.
+CURSHI  0232
+USERLO  0233  contain location of start of user routine called by machine-code
+USERHI  0234  monitor's U command.
+
+Main entry points
+
+RESET   FF00  start of BREAK/RESET routine.
+NEWMON  FF00  'reset' entry to m/c monitor - reset stack, vectors/pointers,
+              clear decimal mode. Recommended re-entry point for auto-load
+              m/c tapes.
+MENTRY  FE0C  non-reset entry to m/c monitor - clear screen, zero 'current
+              address'.
+MSTART  F97F  entry to command/address mode.
+DATALN  FA2F  entry to data-mode loop - prints 'current address' and its
+              contents.
+SAVEMC  FA7F  start of m/c save routine.
+DISK    FC00  entry to disc bootstrap (at F700 on C2).
+
+Subroutines
+
+INPUT   FB46  BASIC input routine - get a char from keyboard or ACIA.
+OUTPUT  FF9B  General output routine, to SCREEN and ACIA.
+OLDSCR  FF95  As for output, but screen-handling done by $BF2D rather than
+              SCREEN.
+TENULL  FFAC  outputs ten nulls to ACIA.
+CTRLC   FB94  BASIC's CTRL-C check - called between execution of each BASIC
+              statement.
+SETLOD  FE70  sets BASIC load flag, clears save flag; (decrements load flag to
+              set it.
+SETSAV  FE7B  sets BASIC save flag.
+TAPIN   FB57  collects char from ACIA; exits via EDITOR if SPACE hit.
+TAPOUT  FCB1  output to tape (BF15 on C2).
+RSACIA  FCA6  initialise ACIA (BF22 on C2).
+SCNCLR  FE59  clear entire screen; exits with X and Y registers zero.
+SCREEN  F836  new screen handler.
+ENDCHK  FBCF  checks if top or base of screen overshot - if Y=0, carry clear
+              if top overshot, if Y-2, carry set if base overshot.
+SCOUT   FF8C  print char at cursor location.
+CURHOM  FFD1  resets TEXT line pointer to TOP; do STX $0200 to reset cursor at
+              TOP.
+EDITOR  FABD  entry to screen editor - see main text, p.11.
+GETKEY  FD00  wait till key pressed, return with ASCII value in A register.
+KEYWRT  FCBE  write-to-keyboard invert for C1 (F7BE on C2).
+KYREAD  FCCF  read-A-from-keyboard invert for C1 (F7CF on C2).
+KEY2XR  FCC6  read-X-from keyboard invert for C1 (F7C6 on C2).
+KDELAY  FCDF  approx. 6500 cycle delay; exits with X and Y registers zero
+              (F7DF on C2).
+DELAY2  FCE1  approx. (400 >< Y-register) cycles delay (F7E1 on C2).
+TRIQAD  FFBD  collect three addresses: first stored in (FE) pair, second in
+              (F9), third in (E4).
+TWOQAD  F9A6  collect two addresses: first stored in (FE) pair, second in
+              (F9).
+GETQDE  F9BS  collect address. store in (FE). Note: call GETNEW first!
+GETPRC  F9BE  collect hex pair for data byte, store in FC. Note: call GETNEW
+              first!
+GETNEW  FE8D  get new char; print it to display before returning.
+GETCHR  FFE9  get char from keyboard or ACIA.
+MCACIA  FL80  get char from ACIA, strip off any top bit before returning.
+ASCHEX  FE93  strip ASCII digit to hex; set to 8016 if not hex.
+ROLSTR  FEDA  roll new nibble into (FE) if X-2, or into FC if X=0.
+ADVTOD  FEAC  print address in (FE), space, value in FC to display.
+QDDATD~ FF86  print address in (FE) to display.
+PRDATD  FEBD  print data byte in FC to display.
+HEXOUT  FECA  strip byte in A register to lower nibble; print nibble as ASCII
+              hex to display.
+PRBYTE  FEF0  print data at 'current address' pointed to by (FE) to display.
+              Assumes Y=0!
+CRLF    FBF5  print carriage-return/line-feed to display.
+SPCOUT  FBF6  print ASCII space to display.
+BUMP    FFF9  increment 'current address' at (FE).
+NOTEND  FBEB  compare (FE) with (F9); carry clear if (FE) is less.
+SWAP    FDE4  memory block move. Expects start address in (FE), end address in
+              (F9), new start of block in (E4); assumes Y=0.
+
