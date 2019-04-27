@@ -1,0 +1,37 @@
+  //Example instantiation for system 'ESPIER_I_niosII_standard_sopc'
+  ESPIER_I_niosII_standard_sopc ESPIER_I_niosII_standard_sopc_inst
+    (
+      .LCD_E_from_the_lcd            (LCD_E_from_the_lcd),
+      .LCD_RS_from_the_lcd           (LCD_RS_from_the_lcd),
+      .LCD_RW_from_the_lcd           (LCD_RW_from_the_lcd),
+      .LCD_data_to_and_from_the_lcd  (LCD_data_to_and_from_the_lcd),
+      .MISO_to_the_spi_adc           (MISO_to_the_spi_adc),
+      .MISO_to_the_spi_flash         (MISO_to_the_spi_flash),
+      .MOSI_from_the_spi_adc         (MOSI_from_the_spi_adc),
+      .MOSI_from_the_spi_flash       (MOSI_from_the_spi_flash),
+      .SCLK_from_the_spi_adc         (SCLK_from_the_spi_adc),
+      .SCLK_from_the_spi_flash       (SCLK_from_the_spi_flash),
+      .SS_n_from_the_spi_adc         (SS_n_from_the_spi_adc),
+      .SS_n_from_the_spi_flash       (SS_n_from_the_spi_flash),
+      .clk                           (clk),
+      .data0_to_the_epcs_controller  (data0_to_the_epcs_controller),
+      .dclk_from_the_epcs_controller (dclk_from_the_epcs_controller),
+      .in_port_to_the_key            (in_port_to_the_key),
+      .out_port_from_the_beep        (out_port_from_the_beep),
+      .out_port_from_the_led         (out_port_from_the_led),
+      .reset_n                       (reset_n),
+      .rxd_to_the_uart               (rxd_to_the_uart),
+      .sce_from_the_epcs_controller  (sce_from_the_epcs_controller),
+      .sdo_from_the_epcs_controller  (sdo_from_the_epcs_controller),
+      .txd_from_the_uart             (txd_from_the_uart),
+      .zs_addr_from_the_sdram        (zs_addr_from_the_sdram),
+      .zs_ba_from_the_sdram          (zs_ba_from_the_sdram),
+      .zs_cas_n_from_the_sdram       (zs_cas_n_from_the_sdram),
+      .zs_cke_from_the_sdram         (zs_cke_from_the_sdram),
+      .zs_cs_n_from_the_sdram        (zs_cs_n_from_the_sdram),
+      .zs_dq_to_and_from_the_sdram   (zs_dq_to_and_from_the_sdram),
+      .zs_dqm_from_the_sdram         (zs_dqm_from_the_sdram),
+      .zs_ras_n_from_the_sdram       (zs_ras_n_from_the_sdram),
+      .zs_we_n_from_the_sdram        (zs_we_n_from_the_sdram)
+    );
+
