@@ -1,0 +1,403 @@
+EESchema Schematic File Version 4
+EELAYER 26 0
+EELAYER END
+$Descr B 17000 11000
+encoding utf-8
+Sheet 1 1
+Title ""
+Date ""
+Rev ""
+Comp ""
+Comment1 ""
+Comment2 ""
+Comment3 ""
+Comment4 ""
+$EndDescr
+$Comp
+L Zilog:Z80CPU U?
+U 1 1 5D6FEFD8
+P 2850 2600
+F 0 "U?" H 3200 4000 50  0000 C CNN
+F 1 "Z80CPU" H 3150 1200 50  0000 C CNN
+F 2 "Package_DIP:DIP-40_W15.24mm" H 3600 1100 50  0000 C CNN
+F 3 "" H 2850 3000 50  0001 C CNN
+	1    2850 2600
+	1    0    0    -1  
+$EndComp
+$Comp
+L Memory_EEPROM:28C256 U?
+U 1 1 5D6FF08C
+P 6150 2300
+F 0 "U?" H 6350 3350 50  0000 C CNN
+F 1 "28C256" H 6350 1200 50  0000 C CNN
+F 2 "Package_DIP:DIP-28_W15.24mm" H 6850 1100 50  0000 C CNN
+F 3 "http://ww1.microchip.com/downloads/en/DeviceDoc/doc0006.pdf" H 6150 2300 50  0001 C CNN
+	1    6150 2300
+	1    0    0    -1  
+$EndComp
+Wire Wire Line
+	3550 1400 4150 1400
+Text Label 3750 1400 0    50   ~ 0
+CPUA0
+Wire Wire Line
+	3550 1500 4150 1500
+Text Label 3750 1500 0    50   ~ 0
+CPUA1
+Wire Wire Line
+	3550 1600 4150 1600
+Text Label 3750 1600 0    50   ~ 0
+CPUA2
+Wire Wire Line
+	3550 1700 4150 1700
+Text Label 3750 1700 0    50   ~ 0
+CPUA3
+Wire Wire Line
+	3550 1800 4150 1800
+Text Label 3750 1800 0    50   ~ 0
+CPUA4
+Wire Wire Line
+	3550 1900 4150 1900
+Text Label 3750 1900 0    50   ~ 0
+CPUA5
+Wire Wire Line
+	3550 2000 4150 2000
+Text Label 3750 2000 0    50   ~ 0
+CPUA6
+Wire Wire Line
+	3550 2100 4150 2100
+Text Label 3750 2100 0    50   ~ 0
+CPUA7
+Wire Wire Line
+	3550 2200 4150 2200
+Text Label 3750 2200 0    50   ~ 0
+CPUA8
+Wire Wire Line
+	3550 2300 4150 2300
+Text Label 3750 2300 0    50   ~ 0
+CPUA9
+Wire Wire Line
+	3550 2400 4150 2400
+Text Label 3750 2400 0    50   ~ 0
+CPUA10
+Wire Wire Line
+	3550 2500 4150 2500
+Text Label 3750 2500 0    50   ~ 0
+CPUA11
+Wire Wire Line
+	3550 2600 4150 2600
+Text Label 3750 2600 0    50   ~ 0
+CPUA12
+Wire Wire Line
+	3550 2700 4150 2700
+Text Label 3750 2700 0    50   ~ 0
+CPUA13
+Wire Wire Line
+	3550 2800 4150 2800
+Text Label 3750 2800 0    50   ~ 0
+CPUA14
+Wire Wire Line
+	3550 2900 4150 2900
+Text Label 3750 2900 0    50   ~ 0
+CPUA15
+Wire Wire Line
+	5150 1400 5750 1400
+Text Label 5250 1400 0    50   ~ 0
+CPUA0
+Wire Wire Line
+	5150 1500 5750 1500
+Text Label 5250 1500 0    50   ~ 0
+CPUA1
+Wire Wire Line
+	5150 1600 5750 1600
+Text Label 5250 1600 0    50   ~ 0
+CPUA2
+Wire Wire Line
+	5150 1700 5750 1700
+Text Label 5250 1700 0    50   ~ 0
+CPUA3
+Wire Wire Line
+	5150 1800 5750 1800
+Text Label 5250 1800 0    50   ~ 0
+CPUA4
+Wire Wire Line
+	5150 1900 5750 1900
+Text Label 5250 1900 0    50   ~ 0
+CPUA5
+Wire Wire Line
+	5150 2000 5750 2000
+Text Label 5250 2000 0    50   ~ 0
+CPUA6
+Wire Wire Line
+	5150 2100 5750 2100
+Text Label 5250 2100 0    50   ~ 0
+CPUA7
+Wire Wire Line
+	5150 2200 5750 2200
+Text Label 5250 2200 0    50   ~ 0
+CPUA8
+Wire Wire Line
+	5150 2300 5750 2300
+Text Label 5250 2300 0    50   ~ 0
+CPUA9
+Wire Wire Line
+	5150 2400 5750 2400
+Text Label 5250 2400 0    50   ~ 0
+CPUA10
+Wire Wire Line
+	5150 2500 5750 2500
+Text Label 5250 2500 0    50   ~ 0
+CPUA11
+Wire Wire Line
+	5150 2600 5750 2600
+Text Label 5250 2600 0    50   ~ 0
+CPUA12
+Wire Wire Line
+	3550 3100 4150 3100
+Text Label 3750 3100 0    50   ~ 0
+CPUD0
+Wire Wire Line
+	3550 3200 4150 3200
+Text Label 3750 3200 0    50   ~ 0
+CPUD1
+Wire Wire Line
+	3550 3300 4150 3300
+Text Label 3750 3300 0    50   ~ 0
+CPUD2
+Wire Wire Line
+	3550 3400 4150 3400
+Text Label 3750 3400 0    50   ~ 0
+CPUD3
+Wire Wire Line
+	3550 3500 4150 3500
+Text Label 3750 3500 0    50   ~ 0
+CPUD4
+Wire Wire Line
+	3550 3600 4150 3600
+Text Label 3750 3600 0    50   ~ 0
+CPUD5
+Wire Wire Line
+	3550 3700 4150 3700
+Text Label 3750 3700 0    50   ~ 0
+CPUD6
+Wire Wire Line
+	3550 3800 4150 3800
+Text Label 3750 3800 0    50   ~ 0
+CPUD7
+Wire Wire Line
+	6550 1400 7150 1400
+Text Label 6850 1400 0    50   ~ 0
+CPUD0
+Wire Wire Line
+	6550 1500 7150 1500
+Text Label 6850 1500 0    50   ~ 0
+CPUD1
+Wire Wire Line
+	6550 1600 7150 1600
+Text Label 6850 1600 0    50   ~ 0
+CPUD2
+Wire Wire Line
+	6550 1700 7150 1700
+Text Label 6850 1700 0    50   ~ 0
+CPUD3
+Wire Wire Line
+	6550 1800 7150 1800
+Text Label 6850 1800 0    50   ~ 0
+CPUD4
+Wire Wire Line
+	6550 1900 7150 1900
+Text Label 6850 1900 0    50   ~ 0
+CPUD5
+Wire Wire Line
+	6550 2000 7150 2000
+Text Label 6850 2000 0    50   ~ 0
+CPUD6
+Wire Wire Line
+	6550 2100 7150 2100
+Text Label 6850 2100 0    50   ~ 0
+CPUD7
+$Comp
+L Connector_Generic:Conn_02x02_Odd_Even J?
+U 1 1 5D70643C
+P 5100 3800
+F 0 "J?" H 5150 3900 50  0000 C CNN
+F 1 "Conn_02x02_Odd_Even" H 5100 3600 50  0000 C CNN
+F 2 "" H 5100 3800 50  0001 C CNN
+F 3 "~" H 5100 3800 50  0001 C CNN
+	1    5100 3800
+	1    0    0    -1  
+$EndComp
+$Comp
+L Device:R_Small R?
+U 1 1 5D7082EA
+P 5750 3900
+F 0 "R?" V 5700 3900 50  0000 C CNN
+F 1 "10K" V 5800 3900 50  0000 C CNN
+F 2 "" H 5750 3900 50  0001 C CNN
+F 3 "~" H 5750 3900 50  0001 C CNN
+	1    5750 3900
+	0    1    1    0   
+$EndComp
+$Comp
+L Device:R_Small R?
+U 1 1 5D70834A
+P 5750 3700
+F 0 "R?" V 5700 3700 50  0000 C CNN
+F 1 "10K" V 5800 3700 50  0000 C CNN
+F 2 "" H 5750 3700 50  0001 C CNN
+F 3 "~" H 5750 3700 50  0001 C CNN
+	1    5750 3700
+	0    1    1    0   
+$EndComp
+Wire Wire Line
+	5400 3900 5500 3900
+Wire Wire Line
+	5600 3800 5600 3700
+Wire Wire Line
+	5600 2800 5750 2800
+Wire Wire Line
+	5600 3800 5400 3800
+Wire Wire Line
+	5500 3900 5500 2700
+Wire Wire Line
+	5500 2700 5750 2700
+Connection ~ 5500 3900
+Wire Wire Line
+	5500 3900 5650 3900
+Wire Wire Line
+	4900 3800 4800 3800
+Wire Wire Line
+	4800 3800 4800 3900
+Wire Wire Line
+	4900 3900 4800 3900
+Connection ~ 4800 3900
+Wire Wire Line
+	4800 3900 4800 4150
+$Comp
+L power:GND #PWR?
+U 1 1 5D70E836
+P 4800 4150
+F 0 "#PWR?" H 4800 3900 50  0001 C CNN
+F 1 "GND" H 4805 3977 50  0000 C CNN
+F 2 "" H 4800 4150 50  0001 C CNN
+F 3 "" H 4800 4150 50  0001 C CNN
+	1    4800 4150
+	1    0    0    -1  
+$EndComp
+Wire Wire Line
+	5850 3900 5900 3900
+Wire Wire Line
+	5900 3900 5900 3700
+Wire Wire Line
+	5850 3700 5900 3700
+Connection ~ 5900 3700
+Wire Wire Line
+	5900 3700 5900 3650
+Wire Wire Line
+	5650 3700 5600 3700
+Connection ~ 5600 3700
+Wire Wire Line
+	5600 3700 5600 2800
+$Comp
+L power:GND #PWR?
+U 1 1 5D718BC6
+P 2850 4150
+F 0 "#PWR?" H 2850 3900 50  0001 C CNN
+F 1 "GND" H 2855 3977 50  0000 C CNN
+F 2 "" H 2850 4150 50  0001 C CNN
+F 3 "" H 2850 4150 50  0001 C CNN
+	1    2850 4150
+	1    0    0    -1  
+$EndComp
+$Comp
+L power:+5V #PWR?
+U 1 1 5D718C7E
+P 5900 3650
+F 0 "#PWR?" H 5900 3500 50  0001 C CNN
+F 1 "+5V" H 5915 3823 50  0000 C CNN
+F 2 "" H 5900 3650 50  0001 C CNN
+F 3 "" H 5900 3650 50  0001 C CNN
+	1    5900 3650
+	1    0    0    -1  
+$EndComp
+Wire Wire Line
+	2850 4100 2850 4150
+Wire Wire Line
+	6150 1200 6150 1150
+$Comp
+L power:+5V #PWR?
+U 1 1 5D71A37B
+P 6150 1150
+F 0 "#PWR?" H 6150 1000 50  0001 C CNN
+F 1 "+5V" H 6165 1323 50  0000 C CNN
+F 2 "" H 6150 1150 50  0001 C CNN
+F 3 "" H 6150 1150 50  0001 C CNN
+	1    6150 1150
+	1    0    0    -1  
+$EndComp
+Wire Wire Line
+	2850 1100 2850 1050
+$Comp
+L power:+5V #PWR?
+U 1 1 5D71B887
+P 2850 1050
+F 0 "#PWR?" H 2850 900 50  0001 C CNN
+F 1 "+5V" H 2865 1223 50  0000 C CNN
+F 2 "" H 2850 1050 50  0001 C CNN
+F 3 "" H 2850 1050 50  0001 C CNN
+	1    2850 1050
+	1    0    0    -1  
+$EndComp
+$Comp
+L power:GND #PWR?
+U 1 1 5D71CE2C
+P 6150 3450
+F 0 "#PWR?" H 6150 3200 50  0001 C CNN
+F 1 "GND" H 6155 3277 50  0000 C CNN
+F 2 "" H 6150 3450 50  0001 C CNN
+F 3 "" H 6150 3450 50  0001 C CNN
+	1    6150 3450
+	1    0    0    -1  
+$EndComp
+Wire Wire Line
+	6150 3400 6150 3450
+Wire Wire Line
+	1550 3700 2150 3700
+Wire Wire Line
+	1550 3800 2150 3800
+Wire Wire Line
+	1550 3100 2150 3100
+Wire Wire Line
+	1550 3200 2150 3200
+Wire Wire Line
+	1550 3300 2150 3300
+Wire Wire Line
+	1550 3400 2150 3400
+Wire Wire Line
+	1550 2400 2150 2400
+Wire Wire Line
+	1550 2500 2150 2500
+Wire Wire Line
+	1550 2600 2150 2600
+Wire Wire Line
+	1550 2700 2150 2700
+Wire Wire Line
+	1550 2000 2150 2000
+Wire Wire Line
+	1550 2100 2150 2100
+Wire Wire Line
+	1550 1700 2150 1700
+Wire Wire Line
+	1550 1400 2150 1400
+Wire Wire Line
+	5150 3000 5750 3000
+Wire Wire Line
+	5150 3100 5750 3100
+Wire Wire Line
+	5150 3200 5750 3200
+Text Label 5250 3000 0    50   ~ 0
+~EEWR
+Text Label 5250 3100 0    50   ~ 0
+~EEOE
+Text Label 5250 3200 0    50   ~ 0
+~EECS
+$EndSCHEMATC
