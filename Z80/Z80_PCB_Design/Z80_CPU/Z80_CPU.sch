@@ -313,7 +313,7 @@ Text Label 3900 2900 0    50   ~ 0
 Text Label 3900 3000 0    50   ~ 0
 ~EECS
 $Comp
-L Easy_Z80:my_components_Z84C30 U?
+L Z80_CPU-rescue:my_components_Z84C30-Easy_Z80 U?
 U 1 1 5D72F299
 P 6650 5800
 F 0 "U?" H 6650 7038 60  0000 C CNN
@@ -324,7 +324,7 @@ F 3 "" H 6650 5500 60  0000 C CNN
 	1    0    0    -1  
 $EndComp
 $Comp
-L Easy_Z80:my_components_Z84C40 U?
+L Z80_CPU-rescue:my_components_Z84C40-Easy_Z80 U?
 U 1 1 5D72F39B
 P 2300 6000
 F 0 "U?" H 2600 7300 60  0000 C CNN
@@ -548,7 +548,7 @@ Text Label 8200 2050 0    50   ~ 0
 Text Label 8200 2150 0    50   ~ 0
 ~MEMRD
 $Comp
-L RC6502_Apple_1_SBC:HM62256BLP-7 U?
+L Z80_CPU-rescue:HM62256BLP-7-RC6502_Apple_1_SBC U?
 U 1 1 5D7CD253
 P 7500 1950
 F 0 "U?" H 7500 3028 50  0000 C CNN
@@ -559,7 +559,7 @@ F 3 "" H 7500 1950 50  0001 C CNN
 	1    0    0    -1  
 $EndComp
 $Comp
-L RC6502_Apple_1_SBC:HM62256BLP-7 U?
+L Z80_CPU-rescue:HM62256BLP-7-RC6502_Apple_1_SBC U?
 U 1 1 5D7CD35B
 P 10050 1950
 F 0 "U?" H 10050 3028 50  0000 C CNN
@@ -844,7 +844,7 @@ CPUCLK
 Text Label 15150 3950 0    50   ~ 0
 CPUCLK
 $Comp
-L z80_Interface:Z8420 U?
+L Z80_CPU-rescue:Z8420-z80_Interface U?
 U 1 1 5D9335AC
 P 2250 9050
 F 0 "U?" H 2250 10528 50  0000 C CNN
@@ -855,7 +855,7 @@ F 3 "https://www.zilog.com/appnotes_download.php?FromPage=DirectLink&dn=PS0180&f
 	1    0    0    -1  
 $EndComp
 $Comp
-L z80_Interface:Z8420 U?
+L Z80_CPU-rescue:Z8420-z80_Interface U?
 U 1 1 5D933648
 P 6700 9050
 F 0 "U?" H 6700 10528 50  0000 C CNN
@@ -865,4 +865,68 @@ F 3 "https://www.zilog.com/appnotes_download.php?FromPage=DirectLink&dn=PS0180&f
 	1    6700 9050
 	1    0    0    -1  
 $EndComp
+Text Label 900  1800 0    50   ~ 0
+~NMI
+Text Label 900  1900 0    50   ~ 0
+~INT
+Text Label 15150 4050 0    50   ~ 0
+~NMI
+Text Label 15150 4150 0    50   ~ 0
+~INT
+Text Label 900  2200 0    50   ~ 0
+~M1
+Text Label 900  2300 0    50   ~ 0
+RFSH
+Text Label 900  2400 0    50   ~ 0
+~WAIT
+Text Label 900  2500 0    50   ~ 0
+~HALT
+Text Label 900  2900 0    50   ~ 0
+~CPURD
+Text Label 900  3000 0    50   ~ 0
+~CPUWR
+Text Label 900  3100 0    50   ~ 0
+~MREQ
+Text Label 900  3200 0    50   ~ 0
+~IORQ
+Text Label 900  3500 0    50   ~ 0
+~BUSRQ
+Text Label 900  3600 0    50   ~ 0
+~BUSACK
+Text Label 15150 4250 0    50   ~ 0
+~M1
+Text Label 15150 4350 0    50   ~ 0
+RFSH
+Text Label 15150 4450 0    50   ~ 0
+~WAIT
+Text Label 15150 4550 0    50   ~ 0
+~HALT
+Text Label 15150 4750 0    50   ~ 0
+~CPURD
+Text Label 15150 4850 0    50   ~ 0
+~CPUWR
+Text Label 15150 4950 0    50   ~ 0
+~MREQ
+Text Label 15150 5050 0    50   ~ 0
+~IORQ
+Text Label 15150 5150 0    50   ~ 0
+~BUSRQ
+Text Label 15150 5250 0    50   ~ 0
+~BUSACK
+Wire Wire Line
+	14950 4750 15550 4750
+Wire Wire Line
+	14950 4850 15550 4850
+Wire Wire Line
+	14950 4950 15550 4950
+Wire Wire Line
+	14950 5050 15550 5050
+Wire Wire Line
+	14950 5150 15550 5150
+Wire Wire Line
+	14950 5250 15550 5250
+Wire Wire Line
+	14950 5350 15550 5350
+Wire Wire Line
+	14950 5450 15550 5450
 $EndSCHEMATC
