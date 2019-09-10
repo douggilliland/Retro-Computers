@@ -154,42 +154,42 @@ port map(
 
 sd1 : entity work.sd_controller
 port map(
+	clk => sdClock, -- twice the spi clk
+	n_reset => n_reset,
+	regAddr => cpuAddress(2 downto 0),
+	n_wr => n_sdCardCS or n_ioWR,
+	n_rd => n_sdCardCS or n_ioRD,
+	dataIn => cpuDataOut,
+	dataOut => sdCardDataOut,
 	sdCS => sdCS,
 	sdMOSI => sdMOSI,
 	sdMISO => sdMISO,
 	sdSCLK => sdSCLK,
-	n_wr => n_sdCardCS or n_ioWR,
-	n_rd => n_sdCardCS or n_ioRD,
-	n_reset => n_reset,
-	dataIn => cpuDataOut,
-	dataOut => sdCardDataOut,
-	regAddr => cpuAddress(2 downto 0),
-	driveLED => driveLED,
-	clk => sdClock -- twice the spi clk
+	driveLED => driveLED
 );
 
 -- ____________________________________________________________________________________
--- MEMORY READ/WRITE LOGIC
-n_ioWR <= n_WR or n_IORQ;
+-- MEMORY AND I/O READ/WRITE LOGIC
 n_memWR <= n_WR or n_MREQ;
-n_ioRD <= n_RD or n_IORQ;
 n_memRD <= n_RD or n_MREQ;
+n_ioWR <= n_WR or n_IORQ;
+n_ioRD <= n_RD or n_IORQ;
 
 -- ____________________________________________________________________________________
 -- CHIP SELECTS
 n_basRomCS <= '0' when cpuAddress(15 downto 13)   = "000" and n_RomActive = '0' else '1'; --8K at bottom of memory
 n_interface1CS <= '0' when cpuAddress(7 downto 1) = "1000000" and (n_ioWR='0' or n_ioRD = '0') else '1'; -- 2 Bytes $80-$81
 n_sdCardCS <= '0' when cpuAddress(7 downto 3)     = "10001"   and (n_ioWR='0' or n_ioRD = '0') else '1'; -- 8 Bytes $88-$8F
-n_externalRamCS<= not n_basRomCS;
+n_externalRamCS <= not n_basRomCS;
 
 -- ____________________________________________________________________________________
 -- BUS ISOLATION
 cpuDataIn <=
-interface1DataOut when n_interface1CS = '0' else	-- UART 1
-sdCardDataOut when n_sdCardCS = '0' else				-- SD Card
-basRomData when n_basRomCS = '0' else
-sramData when n_externalRamCS = '0' else
-x"FF";
+	interface1DataOut 	when n_interface1CS = '0' else	-- UART 1
+	sdCardDataOut 			when n_sdCardCS = '0' else				-- SD Card
+	basRomData 				when n_basRomCS = '0' else
+	sramData 				when n_externalRamCS = '0' else
+	x"FF";
 
 -- ____________________________________________________________________________________
 -- SYSTEM CLOCKS implemented as PLL
