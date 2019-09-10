@@ -33,8 +33,7 @@ entity GS_Z80_CPM_64KRAM is
 		sdMISO		: in std_logic;
 		sdSCLK		: out std_logic :='1';
 		
-		driveLED		: out std_logic :='1';
-		ledOut8		: out std_logic_vector(7 downto 0)
+		driveLED		: out std_logic :='1'
 	);
 end GS_Z80_CPM_64KRAM;
 
@@ -62,7 +61,6 @@ architecture struct of GS_Z80_CPM_64KRAM is
 	signal n_IORQ						: std_logic :='1';	
 
 	signal n_int1						: std_logic :='1';	
-	signal n_int2						: std_logic :='1';	
 	
 	signal n_externalRamCS			: std_logic :='1';
 	signal n_basRomCS					: std_logic :='1';
@@ -133,10 +131,6 @@ port map(
 );
 
 -- ____________________________________________________________________________________
--- Internal SRAMs
-
-
--- ____________________________________________________________________________________
 -- INPUT/OUTPUT DEVICES
 
 io1 : entity work.bufferedUART	-- Serial port
@@ -203,7 +197,8 @@ x"FF";
 clocks : ENTITY work.PLL
 	PORT MAP (
 		inclk0		=> i_clk,
-		c0				=> cpuclock
+		c0				=> cpuclock,
+		c1				=> sdClock
 	);
 
 end;
