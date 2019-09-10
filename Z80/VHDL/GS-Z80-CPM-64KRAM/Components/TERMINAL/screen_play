@@ -1,0 +1,243 @@
+#!/usr/bin/perl -W
+#
+
+$|++; # autoflush
+
+
+
+# Mock up hardware loops - need this *before* calling schedule()
+
+my $HORIZ_CHAR_MAX = 3; # 79 really: goes 0-79.
+my $VERT_CHAR_MAX = 24; # 24 really: goes 0-24.
+
+my $cursorVertRestore = 0;
+my $cursorHorizRestore = 0;
+my $cursorVert;     # external view starts from 1 but these start from 0
+my $cursorHoriz;
+my $dispState;
+my $cycle;
+
+
+
+# test_ins and test_del were for testing control sequences. That is dead code currently
+#test_del();
+
+# run sequence to completion from specified initial position
+schedule(2,24);
+
+sub test_ins {
+    cls();
+    background();
+    $i = 25;
+    torc($i,1);
+    print "This is line $i";
+    torc($i,1);
+    sleep(5);
+    ins();
+    print "the inserted line";
+    torc(1,1);
+    print "the top line\n";
+    sleep(5);
+}
+
+sub test_del {
+    cls();
+    background();
+    $i = 25;
+    torc($i,1);
+    print "This is line $i";
+    torc($i,1);
+    sleep(5);
+    del();
+    torc(1,1);
+    print "the top line\n";
+    sleep(5);
+}
+
+
+#for (my $i=23; $i<26; $i=$i+1) {
+#    background();
+#    sleep(1);
+#    torc($i,1);
+#    ins();
+#    sleep(1);
+#    print "Insert line $i\n";
+#    sleep(2);
+#}
+
+
+
+
+sub background {
+    for (my $i=1; $i<26; $i=$i+1) {
+        torc($i,1);
+        print "ROW $i";
+    }
+}
+
+sub torc {
+    my $row = $_[0];
+    my $col = $_[1];
+
+    print chr 0x1b;
+    print '[';
+    print $row;
+    print ';';
+    print $col;
+    print 'H';
+}
+
+sub ins {
+    print chr 0x1b;
+    print '[L';
+}
+
+sub del {
+    print chr 0x1b;
+    print '[M';
+}
+
+sub cls {
+    print chr 0x1b;
+    print '[2J';
+}
+
+
+
+####################################################################################
+
+
+sub schedule {
+    # initial state
+    $cursorHoriz = $_[0];
+    $cursorVert = $_[1];
+
+    $dispState = 'idle';
+    $cycle = 0;
+
+    # choose action
+    do_del();
+
+    # and run
+    while ($dispState ne 'idle' and $cycle<800) {
+        report();
+        &{$dispState};
+        $cycle = $cycle + 1;
+    }
+    print "Finish:\n";
+    report();
+}
+
+sub report {
+    printf "Cycle=%03d, State=%20s, cursorVert=$cursorVert cursorHoriz=$cursorHoriz\n",$cycle, $dispState;
+}
+
+
+# act like state transition from IDLE for line insert
+sub do_ins {
+    $cursorVertRestore = $cursorVert;
+    $cursorHorizRestore = $cursorHoriz;
+    $cursorHoriz = 0;
+    if ($cursorVert < $VERT_CHAR_MAX) {
+        $cursorVert = $VERT_CHAR_MAX-1;
+        $dispState = 'insertLine';
+    }
+    else {
+        $dispState = 'clearLine';
+    }
+
+
+}
+
+# act like state transition from IDLE for line delete
+sub do_del {
+    $cursorVertRestore = $cursorVert;
+    $cursorHorizRestore = $cursorHoriz;
+    $cursorHoriz = 0;
+    if ($cursorVert < $VERT_CHAR_MAX) {
+        $cursorVert = $cursorVert+1;
+        $dispState = 'deleteLine';
+    }
+    else {
+        $dispState = 'clearLine';
+    }
+}
+
+# Write space into each location of the current line, working left to right.
+# Enter with cursorHoriz=0 and cursorVert identifying the line to be cleared.
+# Exit with cursorVert/Horiz restored from cursorVert/HorizRestore.
+sub clearLine {
+    $dispState = 'clearL2';
+}
+
+sub clearL2 {
+    if ($cursorHoriz<$HORIZ_CHAR_MAX) {
+        $cursorHoriz=$cursorHoriz+1;
+        $dispState = 'clearLine';
+    }
+    else {
+        $cursorHoriz=$cursorHorizRestore;
+        $cursorVert=$cursorVertRestore;
+        $dispState= 'idle';
+    }
+}
+
+sub insertLine {
+    $cursorVert = $cursorVert+1;
+    $dispState = 'ins2';
+}
+
+sub ins2 {
+    $dispState = 'ins3';
+}
+
+sub ins3 {
+    if ($cursorHoriz<$HORIZ_CHAR_MAX) {
+        # current line in progress
+        $cursorHoriz = $cursorHoriz+1;
+        $cursorVert = $cursorVert-1;
+        $dispState = 'insertLine';
+    }
+    elsif ($cursorVert == $cursorVertRestore+1) {
+        # current line finished, no more lines
+        $cursorHoriz = 0;
+        $cursorVert = $cursorVertRestore;
+        $dispState = 'clearLine';
+    }
+    else {
+        # current line finished, next line
+        $cursorHoriz = 0;
+        $cursorVert = $cursorVert-2;
+        $dispState = 'insertLine';
+    }
+}
+
+sub deleteLine {
+    $cursorVert = $cursorVert-1;
+    $dispState = 'del2';
+}
+
+sub del2 {
+    $dispState = 'del3';
+}
+
+sub del3 {
+    if ($cursorHoriz<$HORIZ_CHAR_MAX) {
+        # current line in progress
+        $cursorHoriz = $cursorHoriz+1;
+        $cursorVert = $cursorVert+1;
+        $dispState = 'deleteLine';
+    }
+    elsif ($cursorVert == $VERT_CHAR_MAX-1) {
+        # current line finished, no more lines
+        $cursorHoriz = 0;
+        $cursorVert = $VERT_CHAR_MAX;
+        $dispState = 'clearLine';
+    }
+    else {
+        # current line finished, next line
+        $cursorHoriz = 0;
+        $cursorVert = $cursorVert+2;
+        $dispState = 'deleteLine';
+    }
+}
