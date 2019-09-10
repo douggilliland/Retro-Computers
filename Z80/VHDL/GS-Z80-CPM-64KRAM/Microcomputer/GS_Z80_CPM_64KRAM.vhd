@@ -180,7 +180,7 @@ n_memRD <= n_RD or n_MREQ;
 n_basRomCS <= '0' when cpuAddress(15 downto 13)   = "000" and n_RomActive = '0' else '1'; --8K at bottom of memory
 n_interface1CS <= '0' when cpuAddress(7 downto 1) = "1000000" and (n_ioWR='0' or n_ioRD = '0') else '1'; -- 2 Bytes $80-$81
 n_sdCardCS <= '0' when cpuAddress(7 downto 3)     = "10001"   and (n_ioWR='0' or n_ioRD = '0') else '1'; -- 8 Bytes $88-$8F
-n_externalRamCS <= '1';
+n_externalRamCS<= not n_basRomCS;
 
 -- ____________________________________________________________________________________
 -- BUS ISOLATION
