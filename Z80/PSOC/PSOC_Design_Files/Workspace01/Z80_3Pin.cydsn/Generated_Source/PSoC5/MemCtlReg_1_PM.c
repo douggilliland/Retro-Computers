@@ -1,5 +1,5 @@
 /*******************************************************************************
-* File Name: MemCtlReg_PM.c
+* File Name: MemCtlReg_1_PM.c
 * Version 1.80
 *
 * Description:
@@ -15,16 +15,16 @@
 * the software package with which this file was provided.
 *******************************************************************************/
 
-#include "MemCtlReg.h"
+#include "MemCtlReg_1.h"
 
 /* Check for removal by optimization */
-#if !defined(MemCtlReg_Sync_ctrl_reg__REMOVED)
+#if !defined(MemCtlReg_1_Sync_ctrl_reg__REMOVED)
 
-static MemCtlReg_BACKUP_STRUCT  MemCtlReg_backup = {0u};
+static MemCtlReg_1_BACKUP_STRUCT  MemCtlReg_1_backup = {0u};
 
     
 /*******************************************************************************
-* Function Name: MemCtlReg_SaveConfig
+* Function Name: MemCtlReg_1_SaveConfig
 ********************************************************************************
 *
 * Summary:
@@ -37,14 +37,14 @@ static MemCtlReg_BACKUP_STRUCT  MemCtlReg_backup = {0u};
 *  None
 *
 *******************************************************************************/
-void MemCtlReg_SaveConfig(void) 
+void MemCtlReg_1_SaveConfig(void) 
 {
-    MemCtlReg_backup.controlState = MemCtlReg_Control;
+    MemCtlReg_1_backup.controlState = MemCtlReg_1_Control;
 }
 
 
 /*******************************************************************************
-* Function Name: MemCtlReg_RestoreConfig
+* Function Name: MemCtlReg_1_RestoreConfig
 ********************************************************************************
 *
 * Summary:
@@ -58,14 +58,14 @@ void MemCtlReg_SaveConfig(void)
 *
 *
 *******************************************************************************/
-void MemCtlReg_RestoreConfig(void) 
+void MemCtlReg_1_RestoreConfig(void) 
 {
-     MemCtlReg_Control = MemCtlReg_backup.controlState;
+     MemCtlReg_1_Control = MemCtlReg_1_backup.controlState;
 }
 
 
 /*******************************************************************************
-* Function Name: MemCtlReg_Sleep
+* Function Name: MemCtlReg_1_Sleep
 ********************************************************************************
 *
 * Summary:
@@ -78,14 +78,14 @@ void MemCtlReg_RestoreConfig(void)
 *  None
 *
 *******************************************************************************/
-void MemCtlReg_Sleep(void) 
+void MemCtlReg_1_Sleep(void) 
 {
-    MemCtlReg_SaveConfig();
+    MemCtlReg_1_SaveConfig();
 }
 
 
 /*******************************************************************************
-* Function Name: MemCtlReg_Wakeup
+* Function Name: MemCtlReg_1_Wakeup
 ********************************************************************************
 *
 * Summary:
@@ -98,9 +98,9 @@ void MemCtlReg_Sleep(void)
 *  None
 *
 *******************************************************************************/
-void MemCtlReg_Wakeup(void)  
+void MemCtlReg_1_Wakeup(void)  
 {
-    MemCtlReg_RestoreConfig();
+    MemCtlReg_1_RestoreConfig();
 }
 
 #endif /* End check for removal by optimization */

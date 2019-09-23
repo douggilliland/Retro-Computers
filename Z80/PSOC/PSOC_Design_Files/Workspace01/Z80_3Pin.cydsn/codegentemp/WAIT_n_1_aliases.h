@@ -1,5 +1,5 @@
 /*******************************************************************************
-* File Name: WAIT_n.h  
+* File Name: WAIT_n_1.h  
 * Version 2.20
 *
 * Description:
@@ -15,8 +15,8 @@
 * the software package with which this file was provided.
 *******************************************************************************/
 
-#if !defined(CY_PINS_WAIT_n_ALIASES_H) /* Pins WAIT_n_ALIASES_H */
-#define CY_PINS_WAIT_n_ALIASES_H
+#if !defined(CY_PINS_WAIT_n_1_ALIASES_H) /* Pins WAIT_n_1_ALIASES_H */
+#define CY_PINS_WAIT_n_1_ALIASES_H
 
 #include "cytypes.h"
 #include "cyfitter.h"
@@ -25,12 +25,12 @@
 /***************************************
 *              Constants        
 ***************************************/
-#define WAIT_n_0			(WAIT_n__0__PC)
-#define WAIT_n_0_INTR	((uint16)((uint16)0x0001u << WAIT_n__0__SHIFT))
+#define WAIT_n_1_0			(WAIT_n_1__0__PC)
+#define WAIT_n_1_0_INTR	((uint16)((uint16)0x0001u << WAIT_n_1__0__SHIFT))
 
-#define WAIT_n_INTR_ALL	 ((uint16)(WAIT_n_0_INTR))
+#define WAIT_n_1_INTR_ALL	 ((uint16)(WAIT_n_1_0_INTR))
 
-#endif /* End Pins WAIT_n_ALIASES_H */
+#endif /* End Pins WAIT_n_1_ALIASES_H */
 
 
 /* [] END OF FILE */

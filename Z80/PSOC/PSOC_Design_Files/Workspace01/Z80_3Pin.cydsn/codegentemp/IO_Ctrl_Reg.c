@@ -1,5 +1,5 @@
 /*******************************************************************************
-* File Name: MemCtlReg.c  
+* File Name: IO_Ctrl_Reg.c  
 * Version 1.80
 *
 * Description:
@@ -14,14 +14,14 @@
 * the software package with which this file was provided.
 *******************************************************************************/
 
-#include "MemCtlReg.h"
+#include "IO_Ctrl_Reg.h"
 
 /* Check for removal by optimization */
-#if !defined(MemCtlReg_Sync_ctrl_reg__REMOVED)
+#if !defined(IO_Ctrl_Reg_Sync_ctrl_reg__REMOVED)
 
     
 /*******************************************************************************
-* Function Name: MemCtlReg_Write
+* Function Name: IO_Ctrl_Reg_Write
 ********************************************************************************
 *
 * Summary:
@@ -34,14 +34,14 @@
 *  None.
 *
 *******************************************************************************/
-void MemCtlReg_Write(uint8 control) 
+void IO_Ctrl_Reg_Write(uint8 control) 
 {
-    MemCtlReg_Control = control;
+    IO_Ctrl_Reg_Control = control;
 }
 
 
 /*******************************************************************************
-* Function Name: MemCtlReg_Read
+* Function Name: IO_Ctrl_Reg_Read
 ********************************************************************************
 *
 * Summary:
@@ -54,9 +54,9 @@ void MemCtlReg_Write(uint8 control)
 *  Returns the current value in the Control Register.
 *
 *******************************************************************************/
-uint8 MemCtlReg_Read(void) 
+uint8 IO_Ctrl_Reg_Read(void) 
 {
-    return MemCtlReg_Control;
+    return IO_Ctrl_Reg_Control;
 }
 
 #endif /* End check for removal by optimization */

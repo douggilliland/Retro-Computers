@@ -1,5 +1,5 @@
 /*******************************************************************************
-* File Name: Status_Reg_2.h  
+* File Name: IO_Stat_Reg.h  
 * Version 1.90
 *
 * Description:
@@ -14,8 +14,8 @@
 * the software package with which this file was provided.
 *******************************************************************************/
 
-#if !defined(CY_STATUS_REG_Status_Reg_2_H) /* CY_STATUS_REG_Status_Reg_2_H */
-#define CY_STATUS_REG_Status_Reg_2_H
+#if !defined(CY_STATUS_REG_IO_Stat_Reg_H) /* CY_STATUS_REG_IO_Stat_Reg_H */
+#define CY_STATUS_REG_IO_Stat_Reg_H
 
 #include "cyfitter.h"
 
@@ -38,25 +38,25 @@ typedef struct
 {
     uint8 statusState;
 
-} Status_Reg_2_BACKUP_STRUCT;
+} IO_Stat_Reg_BACKUP_STRUCT;
 
 
 /***************************************
 *        Function Prototypes
 ***************************************/
 
-uint8 Status_Reg_2_Read(void) ;
-void Status_Reg_2_InterruptEnable(void) ;
-void Status_Reg_2_InterruptDisable(void) ;
-void Status_Reg_2_WriteMask(uint8 mask) ;
-uint8 Status_Reg_2_ReadMask(void) ;
+uint8 IO_Stat_Reg_Read(void) ;
+void IO_Stat_Reg_InterruptEnable(void) ;
+void IO_Stat_Reg_InterruptDisable(void) ;
+void IO_Stat_Reg_WriteMask(uint8 mask) ;
+uint8 IO_Stat_Reg_ReadMask(void) ;
 
 
 /***************************************
 *           API Constants
 ***************************************/
 
-#define Status_Reg_2_STATUS_INTR_ENBL    0x10u
+#define IO_Stat_Reg_STATUS_INTR_ENBL    0x10u
 
 
 /***************************************
@@ -64,7 +64,7 @@ uint8 Status_Reg_2_ReadMask(void) ;
 ***************************************/
 
 /* Status Register Inputs */
-#define Status_Reg_2_INPUTS              8
+#define IO_Stat_Reg_INPUTS              8
 
 
 /***************************************
@@ -72,12 +72,12 @@ uint8 Status_Reg_2_ReadMask(void) ;
 ***************************************/
 
 /* Status Register */
-#define Status_Reg_2_Status             (* (reg8 *) Status_Reg_2_sts_sts_reg__STATUS_REG )
-#define Status_Reg_2_Status_PTR         (  (reg8 *) Status_Reg_2_sts_sts_reg__STATUS_REG )
-#define Status_Reg_2_Status_Mask        (* (reg8 *) Status_Reg_2_sts_sts_reg__MASK_REG )
-#define Status_Reg_2_Status_Aux_Ctrl    (* (reg8 *) Status_Reg_2_sts_sts_reg__STATUS_AUX_CTL_REG )
+#define IO_Stat_Reg_Status             (* (reg8 *) IO_Stat_Reg_sts_sts_reg__STATUS_REG )
+#define IO_Stat_Reg_Status_PTR         (  (reg8 *) IO_Stat_Reg_sts_sts_reg__STATUS_REG )
+#define IO_Stat_Reg_Status_Mask        (* (reg8 *) IO_Stat_Reg_sts_sts_reg__MASK_REG )
+#define IO_Stat_Reg_Status_Aux_Ctrl    (* (reg8 *) IO_Stat_Reg_sts_sts_reg__STATUS_AUX_CTL_REG )
 
-#endif /* End CY_STATUS_REG_Status_Reg_2_H */
+#endif /* End CY_STATUS_REG_IO_Stat_Reg_H */
 
 
 /* [] END OF FILE */

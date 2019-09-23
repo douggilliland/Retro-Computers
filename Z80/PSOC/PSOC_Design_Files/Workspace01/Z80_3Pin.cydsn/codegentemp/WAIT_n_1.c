@@ -1,5 +1,5 @@
 /*******************************************************************************
-* File Name: WAIT_n.c  
+* File Name: WAIT_n_1.c  
 * Version 2.20
 *
 * Description:
@@ -15,15 +15,15 @@
 *******************************************************************************/
 
 #include "cytypes.h"
-#include "WAIT_n.h"
+#include "WAIT_n_1.h"
 
 /* APIs are not generated for P15[7:6] on PSoC 5 */
 #if !(CY_PSOC5A &&\
-	 WAIT_n__PORT == 15 && ((WAIT_n__MASK & 0xC0) != 0))
+	 WAIT_n_1__PORT == 15 && ((WAIT_n_1__MASK & 0xC0) != 0))
 
 
 /*******************************************************************************
-* Function Name: WAIT_n_Write
+* Function Name: WAIT_n_1_Write
 ****************************************************************************//**
 *
 * \brief Writes the value to the physical port (data output register), masking
@@ -52,17 +52,17 @@
 *  this function.
 *
 * \funcusage
-*  \snippet WAIT_n_SUT.c usage_WAIT_n_Write
+*  \snippet WAIT_n_1_SUT.c usage_WAIT_n_1_Write
 *******************************************************************************/
-void WAIT_n_Write(uint8 value)
+void WAIT_n_1_Write(uint8 value)
 {
-    uint8 staticBits = (WAIT_n_DR & (uint8)(~WAIT_n_MASK));
-    WAIT_n_DR = staticBits | ((uint8)(value << WAIT_n_SHIFT) & WAIT_n_MASK);
+    uint8 staticBits = (WAIT_n_1_DR & (uint8)(~WAIT_n_1_MASK));
+    WAIT_n_1_DR = staticBits | ((uint8)(value << WAIT_n_1_SHIFT) & WAIT_n_1_MASK);
 }
 
 
 /*******************************************************************************
-* Function Name: WAIT_n_SetDriveMode
+* Function Name: WAIT_n_1_SetDriveMode
 ****************************************************************************//**
 *
 * \brief Sets the drive mode for each of the Pins component's pins.
@@ -85,16 +85,16 @@ void WAIT_n_Write(uint8 value)
 *  APIs (primary method) or disable interrupts around this function.
 *
 * \funcusage
-*  \snippet WAIT_n_SUT.c usage_WAIT_n_SetDriveMode
+*  \snippet WAIT_n_1_SUT.c usage_WAIT_n_1_SetDriveMode
 *******************************************************************************/
-void WAIT_n_SetDriveMode(uint8 mode)
+void WAIT_n_1_SetDriveMode(uint8 mode)
 {
-	CyPins_SetPinDriveMode(WAIT_n_0, mode);
+	CyPins_SetPinDriveMode(WAIT_n_1_0, mode);
 }
 
 
 /*******************************************************************************
-* Function Name: WAIT_n_Read
+* Function Name: WAIT_n_1_Read
 ****************************************************************************//**
 *
 * \brief Reads the associated physical port (pin status register) and masks 
@@ -108,16 +108,16 @@ void WAIT_n_SetDriveMode(uint8 mode)
 *  The current value for the pins in the component as a right justified number.
 *
 * \funcusage
-*  \snippet WAIT_n_SUT.c usage_WAIT_n_Read  
+*  \snippet WAIT_n_1_SUT.c usage_WAIT_n_1_Read  
 *******************************************************************************/
-uint8 WAIT_n_Read(void)
+uint8 WAIT_n_1_Read(void)
 {
-    return (WAIT_n_PS & WAIT_n_MASK) >> WAIT_n_SHIFT;
+    return (WAIT_n_1_PS & WAIT_n_1_MASK) >> WAIT_n_1_SHIFT;
 }
 
 
 /*******************************************************************************
-* Function Name: WAIT_n_ReadDataReg
+* Function Name: WAIT_n_1_ReadDataReg
 ****************************************************************************//**
 *
 * \brief Reads the associated physical port's data output register and masks 
@@ -126,8 +126,8 @@ uint8 WAIT_n_Read(void)
 *
 * The data output register controls the signal applied to the physical pin in 
 * conjunction with the drive mode parameter. This is not the same as the 
-* preferred WAIT_n_Read() API because the 
-* WAIT_n_ReadDataReg() reads the data register instead of the status 
+* preferred WAIT_n_1_Read() API because the 
+* WAIT_n_1_ReadDataReg() reads the data register instead of the status 
 * register. For output pins this is a useful function to determine the value 
 * just written to the pin.
 *
@@ -136,19 +136,19 @@ uint8 WAIT_n_Read(void)
 *  justified number for the component instance.
 *
 * \funcusage
-*  \snippet WAIT_n_SUT.c usage_WAIT_n_ReadDataReg 
+*  \snippet WAIT_n_1_SUT.c usage_WAIT_n_1_ReadDataReg 
 *******************************************************************************/
-uint8 WAIT_n_ReadDataReg(void)
+uint8 WAIT_n_1_ReadDataReg(void)
 {
-    return (WAIT_n_DR & WAIT_n_MASK) >> WAIT_n_SHIFT;
+    return (WAIT_n_1_DR & WAIT_n_1_MASK) >> WAIT_n_1_SHIFT;
 }
 
 
 /* If interrupt is connected for this Pins component */ 
-#if defined(WAIT_n_INTSTAT) 
+#if defined(WAIT_n_1_INTSTAT) 
 
     /*******************************************************************************
-    * Function Name: WAIT_n_SetInterruptMode
+    * Function Name: WAIT_n_1_SetInterruptMode
     ****************************************************************************//**
     *
     * \brief Configures the interrupt mode for each of the Pins component's
@@ -161,12 +161,12 @@ uint8 WAIT_n_ReadDataReg(void)
     * \param position
     *  The pin position as listed in the Pins component. You may OR these to be 
     *  able to configure the interrupt mode of multiple pins within a Pins 
-    *  component. Or you may use WAIT_n_INTR_ALL to configure the
+    *  component. Or you may use WAIT_n_1_INTR_ALL to configure the
     *  interrupt mode of all the pins in the Pins component.       
-    *  - WAIT_n_0_INTR       (First pin in the list)
-    *  - WAIT_n_1_INTR       (Second pin in the list)
+    *  - WAIT_n_1_0_INTR       (First pin in the list)
+    *  - WAIT_n_1_1_INTR       (Second pin in the list)
     *  - ...
-    *  - WAIT_n_INTR_ALL     (All pins in Pins component)
+    *  - WAIT_n_1_INTR_ALL     (All pins in Pins component)
     *
     * \param mode
     *  Interrupt mode for the selected pins. Valid options are documented in
@@ -182,19 +182,19 @@ uint8 WAIT_n_ReadDataReg(void)
     *  port.
     *
     * \funcusage
-    *  \snippet WAIT_n_SUT.c usage_WAIT_n_SetInterruptMode
+    *  \snippet WAIT_n_1_SUT.c usage_WAIT_n_1_SetInterruptMode
     *******************************************************************************/
-    void WAIT_n_SetInterruptMode(uint16 position, uint16 mode)
+    void WAIT_n_1_SetInterruptMode(uint16 position, uint16 mode)
     {
-		if((position & WAIT_n_0_INTR) != 0u) 
+		if((position & WAIT_n_1_0_INTR) != 0u) 
 		{ 
-			 WAIT_n_0_INTTYPE_REG = (uint8)mode; 
+			 WAIT_n_1_0_INTTYPE_REG = (uint8)mode; 
 		}
     }
     
     
     /*******************************************************************************
-    * Function Name: WAIT_n_ClearInterrupt
+    * Function Name: WAIT_n_1_ClearInterrupt
     ****************************************************************************//**
     *
     * \brief Clears any active interrupts attached with the component and returns 
@@ -211,11 +211,11 @@ uint8 WAIT_n_ReadDataReg(void)
     *  those associated with the Pins component.
     *
     * \funcusage
-    *  \snippet WAIT_n_SUT.c usage_WAIT_n_ClearInterrupt
+    *  \snippet WAIT_n_1_SUT.c usage_WAIT_n_1_ClearInterrupt
     *******************************************************************************/
-    uint8 WAIT_n_ClearInterrupt(void)
+    uint8 WAIT_n_1_ClearInterrupt(void)
     {
-        return (WAIT_n_INTSTAT & WAIT_n_MASK) >> WAIT_n_SHIFT;
+        return (WAIT_n_1_INTSTAT & WAIT_n_1_MASK) >> WAIT_n_1_SHIFT;
     }
 
 #endif /* If Interrupts Are Enabled for this Pins component */ 

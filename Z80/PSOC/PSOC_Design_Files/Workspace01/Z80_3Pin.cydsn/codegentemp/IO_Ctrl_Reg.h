@@ -1,5 +1,5 @@
 /*******************************************************************************
-* File Name: MemCtlReg.h  
+* File Name: IO_Ctrl_Reg.h  
 * Version 1.80
 *
 * Description:
@@ -14,8 +14,8 @@
 * the software package with which this file was provided.
 *******************************************************************************/
 
-#if !defined(CY_CONTROL_REG_MemCtlReg_H) /* CY_CONTROL_REG_MemCtlReg_H */
-#define CY_CONTROL_REG_MemCtlReg_H
+#if !defined(CY_CONTROL_REG_IO_Ctrl_Reg_H) /* CY_CONTROL_REG_IO_Ctrl_Reg_H */
+#define CY_CONTROL_REG_IO_Ctrl_Reg_H
 
 #include "cyfitter.h"
 
@@ -37,20 +37,20 @@ typedef struct
 {
     uint8 controlState;
 
-} MemCtlReg_BACKUP_STRUCT;
+} IO_Ctrl_Reg_BACKUP_STRUCT;
 
 
 /***************************************
 *         Function Prototypes 
 ***************************************/
 
-void    MemCtlReg_Write(uint8 control) ;
-uint8   MemCtlReg_Read(void) ;
+void    IO_Ctrl_Reg_Write(uint8 control) ;
+uint8   IO_Ctrl_Reg_Read(void) ;
 
-void MemCtlReg_SaveConfig(void) ;
-void MemCtlReg_RestoreConfig(void) ;
-void MemCtlReg_Sleep(void) ; 
-void MemCtlReg_Wakeup(void) ;
+void IO_Ctrl_Reg_SaveConfig(void) ;
+void IO_Ctrl_Reg_RestoreConfig(void) ;
+void IO_Ctrl_Reg_Sleep(void) ; 
+void IO_Ctrl_Reg_Wakeup(void) ;
 
 
 /***************************************
@@ -58,10 +58,10 @@ void MemCtlReg_Wakeup(void) ;
 ***************************************/
 
 /* Control Register */
-#define MemCtlReg_Control        (* (reg8 *) MemCtlReg_Sync_ctrl_reg__CONTROL_REG )
-#define MemCtlReg_Control_PTR    (  (reg8 *) MemCtlReg_Sync_ctrl_reg__CONTROL_REG )
+#define IO_Ctrl_Reg_Control        (* (reg8 *) IO_Ctrl_Reg_Sync_ctrl_reg__CONTROL_REG )
+#define IO_Ctrl_Reg_Control_PTR    (  (reg8 *) IO_Ctrl_Reg_Sync_ctrl_reg__CONTROL_REG )
 
-#endif /* End CY_CONTROL_REG_MemCtlReg_H */
+#endif /* End CY_CONTROL_REG_IO_Ctrl_Reg_H */
 
 
 /* [] END OF FILE */

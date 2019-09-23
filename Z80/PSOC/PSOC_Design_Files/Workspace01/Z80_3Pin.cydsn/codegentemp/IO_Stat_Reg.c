@@ -1,5 +1,5 @@
 /*******************************************************************************
-* File Name: Status_Reg_2.c  
+* File Name: IO_Stat_Reg.c  
 * Version 1.90
 *
 * Description:
@@ -15,13 +15,13 @@
 * the software package with which this file was provided.
 *******************************************************************************/
 
-#include "Status_Reg_2.h"
+#include "IO_Stat_Reg.h"
 
-#if !defined(Status_Reg_2_sts_sts_reg__REMOVED) /* Check for removal by optimization */
+#if !defined(IO_Stat_Reg_sts_sts_reg__REMOVED) /* Check for removal by optimization */
 
 
 /*******************************************************************************
-* Function Name: Status_Reg_2_Read
+* Function Name: IO_Stat_Reg_Read
 ********************************************************************************
 *
 * Summary:
@@ -34,14 +34,14 @@
 *  The current value in the Status Register.
 *
 *******************************************************************************/
-uint8 Status_Reg_2_Read(void) 
+uint8 IO_Stat_Reg_Read(void) 
 { 
-    return Status_Reg_2_Status;
+    return IO_Stat_Reg_Status;
 }
 
 
 /*******************************************************************************
-* Function Name: Status_Reg_2_InterruptEnable
+* Function Name: IO_Stat_Reg_InterruptEnable
 ********************************************************************************
 *
 * Summary:
@@ -54,17 +54,17 @@ uint8 Status_Reg_2_Read(void)
 *  None.
 *
 *******************************************************************************/
-void Status_Reg_2_InterruptEnable(void) 
+void IO_Stat_Reg_InterruptEnable(void) 
 {
     uint8 interruptState;
     interruptState = CyEnterCriticalSection();
-    Status_Reg_2_Status_Aux_Ctrl |= Status_Reg_2_STATUS_INTR_ENBL;
+    IO_Stat_Reg_Status_Aux_Ctrl |= IO_Stat_Reg_STATUS_INTR_ENBL;
     CyExitCriticalSection(interruptState);
 }
 
 
 /*******************************************************************************
-* Function Name: Status_Reg_2_InterruptDisable
+* Function Name: IO_Stat_Reg_InterruptDisable
 ********************************************************************************
 *
 * Summary:
@@ -77,17 +77,17 @@ void Status_Reg_2_InterruptEnable(void)
 *  None.
 *
 *******************************************************************************/
-void Status_Reg_2_InterruptDisable(void) 
+void IO_Stat_Reg_InterruptDisable(void) 
 {
     uint8 interruptState;
     interruptState = CyEnterCriticalSection();
-    Status_Reg_2_Status_Aux_Ctrl &= (uint8)(~Status_Reg_2_STATUS_INTR_ENBL);
+    IO_Stat_Reg_Status_Aux_Ctrl &= (uint8)(~IO_Stat_Reg_STATUS_INTR_ENBL);
     CyExitCriticalSection(interruptState);
 }
 
 
 /*******************************************************************************
-* Function Name: Status_Reg_2_WriteMask
+* Function Name: IO_Stat_Reg_WriteMask
 ********************************************************************************
 *
 * Summary:
@@ -100,17 +100,17 @@ void Status_Reg_2_InterruptDisable(void)
 *  None.
 *
 *******************************************************************************/
-void Status_Reg_2_WriteMask(uint8 mask) 
+void IO_Stat_Reg_WriteMask(uint8 mask) 
 {
-    #if(Status_Reg_2_INPUTS < 8u)
-    	mask &= ((uint8)(1u << Status_Reg_2_INPUTS) - 1u);
-	#endif /* End Status_Reg_2_INPUTS < 8u */
-    Status_Reg_2_Status_Mask = mask;
+    #if(IO_Stat_Reg_INPUTS < 8u)
+    	mask &= ((uint8)(1u << IO_Stat_Reg_INPUTS) - 1u);
+	#endif /* End IO_Stat_Reg_INPUTS < 8u */
+    IO_Stat_Reg_Status_Mask = mask;
 }
 
 
 /*******************************************************************************
-* Function Name: Status_Reg_2_ReadMask
+* Function Name: IO_Stat_Reg_ReadMask
 ********************************************************************************
 *
 * Summary:
@@ -123,9 +123,9 @@ void Status_Reg_2_WriteMask(uint8 mask)
 *  The value of the interrupt mask of the Status Register.
 *
 *******************************************************************************/
-uint8 Status_Reg_2_ReadMask(void) 
+uint8 IO_Stat_Reg_ReadMask(void) 
 {
-    return Status_Reg_2_Status_Mask;
+    return IO_Stat_Reg_Status_Mask;
 }
 
 #endif /* End check for removal by optimization */
