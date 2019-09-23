@@ -331,9 +331,9 @@ Text Label 4050 7150 0    50   ~ 0
 CPUA11
 Text Label 4050 7250 0    50   ~ 0
 CPUA12
-Text Label 4050 7450 0    50   ~ 0
-SRAMA13
 Text Label 4050 7350 0    50   ~ 0
+SRAMA13
+Text Label 4050 7450 0    50   ~ 0
 SRAMA14
 Text Label 6000 6050 0    50   ~ 0
 CPUD0
@@ -1408,7 +1408,6 @@ F 3 "" H 5150 7150 60  0000 C CNN
 	1    5150 7150
 	1    0    0    -1  
 $EndComp
-Connection ~ 5150 5750
 Wire Wire Line
 	8600 3850 7650 3850
 $Comp
