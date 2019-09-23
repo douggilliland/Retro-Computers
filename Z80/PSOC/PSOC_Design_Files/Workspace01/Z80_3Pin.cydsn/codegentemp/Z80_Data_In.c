@@ -1,5 +1,5 @@
 /*******************************************************************************
-* File Name: Control_Reg_1.c  
+* File Name: Z80_Data_In.c  
 * Version 1.80
 *
 * Description:
@@ -14,14 +14,14 @@
 * the software package with which this file was provided.
 *******************************************************************************/
 
-#include "Control_Reg_1.h"
+#include "Z80_Data_In.h"
 
 /* Check for removal by optimization */
-#if !defined(Control_Reg_1_Sync_ctrl_reg__REMOVED)
+#if !defined(Z80_Data_In_Sync_ctrl_reg__REMOVED)
 
     
 /*******************************************************************************
-* Function Name: Control_Reg_1_Write
+* Function Name: Z80_Data_In_Write
 ********************************************************************************
 *
 * Summary:
@@ -34,14 +34,14 @@
 *  None.
 *
 *******************************************************************************/
-void Control_Reg_1_Write(uint8 control) 
+void Z80_Data_In_Write(uint8 control) 
 {
-    Control_Reg_1_Control = control;
+    Z80_Data_In_Control = control;
 }
 
 
 /*******************************************************************************
-* Function Name: Control_Reg_1_Read
+* Function Name: Z80_Data_In_Read
 ********************************************************************************
 *
 * Summary:
@@ -54,9 +54,9 @@ void Control_Reg_1_Write(uint8 control)
 *  Returns the current value in the Control Register.
 *
 *******************************************************************************/
-uint8 Control_Reg_1_Read(void) 
+uint8 Z80_Data_In_Read(void) 
 {
-    return Control_Reg_1_Control;
+    return Z80_Data_In_Control;
 }
 
 #endif /* End check for removal by optimization */

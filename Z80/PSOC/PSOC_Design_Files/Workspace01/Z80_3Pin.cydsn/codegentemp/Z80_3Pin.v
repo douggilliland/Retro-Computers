@@ -1,6 +1,6 @@
 // ======================================================================
 // Z80_3Pin.v generated from TopDesign.cysch
-// 09/23/2019 at 09:49
+// 09/23/2019 at 14:04
 // This file is auto generated. ANY EDITS YOU MAKE MAY BE LOST WHEN THIS FILE IS REGENERATED!!!
 // ======================================================================
 
@@ -899,13 +899,13 @@ endmodule
 // top
 module top ;
 
+          wire  M1n;
           wire [7:0] Net_459;
           wire  Net_458;
           wire  Net_457;
           wire  Net_456;
           wire  Net_455;
           wire  Net_454;
-          wire  Net_453;
           wire  Net_315;
           wire  Net_314;
           wire  Net_313;
@@ -942,7 +942,6 @@ module top ;
           wire  Net_156;
           wire  Net_155;
           wire  Net_499;
-          wire  Net_498;
           wire  Net_497;
           wire  Net_496;
           wire  Net_495;
@@ -961,20 +960,20 @@ module top ;
           wire  Net_49;
           wire  Net_35;
           wire  Net_34;
+          wire  Net_489;
+          wire  Net_467;
           wire  Net_479;
           wire  Net_519;
-          wire  Net_522;
-          wire  Net_514;
           wire  CPUWRn;
-          wire  Net_513;
+          wire  Net_522;
           wire  LDA17;
           wire  LDA14;
-          wire  Net_489;
+          wire  Net_514;
           wire  LDA16;
+          wire  Net_513;
           wire  Net_488;
           wire  Net_508;
           wire  Net_507;
-          wire  Net_467;
           wire  Net_397;
           wire [7:0] ZDO;
           wire  Net_429;
@@ -1640,7 +1639,7 @@ module top ;
 
 	assign tmpOE__CPUD7_net = (`CYDEV_CHIP_MEMBER_USED == `CYDEV_CHIP_MEMBER_3A && `CYDEV_CHIP_REVISION_USED < `CYDEV_CHIP_REVISION_3A_ES3) ? ~{Net_24} : {Net_24};
 
-    CyControlReg_v1_80 Control_Reg_1 (
+    CyControlReg_v1_80 Z80_Data_In (
         .control_1(Net_26),
         .control_2(Net_27),
         .control_3(Net_28),
@@ -1651,20 +1650,20 @@ module top ;
         .control_7(Net_33),
         .clock(1'b0),
         .reset(1'b0));
-    defparam Control_Reg_1.Bit0Mode = 0;
-    defparam Control_Reg_1.Bit1Mode = 0;
-    defparam Control_Reg_1.Bit2Mode = 0;
-    defparam Control_Reg_1.Bit3Mode = 0;
-    defparam Control_Reg_1.Bit4Mode = 0;
-    defparam Control_Reg_1.Bit5Mode = 0;
-    defparam Control_Reg_1.Bit6Mode = 0;
-    defparam Control_Reg_1.Bit7Mode = 0;
-    defparam Control_Reg_1.BitValue = 0;
-    defparam Control_Reg_1.BusDisplay = 0;
-    defparam Control_Reg_1.ExtrReset = 0;
-    defparam Control_Reg_1.NumOutputs = 8;
+    defparam Z80_Data_In.Bit0Mode = 0;
+    defparam Z80_Data_In.Bit1Mode = 0;
+    defparam Z80_Data_In.Bit2Mode = 0;
+    defparam Z80_Data_In.Bit3Mode = 0;
+    defparam Z80_Data_In.Bit4Mode = 0;
+    defparam Z80_Data_In.Bit5Mode = 0;
+    defparam Z80_Data_In.Bit6Mode = 0;
+    defparam Z80_Data_In.Bit7Mode = 0;
+    defparam Z80_Data_In.BitValue = 0;
+    defparam Z80_Data_In.BusDisplay = 0;
+    defparam Z80_Data_In.ExtrReset = 0;
+    defparam Z80_Data_In.NumOutputs = 8;
 
-    CyStatusReg_v1_90 Status_Reg_1 (
+    CyStatusReg_v1_90 Z80_Data_Out (
         .status_0(ZDO[0]),
         .status_1(ZDO[1]),
         .status_2(ZDO[2]),
@@ -1676,18 +1675,18 @@ module top ;
         .status_7(ZDO[7]),
         .intr(Net_49),
         .status_bus(8'b0));
-    defparam Status_Reg_1.Bit0Mode = 0;
-    defparam Status_Reg_1.Bit1Mode = 0;
-    defparam Status_Reg_1.Bit2Mode = 0;
-    defparam Status_Reg_1.Bit3Mode = 0;
-    defparam Status_Reg_1.Bit4Mode = 0;
-    defparam Status_Reg_1.Bit5Mode = 0;
-    defparam Status_Reg_1.Bit6Mode = 0;
-    defparam Status_Reg_1.Bit7Mode = 0;
-    defparam Status_Reg_1.BusDisplay = 0;
-    defparam Status_Reg_1.Interrupt = 0;
-    defparam Status_Reg_1.MaskValue = 0;
-    defparam Status_Reg_1.NumInputs = 8;
+    defparam Z80_Data_Out.Bit0Mode = 0;
+    defparam Z80_Data_Out.Bit1Mode = 0;
+    defparam Z80_Data_Out.Bit2Mode = 0;
+    defparam Z80_Data_Out.Bit3Mode = 0;
+    defparam Z80_Data_Out.Bit4Mode = 0;
+    defparam Z80_Data_Out.Bit5Mode = 0;
+    defparam Z80_Data_Out.Bit6Mode = 0;
+    defparam Z80_Data_Out.Bit7Mode = 0;
+    defparam Z80_Data_Out.BusDisplay = 0;
+    defparam Z80_Data_Out.Interrupt = 0;
+    defparam Z80_Data_Out.MaskValue = 0;
+    defparam Z80_Data_Out.NumInputs = 8;
 
 
 	cy_clock_v1_0
@@ -2520,9 +2519,9 @@ module top ;
         .control_5(Net_495),
         .control_6(Net_496),
         .control_7(Net_497),
-        .clock(1'b0),
+        .clock(PSoC_CLK),
         .reset(1'b0));
-    defparam IO_Ctrl_Reg.Bit0Mode = 0;
+    defparam IO_Ctrl_Reg.Bit0Mode = 3;
     defparam IO_Ctrl_Reg.Bit1Mode = 0;
     defparam IO_Ctrl_Reg.Bit2Mode = 0;
     defparam IO_Ctrl_Reg.Bit3Mode = 0;
@@ -2532,8 +2531,8 @@ module top ;
     defparam IO_Ctrl_Reg.Bit7Mode = 0;
     defparam IO_Ctrl_Reg.BitValue = 0;
     defparam IO_Ctrl_Reg.BusDisplay = 0;
-    defparam IO_Ctrl_Reg.ExtrReset = 0;
-    defparam IO_Ctrl_Reg.NumOutputs = 8;
+    defparam IO_Ctrl_Reg.ExtrReset = 1;
+    defparam IO_Ctrl_Reg.NumOutputs = 1;
 
     USBFS_v3_20_0 USBUART_1 (
         .sof(Net_155),
@@ -5214,7 +5213,7 @@ module top ;
     defparam IO_Stat_Reg.BusDisplay = 0;
     defparam IO_Stat_Reg.Interrupt = 0;
     defparam IO_Stat_Reg.MaskValue = 0;
-    defparam IO_Stat_Reg.NumInputs = 8;
+    defparam IO_Stat_Reg.NumInputs = 4;
 
 	wire [0:0] tmpOE__WAIT_n_1_net;
 	wire [0:0] tmpFB_0__WAIT_n_1_net;

@@ -1,5 +1,5 @@
 /*******************************************************************************
-* File Name: Control_Reg_1_PM.c
+* File Name: Z80_Data_In_PM.c
 * Version 1.80
 *
 * Description:
@@ -15,16 +15,16 @@
 * the software package with which this file was provided.
 *******************************************************************************/
 
-#include "Control_Reg_1.h"
+#include "Z80_Data_In.h"
 
 /* Check for removal by optimization */
-#if !defined(Control_Reg_1_Sync_ctrl_reg__REMOVED)
+#if !defined(Z80_Data_In_Sync_ctrl_reg__REMOVED)
 
-static Control_Reg_1_BACKUP_STRUCT  Control_Reg_1_backup = {0u};
+static Z80_Data_In_BACKUP_STRUCT  Z80_Data_In_backup = {0u};
 
     
 /*******************************************************************************
-* Function Name: Control_Reg_1_SaveConfig
+* Function Name: Z80_Data_In_SaveConfig
 ********************************************************************************
 *
 * Summary:
@@ -37,14 +37,14 @@ static Control_Reg_1_BACKUP_STRUCT  Control_Reg_1_backup = {0u};
 *  None
 *
 *******************************************************************************/
-void Control_Reg_1_SaveConfig(void) 
+void Z80_Data_In_SaveConfig(void) 
 {
-    Control_Reg_1_backup.controlState = Control_Reg_1_Control;
+    Z80_Data_In_backup.controlState = Z80_Data_In_Control;
 }
 
 
 /*******************************************************************************
-* Function Name: Control_Reg_1_RestoreConfig
+* Function Name: Z80_Data_In_RestoreConfig
 ********************************************************************************
 *
 * Summary:
@@ -58,14 +58,14 @@ void Control_Reg_1_SaveConfig(void)
 *
 *
 *******************************************************************************/
-void Control_Reg_1_RestoreConfig(void) 
+void Z80_Data_In_RestoreConfig(void) 
 {
-     Control_Reg_1_Control = Control_Reg_1_backup.controlState;
+     Z80_Data_In_Control = Z80_Data_In_backup.controlState;
 }
 
 
 /*******************************************************************************
-* Function Name: Control_Reg_1_Sleep
+* Function Name: Z80_Data_In_Sleep
 ********************************************************************************
 *
 * Summary:
@@ -78,14 +78,14 @@ void Control_Reg_1_RestoreConfig(void)
 *  None
 *
 *******************************************************************************/
-void Control_Reg_1_Sleep(void) 
+void Z80_Data_In_Sleep(void) 
 {
-    Control_Reg_1_SaveConfig();
+    Z80_Data_In_SaveConfig();
 }
 
 
 /*******************************************************************************
-* Function Name: Control_Reg_1_Wakeup
+* Function Name: Z80_Data_In_Wakeup
 ********************************************************************************
 *
 * Summary:
@@ -98,9 +98,9 @@ void Control_Reg_1_Sleep(void)
 *  None
 *
 *******************************************************************************/
-void Control_Reg_1_Wakeup(void)  
+void Z80_Data_In_Wakeup(void)  
 {
-    Control_Reg_1_RestoreConfig();
+    Z80_Data_In_RestoreConfig();
 }
 
 #endif /* End check for removal by optimization */

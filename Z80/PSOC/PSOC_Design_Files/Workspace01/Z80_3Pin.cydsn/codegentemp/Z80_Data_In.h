@@ -1,5 +1,5 @@
 /*******************************************************************************
-* File Name: Control_Reg_1.h  
+* File Name: Z80_Data_In.h  
 * Version 1.80
 *
 * Description:
@@ -14,8 +14,8 @@
 * the software package with which this file was provided.
 *******************************************************************************/
 
-#if !defined(CY_CONTROL_REG_Control_Reg_1_H) /* CY_CONTROL_REG_Control_Reg_1_H */
-#define CY_CONTROL_REG_Control_Reg_1_H
+#if !defined(CY_CONTROL_REG_Z80_Data_In_H) /* CY_CONTROL_REG_Z80_Data_In_H */
+#define CY_CONTROL_REG_Z80_Data_In_H
 
 #include "cyfitter.h"
 
@@ -37,20 +37,20 @@ typedef struct
 {
     uint8 controlState;
 
-} Control_Reg_1_BACKUP_STRUCT;
+} Z80_Data_In_BACKUP_STRUCT;
 
 
 /***************************************
 *         Function Prototypes 
 ***************************************/
 
-void    Control_Reg_1_Write(uint8 control) ;
-uint8   Control_Reg_1_Read(void) ;
+void    Z80_Data_In_Write(uint8 control) ;
+uint8   Z80_Data_In_Read(void) ;
 
-void Control_Reg_1_SaveConfig(void) ;
-void Control_Reg_1_RestoreConfig(void) ;
-void Control_Reg_1_Sleep(void) ; 
-void Control_Reg_1_Wakeup(void) ;
+void Z80_Data_In_SaveConfig(void) ;
+void Z80_Data_In_RestoreConfig(void) ;
+void Z80_Data_In_Sleep(void) ; 
+void Z80_Data_In_Wakeup(void) ;
 
 
 /***************************************
@@ -58,10 +58,10 @@ void Control_Reg_1_Wakeup(void) ;
 ***************************************/
 
 /* Control Register */
-#define Control_Reg_1_Control        (* (reg8 *) Control_Reg_1_Sync_ctrl_reg__CONTROL_REG )
-#define Control_Reg_1_Control_PTR    (  (reg8 *) Control_Reg_1_Sync_ctrl_reg__CONTROL_REG )
+#define Z80_Data_In_Control        (* (reg8 *) Z80_Data_In_Sync_ctrl_reg__CONTROL_REG )
+#define Z80_Data_In_Control_PTR    (  (reg8 *) Z80_Data_In_Sync_ctrl_reg__CONTROL_REG )
 
-#endif /* End CY_CONTROL_REG_Control_Reg_1_H */
+#endif /* End CY_CONTROL_REG_Z80_Data_In_H */
 
 
 /* [] END OF FILE */

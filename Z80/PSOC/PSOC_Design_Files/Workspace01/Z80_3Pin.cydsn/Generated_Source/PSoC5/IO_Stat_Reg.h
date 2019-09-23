@@ -64,7 +64,7 @@ uint8 IO_Stat_Reg_ReadMask(void) ;
 ***************************************/
 
 /* Status Register Inputs */
-#define IO_Stat_Reg_INPUTS              8
+#define IO_Stat_Reg_INPUTS              4
 
 
 /***************************************
