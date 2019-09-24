@@ -1,5 +1,5 @@
 /*******************************************************************************
-* File Name: TOP_ADDR_REG.c  
+* File Name: SWAP_ADDR_REG.c  
 * Version 1.80
 *
 * Description:
@@ -14,14 +14,14 @@
 * the software package with which this file was provided.
 *******************************************************************************/
 
-#include "TOP_ADDR_REG.h"
+#include "SWAP_ADDR_REG.h"
 
 /* Check for removal by optimization */
-#if !defined(TOP_ADDR_REG_Sync_ctrl_reg__REMOVED)
+#if !defined(SWAP_ADDR_REG_Sync_ctrl_reg__REMOVED)
 
     
 /*******************************************************************************
-* Function Name: TOP_ADDR_REG_Write
+* Function Name: SWAP_ADDR_REG_Write
 ********************************************************************************
 *
 * Summary:
@@ -34,14 +34,14 @@
 *  None.
 *
 *******************************************************************************/
-void TOP_ADDR_REG_Write(uint8 control) 
+void SWAP_ADDR_REG_Write(uint8 control) 
 {
-    TOP_ADDR_REG_Control = control;
+    SWAP_ADDR_REG_Control = control;
 }
 
 
 /*******************************************************************************
-* Function Name: TOP_ADDR_REG_Read
+* Function Name: SWAP_ADDR_REG_Read
 ********************************************************************************
 *
 * Summary:
@@ -54,9 +54,9 @@ void TOP_ADDR_REG_Write(uint8 control)
 *  Returns the current value in the Control Register.
 *
 *******************************************************************************/
-uint8 TOP_ADDR_REG_Read(void) 
+uint8 SWAP_ADDR_REG_Read(void) 
 {
-    return TOP_ADDR_REG_Control;
+    return SWAP_ADDR_REG_Control;
 }
 
 #endif /* End check for removal by optimization */

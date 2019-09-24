@@ -1,5 +1,5 @@
 /*******************************************************************************
-* File Name: TOP_ADDR_REG_PM.c
+* File Name: BankBaseAdr_PM.c
 * Version 1.80
 *
 * Description:
@@ -15,16 +15,16 @@
 * the software package with which this file was provided.
 *******************************************************************************/
 
-#include "TOP_ADDR_REG.h"
+#include "BankBaseAdr.h"
 
 /* Check for removal by optimization */
-#if !defined(TOP_ADDR_REG_Sync_ctrl_reg__REMOVED)
+#if !defined(BankBaseAdr_Sync_ctrl_reg__REMOVED)
 
-static TOP_ADDR_REG_BACKUP_STRUCT  TOP_ADDR_REG_backup = {0u};
+static BankBaseAdr_BACKUP_STRUCT  BankBaseAdr_backup = {0u};
 
     
 /*******************************************************************************
-* Function Name: TOP_ADDR_REG_SaveConfig
+* Function Name: BankBaseAdr_SaveConfig
 ********************************************************************************
 *
 * Summary:
@@ -37,14 +37,14 @@ static TOP_ADDR_REG_BACKUP_STRUCT  TOP_ADDR_REG_backup = {0u};
 *  None
 *
 *******************************************************************************/
-void TOP_ADDR_REG_SaveConfig(void) 
+void BankBaseAdr_SaveConfig(void) 
 {
-    TOP_ADDR_REG_backup.controlState = TOP_ADDR_REG_Control;
+    BankBaseAdr_backup.controlState = BankBaseAdr_Control;
 }
 
 
 /*******************************************************************************
-* Function Name: TOP_ADDR_REG_RestoreConfig
+* Function Name: BankBaseAdr_RestoreConfig
 ********************************************************************************
 *
 * Summary:
@@ -58,14 +58,14 @@ void TOP_ADDR_REG_SaveConfig(void)
 *
 *
 *******************************************************************************/
-void TOP_ADDR_REG_RestoreConfig(void) 
+void BankBaseAdr_RestoreConfig(void) 
 {
-     TOP_ADDR_REG_Control = TOP_ADDR_REG_backup.controlState;
+     BankBaseAdr_Control = BankBaseAdr_backup.controlState;
 }
 
 
 /*******************************************************************************
-* Function Name: TOP_ADDR_REG_Sleep
+* Function Name: BankBaseAdr_Sleep
 ********************************************************************************
 *
 * Summary:
@@ -78,14 +78,14 @@ void TOP_ADDR_REG_RestoreConfig(void)
 *  None
 *
 *******************************************************************************/
-void TOP_ADDR_REG_Sleep(void) 
+void BankBaseAdr_Sleep(void) 
 {
-    TOP_ADDR_REG_SaveConfig();
+    BankBaseAdr_SaveConfig();
 }
 
 
 /*******************************************************************************
-* Function Name: TOP_ADDR_REG_Wakeup
+* Function Name: BankBaseAdr_Wakeup
 ********************************************************************************
 *
 * Summary:
@@ -98,9 +98,9 @@ void TOP_ADDR_REG_Sleep(void)
 *  None
 *
 *******************************************************************************/
-void TOP_ADDR_REG_Wakeup(void)  
+void BankBaseAdr_Wakeup(void)  
 {
-    TOP_ADDR_REG_RestoreConfig();
+    BankBaseAdr_RestoreConfig();
 }
 
 #endif /* End check for removal by optimization */
