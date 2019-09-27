@@ -31,7 +31,7 @@ uint8 myWrBuffer[2];
 #define MCP23008_GPINTEN_DEFVAL  0x00       // Disable GPIO for interrupt on change
 #define MCP23008_INTCON_DEFVAL   0x00       // Int for change from previous pin
 #define MCP23008_IOCON_DEFVAL    0x00       // Disable sequential,  active-low
-#define MCP23008_GPPU_DEFVAL     0xf0
+#define MCP23008_GPPU_DEFVAL     0xf0       // Default pullups
 
 //////////////////////////////////////////////////////////////////////////////
 // uint8 readRegisterDIGIO8Card(ctrlAdr) - 

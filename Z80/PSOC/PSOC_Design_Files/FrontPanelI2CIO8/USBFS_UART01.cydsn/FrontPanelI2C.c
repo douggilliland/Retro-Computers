@@ -49,6 +49,14 @@ void keysAndLEDs(void)
         while (keyPressed)  // stick around until key is no longer pressed
         {
             rdVal = readDIGIO8Card() ^ 0x0f;
+            if (rdVal == 0)
+            {
+                keyPressed = 0;
+                valMin1 = 0;
+                valMin2 = 0;
+                valMin3 = 0;
+                return;
+            }
             valMin3 = valMin2;
             valMin2 = valMin1;
             valMin1 = rdVal;
@@ -58,13 +66,6 @@ void keysAndLEDs(void)
                 writeDIGIO8Card(ledsVal);
             }
             CyDelay(25);    // 10 mS sampling for debouncing
-            if (rdVal == 0)
-            {
-                keyPressed = 0;
-                valMin1 = 0;
-                valMin2 = 0;
-                valMin3 = 0;
-            }
         }
     }
 }
