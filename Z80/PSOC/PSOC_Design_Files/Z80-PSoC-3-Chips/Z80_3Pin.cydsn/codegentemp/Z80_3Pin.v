@@ -1,6 +1,6 @@
 // ======================================================================
 // Z80_3Pin.v generated from TopDesign.cysch
-// 10/02/2019 at 10:50
+// 10/02/2019 at 12:41
 // This file is auto generated. ANY EDITS YOU MAKE MAY BE LOST WHEN THIS FILE IS REGENERATED!!!
 // ======================================================================
 
@@ -966,30 +966,29 @@ module top ;
           wire  Net_848;
           wire  Net_847;
           wire  Net_846;
-          wire  Net_844;
           wire  Net_837;
           wire [7:0] Net_831;
           wire  Net_830;
-          wire [4:0] BNK;
           wire  Net_741;
+          wire [4:0] BNK;
           wire  Net_740;
           wire  Net_739;
           wire  Net_738;
           wire  Net_737;
           wire  Net_736;
           wire  Net_735;
-          wire  ADR_OUT_0;
           wire  Net_734;
+          wire  ADR_OUT_0;
           wire  Net_733;
           wire  Net_732;
           wire  Net_761;
           wire  Net_760;
           wire  Net_759;
           wire  Net_758;
-          wire  PSoC_CLK;
           wire  Net_757;
-          wire  CPURDn;
+          wire  PSoC_CLK;
           wire  Net_756;
+          wire  CPURDn;
           wire  Net_755;
           wire  Net_754;
           wire  Net_753;
@@ -1004,8 +1003,8 @@ module top ;
           wire  Net_314;
           wire  Net_313;
           wire  Net_312;
-          wire  IORQn;
           wire  Net_311;
+          wire  IORQn;
           wire  Net_310;
           wire  Net_309;
           wire  Net_308;
@@ -1018,8 +1017,8 @@ module top ;
           wire  Net_811;
           wire  Net_366;
           wire  Net_838;
-          wire  CPUWRn;
           wire  Net_839;
+          wire  CPUWRn;
           wire  Net_612;
           wire  Net_615;
           wire  Net_619;
@@ -1028,8 +1027,8 @@ module top ;
           wire  Net_730;
           wire  Net_729;
           wire  Net_728;
-          wire [7:0] ZDO;
           wire  Net_727;
+          wire [7:0] ZDO;
           wire  Net_726;
           wire  Net_725;
           wire  Net_724;
@@ -1063,11 +1062,12 @@ module top ;
           wire [7:0] Net_418;
           wire  Net_417;
           wire  Net_52;
-          wire  DRV_RAM;
           wire [7:0] Net_50;
+          wire  DRV_RAM;
           wire  Net_49;
           wire  Net_35;
           wire  Net_34;
+          wire  Net_844;
           wire  Net_390;
           wire  Net_388;
           wire  Net_386;
@@ -5906,7 +5906,82 @@ module top ;
     defparam ExtSRAMCtl.BitValue = 4;
     defparam ExtSRAMCtl.BusDisplay = 0;
     defparam ExtSRAMCtl.ExtrReset = 0;
-    defparam ExtSRAMCtl.NumOutputs = 3;
+    defparam ExtSRAMCtl.NumOutputs = 4;
+
+	wire [0:0] tmpOE__CPURSTn_net;
+	wire [0:0] tmpFB_0__CPURSTn_net;
+	wire [0:0] tmpIO_0__CPURSTn_net;
+	wire [0:0] tmpINTERRUPT_0__CPURSTn_net;
+	electrical [0:0] tmpSIOVREF__CPURSTn_net;
+
+	cy_psoc3_pins_v1_10
+		#(.id("a86e64e8-3884-4d3a-abbb-19fb00a22880"),
+		  .drive_mode(3'b110),
+		  .ibuf_enabled(1'b1),
+		  .init_dr_st(1'b0),
+		  .input_clk_en(0),
+		  .input_sync(1'b1),
+		  .input_sync_mode(1'b0),
+		  .intr_mode(2'b00),
+		  .invert_in_clock(0),
+		  .invert_in_clock_en(0),
+		  .invert_in_reset(0),
+		  .invert_out_clock(0),
+		  .invert_out_clock_en(0),
+		  .invert_out_reset(0),
+		  .io_voltage(""),
+		  .layout_mode("CONTIGUOUS"),
+		  .oe_conn(1'b0),
+		  .oe_reset(0),
+		  .oe_sync(1'b0),
+		  .output_clk_en(0),
+		  .output_clock_mode(1'b0),
+		  .output_conn(1'b1),
+		  .output_mode(1'b0),
+		  .output_reset(0),
+		  .output_sync(1'b0),
+		  .pa_in_clock(-1),
+		  .pa_in_clock_en(-1),
+		  .pa_in_reset(-1),
+		  .pa_out_clock(-1),
+		  .pa_out_clock_en(-1),
+		  .pa_out_reset(-1),
+		  .pin_aliases(""),
+		  .pin_mode("O"),
+		  .por_state(4),
+		  .sio_group_cnt(0),
+		  .sio_hyst(1'b1),
+		  .sio_ibuf(""),
+		  .sio_info(2'b00),
+		  .sio_obuf(""),
+		  .sio_refsel(""),
+		  .sio_vtrip(""),
+		  .sio_hifreq(""),
+		  .sio_vohsel(""),
+		  .slew_rate(1'b0),
+		  .spanning(0),
+		  .use_annotation(1'b0),
+		  .vtrip(2'b10),
+		  .width(1),
+		  .ovt_hyst_trim(1'b0),
+		  .ovt_needed(1'b0),
+		  .ovt_slew_control(2'b00),
+		  .input_buffer_sel(2'b00))
+		CPURSTn
+		 (.oe(tmpOE__CPURSTn_net),
+		  .y({Net_844}),
+		  .fb({tmpFB_0__CPURSTn_net[0:0]}),
+		  .io({tmpIO_0__CPURSTn_net[0:0]}),
+		  .siovref(tmpSIOVREF__CPURSTn_net),
+		  .interrupt({tmpINTERRUPT_0__CPURSTn_net[0:0]}),
+		  .in_clock({1'b0}),
+		  .in_clock_en({1'b1}),
+		  .in_reset({1'b0}),
+		  .out_clock({1'b0}),
+		  .out_clock_en({1'b1}),
+		  .out_reset({1'b0}));
+
+	assign tmpOE__CPURSTn_net = (`CYDEV_CHIP_MEMBER_USED == `CYDEV_CHIP_MEMBER_3A && `CYDEV_CHIP_REVISION_USED < `CYDEV_CHIP_REVISION_3A_ES3) ? ~{1'b1} : {1'b1};
 
 
 

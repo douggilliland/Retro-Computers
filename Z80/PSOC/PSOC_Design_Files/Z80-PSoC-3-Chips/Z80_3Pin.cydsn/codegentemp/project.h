@@ -150,6 +150,8 @@
 #include "CPU_CLK.h"
 #include "Clock_3.h"
 #include "ExtSRAMCtl.h"
+#include "CPURSTn_aliases.h"
+#include "CPURSTn.h"
 #include "USBUART_1_Dm_aliases.h"
 #include "USBUART_1_Dm.h"
 #include "USBUART_1_Dp_aliases.h"

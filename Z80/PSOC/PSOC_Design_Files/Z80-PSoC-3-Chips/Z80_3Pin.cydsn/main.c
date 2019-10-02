@@ -1,6 +1,6 @@
 /* ========================================
  *
- * Copyright YOUR COMPANY, THE YEAR
+ * Copyright LAND BOARDS, LLC, 2019
  * All Rights Reserved
  * UNPUBLISHED, LICENSED SOFTWARE.
  *
@@ -12,6 +12,11 @@
 #include "project.h"
 
 ////////////////////////////////////////////////////////////////////////////
+// Function prototypes
+
+uint32 TestSRAM(void);
+
+////////////////////////////////////////////////////////////////////////////
 // PostLed(postVal) - Blink the LED the number of times (postVal)
 
 void PostLed(uint32 postVal)
@@ -19,24 +24,31 @@ void PostLed(uint32 postVal)
     uint32 blinkCount = postVal;
     while(blinkCount > 0)
     {
-        LED_Write(1);
+        LED_Write(1);   // Turn on the LED
+        CyDelay(500);
+        LED_Write(0);   // Turn off the LED
         CyDelay(250);
-        LED_Write(0);
-        CyDelay(250);
-        blinkCount--;
+        blinkCount--;   // loop as many times as the POST code
     }
 }
 
+////////////////////////////////////////////////////////////////////////////
+// main() - Setup and Loop code goes in here
+
 int main(void)
 {
-    CyGlobalIntEnable; /* Enable global interrupts. */
+    uint32 postVal;
+    CyGlobalIntEnable;          /* Enable global interrupts. */
+    
+    // Do Power On Self Tests (POST)
+    postVal = TestSRAM();       // Run External SRAM test
+    if (postVal == 0)
+        PostLed(0x1);           // External SRAM test passed
+     else
+        PostLed(postVal+1);     // External SRAM test(s) failed
 
-    /* Place your initialization/startup code here (e.g. MyInst_Start()) */
-    if (TestSRAM() == 1)
-        PostLed(0x2);
-
-    for(;;)
-    {
+    for(;;)                     // Loop forever
+    {  
     }
 }
 
