@@ -41,11 +41,9 @@ int main(void)
     CyGlobalIntEnable;          /* Enable global interrupts. */
     
     // Do Power On Self Tests (POST)
-    postVal = TestSRAM();       // Run External SRAM test
-    if (postVal == 0)
-        PostLed(0x1);           // External SRAM test passed
-     else
-        PostLed(postVal+1);     // External SRAM test(s) failed
+    // SRAM POST
+    postVal = TestSRAM();       // Run External SRAM POST
+    PostLed(postVal+1);         // 1 blink = pass, more than 1 = fail
 
     for(;;)                     // Loop forever
     {  

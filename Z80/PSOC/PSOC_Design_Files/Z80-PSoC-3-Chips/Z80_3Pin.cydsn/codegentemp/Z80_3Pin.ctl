@@ -1,6 +1,6 @@
 -- ======================================================================
 -- Z80_3Pin.ctl generated from Z80_3Pin
--- 10/02/2019 at 12:41
+-- 10/02/2019 at 13:44
 -- This file is auto generated. ANY EDITS YOU MAKE MAY BE LOST WHEN THIS FILE IS REGENERATED!!!
 -- ======================================================================
 

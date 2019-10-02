@@ -26,6 +26,19 @@
 
 #include <project.h>
 
+#define SRAMRW_MASK     0x01
+#define SRAM_WRITE      0x00
+#define SRAM_READ       0x01
+#define DRVRAM_MASK     0x02
+#define DRV_RAM_NO      0x00
+#define DRV_RAM_YES     0x02
+#define SRAMCS_MASK     0x04
+#define SRAM_ACT        0x00
+#define SRAM_UNACT      0x04
+#define CPU_RST_MASK    0x08
+#define CPU_RST_ON      0x00
+#define CPU_RST_OFF     0x08
+
 ////////////////////////////////////////////////////////////////////////////
 // SetExtSRAMAddr(addr) - Set the address registers for the SRAM
 

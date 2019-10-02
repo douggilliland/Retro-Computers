@@ -1,6 +1,6 @@
 // ======================================================================
 // Z80_3Pin.v generated from TopDesign.cysch
-// 10/02/2019 at 12:41
+// 10/02/2019 at 13:44
 // This file is auto generated. ANY EDITS YOU MAKE MAY BE LOST WHEN THIS FILE IS REGENERATED!!!
 // ======================================================================
 
@@ -1077,6 +1077,7 @@ module top ;
           wire  Net_394;
           wire  Net_389;
           wire  CLR_IO_INT;
+          wire  Net_395;
           wire  Net_343;
           wire  Net_337;
     electrical  Net_833;
@@ -1114,8 +1115,8 @@ module top ;
           wire  Net_507;
           wire  Net_397;
           wire  Net_429;
-          wire  Net_432;
           wire [15:11] Z80A;
+          wire  Net_432;
           wire  Net_435;
           wire  Net_438;
           wire  Net_441;
@@ -1129,8 +1130,8 @@ module top ;
           wire  Net_90;
           wire  Net_70;
           wire  Net_69;
-          wire  Net_81;
           wire  BANKED;
+          wire  Net_81;
           wire  Net_284;
           wire  Net_324;
           wire  Net_323;
@@ -1139,17 +1140,17 @@ module top ;
           wire  Net_10;
           wire  Net_281;
           wire  Net_278;
-          wire  Net_105;
           wire [4:0] MSK;
+          wire  Net_105;
           wire  Net_106;
           wire  Net_92;
           wire  Net_95;
           wire  Net_98;
-          wire  Net_101;
           wire  SRAMCSn;
+          wire  Net_101;
           wire  Net_104;
-          wire  Net_33;
           wire  SRAMR1_W0;
+          wire  Net_33;
           wire  Net_32;
           wire  Net_31;
           wire  Net_30;
@@ -4527,9 +4528,9 @@ module top ;
     if (1)
     begin : mux_9
         reg  tmp__mux_9_reg;
-        always @(Net_389 or Net_390 or DRV_RAM)
+        always @(Net_389 or Net_390 or Net_395)
         begin
-            case (DRV_RAM)
+            case (Net_395)
                 1'b0 :  tmp__mux_9_reg = Net_389;
                 1'b1 :  tmp__mux_9_reg = Net_390;
             endcase
@@ -4542,9 +4543,9 @@ module top ;
     if (1)
     begin : mux_8
         reg  tmp__mux_8_reg;
-        always @(SRAMR1_W0 or Net_388 or DRV_RAM)
+        always @(SRAMR1_W0 or Net_388 or Net_395)
         begin
-            case (DRV_RAM)
+            case (Net_395)
                 1'b0 :  tmp__mux_8_reg = SRAMR1_W0;
                 1'b1 :  tmp__mux_8_reg = Net_388;
             endcase
@@ -4557,9 +4558,9 @@ module top ;
     if (1)
     begin : mux_7
         reg  tmp__mux_7_reg;
-        always @(SRAMCSn or Net_386 or DRV_RAM)
+        always @(SRAMCSn or Net_386 or Net_395)
         begin
-            case (DRV_RAM)
+            case (Net_395)
                 1'b0 :  tmp__mux_7_reg = SRAMCSn;
                 1'b1 :  tmp__mux_7_reg = Net_386;
             endcase
@@ -5982,6 +5983,9 @@ module top ;
 		  .out_reset({1'b0}));
 
 	assign tmpOE__CPURSTn_net = (`CYDEV_CHIP_MEMBER_USED == `CYDEV_CHIP_MEMBER_3A && `CYDEV_CHIP_REVISION_USED < `CYDEV_CHIP_REVISION_3A_ES3) ? ~{1'b1} : {1'b1};
+
+
+    assign Net_395 = ~DRV_RAM;
 
 
 
