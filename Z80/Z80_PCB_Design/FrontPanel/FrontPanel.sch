@@ -2405,11 +2405,11 @@ $EndComp
 Wire Wire Line
 	2150 3500 2150 3850
 Connection ~ 2150 3850
-Text Notes 1100 1900 0    50   ~ 0
+Text Notes 950  2550 0    100  Italic 20
 CARD I2C\nA2 Address\nSelect
 Text Notes 3550 4000 2    50   ~ 0
 I2C Terminators
-Text Notes 1150 4850 0    50   ~ 0
+Text Notes 850  5200 0    100  Italic 20
 I2C Connectors\n(Daisy-chain)
 Wire Wire Line
 	2550 3650 2700 3650
@@ -2499,4 +2499,12 @@ Text Label 1750 3550 0    50   ~ 0
 PUPINT
 Wire Wire Line
 	1700 3550 2350 3550
+Text Notes 13150 4850 0    100  Italic 20
+ADDRESS = 0x24\n(TOP ROW)
+Text Notes 10550 4900 0    100  Italic 20
+ADDRESS = 0x25\n(2nd ROW DOWN)
+Text Notes 7900 4900 0    100  Italic 20
+ADDRESS = 0x26\n(3rd ROW DOWN)
+Text Notes 5300 4850 0    100  Italic 20
+ADDRESS = 0x27\n(BOTTOM ROW)
 $EndSCHEMATC

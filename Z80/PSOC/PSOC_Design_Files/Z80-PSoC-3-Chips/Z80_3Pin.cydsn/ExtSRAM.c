@@ -98,19 +98,34 @@ uint32 TestSRAM(void)
     WriteExtSRAM(0x0,0x55);             // Write 0x55 to the SRAM
     if (ReadExtSRAM(0x0) != 0x55)       // Read the SRAM
         return(0x1);   // Post failed
+    // Fill first 256 bytes of SRAM with data = address
+    sramData = 0;
+    for (sramAddr = 0; sramAddr < 0x100; sramAddr++)
+    {
+        WriteExtSRAM(sramAddr,sramData);
+        sramData++;
+    }
+    // Verify the first 256 bytes have data=address
+    sramData = 0;
+    for (sramAddr = 0; sramAddr < 0x100; sramAddr++)
+    {
+        if (ReadExtSRAM(sramAddr) != sramData)
+            return(0x2);
+        sramData++;
+    }
     // Write/read a data ramp to exercise address lines (step in address bits)
     sramData = 1;
     for (sramAddr = 0; sramAddr < 0x80000; sramAddr <<= 1)
     {
         WriteExtSRAM(sramAddr,sramData);
-        sramAddr <<= 1;
         sramData++;
     }
+    // Bounce a one across the address lines to test all 512KB
     sramData = 1;
     for (sramAddr = 0; sramAddr < 0x80000; sramAddr <<= 1)
     {
         if (ReadExtSRAM(sramAddr) != sramData)
-            return(0x2);
+            return(0x3);
         sramAddr <<= 1;
         sramData++;
     }

@@ -10,6 +10,7 @@
  * ========================================
 */
 #include "project.h"
+#include "FrontPanel.h"
 
 ////////////////////////////////////////////////////////////////////////////
 // Function prototypes
@@ -38,15 +39,21 @@ void PostLed(uint32 postVal)
 int main(void)
 {
     uint32 postVal;
+    uint32 switchesVal;
+    
     CyGlobalIntEnable;          /* Enable global interrupts. */
     
     // Do Power On Self Tests (POST)
     // SRAM POST
     postVal = TestSRAM();       // Run External SRAM POST
-    PostLed(postVal+1);         // 1 blink = pass, more than 1 = fail
+    if (postVal != 0x01)
+        PostLed(postVal+1);         // 1 blink = pass, more than 1 = fail
+    init_FrontPanel();
 
     for(;;)                     // Loop forever
-    {  
+    {
+        switchesVal = waitFrontPanelSwitchesPressed();
+        writeFrontPanelLEDs(switchesVal);
     }
 }
 
