@@ -25,9 +25,9 @@ void PostLed(uint32 postVal)
     uint32 blinkCount = postVal;
     while(blinkCount > 0)
     {
-        LED_Write(1);   // Turn on the LED
+        IO_Ctrl_Reg_Write(2);   // Turn on the LED
         CyDelay(500);
-        LED_Write(0);   // Turn off the LED
+        IO_Ctrl_Reg_Write(0);   // Turn off the LED
         CyDelay(250);
         blinkCount--;   // loop as many times as the POST code
     }
@@ -42,12 +42,17 @@ int main(void)
     uint32 switchesVal;
     
     CyGlobalIntEnable;          /* Enable global interrupts. */
+//    PostLed(5);
     
     // Do Power On Self Tests (POST)
     // SRAM POST
     postVal = TestSRAM();       // Run External SRAM POST
     if (postVal != 0x01)
+    {
         PostLed(postVal+1);         // 1 blink = pass, more than 1 = fail
+        while (1);
+    }
+//    PostLed(10);
     init_FrontPanel();
 
     for(;;)                     // Loop forever

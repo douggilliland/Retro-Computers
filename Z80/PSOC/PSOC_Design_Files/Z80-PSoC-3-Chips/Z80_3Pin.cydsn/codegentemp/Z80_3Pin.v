@@ -1,6 +1,6 @@
 // ======================================================================
 // Z80_3Pin.v generated from TopDesign.cysch
-// 10/03/2019 at 07:40
+// 10/04/2019 at 17:13
 // This file is auto generated. ANY EDITS YOU MAKE MAY BE LOST WHEN THIS FILE IS REGENERATED!!!
 // ======================================================================
 
@@ -960,36 +960,35 @@ endmodule
 module top ;
 
           wire  M1n;
-          wire  Net_851;
-          wire  Net_850;
-          wire  Net_849;
-          wire  Net_848;
-          wire  Net_847;
-          wire  Net_846;
+          wire  Net_890;
+          wire  Net_889;
+          wire  Net_888;
+          wire  Net_887;
+          wire  Net_886;
           wire  Net_837;
           wire [7:0] Net_831;
           wire  Net_830;
           wire  Net_741;
-          wire [4:0] BNK;
           wire  Net_740;
+          wire [4:0] BNK;
           wire  Net_739;
           wire  Net_738;
           wire  Net_737;
           wire  Net_736;
           wire  Net_735;
           wire  Net_734;
-          wire  ADR_OUT_0;
           wire  Net_733;
+          wire  ADR_OUT_0;
           wire  Net_732;
           wire  Net_761;
           wire  Net_760;
           wire  Net_759;
           wire  Net_758;
           wire  Net_757;
-          wire  PSoC_CLK;
           wire  Net_756;
-          wire  CPURDn;
+          wire  PSoC_CLK;
           wire  Net_755;
+          wire  CPURDn;
           wire  Net_754;
           wire  Net_753;
           wire  Net_752;
@@ -1004,8 +1003,8 @@ module top ;
           wire  Net_313;
           wire  Net_312;
           wire  Net_311;
-          wire  IORQn;
           wire  Net_310;
+          wire  IORQn;
           wire  Net_309;
           wire  Net_308;
           wire  Net_316;
@@ -1018,8 +1017,8 @@ module top ;
           wire  Net_366;
           wire  Net_838;
           wire  Net_839;
-          wire  CPUWRn;
           wire  Net_612;
+          wire  CPUWRn;
           wire  Net_615;
           wire  Net_619;
           wire  Net_618;
@@ -1028,8 +1027,8 @@ module top ;
           wire  Net_729;
           wire  Net_728;
           wire  Net_727;
-          wire [7:0] ZDO;
           wire  Net_726;
+          wire [7:0] ZDO;
           wire  Net_725;
           wire  Net_724;
           wire  Net_723;
@@ -1062,21 +1061,36 @@ module top ;
           wire [7:0] Net_418;
           wire  Net_417;
           wire  Net_52;
-          wire [7:0] Net_50;
-          wire  DRV_RAM;
           wire  Net_49;
+          wire  Net_23;
+          wire  DRV_RAM;
+          wire  Net_20;
+          wire  Net_17;
+          wire  Net_14;
+          wire  Net_11;
+          wire  Net_264;
+          wire  SRAMREAD;
+          wire  Net_36;
+          wire [7:0] SAR;
+          wire  SRAMWRITE;
+          wire  Net_263;
           wire  Net_35;
+          wire  SRAMCS;
+          wire  CLR_IO_INT;
           wire  Net_34;
-          wire  Net_844;
+          wire  Net_894;
+          wire  Net_893;
+          wire  Net_896;
+          wire  Net_864;
+          wire  Net_855;
           wire  Net_390;
           wire  Net_388;
           wire  Net_386;
-          wire [7:0] SAR;
+          wire  Net_840;
           wire  Net_369;
           wire  Net_391;
           wire  Net_394;
           wire  Net_389;
-          wire  CLR_IO_INT;
           wire  Net_395;
           wire  Net_343;
           wire  Net_337;
@@ -1084,7 +1098,6 @@ module top ;
           wire  Net_835;
           wire  Net_823;
           wire  Net_825;
-          wire  Net_789;
           wire  Net_253;
           wire  Net_252;
           wire  Net_251;
@@ -1099,10 +1112,11 @@ module top ;
           wire  Net_768;
           wire  Net_766;
           wire  Net_775;
+          wire  Net_627;
           wire  Net_234;
           wire  Net_258;
+          wire [15:11] Z80A;
           wire  Net_226;
-          wire  Net_526;
           wire  Net_489;
           wire  Net_467;
           wire  Net_479;
@@ -1115,8 +1129,8 @@ module top ;
           wire  Net_507;
           wire  Net_397;
           wire  Net_429;
-          wire [15:11] Z80A;
           wire  Net_432;
+          wire  BANKED;
           wire  Net_435;
           wire  Net_438;
           wire  Net_441;
@@ -1126,11 +1140,11 @@ module top ;
           wire  Net_102;
           wire  Net_99;
           wire  Net_96;
+          wire [4:0] MSK;
           wire  Net_93;
           wire  Net_90;
           wire  Net_70;
           wire  Net_69;
-          wire  BANKED;
           wire  Net_81;
           wire  Net_284;
           wire  Net_324;
@@ -1140,16 +1154,13 @@ module top ;
           wire  Net_10;
           wire  Net_281;
           wire  Net_278;
-          wire [4:0] MSK;
           wire  Net_105;
           wire  Net_106;
           wire  Net_92;
           wire  Net_95;
           wire  Net_98;
-          wire  SRAMCSn;
           wire  Net_101;
           wire  Net_104;
-          wire  SRAMR1_W0;
           wire  Net_33;
           wire  Net_32;
           wire  Net_31;
@@ -1777,17 +1788,17 @@ module top ;
     defparam Z80_Data_In.NumOutputs = 8;
 
     CyStatusReg_v1_90 Z80_Data_Out (
-        .status_0(ZDO[0]),
-        .status_1(ZDO[1]),
-        .status_2(ZDO[2]),
-        .status_3(ZDO[3]),
+        .status_0(1'b0),
+        .status_1(1'b0),
+        .status_2(1'b0),
+        .status_3(1'b0),
         .clock(PSoC_CLK),
-        .status_4(ZDO[4]),
-        .status_5(ZDO[5]),
-        .status_6(ZDO[6]),
-        .status_7(ZDO[7]),
+        .status_4(1'b0),
+        .status_5(1'b0),
+        .status_6(1'b0),
+        .status_7(1'b0),
         .intr(Net_49),
-        .status_bus(8'b0));
+        .status_bus(ZDO[7:0]));
     defparam Z80_Data_Out.Bit0Mode = 0;
     defparam Z80_Data_Out.Bit1Mode = 0;
     defparam Z80_Data_Out.Bit2Mode = 0;
@@ -1796,7 +1807,7 @@ module top ;
     defparam Z80_Data_Out.Bit5Mode = 0;
     defparam Z80_Data_Out.Bit6Mode = 0;
     defparam Z80_Data_Out.Bit7Mode = 0;
-    defparam Z80_Data_Out.BusDisplay = 0;
+    defparam Z80_Data_Out.BusDisplay = 1;
     defparam Z80_Data_Out.Interrupt = 0;
     defparam Z80_Data_Out.MaskValue = 0;
     defparam Z80_Data_Out.NumInputs = 8;
@@ -1820,9 +1831,9 @@ module top ;
 
 	cy_psoc3_pins_v1_10
 		#(.id("8d318d8b-cf7b-4b6b-b02c-ab1c5c49d0ba"),
-		  .drive_mode(3'b001),
+		  .drive_mode(3'b010),
 		  .ibuf_enabled(1'b1),
-		  .init_dr_st(1'b0),
+		  .init_dr_st(1'b1),
 		  .input_clk_en(0),
 		  .input_sync(1'b0),
 		  .input_sync_mode(1'b0),
@@ -2553,7 +2564,7 @@ module top ;
     // -- DFF End --
 
     CyControlReg_v1_80 IO_Ctrl_Reg (
-        .control_1(Net_526),
+        .control_1(Net_855),
         .control_2(Net_491),
         .control_3(Net_492),
         .control_0(CLR_IO_INT),
@@ -2938,9 +2949,9 @@ module top ;
     if (1)
     begin : mux_5
         reg  tmp__mux_5_reg;
-        always @(Net_234 or SAR or BANKED)
+        always @(Net_234 or SAR or Net_627)
         begin
-            case (BANKED)
+            case (Net_627)
                 1'b0 :  tmp__mux_5_reg = Net_234;
                 1'b1 :  tmp__mux_5_reg = SAR[7];
             endcase
@@ -2953,9 +2964,9 @@ module top ;
     if (1)
     begin : mux_4
         reg  tmp__mux_4_reg;
-        always @(Net_258 or SAR or BANKED)
+        always @(Net_258 or SAR or Net_627)
         begin
-            case (BANKED)
+            case (Net_627)
                 1'b0 :  tmp__mux_4_reg = Net_258;
                 1'b1 :  tmp__mux_4_reg = SAR[6];
             endcase
@@ -2968,9 +2979,9 @@ module top ;
     if (1)
     begin : mux_3
         reg  tmp__mux_3_reg;
-        always @(Net_226 or SAR or BANKED)
+        always @(Net_226 or SAR or Net_627)
         begin
-            case (BANKED)
+            case (Net_627)
                 1'b0 :  tmp__mux_3_reg = Net_226;
                 1'b1 :  tmp__mux_3_reg = SAR[5];
             endcase
@@ -2983,9 +2994,9 @@ module top ;
     if (1)
     begin : mux_2
         reg  tmp__mux_2_reg;
-        always @(Z80A or SAR or BANKED)
+        always @(Z80A or SAR or Net_627)
         begin
-            case (BANKED)
+            case (Net_627)
                 1'b0 :  tmp__mux_2_reg = Z80A[15];
                 1'b1 :  tmp__mux_2_reg = SAR[4];
             endcase
@@ -2998,9 +3009,9 @@ module top ;
     if (1)
     begin : mux_1
         reg  tmp__mux_1_reg;
-        always @(Z80A or SAR or BANKED)
+        always @(Z80A or SAR or Net_627)
         begin
-            case (BANKED)
+            case (Net_627)
                 1'b0 :  tmp__mux_1_reg = Z80A[14];
                 1'b1 :  tmp__mux_1_reg = SAR[3];
             endcase
@@ -3013,9 +3024,9 @@ module top ;
     if (1)
     begin : mux_6
         reg  tmp__mux_6_reg;
-        always @(Z80A or SAR or BANKED)
+        always @(Z80A or SAR or Net_627)
         begin
-            case (BANKED)
+            case (Net_627)
                 1'b0 :  tmp__mux_6_reg = Z80A[13];
                 1'b1 :  tmp__mux_6_reg = SAR[2];
             endcase
@@ -3700,9 +3711,9 @@ module top ;
     if (1)
     begin : mux_10
         reg  tmp__mux_10_reg;
-        always @(Z80A or SAR or BANKED)
+        always @(Z80A or SAR or Net_627)
         begin
-            case (BANKED)
+            case (Net_627)
                 1'b0 :  tmp__mux_10_reg = Z80A[12];
                 1'b1 :  tmp__mux_10_reg = SAR[1];
             endcase
@@ -3790,9 +3801,9 @@ module top ;
     if (1)
     begin : mux_11
         reg  tmp__mux_11_reg;
-        always @(Z80A or SAR or BANKED)
+        always @(Z80A or SAR or Net_627)
         begin
-            case (BANKED)
+            case (Net_627)
                 1'b0 :  tmp__mux_11_reg = Z80A[11];
                 1'b1 :  tmp__mux_11_reg = SAR[1];
             endcase
@@ -4259,7 +4270,7 @@ module top ;
 		  .input_buffer_sel(2'b00))
 		LED
 		 (.oe(tmpOE__LED_net),
-		  .y({Net_526}),
+		  .y({Net_864}),
 		  .fb({tmpFB_0__LED_net[0:0]}),
 		  .io({tmpIO_0__LED_net[0:0]}),
 		  .siovref(tmpSIOVREF__LED_net),
@@ -4434,7 +4445,7 @@ module top ;
 
 
 
-    assign Net_389 = ~SRAMR1_W0;
+    assign Net_389 = ~SRAMREAD;
 
     I2C_v3_50_2 I2C (
         .sda(Net_305),
@@ -4543,10 +4554,10 @@ module top ;
     if (1)
     begin : mux_8
         reg  tmp__mux_8_reg;
-        always @(SRAMR1_W0 or Net_388 or Net_395)
+        always @(Net_840 or Net_388 or Net_395)
         begin
             case (Net_395)
-                1'b0 :  tmp__mux_8_reg = SRAMR1_W0;
+                1'b0 :  tmp__mux_8_reg = Net_840;
                 1'b1 :  tmp__mux_8_reg = Net_388;
             endcase
         end
@@ -4558,10 +4569,10 @@ module top ;
     if (1)
     begin : mux_7
         reg  tmp__mux_7_reg;
-        always @(SRAMCSn or Net_386 or Net_395)
+        always @(Net_896 or Net_386 or Net_395)
         begin
             case (Net_395)
-                1'b0 :  tmp__mux_7_reg = SRAMCSn;
+                1'b0 :  tmp__mux_7_reg = Net_896;
                 1'b1 :  tmp__mux_7_reg = Net_386;
             endcase
         end
@@ -4809,9 +4820,9 @@ module top ;
 
 	cy_psoc3_pins_v1_10
 		#(.id("dfab1087-2c37-49ca-8891-eedd9cfd2734"),
-		  .drive_mode(3'b001),
+		  .drive_mode(3'b010),
 		  .ibuf_enabled(1'b1),
-		  .init_dr_st(1'b0),
+		  .init_dr_st(1'b1),
 		  .input_clk_en(0),
 		  .input_sync(1'b0),
 		  .input_sync_mode(1'b0),
@@ -4883,9 +4894,9 @@ module top ;
 
 	cy_psoc3_pins_v1_10
 		#(.id("943f5abb-150e-474c-8bd5-52e8e4421796"),
-		  .drive_mode(3'b001),
+		  .drive_mode(3'b010),
 		  .ibuf_enabled(1'b1),
-		  .init_dr_st(1'b0),
+		  .init_dr_st(1'b1),
 		  .input_clk_en(0),
 		  .input_sync(1'b0),
 		  .input_sync_mode(1'b0),
@@ -5035,9 +5046,9 @@ module top ;
 
 	cy_psoc3_pins_v1_10
 		#(.id("7011e4f3-d43a-4022-9747-5712268cef99"),
-		  .drive_mode(3'b001),
+		  .drive_mode(3'b010),
 		  .ibuf_enabled(1'b1),
-		  .init_dr_st(1'b0),
+		  .init_dr_st(1'b1),
 		  .input_clk_en(0),
 		  .input_sync(1'b0),
 		  .input_sync_mode(1'b0),
@@ -5259,9 +5270,9 @@ module top ;
 
 	cy_psoc3_pins_v1_10
 		#(.id("8af597ae-ac4f-4fd4-866e-d8bbbb94a9e8"),
-		  .drive_mode(3'b001),
+		  .drive_mode(3'b010),
 		  .ibuf_enabled(1'b1),
-		  .init_dr_st(1'b0),
+		  .init_dr_st(1'b1),
 		  .input_clk_en(0),
 		  .input_sync(1'b0),
 		  .input_sync_mode(1'b0),
@@ -5676,10 +5687,10 @@ module top ;
     assign Net_24 = Net_825 | Net_823;
 
 
-    assign BANKED = Net_789 | DRV_RAM;
+    assign Net_627 = BANKED | DRV_RAM;
 
 
-    assign Net_789 = ~(Net_774 | Net_780 | Net_793 | Net_784 | Net_786);
+    assign BANKED = ~(Net_774 | Net_780 | Net_793 | Net_784 | Net_786);
 
 
     assign Net_786 = Net_772 & MSK[0];
@@ -5712,7 +5723,7 @@ module top ;
     assign Net_775 = BNK[4] ^ Z80A[15];
 
 
-    assign Net_823 = CPUWRn & DRV_RAM;
+    assign Net_823 = SRAMWRITE & DRV_RAM;
 
     VDAC8_v1_90_3 VDAC8_1 (
         .strobe(1'b0),
@@ -5886,14 +5897,14 @@ module top ;
 
 
     CyControlReg_v1_80 ExtSRAMCtl (
-        .control_1(DRV_RAM),
-        .control_2(SRAMCSn),
-        .control_3(Net_844),
-        .control_0(SRAMR1_W0),
-        .control_4(Net_846),
-        .control_5(Net_847),
-        .control_6(Net_848),
-        .control_7(Net_849),
+        .control_1(SRAMCS),
+        .control_2(SRAMREAD),
+        .control_3(SRAMWRITE),
+        .control_0(DRV_RAM),
+        .control_4(Net_893),
+        .control_5(Net_886),
+        .control_6(Net_887),
+        .control_7(Net_888),
         .clock(1'b0),
         .reset(1'b0));
     defparam ExtSRAMCtl.Bit0Mode = 0;
@@ -5904,10 +5915,10 @@ module top ;
     defparam ExtSRAMCtl.Bit5Mode = 0;
     defparam ExtSRAMCtl.Bit6Mode = 0;
     defparam ExtSRAMCtl.Bit7Mode = 0;
-    defparam ExtSRAMCtl.BitValue = 4;
+    defparam ExtSRAMCtl.BitValue = 16;
     defparam ExtSRAMCtl.BusDisplay = 0;
     defparam ExtSRAMCtl.ExtrReset = 0;
-    defparam ExtSRAMCtl.NumOutputs = 4;
+    defparam ExtSRAMCtl.NumOutputs = 5;
 
 	wire [0:0] tmpOE__CPURSTn_net;
 	wire [0:0] tmpFB_0__CPURSTn_net;
@@ -5970,7 +5981,7 @@ module top ;
 		  .input_buffer_sel(2'b00))
 		CPURSTn
 		 (.oe(tmpOE__CPURSTn_net),
-		  .y({Net_844}),
+		  .y({Net_894}),
 		  .fb({tmpFB_0__CPURSTn_net[0:0]}),
 		  .io({tmpIO_0__CPURSTn_net[0:0]}),
 		  .siovref(tmpSIOVREF__CPURSTn_net),
@@ -5986,6 +5997,18 @@ module top ;
 
 
     assign Net_395 = ~DRV_RAM;
+
+
+    assign Net_864 = ~Net_855;
+
+
+    assign Net_894 = ~Net_893;
+
+
+    assign Net_896 = ~SRAMCS;
+
+
+    assign Net_840 = ~SRAMWRITE;
 
 
 
