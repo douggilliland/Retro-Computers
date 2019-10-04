@@ -42,17 +42,14 @@ int main(void)
     uint32 switchesVal;
     
     CyGlobalIntEnable;          /* Enable global interrupts. */
-//    PostLed(5);
     
     // Do Power On Self Tests (POST)
     // SRAM POST
     postVal = TestSRAM();       // Run External SRAM POST
-    if (postVal != 0x01)
-    {
-        PostLed(postVal+1);         // 1 blink = pass, more than 1 = fail
-        while (1);
-    }
-//    PostLed(10);
+    PostLed(postVal+1);         // 1 blink = pass, more than 1 = fail
+    if (postVal != 0)
+        while(1);
+    
     init_FrontPanel();
 
     for(;;)                     // Loop forever
