@@ -39,7 +39,7 @@ void PostLed(uint32 postVal)
 int main(void)
 {
     uint32 postVal;
-    uint32 switchesVal;
+    uint32 switchesVal = 0;
     
     CyGlobalIntEnable;          /* Enable global interrupts. */
     
@@ -55,7 +55,8 @@ int main(void)
 
     for(;;)                     // Loop forever
     {
-        switchesVal = waitFrontPanelSwitchesPressed();
+//        writeFrontPanelLEDs(readFrontPanelSwitchesStatic());
+        switchesVal ^= waitFrontPanelSwitchesPressed();
         writeFrontPanelLEDs(switchesVal);
     }
 }

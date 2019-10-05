@@ -44,7 +44,7 @@ uint8 readRegister_MCP23017(uint8, uint8);
 void writeRegister_MCP23017(uint8, uint8, uint8);
 void init_FrontPanel(void);
 uint32 readFrontPanelSwitchesStatic(void);
-uint8 readFrontPanelSwitchesRegistered(void);
+uint32 readFrontPanelSwitchesRegistered(void);
 uint32 waitFrontPanelSwitchesPressed();
 void writeFrontPanelLEDs(uint32);
 

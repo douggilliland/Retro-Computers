@@ -78,6 +78,73 @@ void init_FrontPanel(void)
 }
 
 //////////////////////////////////////////////////////////////////////////////////////
+// readFrontPanelSwitchesRegistered
+//  Handler for the Pushbuttons and LEDs
+//  Toggles the LED
+//  Reads all four MCP23017 Port A's to make a 32-bit result
+//  Looks for the switch to be pressed for 3 samples in a row
+// Returns: 0 if there was no key pressed
+//          1 if there was a key pressed
+
+uint32 readFrontPanelSwitchesRegistered(void)
+{
+    uint32 rdVal;
+    uint32 retVal = 0;
+    uint32 valMin1 = 0;
+    uint32 valMin2 = 0;
+    uint32 valMin3 = 0;
+    uint8 keyPressed = 0;
+    rdVal = readFrontPanelSwitchesStatic();
+    if (rdVal  == 0x00)     // No key is pressed at this polling
+    {
+        valMin1 = 0;
+        valMin2 = 0;
+        valMin3 = 0;
+        return(0);
+    }
+    else    // key is now pressed
+    {
+        keyPressed = 1;
+        while (keyPressed)  // stick around until key is no longer pressed
+        {
+            rdVal = readFrontPanelSwitchesStatic();
+            if (rdVal == 0)
+            {
+                keyPressed = 0;
+                valMin1 = 0;
+                valMin2 = 0;
+                valMin3 = 0;
+                return(retVal);
+            }
+            valMin3 = valMin2;
+            valMin2 = valMin1;
+            valMin1 = rdVal;
+            if ((valMin3 == 0) && (valMin2 != 0) && (valMin1 != 0) && (rdVal != 0))
+            {
+                retVal = valMin2;
+            }
+            CyDelay(10);    // 10 mS sampling for debouncing
+        }
+    }
+    return (retVal);
+}
+
+//////////////////////////////////////////////////////////////////////////////////////
+// waitFrontPanelSwitchesPressed() - Wait for switch to be pressed and return value
+
+uint32 waitFrontPanelSwitchesPressed(void)
+{
+    uint32 switchVals = 0;
+    while (switchVals == 0)
+    {   
+        switchVals = readFrontPanelSwitchesRegistered();
+        if (switchVals != 0x0)
+            return (switchVals);
+    }
+    return (0);
+}
+
+//////////////////////////////////////////////////////////////////////////////////////
 // readFrontPanelSwitchesStatic() - Reads the current value of the actual switches
 //  Reads all four MCP23017 Port A's to make a 32-bit result
 
@@ -92,80 +159,6 @@ uint32 readFrontPanelSwitchesStatic(void)
     switchVals = switchVals<<8;
     switchVals |= readRegister_MCP23017(MCP23017_3,MCP23017_GPIOA_REGADR);
     return (switchVals);
-}
-
-//////////////////////////////////////////////////////////////////////////////////////
-// readFrontPanelSwitchesRegistered
-//  Handler for the Pushbuttons and LEDs
-//  Toggles the LED
-//  Reads all four MCP23017 Port A's to make a 32-bit result
-//  Looks for the switch to be pressed for 3 samples in a row
-// Returns: 0 if there was no key pressed
-//          1 if there was a key pressed
-
-uint8 readFrontPanelSwitchesRegistered(void)
-{
-    uint32 rdVal;
-    uint8 retVal = 0;
-    uint32 valMin1 = 0;
-    uint32 valMin2 = 0;
-    uint32 valMin3 = 0;
-    uint8 keyPressed = 0; 
-    rdVal = readFrontPanelSwitchesStatic();
-    if (rdVal  == 0x00)     // No key is pressed at this polling
-    {
-        if (keyPressed == 0)    // No key press is in progress
-            return(0);
-        else    // key was pressed in the past but is no longer pressed
-        {
-            valMin1 = 0;
-            valMin2 = 0;
-            valMin3 = 0;
-            return(0);
-        }
-    }
-    else    // key is now pressed
-    {
-        keyPressed = 1;
-        while (keyPressed)  // stick around until key is no longer pressed
-        {
-            rdVal = readFrontPanelSwitchesStatic();
-            if (rdVal == 0)
-            {
-                keyPressed = 0;
-                valMin1 = 0;
-                valMin2 = 0;
-                valMin3 = 0;
-                return(0);
-            }
-            valMin3 = valMin2;
-            valMin2 = valMin1;
-            valMin1 = rdVal;
-            if ((valMin3 == 0) && (valMin2 != 0) && (valMin1 != 0) && (rdVal != 0))
-            {
-                FPLong ^= rdVal;   // toggle the read value 3 samples later
-                writeFrontPanelLEDs(FPLong);
-                retVal = 1;
-            }
-            CyDelay(25);    // 10 mS sampling for debouncing
-        }
-    }
-    return (retVal);
-}
-
-//////////////////////////////////////////////////////////////////////////////////////
-// waitFrontPanelSwitchesPressed() - Wait for switch to be pressed and return value
-
-uint32 waitFrontPanelSwitchesPressed(void)
-{
-    uint32 switchVals = 0;
-    while (switchVals == 0)
-    {   
-        switchVals = readFrontPanelSwitchesStatic();
-        if (switchVals != 0x0)
-            return (switchVals);
-    }
-    return (0);
 }
 
 //////////////////////////////////////////////////////////////////////////////////////
