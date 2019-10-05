@@ -121,7 +121,7 @@ uint32 readFrontPanelSwitchesRegistered(void)
             valMin1 = rdVal;
             if ((valMin3 == 0) && (valMin2 != 0) && (valMin1 != 0) && (rdVal != 0))
             {
-                retVal = valMin2;
+                return(valMin2);
             }
             CyDelay(10);    // 10 mS sampling for debouncing
         }
@@ -135,6 +135,7 @@ uint32 readFrontPanelSwitchesRegistered(void)
 uint32 waitFrontPanelSwitchesPressed(void)
 {
     uint32 switchVals = 0;
+    while (readFrontPanelSwitchesRegistered() != 0);    // wait for previous key release
     while (switchVals == 0)
     {   
         switchVals = readFrontPanelSwitchesRegistered();
