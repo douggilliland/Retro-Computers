@@ -50,6 +50,7 @@ int main(void)
     if (postVal != 0)
         while(1);
     
+    I2C_Start();
     init_FrontPanel();
 
     for(;;)                     // Loop forever

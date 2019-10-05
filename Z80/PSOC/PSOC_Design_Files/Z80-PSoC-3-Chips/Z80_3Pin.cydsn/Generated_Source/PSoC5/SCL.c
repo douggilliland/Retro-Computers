@@ -1,5 +1,5 @@
 /*******************************************************************************
-* File Name: SCL_1.c  
+* File Name: SCL.c  
 * Version 2.20
 *
 * Description:
@@ -15,15 +15,15 @@
 *******************************************************************************/
 
 #include "cytypes.h"
-#include "SCL_1.h"
+#include "SCL.h"
 
 /* APIs are not generated for P15[7:6] on PSoC 5 */
 #if !(CY_PSOC5A &&\
-	 SCL_1__PORT == 15 && ((SCL_1__MASK & 0xC0) != 0))
+	 SCL__PORT == 15 && ((SCL__MASK & 0xC0) != 0))
 
 
 /*******************************************************************************
-* Function Name: SCL_1_Write
+* Function Name: SCL_Write
 ****************************************************************************//**
 *
 * \brief Writes the value to the physical port (data output register), masking
@@ -52,17 +52,17 @@
 *  this function.
 *
 * \funcusage
-*  \snippet SCL_1_SUT.c usage_SCL_1_Write
+*  \snippet SCL_SUT.c usage_SCL_Write
 *******************************************************************************/
-void SCL_1_Write(uint8 value)
+void SCL_Write(uint8 value)
 {
-    uint8 staticBits = (SCL_1_DR & (uint8)(~SCL_1_MASK));
-    SCL_1_DR = staticBits | ((uint8)(value << SCL_1_SHIFT) & SCL_1_MASK);
+    uint8 staticBits = (SCL_DR & (uint8)(~SCL_MASK));
+    SCL_DR = staticBits | ((uint8)(value << SCL_SHIFT) & SCL_MASK);
 }
 
 
 /*******************************************************************************
-* Function Name: SCL_1_SetDriveMode
+* Function Name: SCL_SetDriveMode
 ****************************************************************************//**
 *
 * \brief Sets the drive mode for each of the Pins component's pins.
@@ -85,16 +85,16 @@ void SCL_1_Write(uint8 value)
 *  APIs (primary method) or disable interrupts around this function.
 *
 * \funcusage
-*  \snippet SCL_1_SUT.c usage_SCL_1_SetDriveMode
+*  \snippet SCL_SUT.c usage_SCL_SetDriveMode
 *******************************************************************************/
-void SCL_1_SetDriveMode(uint8 mode)
+void SCL_SetDriveMode(uint8 mode)
 {
-	CyPins_SetPinDriveMode(SCL_1_0, mode);
+	CyPins_SetPinDriveMode(SCL_0, mode);
 }
 
 
 /*******************************************************************************
-* Function Name: SCL_1_Read
+* Function Name: SCL_Read
 ****************************************************************************//**
 *
 * \brief Reads the associated physical port (pin status register) and masks 
@@ -108,16 +108,16 @@ void SCL_1_SetDriveMode(uint8 mode)
 *  The current value for the pins in the component as a right justified number.
 *
 * \funcusage
-*  \snippet SCL_1_SUT.c usage_SCL_1_Read  
+*  \snippet SCL_SUT.c usage_SCL_Read  
 *******************************************************************************/
-uint8 SCL_1_Read(void)
+uint8 SCL_Read(void)
 {
-    return (SCL_1_PS & SCL_1_MASK) >> SCL_1_SHIFT;
+    return (SCL_PS & SCL_MASK) >> SCL_SHIFT;
 }
 
 
 /*******************************************************************************
-* Function Name: SCL_1_ReadDataReg
+* Function Name: SCL_ReadDataReg
 ****************************************************************************//**
 *
 * \brief Reads the associated physical port's data output register and masks 
@@ -126,8 +126,8 @@ uint8 SCL_1_Read(void)
 *
 * The data output register controls the signal applied to the physical pin in 
 * conjunction with the drive mode parameter. This is not the same as the 
-* preferred SCL_1_Read() API because the 
-* SCL_1_ReadDataReg() reads the data register instead of the status 
+* preferred SCL_Read() API because the 
+* SCL_ReadDataReg() reads the data register instead of the status 
 * register. For output pins this is a useful function to determine the value 
 * just written to the pin.
 *
@@ -136,19 +136,19 @@ uint8 SCL_1_Read(void)
 *  justified number for the component instance.
 *
 * \funcusage
-*  \snippet SCL_1_SUT.c usage_SCL_1_ReadDataReg 
+*  \snippet SCL_SUT.c usage_SCL_ReadDataReg 
 *******************************************************************************/
-uint8 SCL_1_ReadDataReg(void)
+uint8 SCL_ReadDataReg(void)
 {
-    return (SCL_1_DR & SCL_1_MASK) >> SCL_1_SHIFT;
+    return (SCL_DR & SCL_MASK) >> SCL_SHIFT;
 }
 
 
 /* If interrupt is connected for this Pins component */ 
-#if defined(SCL_1_INTSTAT) 
+#if defined(SCL_INTSTAT) 
 
     /*******************************************************************************
-    * Function Name: SCL_1_SetInterruptMode
+    * Function Name: SCL_SetInterruptMode
     ****************************************************************************//**
     *
     * \brief Configures the interrupt mode for each of the Pins component's
@@ -161,12 +161,12 @@ uint8 SCL_1_ReadDataReg(void)
     * \param position
     *  The pin position as listed in the Pins component. You may OR these to be 
     *  able to configure the interrupt mode of multiple pins within a Pins 
-    *  component. Or you may use SCL_1_INTR_ALL to configure the
+    *  component. Or you may use SCL_INTR_ALL to configure the
     *  interrupt mode of all the pins in the Pins component.       
-    *  - SCL_1_0_INTR       (First pin in the list)
-    *  - SCL_1_1_INTR       (Second pin in the list)
+    *  - SCL_0_INTR       (First pin in the list)
+    *  - SCL_1_INTR       (Second pin in the list)
     *  - ...
-    *  - SCL_1_INTR_ALL     (All pins in Pins component)
+    *  - SCL_INTR_ALL     (All pins in Pins component)
     *
     * \param mode
     *  Interrupt mode for the selected pins. Valid options are documented in
@@ -182,19 +182,19 @@ uint8 SCL_1_ReadDataReg(void)
     *  port.
     *
     * \funcusage
-    *  \snippet SCL_1_SUT.c usage_SCL_1_SetInterruptMode
+    *  \snippet SCL_SUT.c usage_SCL_SetInterruptMode
     *******************************************************************************/
-    void SCL_1_SetInterruptMode(uint16 position, uint16 mode)
+    void SCL_SetInterruptMode(uint16 position, uint16 mode)
     {
-		if((position & SCL_1_0_INTR) != 0u) 
+		if((position & SCL_0_INTR) != 0u) 
 		{ 
-			 SCL_1_0_INTTYPE_REG = (uint8)mode; 
+			 SCL_0_INTTYPE_REG = (uint8)mode; 
 		}
     }
     
     
     /*******************************************************************************
-    * Function Name: SCL_1_ClearInterrupt
+    * Function Name: SCL_ClearInterrupt
     ****************************************************************************//**
     *
     * \brief Clears any active interrupts attached with the component and returns 
@@ -211,11 +211,11 @@ uint8 SCL_1_ReadDataReg(void)
     *  those associated with the Pins component.
     *
     * \funcusage
-    *  \snippet SCL_1_SUT.c usage_SCL_1_ClearInterrupt
+    *  \snippet SCL_SUT.c usage_SCL_ClearInterrupt
     *******************************************************************************/
-    uint8 SCL_1_ClearInterrupt(void)
+    uint8 SCL_ClearInterrupt(void)
     {
-        return (SCL_1_INTSTAT & SCL_1_MASK) >> SCL_1_SHIFT;
+        return (SCL_INTSTAT & SCL_MASK) >> SCL_SHIFT;
     }
 
 #endif /* If Interrupts Are Enabled for this Pins component */ 
