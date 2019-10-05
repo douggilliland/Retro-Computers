@@ -12,6 +12,7 @@
 
 #include <project.h>
 #include "FrontPanel.h"
+#include "ExtSRAM.h"
 
 #define MCP23017_IODIR_DEFVAL    0xff       // Initially set all channels to inputs
 #define MCP23017_IODIR_ALL_INS   0xff
@@ -75,6 +76,61 @@ void init_FrontPanel(void)
     FPAddr = 0;
     FPCtrl = 0;
     FPLong = 0;
+}
+
+//////////////////////////////////////////////////////////////////////////////////////
+// runFrontPanel()
+// Returns when run button is pressed on front panel
+
+void runFrontPanel(void)
+{
+    uint32 switchesVal = 0;
+    uint32 LEDsVal = 0;
+    
+    I2C_Start();
+    init_FrontPanel();
+    LEDsVal |= ReadExtSRAM(0);
+    writeFrontPanelLEDs(LEDsVal);       // clears LEDs
+
+    for(;;)                     // Loop forever
+    {
+        switchesVal = waitFrontPanelSwitchesPressed();
+        if ((switchesVal & 0xff000000) != 0)    // Control switch on top row was pressed
+        {
+            if ((switchesVal & 0x01000000) == 0x01000000)       // Incr address and read memory
+            {
+                LEDsVal += 0x00000100;
+                LEDsVal &= 0xffffff00;
+                LEDsVal |= ReadExtSRAM((LEDsVal >> 8) & 0xffff);
+                writeFrontPanelLEDs(LEDsVal);
+            }
+            else if ((switchesVal & 0x02000000) == 0x02000000)  // Store to addr, incr address and read memory
+            {
+                WriteExtSRAM((LEDsVal >> 8) & 0xffff,LEDsVal&0xff);
+                LEDsVal += 0x00000100;
+                LEDsVal &= 0xffffff00;
+                LEDsVal |= ReadExtSRAM((LEDsVal >> 8) & 0xffff);
+                writeFrontPanelLEDs(LEDsVal);
+            }
+            else if ((switchesVal & 0x04000000) == 0x04000000)  //Load address and read memory
+            {
+                LEDsVal &= 0xffffff00;
+                LEDsVal |= ReadExtSRAM((LEDsVal >> 8) & 0xffff);
+                writeFrontPanelLEDs(LEDsVal);
+            }
+            else if ((switchesVal & 0x08000000) == 0x08000000)  // Run program
+            {
+                ExtSRAMCtl_Control = 0;
+                return;
+            }
+            
+        }
+        else    // Non-control switch was pressed
+        {
+            LEDsVal ^= switchesVal;
+            writeFrontPanelLEDs(LEDsVal);
+        }
+    }
 }
 
 //////////////////////////////////////////////////////////////////////////////////////

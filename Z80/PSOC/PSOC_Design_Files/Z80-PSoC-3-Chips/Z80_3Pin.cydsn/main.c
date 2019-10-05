@@ -11,6 +11,7 @@
 */
 #include "project.h"
 #include "FrontPanel.h"
+#include "ExtSRAM.h"
 
 ////////////////////////////////////////////////////////////////////////////
 // Function prototypes
@@ -39,8 +40,6 @@ void PostLed(uint32 postVal)
 int main(void)
 {
     uint32 postVal;
-    uint32 switchesVal = 0;
-    uint32 LEDsVal = 0;
     
     CyGlobalIntEnable;          /* Enable global interrupts. */
     
@@ -51,47 +50,10 @@ int main(void)
     if (postVal != 0)
         while(1);
     
-    I2C_Start();
-    init_FrontPanel();
-    writeFrontPanelLEDs(LEDsVal);       // clears LEDs
+    runFrontPanel();
 
     for(;;)                     // Loop forever
     {
-        switchesVal = waitFrontPanelSwitchesPressed();
-        if ((switchesVal & 0xff000000) != 0)    // Control switch on top row was pressed
-        {
-            if ((switchesVal & 0x01000000) == 0x01000000)       // Incr address and read memory
-            {
-                LEDsVal += 0x00000100;
-                LEDsVal &= 0xffffff00;
-                LEDsVal |= ReadExtSRAM((LEDsVal >> 8) & 0xffff);
-                writeFrontPanelLEDs(LEDsVal);
-            }
-            else if ((switchesVal & 0x02000000) == 0x02000000)  // Store to addr, incr address and read memory
-            {
-                WriteExtSRAM((LEDsVal >> 8) & 0xffff,LEDsVal&0xff);
-                LEDsVal += 0x00000100;
-                LEDsVal &= 0xffffff00;
-                LEDsVal |= ReadExtSRAM((LEDsVal >> 8) & 0xffff);
-                writeFrontPanelLEDs(LEDsVal);
-            }
-            else if ((switchesVal & 0x04000000) == 0x04000000)  //Load address and read memory
-            {
-                LEDsVal &= 0xffffff00;
-                LEDsVal |= ReadExtSRAM((LEDsVal >> 8) & 0xffff);
-                writeFrontPanelLEDs(LEDsVal);
-            }
-            else if ((switchesVal & 0x08000000) == 0x08000000)  // Run program
-            {
-                
-            }
-            
-        }
-        else    // Non-control switch was pressed
-        {
-            LEDsVal ^= switchesVal;
-            writeFrontPanelLEDs(LEDsVal);
-        }
     }
 }
 

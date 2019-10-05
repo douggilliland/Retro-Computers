@@ -31,6 +31,7 @@
 #include "AdrHighOut.h"
 #include "Z80_Data_In.h"
 #include "Z80_Data_Out.h"
+#include "ExtSRAM.h"
 
 #define SRAMRW_MASK     0x01
 #define SRAM_WRITE      0x00
