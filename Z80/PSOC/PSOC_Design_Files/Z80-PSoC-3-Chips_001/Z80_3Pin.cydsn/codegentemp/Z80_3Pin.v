@@ -1,6 +1,6 @@
 // ======================================================================
 // Z80_3Pin.v generated from TopDesign.cysch
-// 10/05/2019 at 17:48
+// 10/06/2019 at 18:33
 // This file is auto generated. ANY EDITS YOU MAKE MAY BE LOST WHEN THIS FILE IS REGENERATED!!!
 // ======================================================================
 
@@ -1077,15 +1077,15 @@ module top ;
           wire  CLR_IO_INT;
           wire  Net_35;
           wire  Net_34;
+          wire  Net_840;
           wire  Net_894;
-          wire  Net_893;
+          wire  Net_485;
           wire  Net_896;
           wire  Net_864;
           wire  Net_855;
           wire  Net_390;
           wire  Net_388;
           wire  Net_386;
-          wire  Net_840;
           wire  Net_369;
           wire  Net_391;
           wire  Net_394;
@@ -1112,8 +1112,8 @@ module top ;
           wire  Net_766;
           wire  Net_775;
           wire  Net_627;
-          wire  Net_234;
           wire [15:11] Z80A;
+          wire  Net_234;
           wire  Net_258;
           wire  Net_226;
           wire  Net_489;
@@ -1127,8 +1127,8 @@ module top ;
           wire  Net_508;
           wire  Net_507;
           wire  Net_397;
-          wire  Net_429;
           wire  BANKED;
+          wire  Net_429;
           wire  Net_432;
           wire  Net_435;
           wire  Net_438;
@@ -1137,8 +1137,8 @@ module top ;
           wire  Net_419;
           wire  Net_398;
           wire  Net_102;
-          wire  Net_99;
           wire [4:0] MSK;
+          wire  Net_99;
           wire  Net_96;
           wire  Net_93;
           wire  Net_90;
@@ -1169,6 +1169,7 @@ module top ;
           wire  Net_26;
           wire  Net_24;
           wire  Net_4;
+          wire  CPURES;
 
 	wire [0:0] tmpOE__CPUD0_net;
 	wire [0:0] tmpIO_0__CPUD0_net;
@@ -5521,7 +5522,7 @@ module top ;
     reg  cy_srff_1;
     always @(posedge PSoC_CLK)
     begin
-        cy_srff_1 <= (Net_488 | Net_489) & ~CLR_IO_INT;
+        cy_srff_1 <= (Net_488 | Net_489) & ~Net_485;
     end
     assign Net_489 = cy_srff_1;
     // -- SRFF End --
@@ -5900,7 +5901,7 @@ module top ;
         .control_2(SRAMREAD),
         .control_3(SRAMWRITE),
         .control_0(DRV_RAM),
-        .control_4(Net_893),
+        .control_4(CPURES),
         .control_5(Net_886),
         .control_6(Net_887),
         .control_7(Net_888),
@@ -6001,13 +6002,16 @@ module top ;
     assign Net_864 = ~Net_855;
 
 
-    assign Net_894 = ~Net_893;
+    assign Net_894 = ~CPURES;
 
 
     assign Net_896 = ~SRAMCS;
 
 
     assign Net_840 = ~SRAMWRITE;
+
+
+    assign Net_485 = CLR_IO_INT | CPURES;
 
 
 

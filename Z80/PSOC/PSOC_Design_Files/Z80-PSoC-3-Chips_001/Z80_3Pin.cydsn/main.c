@@ -66,7 +66,7 @@ int main(void)
     PostLed(postVal+1);         // 1 blink = pass, more than 1 = fail
     if (postVal != 0)
         while(1);
-    
+    loadSRAM();
     runFrontPanel();            // Exits either by pressing EXitFrontPanel or RUN button on front panel
 
     for(;;)
