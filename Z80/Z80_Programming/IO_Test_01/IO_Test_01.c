@@ -1,4 +1,4 @@
-/* simple code that loops forever */
+/* simple code that tests I/O */
 
 #include <z80.h>
 
