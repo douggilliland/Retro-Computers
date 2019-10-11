@@ -1,4 +1,10 @@
-/* http://srecord.sourceforge.net/ */
+// Monitor and BASIC in ROM
+// From Grant Searle's site
+// http://zx80.netai.net/grant/cpm/index.html#ROMFiles
+//
+// HEX file conversion to C array by
+//  http://srecord.sourceforge.net/ */
+
 unsigned char monitor_eprom[] =
 {
 0xF3, 0xC3, 0x8A, 0x01, 0x00, 0x00, 0x00, 0x00, 0xC3, 0x24, 0x01, 0x00,
