@@ -1,5 +1,11 @@
-/* http://srecord.sourceforge.net/ */
-const unsigned char monitor_eprom[] =
+// Monitor and BASIC in ROM
+// From Grant Searle's site
+// http://zx80.netai.net/grant/cpm/index.html#ROMFiles
+//
+// HEX file conversion to C array by
+//  http://srecord.sourceforge.net/ */
+
+unsigned char monitor_eprom[] =
 {
 0xF3, 0xC3, 0x8A, 0x01, 0x00, 0x00, 0x00, 0x00, 0xC3, 0x24, 0x01, 0x00,
 0x00, 0x00, 0x00, 0x00, 0xC3, 0xC0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -1373,7 +1379,7 @@ const unsigned long eprom_start       = 0x00000000;
 const unsigned long eprom_finish      = 0x00004000;
 const unsigned long eprom_length      = 0x00004000;
 
-#define EPROM_TERMINATION 0x00000000
-#define EPROM_START       0x00000000
-#define EPROM_FINISH      0x00004000
-#define EPROM_LENGTH      0x00004000
+#define MONITOR_TERMINATION 0x00000000
+#define MONITOR_START       0x00000000
+#define MONITOR_FINISH      0x00004000
+#define MONITOR_LENGTH      0x00004000
