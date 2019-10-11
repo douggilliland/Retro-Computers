@@ -1,6 +1,6 @@
 // ======================================================================
 // Z80_3Pin.v generated from TopDesign.cysch
-// 10/06/2019 at 18:33
+// 10/10/2019 at 20:28
 // This file is auto generated. ANY EDITS YOU MAKE MAY BE LOST WHEN THIS FILE IS REGENERATED!!!
 // ======================================================================
 
@@ -3805,7 +3805,7 @@ module top ;
         begin
             case (Net_627)
                 1'b0 :  tmp__mux_11_reg = Z80A[11];
-                1'b1 :  tmp__mux_11_reg = SAR[1];
+                1'b1 :  tmp__mux_11_reg = SAR[0];
             endcase
         end
         assign Net_612 = tmp__mux_11_reg;

@@ -106,9 +106,9 @@ void WriteExtSRAM(uint32 addr, uint8 data)
 
 uint32 TestSRAM(void)
 {
-    uint32 sramAddr;
-    uint8 sramData;
-    uint8 sramReadData;
+    volatile uint32 sramAddr;
+    volatile uint8 sramData;
+    volatile uint8 sramReadData;
     ExtSRAMCtl_Control = (CPURESET_BIT | DRVRAM_BIT);              // Z80 in reset, SRAM deselected, DRV_RAM asserted
     // Do a single write/read of the first location as a quick test
     WriteExtSRAM(0x0,0x55);             // Write 0x55 to the SRAM
