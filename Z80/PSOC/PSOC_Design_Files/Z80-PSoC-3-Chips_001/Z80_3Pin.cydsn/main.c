@@ -14,6 +14,8 @@
 #include "FrontPanel.h"
 #include "ExtSRAM.h"
 
+extern void loadSRAM(void);
+
 #define USBFS_DEVICE    (0u)
 
 /* The buffer size is equal to the maximum packet size of the IN and OUT bulk

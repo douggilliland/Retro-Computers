@@ -89,9 +89,14 @@ void runFrontPanel(void)
     
     I2C_Start();
     init_FrontPanel();
+    // Bounce LEDs
+    for (LEDsVal = 1; LEDsVal != 0; LEDsVal <<= 1)
+    {
+        writeFrontPanelLEDs(LEDsVal);
+        CyDelay(100);
+    }
     LEDsVal |= ReadExtSRAM(0);
     writeFrontPanelLEDs(LEDsVal);       // clears LEDs
-
     for(;;)                     // Loop forever
     {
         switchesVal = waitFrontPanelSwitchesPressed();
@@ -99,32 +104,66 @@ void runFrontPanel(void)
         {
             if ((switchesVal & 0x01000000) == 0x01000000)       // Incr address and read memory
             {
+                LEDsVal |= 0x01000000;          // Flicker INCAD LED
+                writeFrontPanelLEDs(LEDsVal);
                 LEDsVal += 0x00000100;
-                LEDsVal &= 0xffffff00;
+                LEDsVal &= 0x00ffff00;
                 LEDsVal |= ReadExtSRAM((LEDsVal >> 8) & 0xffff);
                 writeFrontPanelLEDs(LEDsVal);
             }
             else if ((switchesVal & 0x02000000) == 0x02000000)  // Store to addr, incr address and read memory
             {
+                LEDsVal |= 0x02000000;          // Flicker STINC LED
+                writeFrontPanelLEDs(LEDsVal);
                 WriteExtSRAM((LEDsVal >> 8) & 0xffff,LEDsVal&0xff);
                 LEDsVal += 0x00000100;
-                LEDsVal &= 0xffffff00;
+                LEDsVal &= 0x00ffff00;
                 LEDsVal |= ReadExtSRAM((LEDsVal >> 8) & 0xffff);
                 writeFrontPanelLEDs(LEDsVal);
             }
             else if ((switchesVal & 0x04000000) == 0x04000000)  //Load address and read memory
             {
-                LEDsVal &= 0xffffff00;
+                LEDsVal |= 0x04000000;          // Flicker LDADR LED
+                writeFrontPanelLEDs(LEDsVal);
+                LEDsVal &= 0x00ffff00;
                 LEDsVal |= ReadExtSRAM((LEDsVal >> 8) & 0xffff);
                 writeFrontPanelLEDs(LEDsVal);
             }
             else if ((switchesVal & 0x08000000) == 0x08000000)  // Run program
             {
                 ExtSRAMCtl_Control = 0;
+                LEDsVal = 0x08000000;
+                writeFrontPanelLEDs(LEDsVal);       // Leave Run LED on
                 return;
+            }
+            else if ((switchesVal & 0x10000000) == 0x10000000)  // TBD
+            {
+                LEDsVal = 0x10000000;
+                writeFrontPanelLEDs(LEDsVal);       // Leave LED on
+                CyDelay(250);
+                LEDsVal &= 0x00ffffff;
+                writeFrontPanelLEDs(LEDsVal);       // Turn off LED
+            }
+            else if ((switchesVal & 0x20000000) == 0x20000000)  // TBD
+            {
+                LEDsVal = 0x20000000;
+                writeFrontPanelLEDs(LEDsVal);       // Leave LED on
+                CyDelay(250);
+                LEDsVal &= 0x00ffffff;
+                writeFrontPanelLEDs(LEDsVal);       // Turn off LED
+            }
+            else if ((switchesVal & 0x40000000) == 0x40000000)  // TBD
+            {
+                LEDsVal = 0x40000000;
+                writeFrontPanelLEDs(LEDsVal);       // Leave LED on
+                CyDelay(250);
+                LEDsVal &= 0x00ffffff;
+                writeFrontPanelLEDs(LEDsVal);       // Turn off LED
             }
             else if ((switchesVal & 0x80000000) == 0x80000000)  // Exit front panel without releasing reset to Z80
             {
+                LEDsVal = 0x80000000;
+                writeFrontPanelLEDs(LEDsVal);       // Leave LED on
                 return;
             }
         }
