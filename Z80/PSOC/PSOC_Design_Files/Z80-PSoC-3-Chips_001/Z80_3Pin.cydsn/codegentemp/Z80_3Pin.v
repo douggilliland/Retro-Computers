@@ -1,6 +1,6 @@
 // ======================================================================
 // Z80_3Pin.v generated from TopDesign.cysch
-// 10/12/2019 at 12:45
+// 10/12/2019 at 15:31
 // This file is auto generated. ANY EDITS YOU MAKE MAY BE LOST WHEN THIS FILE IS REGENERATED!!!
 // ======================================================================
 
@@ -887,11 +887,10 @@ module top ;
           wire  Net_752;
           wire [7:0] Net_459;
           wire  Net_458;
-          wire  Net_457;
           wire  IORQn;
+          wire  Net_457;
           wire  Net_456;
           wire  Net_455;
-          wire  Net_454;
           wire  Net_937;
           wire  Net_315;
           wire  Net_314;
@@ -1008,7 +1007,6 @@ module top ;
           wire  Net_234;
           wire  Net_258;
           wire  Net_226;
-          wire  Net_489;
           wire  Net_467;
           wire  Net_479;
           wire  Net_519;
@@ -1056,6 +1054,7 @@ module top ;
           wire  Net_26;
           wire  Net_24;
           wire  Net_4;
+          wire  IOBUSY;
 
 	wire [0:0] tmpOE__CPUD0_net;
 	wire [0:0] tmpIO_0__CPUD0_net;
@@ -4973,7 +4972,7 @@ module top ;
         .status_2(CPUWRn),
         .status_3(M1n),
         .clock(PSoC_CLK),
-        .status_4(1'b0),
+        .status_4(IOBUSY),
         .status_5(1'b0),
         .status_6(1'b0),
         .status_7(1'b0),
@@ -4990,7 +4989,7 @@ module top ;
     defparam IO_Stat_Reg.BusDisplay = 0;
     defparam IO_Stat_Reg.Interrupt = 0;
     defparam IO_Stat_Reg.MaskValue = 0;
-    defparam IO_Stat_Reg.NumInputs = 4;
+    defparam IO_Stat_Reg.NumInputs = 5;
 
 	wire [0:0] tmpOE__WAIT_n_1_net;
 	wire [0:0] tmpFB_0__WAIT_n_1_net;
@@ -5077,20 +5076,20 @@ module top ;
     reg  cy_srff_1;
     always @(posedge PSoC_CLK)
     begin
-        cy_srff_1 <= (Net_488 | Net_489) & ~Net_485;
+        cy_srff_1 <= (Net_488 | IOBUSY) & ~Net_485;
     end
-    assign Net_489 = cy_srff_1;
+    assign IOBUSY = cy_srff_1;
     // -- SRFF End --
 
 
 	cy_isr_v1_0
 		#(.int_type(2'b10))
 		IO_Op_Int
-		 (.int_signal(Net_489));
+		 (.int_signal(IOBUSY));
 
 
 
-    assign Net_467 = ~Net_489;
+    assign Net_467 = ~IOBUSY;
 
 
     assign Net_507 = ~IORQn;

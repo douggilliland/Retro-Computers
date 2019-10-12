@@ -30,6 +30,8 @@ volatile uint8 SIO_A_WR7;
 volatile uint8 SIO_A_RD0;
 volatile uint8 SIO_A_RD1;
 volatile uint8 SIO_A_RD2;
+volatile uint8 UART_A_TXD;
+volatile uint8 UART_A_TXD_BUSY;
 
 volatile uint8 SIO_B_Ctrl1;
 volatile uint8 SIO_B_Ctrl2;
@@ -48,19 +50,17 @@ volatile uint8 SIO_B_WR7;
 volatile uint8 SIO_B_RD0;
 volatile uint8 SIO_B_RD1;
 volatile uint8 SIO_B_RD2;
-
-#define CLR_IO_INT_BIT 1
-#define IORQ_BIT    1
+volatile uint8 UART_B_TXD;
+volatile uint8 UART_B_TXD_BUSY;
 
 void ackIO(void)
 {
     IO_Ctrl_Reg_Write(IO_Ctrl_Reg_Read() | CLR_IO_INT_BIT);
-    while(IO_Stat_Reg_Read() != 0x0f);
 }
 
 void waitNextIORq(void)
 {
-    while ((IO_Stat_Reg_Read() & IORQ_BIT) == IORQ_BIT);
+    while ((IO_Stat_Reg_Read() & IOBUSY) == 0x00);
 }
 
 void SioReadDataA(void)
@@ -70,7 +70,13 @@ void SioReadDataA(void)
 
 void SioWriteDataA(void)
 {
-    
+    uint8 buffer[64];
+    uint16 count = 1;
+    while (0u == USBUART_CDCIsReady());
+    buffer[0] = Z80_Data_Out_Read();
+    USBUART_PutData(buffer, count);
+    ackIO();
+    UART_A_TXD_BUSY = 1;
 }
 
 void SioReadStatusA(uint8 regNum)
@@ -90,18 +96,23 @@ void SioReadStatusA(uint8 regNum)
             // D6 - Tx Underrun
             // D7 - Break/Abort
             Z80_Data_In_Write(SIO_A_RD0);
+            break;
         }
         case 0x01:
         {
             // p 297 of um0081
+            // SIO_RD1
+            //  D0 - All tx chars have been sent
             // Special Rx condition status - not used
             Z80_Data_In_Write(SIO_A_RD1);
+            break;
         }
         case 0x02:
         {
             // p 300 of um0081
             // Only used in status register B
             Z80_Data_In_Write(SIO_A_RD2);
+            break;
         }
     }
     ackIO();    
@@ -150,6 +161,9 @@ void SioWriteCtrlA(void)
                 SIO_A_WR6 = 0x0;
                 SIO_A_WR7 = 0x0;
                 SIO_A_RD0 = 0x44;
+                SIO_A_RD1 = 0x01;
+                SIO_A_RD2 = 0x00;
+                UART_A_TXD_BUSY = 0;
             }
             break;
         case 0x1:               
@@ -217,7 +231,7 @@ void SioReadDataB(void)
 
 void SioWriteDataB(void)
 {
-    
+    UART_B_TXD = 0;
 }
 
 void SioReadStatusB(uint8 regNum)

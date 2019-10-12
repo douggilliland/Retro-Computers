@@ -12,14 +12,6 @@
 
 #include <project.h>
 #include "Z80_SIO_emul.h"
-
-// IO_Stat_Reg bits
-#define IORQ_BIT    1
-#define CPURD_BIT   2
-#define CPUWR_BIT   4
-#define M1_BIT      8
-#define REGULAR_READ_CYCLE  0x0C
-#define REGULAR_WRITE_CYCLE 0x0A
     
 #define SIOA_D      0x00
 #define SIOA_C      0x02
