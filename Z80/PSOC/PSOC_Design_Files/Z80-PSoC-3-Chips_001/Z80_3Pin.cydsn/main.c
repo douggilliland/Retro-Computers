@@ -24,11 +24,13 @@ extern void loadSRAM(void);
 #define USBUART_BUFFER_SIZE (64u)
 #define LINE_STR_LENGTH     (20u)
 
+#define IORQ_BIT    1
 
 ////////////////////////////////////////////////////////////////////////////
 // Function prototypes
 
 uint32 TestSRAM(void);
+void HandleZ80IO(void);
 
 ////////////////////////////////////////////////////////////////////////////
 // PostLed(postVal) - Blink the LED the number of times (postVal)
@@ -45,7 +47,6 @@ void PostLed(uint32 postVal)
         blinkCount--;   // loop as many times as the POST code
     }
 }
-
 ////////////////////////////////////////////////////////////////////////////
 // main() - Setup and Loop code goes in here
 
@@ -55,10 +56,10 @@ int main(void)
     
     uint8 buffer[USBUART_BUFFER_SIZE];
     uint32 postVal;
+    
     /* Start USBFS operation with 5-V operation. */
     USBUART_Start(USBFS_DEVICE, USBUART_5V_OPERATION);
     I2C_Start();
-    
     
     CyGlobalIntEnable;          /* Enable global interrupts. */
     
@@ -122,11 +123,13 @@ int main(void)
                 }
             }
         }
-//        for(;;)
-//        {
-//            keysAndLEDs();
-//        }
+
+        if ((IO_Stat_Reg_Read() & IORQ_BIT) == 0x0)
+        {
+            HandleZ80IO();
+        }
     }
 }
+
 
 /* [] END OF FILE */
