@@ -63,9 +63,18 @@ void waitNextIORq(void)
     while ((IO_Stat_Reg_Read() & IOBUSY) == 0x00);
 }
 
+void sendCharToZ80(uint8 rxChar)
+{
+    SIO_A_DataIn = rxChar;                          // Put the char into the buffer
+    SIO_A_RD0 |= 0x1;                               // Rx Character Available
+    IO_Ctrl_Reg_Write(IO_Ctrl_Reg_Read() | 0x04);   // Set IRQ* line
+}
+
 void SioReadDataA(void)
 {
-    
+    Z80_Data_In_Write(SIO_A_DataIn);
+    SIO_A_RD0 &= 0xFE;                              // No Rx Character Available
+    ackIO();
 }
 
 void SioWriteDataA(void)
@@ -96,6 +105,8 @@ void SioReadStatusA(uint8 regNum)
             // D6 - Tx Underrun
             // D7 - Break/Abort
             Z80_Data_In_Write(SIO_A_RD0);
+            ackIO();
+            return;
             break;
         }
         case 0x01:
@@ -105,6 +116,8 @@ void SioReadStatusA(uint8 regNum)
             //  D0 - All tx chars have been sent
             // Special Rx condition status - not used
             Z80_Data_In_Write(SIO_A_RD1);
+            ackIO();
+            return;
             break;
         }
         case 0x02:
@@ -112,15 +125,17 @@ void SioReadStatusA(uint8 regNum)
             // p 300 of um0081
             // Only used in status register B
             Z80_Data_In_Write(SIO_A_RD2);
+            ackIO();
+            return;
             break;
         }
     }
-    ackIO();    
 }
 
-void SioReadIntRegA(uint8 regNum)
+void SioReadIntRegA()
 {
-    Z80_Data_In_Write(SIO_A_WR2);
+    Z80_Data_In_Write(SIO_B_WR2);
+    IO_Ctrl_Reg_Write(IO_Ctrl_Reg_Read() & 0xFB);   // Clear IRQ* line
     ackIO();
 }
 
@@ -265,9 +280,10 @@ void SioReadStatusB(uint8 regNum)
     ackIO();    
 }
 
-void SioReadIntRegB(uint8 regNum)
+void SioReadIntRegB(void)
 {
     Z80_Data_In_Write(SIO_B_WR2);
+    IO_Ctrl_Reg_Write(IO_Ctrl_Reg_Read() & 0xFB);   // Clear IRQ* line
     ackIO();
 }
 
@@ -285,7 +301,7 @@ void SioWriteCtrlB(void)
     }
     else if (IO_Stat_Reg_Status == INTR_READ_CYCLE)
     {
-        SioReadIntRegB(regNum);
+        SioReadIntRegB();
         return;
     }
     // Not a read cycle, therefore a write cycle

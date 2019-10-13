@@ -17,13 +17,14 @@ void waitNextIORq(void);
 void SioReadDataA(void);
 void SioWriteDataA(void);
 void SioReadStatusA(uint8 regNum);
-void SioReadIntRegA(uint8 regNum);
+void SioReadIntRegA();
 void SioWriteCtrlA(void);
 void SioReadDataB(void);
 void SioWriteDataB(void);
 void SioReadStatusB(uint8 regNum);
-void SioReadIntRegB(uint8 regNum);
+void SioReadIntRegB();
 void SioWriteCtrlB(void);
+void sendCharToZ80(uint8 rxChar);
 
 #define IORQ_BIT    0X01
 #define CPURD_BIT   0X02

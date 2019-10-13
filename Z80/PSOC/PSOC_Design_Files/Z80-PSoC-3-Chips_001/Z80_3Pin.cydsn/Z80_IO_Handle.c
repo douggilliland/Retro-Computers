@@ -23,7 +23,12 @@ void HandleZ80IO(void)
     volatile uint8 ioCrtlRegVal;
     volatile uint8 ioZ80Addr;
     
-    ioCrtlRegVal = IO_Stat_Reg_Status;
+    ioCrtlRegVal = IO_Stat_Reg_Read();
+    if ((ioCrtlRegVal & 0x19) == 0x10)
+    {
+        SioReadIntRegB();
+        return;
+    }
     ioZ80Addr = AdrLowIn_Status;
     switch (ioZ80Addr)
     {
@@ -31,32 +36,38 @@ void HandleZ80IO(void)
             if (ioCrtlRegVal == REGULAR_READ_CYCLE)             // regular read cycle
             {
                 SioReadDataA();
+                return;
             }
             else if (ioCrtlRegVal == REGULAR_WRITE_CYCLE)      // regular write cycle
             {
                 SioWriteDataA();
+                return;
             }
             break;
         case SIOA_C:    // Control register
             if (ioCrtlRegVal == REGULAR_WRITE_CYCLE)      // regular write cycle
             {
                 SioWriteCtrlA();
+                return;
             }
             break;
         case SIOB_D:
             if (ioCrtlRegVal == REGULAR_READ_CYCLE)            // regular read cycle
             {
                 SioReadDataB();
+                return;
             }
             else if (ioCrtlRegVal == REGULAR_WRITE_CYCLE)      // regular write cycle
             {
                 SioWriteDataB();
+                return;
             }
             break;
         case SIOB_C:
             if (ioCrtlRegVal == REGULAR_WRITE_CYCLE)      // regular write cycle
             {
                 SioWriteCtrlB();
+                return;
             }
             break;
         default:    // Handle other cases

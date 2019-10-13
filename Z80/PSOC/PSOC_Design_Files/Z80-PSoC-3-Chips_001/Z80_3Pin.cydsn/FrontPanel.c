@@ -93,7 +93,7 @@ void runFrontPanel(void)
     for (LEDsVal = 1; LEDsVal != 0; LEDsVal <<= 1)
     {
         writeFrontPanelLEDs(LEDsVal);
-        CyDelay(100);
+        CyDelay(50);
     }
     LEDsVal |= ReadExtSRAM(0);
     writeFrontPanelLEDs(LEDsVal);       // clears LEDs
