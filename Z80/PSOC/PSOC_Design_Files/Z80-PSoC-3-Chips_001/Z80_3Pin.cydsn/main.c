@@ -13,6 +13,7 @@
 #include "stdio.h"
 #include "FrontPanel.h"
 #include "ExtSRAM.h"
+#include "Z80_SIO_emul.h"
 
 extern void loadSRAM(void);
 
@@ -23,8 +24,6 @@ extern void loadSRAM(void);
 */
 #define USBUART_BUFFER_SIZE (64u)
 #define LINE_STR_LENGTH     (20u)
-
-#define IORQ_BIT    1
 
 ////////////////////////////////////////////////////////////////////////////
 // Function prototypes
@@ -125,7 +124,7 @@ int main(void)
             }
         }
 
-        if ((IO_Stat_Reg_Read() & IORQ_BIT) == 0x0)
+        if ((IO_Stat_Reg_Read() & IOBUSY_BIT) == IOBUSY_BIT)
         {
             HandleZ80IO();
         }

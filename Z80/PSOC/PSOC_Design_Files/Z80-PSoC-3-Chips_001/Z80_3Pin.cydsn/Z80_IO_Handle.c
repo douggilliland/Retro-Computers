@@ -29,7 +29,7 @@ void HandleZ80IO(void)
         SioReadIntRegB();
         return;
     }
-    ioZ80Addr = AdrLowIn_Status;
+    ioZ80Addr = AdrLowIn_Read();
     switch (ioZ80Addr)
     {
         case SIOA_D:

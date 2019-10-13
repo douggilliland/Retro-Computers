@@ -30,7 +30,7 @@ void sendCharToZ80(uint8 rxChar);
 #define CPURD_BIT   0X02
 #define CPUWR_BIT   0X04
 #define M1_BIT      0X08
-#define IOBUSY      0X10
+#define IOBUSY_BIT  0X10
 #define REGULAR_READ_CYCLE  0x1C
 #define INTR_READ_CYCLE     0x14
 #define REGULAR_WRITE_CYCLE 0x1A

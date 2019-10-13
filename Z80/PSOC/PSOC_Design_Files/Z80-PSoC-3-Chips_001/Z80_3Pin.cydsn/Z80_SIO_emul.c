@@ -60,7 +60,7 @@ void ackIO(void)
 
 void waitNextIORq(void)
 {
-    while ((IO_Stat_Reg_Read() & IOBUSY) == 0x00);
+    while ((IO_Stat_Reg_Read() & IOBUSY_BIT) == 0x00);
 }
 
 void sendCharToZ80(uint8 rxChar)
@@ -146,14 +146,9 @@ void SioWriteCtrlA(void)
     ackIO();
     regNum = SIO_A_Ctrl1 & 0x7;          // bottom 3 bits are the address of the next access
     waitNextIORq();                       // wait for next IO cycle since it's the contents
-    if (IO_Stat_Reg_Status == REGULAR_READ_CYCLE)
+    if (IO_Stat_Reg_Read() == REGULAR_READ_CYCLE)
     {
         SioReadStatusA(regNum);
-        return;
-    }
-    else if (IO_Stat_Reg_Status == INTR_READ_CYCLE)
-    {
-        SioReadIntRegA(regNum);
         return;
     }
     // Not a read cycle, therefore a write cycle
@@ -241,12 +236,15 @@ void SioWriteCtrlA(void)
 
 void SioReadDataB(void)
 {
-    
+    Z80_Data_In_Write(SIO_B_DataIn);
+    SIO_B_RD0 &= 0xFE;                              // No Rx Character Available
+    ackIO();    
 }
 
 void SioWriteDataB(void)
 {
     UART_B_TXD = 0;
+    ackIO();
 }
 
 void SioReadStatusB(uint8 regNum)
@@ -256,6 +254,7 @@ void SioReadStatusB(uint8 regNum)
         // SIO_B_WR0 bottom bits determine which read register is read
         case 0x00:
         {
+            // p 292 of um0081
             // D0 - Receive character ready - 1 at least one char in receiver
             // D1 - Interrupt Pending (Channel A register only) 
             // D2 - Transmit Buffer Empty - 1 = Tx Buffer is empty
@@ -265,16 +264,29 @@ void SioReadStatusB(uint8 regNum)
             // D6 - Tx Underrun
             // D7 - Break/Abort
             Z80_Data_In_Write(SIO_B_RD0);
+            ackIO();
+            return;
+            break;
         }
         case 0x01:
         {
+            // p 297 of um0081
+            // SIO_RD1
+            //  D0 - All tx chars have been sent
             // Special Rx condition status - not used
             Z80_Data_In_Write(SIO_B_RD1);
+            ackIO();
+            break;
+            return;
         }
         case 0x02:
         {
+            // p 300 of um0081
             // Only used in status register B
             Z80_Data_In_Write(SIO_B_RD2);
+            ackIO();
+            return;
+            break;
         }
     }
     ackIO();    
@@ -299,11 +311,6 @@ void SioWriteCtrlB(void)
         SioReadStatusB(regNum);
         return;
     }
-    else if (IO_Stat_Reg_Status == INTR_READ_CYCLE)
-    {
-        SioReadIntRegB();
-        return;
-    }
     // Not a read cycle, therefore a write cycle
     SIO_B_Ctrl2 = Z80_Data_Out_Read();
     ackIO();
@@ -324,11 +331,14 @@ void SioWriteCtrlB(void)
                 SIO_B_WR6 = 0x0;
                 SIO_B_WR7 = 0x0;
                 SIO_B_RD0 = 0x44;
+                SIO_B_RD1 = 0x01;
+                SIO_B_RD2 = 0x00;
+                UART_B_TXD_BUSY = 0;
             }
             break;
         case 0x1:               
             // p 277 of um0081
-            /// D0 - Ext int enable - not using interrupt on CTS
+            // D0 - Ext int enable - not using interrupt on CTS
             // D1 - Tx Int Enable - Not using
             // D2 - Status affect vector is only active on Channel B
             // D3, D4 - 00 = Rx Int disabled, 01 = Rx Int on first char, 10 = Rx Int on all chars (parity), 11 = Rx Int on all chars
@@ -342,6 +352,7 @@ void SioWriteCtrlB(void)
             SIO_B_WR2 = SIO_B_Ctrl2;
             break;
         case 0x3:
+            // p 282 
             // D0 - Receiver enable - always used
             // D1 - Sync char load inhibit - not used
             // D2 - Address Search Mode SDLC mode - not used
@@ -352,6 +363,7 @@ void SioWriteCtrlB(void)
             SIO_B_WR3 = SIO_B_Ctrl2;
             break;
         case 0x4:
+            // p 284 D0 = Parity - Not used
             // D0 = Parity - Not used
             // D1 = Parity odd/even - Not used
             // D2,D3 - 01 = 1 stop bit per character
@@ -361,6 +373,7 @@ void SioWriteCtrlB(void)
             SIO_B_WR4 = SIO_B_Ctrl2;
             break;
         case 0x5:
+            // p 287
             // D0 - Tx CRC enable
             // D1 - RTS - allows RTS to be manually set
             // D2 - CRC-16/SDLC - Not used
@@ -380,6 +393,5 @@ void SioWriteCtrlB(void)
             break;
     }
 }
-
 
 /* [] END OF FILE */
