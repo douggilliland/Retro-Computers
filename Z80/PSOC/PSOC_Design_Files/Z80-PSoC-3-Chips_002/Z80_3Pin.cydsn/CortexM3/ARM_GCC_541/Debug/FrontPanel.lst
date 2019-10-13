@@ -1,0 +1,3994 @@
+ARM GAS  C:\Users\HPz420\AppData\Local\Temp\ccVnhUOL.s 			page 1
+
+
+   1              		.syntax unified
+   2              		.cpu cortex-m3
+   3              		.fpu softvfp
+   4              		.eabi_attribute 20, 1
+   5              		.eabi_attribute 21, 1
+   6              		.eabi_attribute 23, 3
+   7              		.eabi_attribute 24, 1
+   8              		.eabi_attribute 25, 1
+   9              		.eabi_attribute 26, 1
+  10              		.eabi_attribute 30, 1
+  11              		.eabi_attribute 34, 1
+  12              		.eabi_attribute 18, 4
+  13              		.thumb
+  14              		.syntax unified
+  15              		.file	"FrontPanel.c"
+  16              		.text
+  17              	.Ltext0:
+  18              		.cfi_sections	.debug_frame
+  19              		.section	.text.readRegister_MCP23017,"ax",%progbits
+  20              		.align	2
+  21              		.global	readRegister_MCP23017
+  22              		.thumb
+  23              		.thumb_func
+  24              		.type	readRegister_MCP23017, %function
+  25              	readRegister_MCP23017:
+  26              	.LFB71:
+  27              		.file 1 "FrontPanel.c"
+   1:FrontPanel.c  **** /* ========================================
+   2:FrontPanel.c  ****  *
+   3:FrontPanel.c  ****  * Copyright Land Boards, LLC, 2019.
+   4:FrontPanel.c  ****  * All Rights Reserved
+   5:FrontPanel.c  ****  * UNPUBLISHED, LICENSED SOFTWARE.
+   6:FrontPanel.c  ****  *
+   7:FrontPanel.c  ****  * CONFIDENTIAL AND PROPRIETARY INFORMATION
+   8:FrontPanel.c  ****  * WHICH IS THE PROPERTY OF LAND BOARDS. LLC.
+   9:FrontPanel.c  ****  *
+  10:FrontPanel.c  ****  * ========================================
+  11:FrontPanel.c  **** */
+  12:FrontPanel.c  **** 
+  13:FrontPanel.c  **** #include <project.h>
+  14:FrontPanel.c  **** #include "FrontPanel.h"
+  15:FrontPanel.c  **** #include "ExtSRAM.h"
+  16:FrontPanel.c  **** #include "Z80_SIO_emul.h"
+  17:FrontPanel.c  **** 
+  18:FrontPanel.c  **** #define MCP23017_IODIR_DEFVAL    0xff       // Initially set all channels to inputs
+  19:FrontPanel.c  **** #define MCP23017_IODIR_ALL_INS   0xff
+  20:FrontPanel.c  **** #define MCP23017_IODIR_ALL_OUTS  0x00
+  21:FrontPanel.c  **** 
+  22:FrontPanel.c  **** #define MCP23017_IPOL_INVERT     0xFF       // Input polarity = invert jumpers
+  23:FrontPanel.c  **** #define MCP23017_GPINTEN_DISABLE 0x00       // Disable GPIO for interrupt on change
+  24:FrontPanel.c  **** #define MCP23017_GPINTEN_ENABLE  0xFF       // Enable GPIO for interrupt on change
+  25:FrontPanel.c  **** #define MCP23017_INTCON_DEFVAL   0x00       // Int for change from previous pin
+  26:FrontPanel.c  **** #define MCP23017_IOCON_DEFVAL    0x04       // Disable sequential,  active-low
+  27:FrontPanel.c  **** #define MCP23017_GPPU_DISABLE    0x00       // Disable pull-ups
+  28:FrontPanel.c  **** #define MCP23017_GPPU_ENABLE     0xFF       // Enable pull-ups
+  29:FrontPanel.c  **** 
+  30:FrontPanel.c  **** //////////////////////////////////////////////////////////////////////////////
+ARM GAS  C:\Users\HPz420\AppData\Local\Temp\ccVnhUOL.s 			page 2
+
+
+  31:FrontPanel.c  **** // Front Panel Handler
+  32:FrontPanel.c  **** // Starts at CPU address = 0
+  33:FrontPanel.c  **** //////////////////////////////////////////////////////////////////////////////
+  34:FrontPanel.c  **** 
+  35:FrontPanel.c  **** // Global variables
+  36:FrontPanel.c  **** uint8 FPData;       // Data that is on the Front Panel (bottom 8 LEDs)
+  37:FrontPanel.c  **** uint16 FPAddr;      // Address that is on the Front Panel (middle 16 lEDs)
+  38:FrontPanel.c  **** uint8 FPCtrl;       // Control that is on the Front Panel (top 8 LEDs)
+  39:FrontPanel.c  **** uint32 FPLong;      // Long value of the Front Panel
+  40:FrontPanel.c  **** 
+  41:FrontPanel.c  **** // Bits of FPCtrl
+  42:FrontPanel.c  **** #define INC_ADDR    0x01    // Increment address and read memory value at next address
+  43:FrontPanel.c  **** #define ST_INC      0x02    // Store data value, increment address and read next memory 
+  44:FrontPanel.c  **** #define LD_ADDR     0x04    // Load address bits and read memory
+  45:FrontPanel.c  **** #define RUN_SW      0x80    // Run Switch
+  46:FrontPanel.c  **** 
+  47:FrontPanel.c  **** void FrontPanelZ80Read(void)
+  48:FrontPanel.c  **** {
+  49:FrontPanel.c  ****     uint32 fpVal = readFrontPanelSwitchesStatic();
+  50:FrontPanel.c  ****     Z80_Data_In_Write(fpVal);
+  51:FrontPanel.c  ****     ackIO();
+  52:FrontPanel.c  **** }
+  53:FrontPanel.c  **** 
+  54:FrontPanel.c  **** void FrontPanelZ80Write(void)
+  55:FrontPanel.c  **** {
+  56:FrontPanel.c  ****     uint32 outVal = Z80_Data_Out_Read();
+  57:FrontPanel.c  ****     writeFrontPanelLEDs((uint8)outVal);
+  58:FrontPanel.c  ****     ackIO();
+  59:FrontPanel.c  **** }
+  60:FrontPanel.c  **** 
+  61:FrontPanel.c  **** //////////////////////////////////////////////////////////////////////////////
+  62:FrontPanel.c  **** // init_FrontPanel() - Switches are on Port A, LEDs are on Port B
+  63:FrontPanel.c  **** 
+  64:FrontPanel.c  **** void init_FrontPanel(void)
+  65:FrontPanel.c  **** {
+  66:FrontPanel.c  ****     uint8 chipAddr;
+  67:FrontPanel.c  ****     for (chipAddr = 0x24; chipAddr < 0x28; chipAddr++)
+  68:FrontPanel.c  ****     {
+  69:FrontPanel.c  ****         writeRegister_MCP23017(chipAddr,MCP23017_IODIRA_REGADR,MCP23017_IODIR_ALL_INS);     // IO: 
+  70:FrontPanel.c  ****         writeRegister_MCP23017(chipAddr,MCP23017_IODIRB_REGADR,MCP23017_IODIR_ALL_OUTS);    // IO: 
+  71:FrontPanel.c  ****         writeRegister_MCP23017(chipAddr,MCP23017_IPOLA_REGADR,MCP23017_IPOL_INVERT);        // IP: 
+  72:FrontPanel.c  ****         writeRegister_MCP23017(chipAddr,MCP23017_GPINTENA_REGADR,MCP23017_GPINTEN_ENABLE);  // GPIN
+  73:FrontPanel.c  ****         writeRegister_MCP23017(chipAddr,MCP23017_GPINTENB_REGADR,MCP23017_GPINTEN_DISABLE); // GPIN
+  74:FrontPanel.c  ****         writeRegister_MCP23017(chipAddr,MCP23017_DEFVALA_REGADR,0xFF);                      // Defa
+  75:FrontPanel.c  ****         writeRegister_MCP23017(chipAddr,MCP23017_INTCONA_REGADR,MCP23017_INTCON_DEFVAL);    // Int 
+  76:FrontPanel.c  ****         writeRegister_MCP23017(chipAddr,MCP23017_IOCONA_REGADR,MCP23017_IOCON_DEFVAL);      // BANK
+  77:FrontPanel.c  ****                                                                                             // MIRR
+  78:FrontPanel.c  ****                                                                                             // SEQO
+  79:FrontPanel.c  ****                                                                                             // HAEN
+  80:FrontPanel.c  ****                                                                                             // ODR:
+  81:FrontPanel.c  ****                                                                                             // INTP
+  82:FrontPanel.c  ****         writeRegister_MCP23017(chipAddr,MCP23017_IOCONB_REGADR,MCP23017_IOCON_DEFVAL);      // Int 
+  83:FrontPanel.c  ****         writeRegister_MCP23017(chipAddr,MCP23017_GPPUA_REGADR,MCP23017_GPPU_ENABLE);        // Pull
+  84:FrontPanel.c  ****         readRegister_MCP23017(chipAddr,MCP23017_INTCAPA_REGADR);                            // Clea
+  85:FrontPanel.c  ****     }
+  86:FrontPanel.c  ****     FPData = 0;
+  87:FrontPanel.c  ****     FPAddr = 0;
+ARM GAS  C:\Users\HPz420\AppData\Local\Temp\ccVnhUOL.s 			page 3
+
+
+  88:FrontPanel.c  ****     FPCtrl = 0;
+  89:FrontPanel.c  ****     FPLong = 0;
+  90:FrontPanel.c  **** }
+  91:FrontPanel.c  **** 
+  92:FrontPanel.c  **** //////////////////////////////////////////////////////////////////////////////////////
+  93:FrontPanel.c  **** // runFrontPanel()
+  94:FrontPanel.c  **** // Returns when run button is pressed on front panel
+  95:FrontPanel.c  **** 
+  96:FrontPanel.c  **** void runFrontPanel(void)
+  97:FrontPanel.c  **** {
+  98:FrontPanel.c  ****     uint32 switchesVal = 0;
+  99:FrontPanel.c  ****     uint32 LEDsVal = 0;
+ 100:FrontPanel.c  ****     
+ 101:FrontPanel.c  ****     I2C_Start();
+ 102:FrontPanel.c  ****     init_FrontPanel();
+ 103:FrontPanel.c  ****     // Bounce LEDs
+ 104:FrontPanel.c  ****     for (LEDsVal = 1; LEDsVal != 0; LEDsVal <<= 1)
+ 105:FrontPanel.c  ****     {
+ 106:FrontPanel.c  ****         writeFrontPanelLEDs(LEDsVal);
+ 107:FrontPanel.c  ****         CyDelay(50);
+ 108:FrontPanel.c  ****     }
+ 109:FrontPanel.c  ****     LEDsVal |= ReadExtSRAM(0);
+ 110:FrontPanel.c  ****     writeFrontPanelLEDs(LEDsVal);       // clears LEDs
+ 111:FrontPanel.c  ****     for(;;)                     // Loop forever
+ 112:FrontPanel.c  ****     {
+ 113:FrontPanel.c  ****         switchesVal = waitFrontPanelSwitchesPressed();
+ 114:FrontPanel.c  ****         if ((switchesVal & 0xff000000) != 0)    // Control switch on top row was pressed
+ 115:FrontPanel.c  ****         {
+ 116:FrontPanel.c  ****             if ((switchesVal & 0x01000000) == 0x01000000)       // Incr address and read memory
+ 117:FrontPanel.c  ****             {
+ 118:FrontPanel.c  ****                 LEDsVal |= 0x01000000;          // Flicker INCAD LED
+ 119:FrontPanel.c  ****                 writeFrontPanelLEDs(LEDsVal);
+ 120:FrontPanel.c  ****                 LEDsVal += 0x00000100;
+ 121:FrontPanel.c  ****                 LEDsVal &= 0x00ffff00;
+ 122:FrontPanel.c  ****                 LEDsVal |= ReadExtSRAM((LEDsVal >> 8) & 0xffff);
+ 123:FrontPanel.c  ****                 writeFrontPanelLEDs(LEDsVal);
+ 124:FrontPanel.c  ****             }
+ 125:FrontPanel.c  ****             else if ((switchesVal & 0x02000000) == 0x02000000)  // Store to addr, incr address and 
+ 126:FrontPanel.c  ****             {
+ 127:FrontPanel.c  ****                 LEDsVal |= 0x02000000;          // Flicker STINC LED
+ 128:FrontPanel.c  ****                 writeFrontPanelLEDs(LEDsVal);
+ 129:FrontPanel.c  ****                 WriteExtSRAM((LEDsVal >> 8) & 0xffff,LEDsVal&0xff);
+ 130:FrontPanel.c  ****                 LEDsVal += 0x00000100;
+ 131:FrontPanel.c  ****                 LEDsVal &= 0x00ffff00;
+ 132:FrontPanel.c  ****                 LEDsVal |= ReadExtSRAM((LEDsVal >> 8) & 0xffff);
+ 133:FrontPanel.c  ****                 writeFrontPanelLEDs(LEDsVal);
+ 134:FrontPanel.c  ****             }
+ 135:FrontPanel.c  ****             else if ((switchesVal & 0x04000000) == 0x04000000)  //Load address and read memory
+ 136:FrontPanel.c  ****             {
+ 137:FrontPanel.c  ****                 LEDsVal |= 0x04000000;          // Flicker LDADR LED
+ 138:FrontPanel.c  ****                 writeFrontPanelLEDs(LEDsVal);
+ 139:FrontPanel.c  ****                 LEDsVal &= 0x00ffff00;
+ 140:FrontPanel.c  ****                 LEDsVal |= ReadExtSRAM((LEDsVal >> 8) & 0xffff);
+ 141:FrontPanel.c  ****                 writeFrontPanelLEDs(LEDsVal);
+ 142:FrontPanel.c  ****             }
+ 143:FrontPanel.c  ****             else if ((switchesVal & 0x08000000) == 0x08000000)  // Run program
+ 144:FrontPanel.c  ****             {
+ARM GAS  C:\Users\HPz420\AppData\Local\Temp\ccVnhUOL.s 			page 4
+
+
+ 145:FrontPanel.c  ****                 ExtSRAMCtl_Control = 0;
+ 146:FrontPanel.c  ****                 LEDsVal = 0x08000000;
+ 147:FrontPanel.c  ****                 writeFrontPanelLEDs(LEDsVal);       // Leave Run LED on
+ 148:FrontPanel.c  ****                 return;
+ 149:FrontPanel.c  ****             }
+ 150:FrontPanel.c  ****             else if ((switchesVal & 0x10000000) == 0x10000000)  // TBD
+ 151:FrontPanel.c  ****             {
+ 152:FrontPanel.c  ****                 LEDsVal = 0x10000000;
+ 153:FrontPanel.c  ****                 writeFrontPanelLEDs(LEDsVal);       // Leave LED on
+ 154:FrontPanel.c  ****                 CyDelay(250);
+ 155:FrontPanel.c  ****                 LEDsVal &= 0x00ffffff;
+ 156:FrontPanel.c  ****                 writeFrontPanelLEDs(LEDsVal);       // Turn off LED
+ 157:FrontPanel.c  ****             }
+ 158:FrontPanel.c  ****             else if ((switchesVal & 0x20000000) == 0x20000000)  // TBD
+ 159:FrontPanel.c  ****             {
+ 160:FrontPanel.c  ****                 LEDsVal = 0x20000000;
+ 161:FrontPanel.c  ****                 writeFrontPanelLEDs(LEDsVal);       // Leave LED on
+ 162:FrontPanel.c  ****                 CyDelay(250);
+ 163:FrontPanel.c  ****                 LEDsVal &= 0x00ffffff;
+ 164:FrontPanel.c  ****                 writeFrontPanelLEDs(LEDsVal);       // Turn off LED
+ 165:FrontPanel.c  ****             }
+ 166:FrontPanel.c  ****             else if ((switchesVal & 0x40000000) == 0x40000000)  // TBD
+ 167:FrontPanel.c  ****             {
+ 168:FrontPanel.c  ****                 LEDsVal = 0x40000000;
+ 169:FrontPanel.c  ****                 writeFrontPanelLEDs(LEDsVal);       // Leave LED on
+ 170:FrontPanel.c  ****                 CyDelay(250);
+ 171:FrontPanel.c  ****                 LEDsVal &= 0x00ffffff;
+ 172:FrontPanel.c  ****                 writeFrontPanelLEDs(LEDsVal);       // Turn off LED
+ 173:FrontPanel.c  ****             }
+ 174:FrontPanel.c  ****             else if ((switchesVal & 0x80000000) == 0x80000000)  // Exit front panel without releasi
+ 175:FrontPanel.c  ****             {
+ 176:FrontPanel.c  ****                 LEDsVal = 0x80000000;
+ 177:FrontPanel.c  ****                 writeFrontPanelLEDs(LEDsVal);       // Leave LED on
+ 178:FrontPanel.c  ****                 return;
+ 179:FrontPanel.c  ****             }
+ 180:FrontPanel.c  ****         }
+ 181:FrontPanel.c  ****         else    // Non-control switch was pressed
+ 182:FrontPanel.c  ****         {
+ 183:FrontPanel.c  ****             LEDsVal ^= switchesVal;
+ 184:FrontPanel.c  ****             writeFrontPanelLEDs(LEDsVal);
+ 185:FrontPanel.c  ****         }
+ 186:FrontPanel.c  ****     }
+ 187:FrontPanel.c  **** }
+ 188:FrontPanel.c  **** 
+ 189:FrontPanel.c  **** //////////////////////////////////////////////////////////////////////////////////////
+ 190:FrontPanel.c  **** // readFrontPanelSwitchesRegistered
+ 191:FrontPanel.c  **** //  Handler for the Pushbuttons and LEDs
+ 192:FrontPanel.c  **** //  Toggles the LED
+ 193:FrontPanel.c  **** //  Reads all four MCP23017 Port A's to make a 32-bit result
+ 194:FrontPanel.c  **** //  Looks for the switch to be pressed for 3 samples in a row
+ 195:FrontPanel.c  **** // Returns: 0 if there was no key pressed
+ 196:FrontPanel.c  **** //          1 if there was a key pressed
+ 197:FrontPanel.c  **** 
+ 198:FrontPanel.c  **** uint32 readFrontPanelSwitchesRegistered(void)
+ 199:FrontPanel.c  **** {
+ 200:FrontPanel.c  ****     uint32 rdVal;
+ 201:FrontPanel.c  ****     uint32 retVal = 0;
+ARM GAS  C:\Users\HPz420\AppData\Local\Temp\ccVnhUOL.s 			page 5
+
+
+ 202:FrontPanel.c  ****     uint32 valMin1 = 0;
+ 203:FrontPanel.c  ****     uint32 valMin2 = 0;
+ 204:FrontPanel.c  ****     uint32 valMin3 = 0;
+ 205:FrontPanel.c  ****     uint8 keyPressed = 0;
+ 206:FrontPanel.c  ****     rdVal = readFrontPanelSwitchesStatic();
+ 207:FrontPanel.c  ****     if (rdVal  == 0x00)     // No key is pressed at this polling
+ 208:FrontPanel.c  ****     {
+ 209:FrontPanel.c  ****         valMin1 = 0;
+ 210:FrontPanel.c  ****         valMin2 = 0;
+ 211:FrontPanel.c  ****         valMin3 = 0;
+ 212:FrontPanel.c  ****         return(0);
+ 213:FrontPanel.c  ****     }
+ 214:FrontPanel.c  ****     else    // key is now pressed
+ 215:FrontPanel.c  ****     {
+ 216:FrontPanel.c  ****         keyPressed = 1;
+ 217:FrontPanel.c  ****         while (keyPressed)  // stick around until key is no longer pressed
+ 218:FrontPanel.c  ****         {
+ 219:FrontPanel.c  ****             rdVal = readFrontPanelSwitchesStatic();
+ 220:FrontPanel.c  ****             if (rdVal == 0)
+ 221:FrontPanel.c  ****             {
+ 222:FrontPanel.c  ****                 keyPressed = 0;
+ 223:FrontPanel.c  ****                 valMin1 = 0;
+ 224:FrontPanel.c  ****                 valMin2 = 0;
+ 225:FrontPanel.c  ****                 valMin3 = 0;
+ 226:FrontPanel.c  ****                 return(retVal);
+ 227:FrontPanel.c  ****             }
+ 228:FrontPanel.c  ****             valMin3 = valMin2;
+ 229:FrontPanel.c  ****             valMin2 = valMin1;
+ 230:FrontPanel.c  ****             valMin1 = rdVal;
+ 231:FrontPanel.c  ****             if ((valMin3 == 0) && (valMin2 != 0) && (valMin1 != 0) && (rdVal != 0))
+ 232:FrontPanel.c  ****             {
+ 233:FrontPanel.c  ****                 return(valMin2);
+ 234:FrontPanel.c  ****             }
+ 235:FrontPanel.c  ****             CyDelay(10);    // 10 mS sampling for debouncing
+ 236:FrontPanel.c  ****         }
+ 237:FrontPanel.c  ****     }
+ 238:FrontPanel.c  ****     return (retVal);
+ 239:FrontPanel.c  **** }
+ 240:FrontPanel.c  **** 
+ 241:FrontPanel.c  **** //////////////////////////////////////////////////////////////////////////////////////
+ 242:FrontPanel.c  **** // waitFrontPanelSwitchesPressed() - Wait for switch to be pressed and return value
+ 243:FrontPanel.c  **** 
+ 244:FrontPanel.c  **** uint32 waitFrontPanelSwitchesPressed(void)
+ 245:FrontPanel.c  **** {
+ 246:FrontPanel.c  ****     uint32 switchVals = 0;
+ 247:FrontPanel.c  ****     while (readFrontPanelSwitchesRegistered() != 0);    // wait for previous key release
+ 248:FrontPanel.c  ****     while (switchVals == 0)
+ 249:FrontPanel.c  ****     {   
+ 250:FrontPanel.c  ****         switchVals = readFrontPanelSwitchesRegistered();
+ 251:FrontPanel.c  ****         if (switchVals != 0x0)
+ 252:FrontPanel.c  ****             return (switchVals);
+ 253:FrontPanel.c  ****     }
+ 254:FrontPanel.c  ****     return (0);
+ 255:FrontPanel.c  **** }
+ 256:FrontPanel.c  **** 
+ 257:FrontPanel.c  **** //////////////////////////////////////////////////////////////////////////////////////
+ 258:FrontPanel.c  **** // readFrontPanelSwitchesStatic() - Reads the current value of the actual switches
+ARM GAS  C:\Users\HPz420\AppData\Local\Temp\ccVnhUOL.s 			page 6
+
+
+ 259:FrontPanel.c  **** //  Reads all four MCP23017 Port A's to make a 32-bit result
+ 260:FrontPanel.c  **** 
+ 261:FrontPanel.c  **** uint32 readFrontPanelSwitchesStatic(void)
+ 262:FrontPanel.c  **** {
+ 263:FrontPanel.c  ****     uint32 switchVals = 0;
+ 264:FrontPanel.c  ****     switchVals = readRegister_MCP23017(MCP23017_0,MCP23017_GPIOA_REGADR);
+ 265:FrontPanel.c  ****     switchVals = switchVals<<8;
+ 266:FrontPanel.c  ****     switchVals |= readRegister_MCP23017(MCP23017_1,MCP23017_GPIOA_REGADR);
+ 267:FrontPanel.c  ****     switchVals = switchVals<<8;
+ 268:FrontPanel.c  ****     switchVals |= readRegister_MCP23017(MCP23017_2,MCP23017_GPIOA_REGADR);
+ 269:FrontPanel.c  ****     switchVals = switchVals<<8;
+ 270:FrontPanel.c  ****     switchVals |= readRegister_MCP23017(MCP23017_3,MCP23017_GPIOA_REGADR);
+ 271:FrontPanel.c  ****     return (switchVals);
+ 272:FrontPanel.c  **** }
+ 273:FrontPanel.c  **** 
+ 274:FrontPanel.c  **** //////////////////////////////////////////////////////////////////////////////////////
+ 275:FrontPanel.c  **** // writeFrontPanelLEDs(uint32) - Write a 32-bit value to the Front Panel LEDs
+ 276:FrontPanel.c  **** 
+ 277:FrontPanel.c  **** void writeFrontPanelLEDs(uint32 ledsVal)
+ 278:FrontPanel.c  **** {
+ 279:FrontPanel.c  ****     writeRegister_MCP23017(MCP23017_0,MCP23017_OLATB_REGADR,((ledsVal>>24) & 0xff));
+ 280:FrontPanel.c  ****     writeRegister_MCP23017(MCP23017_1,MCP23017_OLATB_REGADR,((ledsVal>>16) & 0xff));
+ 281:FrontPanel.c  ****     writeRegister_MCP23017(MCP23017_2,MCP23017_OLATB_REGADR,((ledsVal>>8) & 0xff));
+ 282:FrontPanel.c  ****     writeRegister_MCP23017(MCP23017_3,MCP23017_OLATB_REGADR,ledsVal&0xff);
+ 283:FrontPanel.c  **** }
+ 284:FrontPanel.c  **** 
+ 285:FrontPanel.c  **** //////////////////////////////////////////////////////////////////////////////////////
+ 286:FrontPanel.c  **** // I2C Low Level Hardware access functions
+ 287:FrontPanel.c  **** 
+ 288:FrontPanel.c  **** //////////////////////////////////////////////////////////////////////////////////////
+ 289:FrontPanel.c  **** //
+ 290:FrontPanel.c  **** //////////////////////////////////////////////////////////////////////////////////////
+ 291:FrontPanel.c  **** 
+ 292:FrontPanel.c  **** uint8 readRegister_MCP23017(uint8 chipAddr, uint8 ctrlAdr)
+ 293:FrontPanel.c  **** {
+  28              		.loc 1 293 0
+  29              		.cfi_startproc
+  30              		@ args = 0, pretend = 0, frame = 0
+  31              		@ frame_needed = 0, uses_anonymous_args = 0
+  32              	.LVL0:
+  33 0000 38B5     		push	{r3, r4, r5, lr}
+  34              		.cfi_def_cfa_offset 16
+  35              		.cfi_offset 3, -16
+  36              		.cfi_offset 4, -12
+  37              		.cfi_offset 5, -8
+  38              		.cfi_offset 14, -4
+  39 0002 0446     		mov	r4, r0
+  40 0004 0D46     		mov	r5, r1
+ 294:FrontPanel.c  ****     uint8 rdBuff;
+ 295:FrontPanel.c  **** 
+ 296:FrontPanel.c  ****     I2C_MasterClearStatus();
+  41              		.loc 1 296 0
+  42 0006 FFF7FEFF 		bl	I2C_MasterClearStatus
+  43              	.LVL1:
+ 297:FrontPanel.c  ****     I2C_MasterSendStart(chipAddr,I2C_WRITE_XFER_MODE);
+  44              		.loc 1 297 0
+  45 000a 0021     		movs	r1, #0
+ARM GAS  C:\Users\HPz420\AppData\Local\Temp\ccVnhUOL.s 			page 7
+
+
+  46 000c 2046     		mov	r0, r4
+  47 000e FFF7FEFF 		bl	I2C_MasterSendStart
+  48              	.LVL2:
+ 298:FrontPanel.c  ****     I2C_MasterWriteByte(ctrlAdr);
+  49              		.loc 1 298 0
+  50 0012 2846     		mov	r0, r5
+  51 0014 FFF7FEFF 		bl	I2C_MasterWriteByte
+  52              	.LVL3:
+ 299:FrontPanel.c  ****     I2C_MasterSendStop();
+  53              		.loc 1 299 0
+  54 0018 FFF7FEFF 		bl	I2C_MasterSendStop
+  55              	.LVL4:
+ 300:FrontPanel.c  ****     I2C_MasterSendStart(chipAddr,I2C_READ_XFER_MODE);
+  56              		.loc 1 300 0
+  57 001c 0121     		movs	r1, #1
+  58 001e 2046     		mov	r0, r4
+  59 0020 FFF7FEFF 		bl	I2C_MasterSendStart
+  60              	.LVL5:
+ 301:FrontPanel.c  ****     rdBuff = I2C_MasterReadByte(I2C_NAK_DATA);
+  61              		.loc 1 301 0
+  62 0024 0020     		movs	r0, #0
+  63 0026 FFF7FEFF 		bl	I2C_MasterReadByte
+  64              	.LVL6:
+  65 002a 0446     		mov	r4, r0
+  66              	.LVL7:
+ 302:FrontPanel.c  ****     I2C_MasterSendStop();
+  67              		.loc 1 302 0
+  68 002c FFF7FEFF 		bl	I2C_MasterSendStop
+  69              	.LVL8:
+ 303:FrontPanel.c  ****     I2C_MasterClearStatus();
+  70              		.loc 1 303 0
+  71 0030 FFF7FEFF 		bl	I2C_MasterClearStatus
+  72              	.LVL9:
+ 304:FrontPanel.c  ****     return rdBuff;
+ 305:FrontPanel.c  **** 
+ 306:FrontPanel.c  **** }
+  73              		.loc 1 306 0
+  74 0034 2046     		mov	r0, r4
+  75 0036 38BD     		pop	{r3, r4, r5, pc}
+  76              		.cfi_endproc
+  77              	.LFE71:
+  78              		.size	readRegister_MCP23017, .-readRegister_MCP23017
+  79              		.section	.text.readFrontPanelSwitchesStatic,"ax",%progbits
+  80              		.align	2
+  81              		.global	readFrontPanelSwitchesStatic
+  82              		.thumb
+  83              		.thumb_func
+  84              		.type	readFrontPanelSwitchesStatic, %function
+  85              	readFrontPanelSwitchesStatic:
+  86              	.LFB69:
+ 262:FrontPanel.c  ****     uint32 switchVals = 0;
+  87              		.loc 1 262 0
+  88              		.cfi_startproc
+  89              		@ args = 0, pretend = 0, frame = 0
+  90              		@ frame_needed = 0, uses_anonymous_args = 0
+  91 0000 10B5     		push	{r4, lr}
+  92              		.cfi_def_cfa_offset 8
+ARM GAS  C:\Users\HPz420\AppData\Local\Temp\ccVnhUOL.s 			page 8
+
+
+  93              		.cfi_offset 4, -8
+  94              		.cfi_offset 14, -4
+  95              	.LVL10:
+ 264:FrontPanel.c  ****     switchVals = switchVals<<8;
+  96              		.loc 1 264 0
+  97 0002 1221     		movs	r1, #18
+  98 0004 2420     		movs	r0, #36
+  99 0006 FFF7FEFF 		bl	readRegister_MCP23017
+ 100              	.LVL11:
+ 265:FrontPanel.c  ****     switchVals |= readRegister_MCP23017(MCP23017_1,MCP23017_GPIOA_REGADR);
+ 101              		.loc 1 265 0
+ 102 000a 0402     		lsls	r4, r0, #8
+ 103              	.LVL12:
+ 266:FrontPanel.c  ****     switchVals = switchVals<<8;
+ 104              		.loc 1 266 0
+ 105 000c 1221     		movs	r1, #18
+ 106 000e 2520     		movs	r0, #37
+ 107 0010 FFF7FEFF 		bl	readRegister_MCP23017
+ 108              	.LVL13:
+ 109 0014 2043     		orrs	r0, r0, r4
+ 110              	.LVL14:
+ 267:FrontPanel.c  ****     switchVals |= readRegister_MCP23017(MCP23017_2,MCP23017_GPIOA_REGADR);
+ 111              		.loc 1 267 0
+ 112 0016 0402     		lsls	r4, r0, #8
+ 113              	.LVL15:
+ 268:FrontPanel.c  ****     switchVals = switchVals<<8;
+ 114              		.loc 1 268 0
+ 115 0018 1221     		movs	r1, #18
+ 116 001a 2620     		movs	r0, #38
+ 117 001c FFF7FEFF 		bl	readRegister_MCP23017
+ 118              	.LVL16:
+ 119 0020 2043     		orrs	r0, r0, r4
+ 120              	.LVL17:
+ 269:FrontPanel.c  ****     switchVals |= readRegister_MCP23017(MCP23017_3,MCP23017_GPIOA_REGADR);
+ 121              		.loc 1 269 0
+ 122 0022 0402     		lsls	r4, r0, #8
+ 123              	.LVL18:
+ 270:FrontPanel.c  ****     return (switchVals);
+ 124              		.loc 1 270 0
+ 125 0024 1221     		movs	r1, #18
+ 126 0026 2720     		movs	r0, #39
+ 127 0028 FFF7FEFF 		bl	readRegister_MCP23017
+ 128              	.LVL19:
+ 272:FrontPanel.c  **** 
+ 129              		.loc 1 272 0
+ 130 002c 2043     		orrs	r0, r0, r4
+ 131              	.LVL20:
+ 132 002e 10BD     		pop	{r4, pc}
+ 133              		.cfi_endproc
+ 134              	.LFE69:
+ 135              		.size	readFrontPanelSwitchesStatic, .-readFrontPanelSwitchesStatic
+ 136              		.section	.text.FrontPanelZ80Read,"ax",%progbits
+ 137              		.align	2
+ 138              		.global	FrontPanelZ80Read
+ 139              		.thumb
+ 140              		.thumb_func
+ 141              		.type	FrontPanelZ80Read, %function
+ARM GAS  C:\Users\HPz420\AppData\Local\Temp\ccVnhUOL.s 			page 9
+
+
+ 142              	FrontPanelZ80Read:
+ 143              	.LFB63:
+  48:FrontPanel.c  ****     uint32 fpVal = readFrontPanelSwitchesStatic();
+ 144              		.loc 1 48 0
+ 145              		.cfi_startproc
+ 146              		@ args = 0, pretend = 0, frame = 0
+ 147              		@ frame_needed = 0, uses_anonymous_args = 0
+ 148 0000 08B5     		push	{r3, lr}
+ 149              		.cfi_def_cfa_offset 8
+ 150              		.cfi_offset 3, -8
+ 151              		.cfi_offset 14, -4
+  49:FrontPanel.c  ****     Z80_Data_In_Write(fpVal);
+ 152              		.loc 1 49 0
+ 153 0002 FFF7FEFF 		bl	readFrontPanelSwitchesStatic
+ 154              	.LVL21:
+  50:FrontPanel.c  ****     ackIO();
+ 155              		.loc 1 50 0
+ 156 0006 C0B2     		uxtb	r0, r0
+ 157              	.LVL22:
+ 158 0008 FFF7FEFF 		bl	Z80_Data_In_Write
+ 159              	.LVL23:
+  51:FrontPanel.c  **** }
+ 160              		.loc 1 51 0
+ 161 000c FFF7FEFF 		bl	ackIO
+ 162              	.LVL24:
+ 163 0010 08BD     		pop	{r3, pc}
+ 164              		.cfi_endproc
+ 165              	.LFE63:
+ 166              		.size	FrontPanelZ80Read, .-FrontPanelZ80Read
+ 167 0012 00BF     		.section	.text.readFrontPanelSwitchesRegistered,"ax",%progbits
+ 168              		.align	2
+ 169              		.global	readFrontPanelSwitchesRegistered
+ 170              		.thumb
+ 171              		.thumb_func
+ 172              		.type	readFrontPanelSwitchesRegistered, %function
+ 173              	readFrontPanelSwitchesRegistered:
+ 174              	.LFB67:
+ 199:FrontPanel.c  ****     uint32 rdVal;
+ 175              		.loc 1 199 0
+ 176              		.cfi_startproc
+ 177              		@ args = 0, pretend = 0, frame = 0
+ 178              		@ frame_needed = 0, uses_anonymous_args = 0
+ 179 0000 70B5     		push	{r4, r5, r6, lr}
+ 180              		.cfi_def_cfa_offset 16
+ 181              		.cfi_offset 4, -16
+ 182              		.cfi_offset 5, -12
+ 183              		.cfi_offset 6, -8
+ 184              		.cfi_offset 14, -4
+ 185              	.LVL25:
+ 206:FrontPanel.c  ****     if (rdVal  == 0x00)     // No key is pressed at this polling
+ 186              		.loc 1 206 0
+ 187 0002 FFF7FEFF 		bl	readFrontPanelSwitchesStatic
+ 188              	.LVL26:
+ 207:FrontPanel.c  ****     {
+ 189              		.loc 1 207 0
+ 190 0006 88B1     		cbz	r0, .L12
+ 191 0008 0026     		movs	r6, #0
+ARM GAS  C:\Users\HPz420\AppData\Local\Temp\ccVnhUOL.s 			page 10
+
+
+ 192 000a 3446     		mov	r4, r6
+ 193 000c 08E0     		b	.L9
+ 194              	.LVL27:
+ 195              	.L11:
+ 231:FrontPanel.c  ****             {
+ 196              		.loc 1 231 0
+ 197 000e 16B9     		cbnz	r6, .L10
+ 231:FrontPanel.c  ****             {
+ 198              		.loc 1 231 0 is_stmt 0 discriminator 1
+ 199 0010 0CB1     		cbz	r4, .L10
+ 231:FrontPanel.c  ****             {
+ 200              		.loc 1 231 0 discriminator 2
+ 201 0012 05B1     		cbz	r5, .L10
+ 231:FrontPanel.c  ****             {
+ 202              		.loc 1 231 0 discriminator 3
+ 203 0014 65B9     		cbnz	r5, .L13
+ 204              	.L10:
+ 235:FrontPanel.c  ****         }
+ 205              		.loc 1 235 0 is_stmt 1
+ 206 0016 0A20     		movs	r0, #10
+ 207              	.LVL28:
+ 208 0018 FFF7FEFF 		bl	CyDelay
+ 209              	.LVL29:
+ 229:FrontPanel.c  ****             valMin1 = rdVal;
+ 210              		.loc 1 229 0
+ 211 001c 2646     		mov	r6, r4
+ 212              	.LVL30:
+ 230:FrontPanel.c  ****             if ((valMin3 == 0) && (valMin2 != 0) && (valMin1 != 0) && (rdVal != 0))
+ 213              		.loc 1 230 0
+ 214 001e 2C46     		mov	r4, r5
+ 215              	.LVL31:
+ 216              	.L9:
+ 219:FrontPanel.c  ****             if (rdVal == 0)
+ 217              		.loc 1 219 0
+ 218 0020 FFF7FEFF 		bl	readFrontPanelSwitchesStatic
+ 219              	.LVL32:
+ 220:FrontPanel.c  ****             {
+ 220              		.loc 1 220 0
+ 221 0024 0546     		mov	r5, r0
+ 222 0026 0028     		cmp	r0, #0
+ 223 0028 F1D1     		bne	.L11
+ 224 002a 70BD     		pop	{r4, r5, r6, pc}
+ 225              	.LVL33:
+ 226              	.L12:
+ 212:FrontPanel.c  ****     }
+ 227              		.loc 1 212 0
+ 228 002c 0020     		movs	r0, #0
+ 229              	.LVL34:
+ 230 002e 70BD     		pop	{r4, r5, r6, pc}
+ 231              	.LVL35:
+ 232              	.L13:
+ 233:FrontPanel.c  ****             }
+ 233              		.loc 1 233 0
+ 234 0030 2046     		mov	r0, r4
+ 235              	.LVL36:
+ 239:FrontPanel.c  **** 
+ 236              		.loc 1 239 0
+ARM GAS  C:\Users\HPz420\AppData\Local\Temp\ccVnhUOL.s 			page 11
+
+
+ 237 0032 70BD     		pop	{r4, r5, r6, pc}
+ 238              		.cfi_endproc
+ 239              	.LFE67:
+ 240              		.size	readFrontPanelSwitchesRegistered, .-readFrontPanelSwitchesRegistered
+ 241              		.section	.text.waitFrontPanelSwitchesPressed,"ax",%progbits
+ 242              		.align	2
+ 243              		.global	waitFrontPanelSwitchesPressed
+ 244              		.thumb
+ 245              		.thumb_func
+ 246              		.type	waitFrontPanelSwitchesPressed, %function
+ 247              	waitFrontPanelSwitchesPressed:
+ 248              	.LFB68:
+ 245:FrontPanel.c  ****     uint32 switchVals = 0;
+ 249              		.loc 1 245 0
+ 250              		.cfi_startproc
+ 251              		@ args = 0, pretend = 0, frame = 0
+ 252              		@ frame_needed = 0, uses_anonymous_args = 0
+ 253 0000 10B5     		push	{r4, lr}
+ 254              		.cfi_def_cfa_offset 8
+ 255              		.cfi_offset 4, -8
+ 256              		.cfi_offset 14, -4
+ 257              	.L16:
+ 247:FrontPanel.c  ****     while (switchVals == 0)
+ 258              		.loc 1 247 0 discriminator 1
+ 259 0002 FFF7FEFF 		bl	readFrontPanelSwitchesRegistered
+ 260              	.LVL37:
+ 261 0006 0028     		cmp	r0, #0
+ 262 0008 FBD1     		bne	.L16
+ 263 000a 0446     		mov	r4, r0
+ 264 000c 0023     		movs	r3, #0
+ 265 000e 03E0     		b	.L17
+ 266              	.LVL38:
+ 267              	.L19:
+ 250:FrontPanel.c  ****         if (switchVals != 0x0)
+ 268              		.loc 1 250 0
+ 269 0010 FFF7FEFF 		bl	readFrontPanelSwitchesRegistered
+ 270              	.LVL39:
+ 251:FrontPanel.c  ****             return (switchVals);
+ 271              		.loc 1 251 0
+ 272 0014 0346     		mov	r3, r0
+ 273 0016 10B9     		cbnz	r0, .L20
+ 274              	.LVL40:
+ 275              	.L17:
+ 248:FrontPanel.c  ****     {   
+ 276              		.loc 1 248 0
+ 277 0018 002B     		cmp	r3, #0
+ 278 001a F9D0     		beq	.L19
+ 279 001c 00E0     		b	.L18
+ 280              	.LVL41:
+ 281              	.L20:
+ 252:FrontPanel.c  ****     }
+ 282              		.loc 1 252 0
+ 283 001e 0446     		mov	r4, r0
+ 284              	.LVL42:
+ 285              	.L18:
+ 255:FrontPanel.c  **** 
+ 286              		.loc 1 255 0
+ARM GAS  C:\Users\HPz420\AppData\Local\Temp\ccVnhUOL.s 			page 12
+
+
+ 287 0020 2046     		mov	r0, r4
+ 288 0022 10BD     		pop	{r4, pc}
+ 289              		.cfi_endproc
+ 290              	.LFE68:
+ 291              		.size	waitFrontPanelSwitchesPressed, .-waitFrontPanelSwitchesPressed
+ 292              		.section	.text.writeRegister_MCP23017,"ax",%progbits
+ 293              		.align	2
+ 294              		.global	writeRegister_MCP23017
+ 295              		.thumb
+ 296              		.thumb_func
+ 297              		.type	writeRegister_MCP23017, %function
+ 298              	writeRegister_MCP23017:
+ 299              	.LFB72:
+ 307:FrontPanel.c  **** 
+ 308:FrontPanel.c  **** //////////////////////////////////////////////////////////////////////////////////////
+ 309:FrontPanel.c  **** //
+ 310:FrontPanel.c  **** //////////////////////////////////////////////////////////////////////////////////////
+ 311:FrontPanel.c  **** 
+ 312:FrontPanel.c  **** void writeRegister_MCP23017(uint8 chipAddr, uint8 ctrlAdr, uint8 ctrlVal)
+ 313:FrontPanel.c  **** {
+ 300              		.loc 1 313 0
+ 301              		.cfi_startproc
+ 302              		@ args = 0, pretend = 0, frame = 8
+ 303              		@ frame_needed = 0, uses_anonymous_args = 0
+ 304              	.LVL43:
+ 305 0000 70B5     		push	{r4, r5, r6, lr}
+ 306              		.cfi_def_cfa_offset 16
+ 307              		.cfi_offset 4, -16
+ 308              		.cfi_offset 5, -12
+ 309              		.cfi_offset 6, -8
+ 310              		.cfi_offset 14, -4
+ 311 0002 82B0     		sub	sp, sp, #8
+ 312              		.cfi_def_cfa_offset 24
+ 313 0004 0446     		mov	r4, r0
+ 314 0006 0E46     		mov	r6, r1
+ 315 0008 1546     		mov	r5, r2
+ 314:FrontPanel.c  **** uint8 MCP23017_WrBuffer[2];
+ 315:FrontPanel.c  ****     I2C_MasterClearStatus();
+ 316              		.loc 1 315 0
+ 317 000a FFF7FEFF 		bl	I2C_MasterClearStatus
+ 318              	.LVL44:
+ 316:FrontPanel.c  ****     MCP23017_WrBuffer[0] = ctrlAdr;
+ 319              		.loc 1 316 0
+ 320 000e 8DF80460 		strb	r6, [sp, #4]
+ 317:FrontPanel.c  ****     MCP23017_WrBuffer[1] = ctrlVal;
+ 321              		.loc 1 317 0
+ 322 0012 8DF80550 		strb	r5, [sp, #5]
+ 318:FrontPanel.c  ****     I2C_MasterWriteBuf(chipAddr, MCP23017_WrBuffer, 2, I2C_MODE_COMPLETE_XFER);
+ 323              		.loc 1 318 0
+ 324 0016 0023     		movs	r3, #0
+ 325 0018 0222     		movs	r2, #2
+ 326 001a 01A9     		add	r1, sp, #4
+ 327 001c 2046     		mov	r0, r4
+ 328 001e FFF7FEFF 		bl	I2C_MasterWriteBuf
+ 329              	.LVL45:
+ 330              	.L23:
+ 319:FrontPanel.c  ****     while (0u == (I2C_MasterStatus() & I2C_MSTAT_WR_CMPLT));
+ARM GAS  C:\Users\HPz420\AppData\Local\Temp\ccVnhUOL.s 			page 13
+
+
+ 331              		.loc 1 319 0 discriminator 1
+ 332 0022 FFF7FEFF 		bl	I2C_MasterStatus
+ 333              	.LVL46:
+ 334 0026 10F0020F 		tst	r0, #2
+ 335 002a FAD0     		beq	.L23
+ 320:FrontPanel.c  ****     I2C_MasterClearStatus();
+ 336              		.loc 1 320 0
+ 337 002c FFF7FEFF 		bl	I2C_MasterClearStatus
+ 338              	.LVL47:
+ 321:FrontPanel.c  **** }
+ 339              		.loc 1 321 0
+ 340 0030 02B0     		add	sp, sp, #8
+ 341              		.cfi_def_cfa_offset 16
+ 342              		@ sp needed
+ 343 0032 70BD     		pop	{r4, r5, r6, pc}
+ 344              		.cfi_endproc
+ 345              	.LFE72:
+ 346              		.size	writeRegister_MCP23017, .-writeRegister_MCP23017
+ 347              		.section	.text.init_FrontPanel,"ax",%progbits
+ 348              		.align	2
+ 349              		.global	init_FrontPanel
+ 350              		.thumb
+ 351              		.thumb_func
+ 352              		.type	init_FrontPanel, %function
+ 353              	init_FrontPanel:
+ 354              	.LFB65:
+  65:FrontPanel.c  ****     uint8 chipAddr;
+ 355              		.loc 1 65 0
+ 356              		.cfi_startproc
+ 357              		@ args = 0, pretend = 0, frame = 0
+ 358              		@ frame_needed = 0, uses_anonymous_args = 0
+ 359 0000 10B5     		push	{r4, lr}
+ 360              		.cfi_def_cfa_offset 8
+ 361              		.cfi_offset 4, -8
+ 362              		.cfi_offset 14, -4
+ 363              	.LVL48:
+  67:FrontPanel.c  ****     {
+ 364              		.loc 1 67 0
+ 365 0002 2424     		movs	r4, #36
+ 366 0004 37E0     		b	.L26
+ 367              	.LVL49:
+ 368              	.L27:
+  69:FrontPanel.c  ****         writeRegister_MCP23017(chipAddr,MCP23017_IODIRB_REGADR,MCP23017_IODIR_ALL_OUTS);    // IO: 
+ 369              		.loc 1 69 0 discriminator 3
+ 370 0006 FF22     		movs	r2, #255
+ 371 0008 0021     		movs	r1, #0
+ 372 000a 2046     		mov	r0, r4
+ 373 000c FFF7FEFF 		bl	writeRegister_MCP23017
+ 374              	.LVL50:
+  70:FrontPanel.c  ****         writeRegister_MCP23017(chipAddr,MCP23017_IPOLA_REGADR,MCP23017_IPOL_INVERT);        // IP: 
+ 375              		.loc 1 70 0 discriminator 3
+ 376 0010 0022     		movs	r2, #0
+ 377 0012 0121     		movs	r1, #1
+ 378 0014 2046     		mov	r0, r4
+ 379 0016 FFF7FEFF 		bl	writeRegister_MCP23017
+ 380              	.LVL51:
+  71:FrontPanel.c  ****         writeRegister_MCP23017(chipAddr,MCP23017_GPINTENA_REGADR,MCP23017_GPINTEN_ENABLE);  // GPIN
+ARM GAS  C:\Users\HPz420\AppData\Local\Temp\ccVnhUOL.s 			page 14
+
+
+ 381              		.loc 1 71 0 discriminator 3
+ 382 001a FF22     		movs	r2, #255
+ 383 001c 0221     		movs	r1, #2
+ 384 001e 2046     		mov	r0, r4
+ 385 0020 FFF7FEFF 		bl	writeRegister_MCP23017
+ 386              	.LVL52:
+  72:FrontPanel.c  ****         writeRegister_MCP23017(chipAddr,MCP23017_GPINTENB_REGADR,MCP23017_GPINTEN_DISABLE); // GPIN
+ 387              		.loc 1 72 0 discriminator 3
+ 388 0024 FF22     		movs	r2, #255
+ 389 0026 0421     		movs	r1, #4
+ 390 0028 2046     		mov	r0, r4
+ 391 002a FFF7FEFF 		bl	writeRegister_MCP23017
+ 392              	.LVL53:
+  73:FrontPanel.c  ****         writeRegister_MCP23017(chipAddr,MCP23017_DEFVALA_REGADR,0xFF);                      // Defa
+ 393              		.loc 1 73 0 discriminator 3
+ 394 002e 0022     		movs	r2, #0
+ 395 0030 0521     		movs	r1, #5
+ 396 0032 2046     		mov	r0, r4
+ 397 0034 FFF7FEFF 		bl	writeRegister_MCP23017
+ 398              	.LVL54:
+  74:FrontPanel.c  ****         writeRegister_MCP23017(chipAddr,MCP23017_INTCONA_REGADR,MCP23017_INTCON_DEFVAL);    // Int 
+ 399              		.loc 1 74 0 discriminator 3
+ 400 0038 FF22     		movs	r2, #255
+ 401 003a 0621     		movs	r1, #6
+ 402 003c 2046     		mov	r0, r4
+ 403 003e FFF7FEFF 		bl	writeRegister_MCP23017
+ 404              	.LVL55:
+  75:FrontPanel.c  ****         writeRegister_MCP23017(chipAddr,MCP23017_IOCONA_REGADR,MCP23017_IOCON_DEFVAL);      // BANK
+ 405              		.loc 1 75 0 discriminator 3
+ 406 0042 0022     		movs	r2, #0
+ 407 0044 0821     		movs	r1, #8
+ 408 0046 2046     		mov	r0, r4
+ 409 0048 FFF7FEFF 		bl	writeRegister_MCP23017
+ 410              	.LVL56:
+  76:FrontPanel.c  ****                                                                                             // MIRR
+ 411              		.loc 1 76 0 discriminator 3
+ 412 004c 0422     		movs	r2, #4
+ 413 004e 0A21     		movs	r1, #10
+ 414 0050 2046     		mov	r0, r4
+ 415 0052 FFF7FEFF 		bl	writeRegister_MCP23017
+ 416              	.LVL57:
+  82:FrontPanel.c  ****         writeRegister_MCP23017(chipAddr,MCP23017_GPPUA_REGADR,MCP23017_GPPU_ENABLE);        // Pull
+ 417              		.loc 1 82 0 discriminator 3
+ 418 0056 0422     		movs	r2, #4
+ 419 0058 0B21     		movs	r1, #11
+ 420 005a 2046     		mov	r0, r4
+ 421 005c FFF7FEFF 		bl	writeRegister_MCP23017
+ 422              	.LVL58:
+  83:FrontPanel.c  ****         readRegister_MCP23017(chipAddr,MCP23017_INTCAPA_REGADR);                            // Clea
+ 423              		.loc 1 83 0 discriminator 3
+ 424 0060 FF22     		movs	r2, #255
+ 425 0062 0C21     		movs	r1, #12
+ 426 0064 2046     		mov	r0, r4
+ 427 0066 FFF7FEFF 		bl	writeRegister_MCP23017
+ 428              	.LVL59:
+  84:FrontPanel.c  ****     }
+ 429              		.loc 1 84 0 discriminator 3
+ARM GAS  C:\Users\HPz420\AppData\Local\Temp\ccVnhUOL.s 			page 15
+
+
+ 430 006a 1021     		movs	r1, #16
+ 431 006c 2046     		mov	r0, r4
+ 432 006e FFF7FEFF 		bl	readRegister_MCP23017
+ 433              	.LVL60:
+  67:FrontPanel.c  ****     {
+ 434              		.loc 1 67 0 discriminator 3
+ 435 0072 0134     		adds	r4, r4, #1
+ 436              	.LVL61:
+ 437 0074 E4B2     		uxtb	r4, r4
+ 438              	.LVL62:
+ 439              	.L26:
+  67:FrontPanel.c  ****     {
+ 440              		.loc 1 67 0 is_stmt 0 discriminator 1
+ 441 0076 272C     		cmp	r4, #39
+ 442 0078 C5D9     		bls	.L27
+  86:FrontPanel.c  ****     FPAddr = 0;
+ 443              		.loc 1 86 0 is_stmt 1
+ 444 007a 0023     		movs	r3, #0
+ 445 007c 044A     		ldr	r2, .L29
+ 446 007e 1370     		strb	r3, [r2]
+  87:FrontPanel.c  ****     FPCtrl = 0;
+ 447              		.loc 1 87 0
+ 448 0080 044A     		ldr	r2, .L29+4
+ 449 0082 1380     		strh	r3, [r2]	@ movhi
+  88:FrontPanel.c  ****     FPLong = 0;
+ 450              		.loc 1 88 0
+ 451 0084 044A     		ldr	r2, .L29+8
+ 452 0086 1370     		strb	r3, [r2]
+  89:FrontPanel.c  **** }
+ 453              		.loc 1 89 0
+ 454 0088 044A     		ldr	r2, .L29+12
+ 455 008a 1360     		str	r3, [r2]
+ 456 008c 10BD     		pop	{r4, pc}
+ 457              	.LVL63:
+ 458              	.L30:
+ 459 008e 00BF     		.align	2
+ 460              	.L29:
+ 461 0090 00000000 		.word	FPData
+ 462 0094 00000000 		.word	FPAddr
+ 463 0098 00000000 		.word	FPCtrl
+ 464 009c 00000000 		.word	FPLong
+ 465              		.cfi_endproc
+ 466              	.LFE65:
+ 467              		.size	init_FrontPanel, .-init_FrontPanel
+ 468              		.section	.text.writeFrontPanelLEDs,"ax",%progbits
+ 469              		.align	2
+ 470              		.global	writeFrontPanelLEDs
+ 471              		.thumb
+ 472              		.thumb_func
+ 473              		.type	writeFrontPanelLEDs, %function
+ 474              	writeFrontPanelLEDs:
+ 475              	.LFB70:
+ 278:FrontPanel.c  ****     writeRegister_MCP23017(MCP23017_0,MCP23017_OLATB_REGADR,((ledsVal>>24) & 0xff));
+ 476              		.loc 1 278 0
+ 477              		.cfi_startproc
+ 478              		@ args = 0, pretend = 0, frame = 0
+ 479              		@ frame_needed = 0, uses_anonymous_args = 0
+ARM GAS  C:\Users\HPz420\AppData\Local\Temp\ccVnhUOL.s 			page 16
+
+
+ 480              	.LVL64:
+ 481 0000 10B5     		push	{r4, lr}
+ 482              		.cfi_def_cfa_offset 8
+ 483              		.cfi_offset 4, -8
+ 484              		.cfi_offset 14, -4
+ 485 0002 0446     		mov	r4, r0
+ 279:FrontPanel.c  ****     writeRegister_MCP23017(MCP23017_1,MCP23017_OLATB_REGADR,((ledsVal>>16) & 0xff));
+ 486              		.loc 1 279 0
+ 487 0004 020E     		lsrs	r2, r0, #24
+ 488 0006 1521     		movs	r1, #21
+ 489 0008 2420     		movs	r0, #36
+ 490              	.LVL65:
+ 491 000a FFF7FEFF 		bl	writeRegister_MCP23017
+ 492              	.LVL66:
+ 280:FrontPanel.c  ****     writeRegister_MCP23017(MCP23017_2,MCP23017_OLATB_REGADR,((ledsVal>>8) & 0xff));
+ 493              		.loc 1 280 0
+ 494 000e C4F30742 		ubfx	r2, r4, #16, #8
+ 495 0012 1521     		movs	r1, #21
+ 496 0014 2520     		movs	r0, #37
+ 497 0016 FFF7FEFF 		bl	writeRegister_MCP23017
+ 498              	.LVL67:
+ 281:FrontPanel.c  ****     writeRegister_MCP23017(MCP23017_3,MCP23017_OLATB_REGADR,ledsVal&0xff);
+ 499              		.loc 1 281 0
+ 500 001a C4F30722 		ubfx	r2, r4, #8, #8
+ 501 001e 1521     		movs	r1, #21
+ 502 0020 2620     		movs	r0, #38
+ 503 0022 FFF7FEFF 		bl	writeRegister_MCP23017
+ 504              	.LVL68:
+ 282:FrontPanel.c  **** }
+ 505              		.loc 1 282 0
+ 506 0026 E2B2     		uxtb	r2, r4
+ 507 0028 1521     		movs	r1, #21
+ 508 002a 2720     		movs	r0, #39
+ 509 002c FFF7FEFF 		bl	writeRegister_MCP23017
+ 510              	.LVL69:
+ 511 0030 10BD     		pop	{r4, pc}
+ 512              		.cfi_endproc
+ 513              	.LFE70:
+ 514              		.size	writeFrontPanelLEDs, .-writeFrontPanelLEDs
+ 515 0032 00BF     		.section	.text.FrontPanelZ80Write,"ax",%progbits
+ 516              		.align	2
+ 517              		.global	FrontPanelZ80Write
+ 518              		.thumb
+ 519              		.thumb_func
+ 520              		.type	FrontPanelZ80Write, %function
+ 521              	FrontPanelZ80Write:
+ 522              	.LFB64:
+  55:FrontPanel.c  ****     uint32 outVal = Z80_Data_Out_Read();
+ 523              		.loc 1 55 0
+ 524              		.cfi_startproc
+ 525              		@ args = 0, pretend = 0, frame = 0
+ 526              		@ frame_needed = 0, uses_anonymous_args = 0
+ 527 0000 08B5     		push	{r3, lr}
+ 528              		.cfi_def_cfa_offset 8
+ 529              		.cfi_offset 3, -8
+ 530              		.cfi_offset 14, -4
+  56:FrontPanel.c  ****     writeFrontPanelLEDs((uint8)outVal);
+ARM GAS  C:\Users\HPz420\AppData\Local\Temp\ccVnhUOL.s 			page 17
+
+
+ 531              		.loc 1 56 0
+ 532 0002 FFF7FEFF 		bl	Z80_Data_Out_Read
+ 533              	.LVL70:
+  57:FrontPanel.c  ****     ackIO();
+ 534              		.loc 1 57 0
+ 535 0006 FFF7FEFF 		bl	writeFrontPanelLEDs
+ 536              	.LVL71:
+  58:FrontPanel.c  **** }
+ 537              		.loc 1 58 0
+ 538 000a FFF7FEFF 		bl	ackIO
+ 539              	.LVL72:
+ 540 000e 08BD     		pop	{r3, pc}
+ 541              		.cfi_endproc
+ 542              	.LFE64:
+ 543              		.size	FrontPanelZ80Write, .-FrontPanelZ80Write
+ 544              		.section	.text.runFrontPanel,"ax",%progbits
+ 545              		.align	2
+ 546              		.global	runFrontPanel
+ 547              		.thumb
+ 548              		.thumb_func
+ 549              		.type	runFrontPanel, %function
+ 550              	runFrontPanel:
+ 551              	.LFB66:
+  97:FrontPanel.c  ****     uint32 switchesVal = 0;
+ 552              		.loc 1 97 0
+ 553              		.cfi_startproc
+ 554              		@ args = 0, pretend = 0, frame = 0
+ 555              		@ frame_needed = 0, uses_anonymous_args = 0
+ 556 0000 70B5     		push	{r4, r5, r6, lr}
+ 557              		.cfi_def_cfa_offset 16
+ 558              		.cfi_offset 4, -16
+ 559              		.cfi_offset 5, -12
+ 560              		.cfi_offset 6, -8
+ 561              		.cfi_offset 14, -4
+ 562              	.LVL73:
+ 101:FrontPanel.c  ****     init_FrontPanel();
+ 563              		.loc 1 101 0
+ 564 0002 FFF7FEFF 		bl	I2C_Start
+ 565              	.LVL74:
+ 102:FrontPanel.c  ****     // Bounce LEDs
+ 566              		.loc 1 102 0
+ 567 0006 FFF7FEFF 		bl	init_FrontPanel
+ 568              	.LVL75:
+ 104:FrontPanel.c  ****     {
+ 569              		.loc 1 104 0
+ 570 000a 0125     		movs	r5, #1
+ 571 000c 06E0     		b	.L36
+ 572              	.LVL76:
+ 573              	.L37:
+ 106:FrontPanel.c  ****         CyDelay(50);
+ 574              		.loc 1 106 0 discriminator 3
+ 575 000e 2846     		mov	r0, r5
+ 576 0010 FFF7FEFF 		bl	writeFrontPanelLEDs
+ 577              	.LVL77:
+ 107:FrontPanel.c  ****     }
+ 578              		.loc 1 107 0 discriminator 3
+ 579 0014 3220     		movs	r0, #50
+ARM GAS  C:\Users\HPz420\AppData\Local\Temp\ccVnhUOL.s 			page 18
+
+
+ 580 0016 FFF7FEFF 		bl	CyDelay
+ 581              	.LVL78:
+ 104:FrontPanel.c  ****     {
+ 582              		.loc 1 104 0 discriminator 3
+ 583 001a 6D00     		lsls	r5, r5, #1
+ 584              	.LVL79:
+ 585              	.L36:
+ 104:FrontPanel.c  ****     {
+ 586              		.loc 1 104 0 is_stmt 0 discriminator 1
+ 587 001c 002D     		cmp	r5, #0
+ 588 001e F6D1     		bne	.L37
+ 109:FrontPanel.c  ****     writeFrontPanelLEDs(LEDsVal);       // clears LEDs
+ 589              		.loc 1 109 0 is_stmt 1
+ 590 0020 0020     		movs	r0, #0
+ 591 0022 FFF7FEFF 		bl	ReadExtSRAM
+ 592              	.LVL80:
+ 593 0026 40EA0504 		orr	r4, r0, r5
+ 594              	.LVL81:
+ 110:FrontPanel.c  ****     for(;;)                     // Loop forever
+ 595              		.loc 1 110 0
+ 596 002a 2046     		mov	r0, r4
+ 597 002c FFF7FEFF 		bl	writeFrontPanelLEDs
+ 598              	.LVL82:
+ 599              	.L38:
+ 113:FrontPanel.c  ****         if ((switchesVal & 0xff000000) != 0)    // Control switch on top row was pressed
+ 600              		.loc 1 113 0
+ 601 0030 FFF7FEFF 		bl	waitFrontPanelSwitchesPressed
+ 602              	.LVL83:
+ 114:FrontPanel.c  ****         {
+ 603              		.loc 1 114 0
+ 604 0034 10F07F4F 		tst	r0, #-16777216
+ 605 0038 00F08680 		beq	.L39
+ 116:FrontPanel.c  ****             {
+ 606              		.loc 1 116 0
+ 607 003c 10F0807F 		tst	r0, #16777216
+ 608 0040 12D0     		beq	.L40
+ 118:FrontPanel.c  ****                 writeFrontPanelLEDs(LEDsVal);
+ 609              		.loc 1 118 0
+ 610 0042 44F08074 		orr	r4, r4, #16777216
+ 611              	.LVL84:
+ 119:FrontPanel.c  ****                 LEDsVal += 0x00000100;
+ 612              		.loc 1 119 0
+ 613 0046 2046     		mov	r0, r4
+ 614              	.LVL85:
+ 615 0048 FFF7FEFF 		bl	writeFrontPanelLEDs
+ 616              	.LVL86:
+ 120:FrontPanel.c  ****                 LEDsVal &= 0x00ffff00;
+ 617              		.loc 1 120 0
+ 618 004c 04F58074 		add	r4, r4, #256
+ 619              	.LVL87:
+ 121:FrontPanel.c  ****                 LEDsVal |= ReadExtSRAM((LEDsVal >> 8) & 0xffff);
+ 620              		.loc 1 121 0
+ 621 0050 24F07F44 		bic	r4, r4, #-16777216
+ 622              	.LVL88:
+ 623 0054 24F0FF04 		bic	r4, r4, #255
+ 624              	.LVL89:
+ 122:FrontPanel.c  ****                 writeFrontPanelLEDs(LEDsVal);
+ARM GAS  C:\Users\HPz420\AppData\Local\Temp\ccVnhUOL.s 			page 19
+
+
+ 625              		.loc 1 122 0
+ 626 0058 200A     		lsrs	r0, r4, #8
+ 627 005a FFF7FEFF 		bl	ReadExtSRAM
+ 628              	.LVL90:
+ 629 005e 0443     		orrs	r4, r4, r0
+ 630              	.LVL91:
+ 123:FrontPanel.c  ****             }
+ 631              		.loc 1 123 0
+ 632 0060 2046     		mov	r0, r4
+ 633 0062 FFF7FEFF 		bl	writeFrontPanelLEDs
+ 634              	.LVL92:
+ 635 0066 E3E7     		b	.L38
+ 636              	.LVL93:
+ 637              	.L40:
+ 125:FrontPanel.c  ****             {
+ 638              		.loc 1 125 0
+ 639 0068 10F0007F 		tst	r0, #33554432
+ 640 006c 17D0     		beq	.L42
+ 127:FrontPanel.c  ****                 writeFrontPanelLEDs(LEDsVal);
+ 641              		.loc 1 127 0
+ 642 006e 44F00074 		orr	r4, r4, #33554432
+ 643              	.LVL94:
+ 128:FrontPanel.c  ****                 WriteExtSRAM((LEDsVal >> 8) & 0xffff,LEDsVal&0xff);
+ 644              		.loc 1 128 0
+ 645 0072 2046     		mov	r0, r4
+ 646              	.LVL95:
+ 647 0074 FFF7FEFF 		bl	writeFrontPanelLEDs
+ 648              	.LVL96:
+ 129:FrontPanel.c  ****                 LEDsVal += 0x00000100;
+ 649              		.loc 1 129 0
+ 650 0078 E1B2     		uxtb	r1, r4
+ 651 007a C4F30F20 		ubfx	r0, r4, #8, #16
+ 652 007e FFF7FEFF 		bl	WriteExtSRAM
+ 653              	.LVL97:
+ 130:FrontPanel.c  ****                 LEDsVal &= 0x00ffff00;
+ 654              		.loc 1 130 0
+ 655 0082 04F58074 		add	r4, r4, #256
+ 656              	.LVL98:
+ 131:FrontPanel.c  ****                 LEDsVal |= ReadExtSRAM((LEDsVal >> 8) & 0xffff);
+ 657              		.loc 1 131 0
+ 658 0086 24F07F44 		bic	r4, r4, #-16777216
+ 659              	.LVL99:
+ 660 008a 24F0FF04 		bic	r4, r4, #255
+ 661              	.LVL100:
+ 132:FrontPanel.c  ****                 writeFrontPanelLEDs(LEDsVal);
+ 662              		.loc 1 132 0
+ 663 008e 200A     		lsrs	r0, r4, #8
+ 664 0090 FFF7FEFF 		bl	ReadExtSRAM
+ 665              	.LVL101:
+ 666 0094 0443     		orrs	r4, r4, r0
+ 667              	.LVL102:
+ 133:FrontPanel.c  ****             }
+ 668              		.loc 1 133 0
+ 669 0096 2046     		mov	r0, r4
+ 670 0098 FFF7FEFF 		bl	writeFrontPanelLEDs
+ 671              	.LVL103:
+ 672 009c C8E7     		b	.L38
+ARM GAS  C:\Users\HPz420\AppData\Local\Temp\ccVnhUOL.s 			page 20
+
+
+ 673              	.LVL104:
+ 674              	.L42:
+ 135:FrontPanel.c  ****             {
+ 675              		.loc 1 135 0
+ 676 009e 10F0806F 		tst	r0, #67108864
+ 677 00a2 11D0     		beq	.L43
+ 678              	.LVL105:
+ 138:FrontPanel.c  ****                 LEDsVal &= 0x00ffff00;
+ 679              		.loc 1 138 0
+ 680 00a4 44F08060 		orr	r0, r4, #67108864
+ 681              	.LVL106:
+ 682 00a8 FFF7FEFF 		bl	writeFrontPanelLEDs
+ 683              	.LVL107:
+ 684 00ac 24F07F46 		bic	r6, r4, #-16777216
+ 685 00b0 26F0FF06 		bic	r6, r6, #255
+ 686              	.LVL108:
+ 140:FrontPanel.c  ****                 writeFrontPanelLEDs(LEDsVal);
+ 687              		.loc 1 140 0
+ 688 00b4 C4F30F20 		ubfx	r0, r4, #8, #16
+ 689 00b8 FFF7FEFF 		bl	ReadExtSRAM
+ 690              	.LVL109:
+ 691 00bc 40EA0604 		orr	r4, r0, r6
+ 692              	.LVL110:
+ 141:FrontPanel.c  ****             }
+ 693              		.loc 1 141 0
+ 694 00c0 2046     		mov	r0, r4
+ 695 00c2 FFF7FEFF 		bl	writeFrontPanelLEDs
+ 696              	.LVL111:
+ 697 00c6 B3E7     		b	.L38
+ 698              	.LVL112:
+ 699              	.L43:
+ 143:FrontPanel.c  ****             {
+ 700              		.loc 1 143 0
+ 701 00c8 10F0006F 		tst	r0, #134217728
+ 702 00cc 07D0     		beq	.L44
+ 145:FrontPanel.c  ****                 LEDsVal = 0x08000000;
+ 703              		.loc 1 145 0
+ 704 00ce 0022     		movs	r2, #0
+ 705 00d0 204B     		ldr	r3, .L50
+ 706 00d2 1A70     		strb	r2, [r3]
+ 707              	.LVL113:
+ 147:FrontPanel.c  ****                 return;
+ 708              		.loc 1 147 0
+ 709 00d4 4FF00060 		mov	r0, #134217728
+ 710              	.LVL114:
+ 711 00d8 FFF7FEFF 		bl	writeFrontPanelLEDs
+ 712              	.LVL115:
+ 148:FrontPanel.c  ****             }
+ 713              		.loc 1 148 0
+ 714 00dc 70BD     		pop	{r4, r5, r6, pc}
+ 715              	.LVL116:
+ 716              	.L44:
+ 150:FrontPanel.c  ****             {
+ 717              		.loc 1 150 0
+ 718 00de 10F0805F 		tst	r0, #268435456
+ 719 00e2 0BD0     		beq	.L46
+ 720              	.LVL117:
+ARM GAS  C:\Users\HPz420\AppData\Local\Temp\ccVnhUOL.s 			page 21
+
+
+ 153:FrontPanel.c  ****                 CyDelay(250);
+ 721              		.loc 1 153 0
+ 722 00e4 4FF08050 		mov	r0, #268435456
+ 723              	.LVL118:
+ 724 00e8 FFF7FEFF 		bl	writeFrontPanelLEDs
+ 725              	.LVL119:
+ 154:FrontPanel.c  ****                 LEDsVal &= 0x00ffffff;
+ 726              		.loc 1 154 0
+ 727 00ec FA20     		movs	r0, #250
+ 728 00ee FFF7FEFF 		bl	CyDelay
+ 729              	.LVL120:
+ 156:FrontPanel.c  ****             }
+ 730              		.loc 1 156 0
+ 731 00f2 0020     		movs	r0, #0
+ 732 00f4 FFF7FEFF 		bl	writeFrontPanelLEDs
+ 733              	.LVL121:
+ 155:FrontPanel.c  ****                 writeFrontPanelLEDs(LEDsVal);       // Turn off LED
+ 734              		.loc 1 155 0
+ 735 00f8 2C46     		mov	r4, r5
+ 736 00fa 99E7     		b	.L38
+ 737              	.LVL122:
+ 738              	.L46:
+ 158:FrontPanel.c  ****             {
+ 739              		.loc 1 158 0
+ 740 00fc 10F0005F 		tst	r0, #536870912
+ 741 0100 0BD0     		beq	.L47
+ 742              	.LVL123:
+ 161:FrontPanel.c  ****                 CyDelay(250);
+ 743              		.loc 1 161 0
+ 744 0102 4FF00050 		mov	r0, #536870912
+ 745              	.LVL124:
+ 746 0106 FFF7FEFF 		bl	writeFrontPanelLEDs
+ 747              	.LVL125:
+ 162:FrontPanel.c  ****                 LEDsVal &= 0x00ffffff;
+ 748              		.loc 1 162 0
+ 749 010a FA20     		movs	r0, #250
+ 750 010c FFF7FEFF 		bl	CyDelay
+ 751              	.LVL126:
+ 164:FrontPanel.c  ****             }
+ 752              		.loc 1 164 0
+ 753 0110 0020     		movs	r0, #0
+ 754 0112 FFF7FEFF 		bl	writeFrontPanelLEDs
+ 755              	.LVL127:
+ 163:FrontPanel.c  ****                 writeFrontPanelLEDs(LEDsVal);       // Turn off LED
+ 756              		.loc 1 163 0
+ 757 0116 2C46     		mov	r4, r5
+ 758 0118 8AE7     		b	.L38
+ 759              	.LVL128:
+ 760              	.L47:
+ 166:FrontPanel.c  ****             {
+ 761              		.loc 1 166 0
+ 762 011a 10F0804F 		tst	r0, #1073741824
+ 763 011e 0BD0     		beq	.L48
+ 764              	.LVL129:
+ 169:FrontPanel.c  ****                 CyDelay(250);
+ 765              		.loc 1 169 0
+ 766 0120 4FF08040 		mov	r0, #1073741824
+ARM GAS  C:\Users\HPz420\AppData\Local\Temp\ccVnhUOL.s 			page 22
+
+
+ 767              	.LVL130:
+ 768 0124 FFF7FEFF 		bl	writeFrontPanelLEDs
+ 769              	.LVL131:
+ 170:FrontPanel.c  ****                 LEDsVal &= 0x00ffffff;
+ 770              		.loc 1 170 0
+ 771 0128 FA20     		movs	r0, #250
+ 772 012a FFF7FEFF 		bl	CyDelay
+ 773              	.LVL132:
+ 172:FrontPanel.c  ****             }
+ 774              		.loc 1 172 0
+ 775 012e 0020     		movs	r0, #0
+ 776 0130 FFF7FEFF 		bl	writeFrontPanelLEDs
+ 777              	.LVL133:
+ 171:FrontPanel.c  ****                 writeFrontPanelLEDs(LEDsVal);       // Turn off LED
+ 778              		.loc 1 171 0
+ 779 0134 2C46     		mov	r4, r5
+ 780 0136 7BE7     		b	.L38
+ 781              	.LVL134:
+ 782              	.L48:
+ 174:FrontPanel.c  ****             {
+ 783              		.loc 1 174 0
+ 784 0138 0028     		cmp	r0, #0
+ 785 013a BFF679AF 		bge	.L38
+ 786              	.LVL135:
+ 177:FrontPanel.c  ****                 return;
+ 787              		.loc 1 177 0
+ 788 013e 4FF00040 		mov	r0, #-2147483648
+ 789              	.LVL136:
+ 790 0142 FFF7FEFF 		bl	writeFrontPanelLEDs
+ 791              	.LVL137:
+ 178:FrontPanel.c  ****             }
+ 792              		.loc 1 178 0
+ 793 0146 70BD     		pop	{r4, r5, r6, pc}
+ 794              	.LVL138:
+ 795              	.L39:
+ 183:FrontPanel.c  ****             writeFrontPanelLEDs(LEDsVal);
+ 796              		.loc 1 183 0
+ 797 0148 4440     		eors	r4, r4, r0
+ 798              	.LVL139:
+ 184:FrontPanel.c  ****         }
+ 799              		.loc 1 184 0
+ 800 014a 2046     		mov	r0, r4
+ 801              	.LVL140:
+ 802 014c FFF7FEFF 		bl	writeFrontPanelLEDs
+ 803              	.LVL141:
+ 804 0150 6EE7     		b	.L38
+ 805              	.L51:
+ 806 0152 00BF     		.align	2
+ 807              	.L50:
+ 808 0154 74640040 		.word	1073767540
+ 809              		.cfi_endproc
+ 810              	.LFE66:
+ 811              		.size	runFrontPanel, .-runFrontPanel
+ 812              		.comm	FPLong,4,4
+ 813              		.comm	FPCtrl,1,1
+ 814              		.comm	FPAddr,2,2
+ 815              		.comm	FPData,1,1
+ARM GAS  C:\Users\HPz420\AppData\Local\Temp\ccVnhUOL.s 			page 23
+
+
+ 816              		.text
+ 817              	.Letext0:
+ 818              		.file 2 "c:\\program files (x86)\\cypress\\psoc creator\\4.2\\psoc creator\\import\\gnu\\arm\\5.4.
+ 819              		.file 3 "c:\\program files (x86)\\cypress\\psoc creator\\4.2\\psoc creator\\import\\gnu\\arm\\5.4.
+ 820              		.file 4 "Generated_Source\\PSoC5/cytypes.h"
+ 821              		.file 5 "Generated_Source\\PSoC5/core_cm3.h"
+ 822              		.file 6 "Generated_Source\\PSoC5/I2C.h"
+ 823              		.file 7 "Generated_Source\\PSoC5/Z80_Data_In.h"
+ 824              		.file 8 "Z80_SIO_emul.h"
+ 825              		.file 9 "Generated_Source\\PSoC5/CyLib.h"
+ 826              		.file 10 "Generated_Source\\PSoC5/Z80_Data_Out.h"
+ 827              		.file 11 "ExtSRAM.h"
+ 828              		.section	.debug_info,"",%progbits
+ 829              	.Ldebug_info0:
+ 830 0000 90090000 		.4byte	0x990
+ 831 0004 0400     		.2byte	0x4
+ 832 0006 00000000 		.4byte	.Ldebug_abbrev0
+ 833 000a 04       		.byte	0x4
+ 834 000b 01       		.uleb128 0x1
+ 835 000c 89030000 		.4byte	.LASF66
+ 836 0010 0C       		.byte	0xc
+ 837 0011 95000000 		.4byte	.LASF67
+ 838 0015 AF000000 		.4byte	.LASF68
+ 839 0019 00000000 		.4byte	.Ldebug_ranges0+0
+ 840 001d 00000000 		.4byte	0
+ 841 0021 00000000 		.4byte	.Ldebug_line0
+ 842 0025 02       		.uleb128 0x2
+ 843 0026 01       		.byte	0x1
+ 844 0027 06       		.byte	0x6
+ 845 0028 FE010000 		.4byte	.LASF0
+ 846 002c 02       		.uleb128 0x2
+ 847 002d 01       		.byte	0x1
+ 848 002e 08       		.byte	0x8
+ 849 002f D6010000 		.4byte	.LASF1
+ 850 0033 02       		.uleb128 0x2
+ 851 0034 02       		.byte	0x2
+ 852 0035 05       		.byte	0x5
+ 853 0036 2D000000 		.4byte	.LASF2
+ 854 003a 02       		.uleb128 0x2
+ 855 003b 02       		.byte	0x2
+ 856 003c 07       		.byte	0x7
+ 857 003d 80020000 		.4byte	.LASF3
+ 858 0041 03       		.uleb128 0x3
+ 859 0042 56030000 		.4byte	.LASF9
+ 860 0046 02       		.byte	0x2
+ 861 0047 3F       		.byte	0x3f
+ 862 0048 4C000000 		.4byte	0x4c
+ 863 004c 02       		.uleb128 0x2
+ 864 004d 04       		.byte	0x4
+ 865 004e 05       		.byte	0x5
+ 866 004f 6C010000 		.4byte	.LASF4
+ 867 0053 02       		.uleb128 0x2
+ 868 0054 04       		.byte	0x4
+ 869 0055 07       		.byte	0x7
+ 870 0056 48020000 		.4byte	.LASF5
+ 871 005a 02       		.uleb128 0x2
+ 872 005b 08       		.byte	0x8
+ARM GAS  C:\Users\HPz420\AppData\Local\Temp\ccVnhUOL.s 			page 24
+
+
+ 873 005c 05       		.byte	0x5
+ 874 005d 34010000 		.4byte	.LASF6
+ 875 0061 02       		.uleb128 0x2
+ 876 0062 08       		.byte	0x8
+ 877 0063 07       		.byte	0x7
+ 878 0064 42010000 		.4byte	.LASF7
+ 879 0068 04       		.uleb128 0x4
+ 880 0069 04       		.byte	0x4
+ 881 006a 05       		.byte	0x5
+ 882 006b 696E7400 		.ascii	"int\000"
+ 883 006f 02       		.uleb128 0x2
+ 884 0070 04       		.byte	0x4
+ 885 0071 07       		.byte	0x7
+ 886 0072 3B020000 		.4byte	.LASF8
+ 887 0076 03       		.uleb128 0x3
+ 888 0077 0A020000 		.4byte	.LASF10
+ 889 007b 03       		.byte	0x3
+ 890 007c 2C       		.byte	0x2c
+ 891 007d 41000000 		.4byte	0x41
+ 892 0081 05       		.uleb128 0x5
+ 893 0082 B3020000 		.4byte	.LASF11
+ 894 0086 04       		.byte	0x4
+ 895 0087 E401     		.2byte	0x1e4
+ 896 0089 2C000000 		.4byte	0x2c
+ 897 008d 05       		.uleb128 0x5
+ 898 008e 7B000000 		.4byte	.LASF12
+ 899 0092 04       		.byte	0x4
+ 900 0093 E501     		.2byte	0x1e5
+ 901 0095 3A000000 		.4byte	0x3a
+ 902 0099 05       		.uleb128 0x5
+ 903 009a F6020000 		.4byte	.LASF13
+ 904 009e 04       		.byte	0x4
+ 905 009f E601     		.2byte	0x1e6
+ 906 00a1 53000000 		.4byte	0x53
+ 907 00a5 02       		.uleb128 0x2
+ 908 00a6 04       		.byte	0x4
+ 909 00a7 04       		.byte	0x4
+ 910 00a8 27010000 		.4byte	.LASF14
+ 911 00ac 02       		.uleb128 0x2
+ 912 00ad 08       		.byte	0x8
+ 913 00ae 04       		.byte	0x4
+ 914 00af 1F030000 		.4byte	.LASF15
+ 915 00b3 02       		.uleb128 0x2
+ 916 00b4 01       		.byte	0x1
+ 917 00b5 08       		.byte	0x8
+ 918 00b6 93020000 		.4byte	.LASF16
+ 919 00ba 05       		.uleb128 0x5
+ 920 00bb FD020000 		.4byte	.LASF17
+ 921 00bf 04       		.byte	0x4
+ 922 00c0 8E02     		.2byte	0x28e
+ 923 00c2 C6000000 		.4byte	0xc6
+ 924 00c6 06       		.uleb128 0x6
+ 925 00c7 81000000 		.4byte	0x81
+ 926 00cb 02       		.uleb128 0x2
+ 927 00cc 08       		.byte	0x8
+ 928 00cd 04       		.byte	0x4
+ 929 00ce CA010000 		.4byte	.LASF18
+ARM GAS  C:\Users\HPz420\AppData\Local\Temp\ccVnhUOL.s 			page 25
+
+
+ 930 00d2 02       		.uleb128 0x2
+ 931 00d3 04       		.byte	0x4
+ 932 00d4 07       		.byte	0x7
+ 933 00d5 6C030000 		.4byte	.LASF19
+ 934 00d9 07       		.uleb128 0x7
+ 935 00da 75010000 		.4byte	.LASF22
+ 936 00de 01       		.byte	0x1
+ 937 00df 2401     		.2byte	0x124
+ 938 00e1 81000000 		.4byte	0x81
+ 939 00e5 00000000 		.4byte	.LFB71
+ 940 00e9 38000000 		.4byte	.LFE71-.LFB71
+ 941 00ed 01       		.uleb128 0x1
+ 942 00ee 9C       		.byte	0x9c
+ 943 00ef 9F010000 		.4byte	0x19f
+ 944 00f3 08       		.uleb128 0x8
+ 945 00f4 AA020000 		.4byte	.LASF20
+ 946 00f8 01       		.byte	0x1
+ 947 00f9 2401     		.2byte	0x124
+ 948 00fb 81000000 		.4byte	0x81
+ 949 00ff 00000000 		.4byte	.LLST0
+ 950 0103 08       		.uleb128 0x8
+ 951 0104 00000000 		.4byte	.LASF21
+ 952 0108 01       		.byte	0x1
+ 953 0109 2401     		.2byte	0x124
+ 954 010b 81000000 		.4byte	0x81
+ 955 010f 21000000 		.4byte	.LLST1
+ 956 0113 09       		.uleb128 0x9
+ 957 0114 2D010000 		.4byte	.LASF24
+ 958 0118 01       		.byte	0x1
+ 959 0119 2601     		.2byte	0x126
+ 960 011b 81000000 		.4byte	0x81
+ 961 011f 01       		.uleb128 0x1
+ 962 0120 54       		.byte	0x54
+ 963 0121 0A       		.uleb128 0xa
+ 964 0122 0A000000 		.4byte	.LVL1
+ 965 0126 F9080000 		.4byte	0x8f9
+ 966 012a 0B       		.uleb128 0xb
+ 967 012b 12000000 		.4byte	.LVL2
+ 968 012f 04090000 		.4byte	0x904
+ 969 0133 43010000 		.4byte	0x143
+ 970 0137 0C       		.uleb128 0xc
+ 971 0138 01       		.uleb128 0x1
+ 972 0139 50       		.byte	0x50
+ 973 013a 02       		.uleb128 0x2
+ 974 013b 74       		.byte	0x74
+ 975 013c 00       		.sleb128 0
+ 976 013d 0C       		.uleb128 0xc
+ 977 013e 01       		.uleb128 0x1
+ 978 013f 51       		.byte	0x51
+ 979 0140 01       		.uleb128 0x1
+ 980 0141 30       		.byte	0x30
+ 981 0142 00       		.byte	0
+ 982 0143 0B       		.uleb128 0xb
+ 983 0144 18000000 		.4byte	.LVL3
+ 984 0148 0F090000 		.4byte	0x90f
+ 985 014c 57010000 		.4byte	0x157
+ 986 0150 0C       		.uleb128 0xc
+ARM GAS  C:\Users\HPz420\AppData\Local\Temp\ccVnhUOL.s 			page 26
+
+
+ 987 0151 01       		.uleb128 0x1
+ 988 0152 50       		.byte	0x50
+ 989 0153 02       		.uleb128 0x2
+ 990 0154 75       		.byte	0x75
+ 991 0155 00       		.sleb128 0
+ 992 0156 00       		.byte	0
+ 993 0157 0A       		.uleb128 0xa
+ 994 0158 1C000000 		.4byte	.LVL4
+ 995 015c 1A090000 		.4byte	0x91a
+ 996 0160 0B       		.uleb128 0xb
+ 997 0161 24000000 		.4byte	.LVL5
+ 998 0165 04090000 		.4byte	0x904
+ 999 0169 79010000 		.4byte	0x179
+ 1000 016d 0C       		.uleb128 0xc
+ 1001 016e 01       		.uleb128 0x1
+ 1002 016f 50       		.byte	0x50
+ 1003 0170 02       		.uleb128 0x2
+ 1004 0171 74       		.byte	0x74
+ 1005 0172 00       		.sleb128 0
+ 1006 0173 0C       		.uleb128 0xc
+ 1007 0174 01       		.uleb128 0x1
+ 1008 0175 51       		.byte	0x51
+ 1009 0176 01       		.uleb128 0x1
+ 1010 0177 31       		.byte	0x31
+ 1011 0178 00       		.byte	0
+ 1012 0179 0B       		.uleb128 0xb
+ 1013 017a 2A000000 		.4byte	.LVL6
+ 1014 017e 25090000 		.4byte	0x925
+ 1015 0182 8C010000 		.4byte	0x18c
+ 1016 0186 0C       		.uleb128 0xc
+ 1017 0187 01       		.uleb128 0x1
+ 1018 0188 50       		.byte	0x50
+ 1019 0189 01       		.uleb128 0x1
+ 1020 018a 30       		.byte	0x30
+ 1021 018b 00       		.byte	0
+ 1022 018c 0A       		.uleb128 0xa
+ 1023 018d 30000000 		.4byte	.LVL8
+ 1024 0191 1A090000 		.4byte	0x91a
+ 1025 0195 0A       		.uleb128 0xa
+ 1026 0196 34000000 		.4byte	.LVL9
+ 1027 019a F9080000 		.4byte	0x8f9
+ 1028 019e 00       		.byte	0
+ 1029 019f 07       		.uleb128 0x7
+ 1030 01a0 02030000 		.4byte	.LASF23
+ 1031 01a4 01       		.byte	0x1
+ 1032 01a5 0501     		.2byte	0x105
+ 1033 01a7 99000000 		.4byte	0x99
+ 1034 01ab 00000000 		.4byte	.LFB69
+ 1035 01af 30000000 		.4byte	.LFE69-.LFB69
+ 1036 01b3 01       		.uleb128 0x1
+ 1037 01b4 9C       		.byte	0x9c
+ 1038 01b5 2A020000 		.4byte	0x22a
+ 1039 01b9 0D       		.uleb128 0xd
+ 1040 01ba 61010000 		.4byte	.LASF25
+ 1041 01be 01       		.byte	0x1
+ 1042 01bf 0701     		.2byte	0x107
+ 1043 01c1 99000000 		.4byte	0x99
+ARM GAS  C:\Users\HPz420\AppData\Local\Temp\ccVnhUOL.s 			page 27
+
+
+ 1044 01c5 42000000 		.4byte	.LLST2
+ 1045 01c9 0B       		.uleb128 0xb
+ 1046 01ca 0A000000 		.4byte	.LVL11
+ 1047 01ce D9000000 		.4byte	0xd9
+ 1048 01d2 E2010000 		.4byte	0x1e2
+ 1049 01d6 0C       		.uleb128 0xc
+ 1050 01d7 01       		.uleb128 0x1
+ 1051 01d8 50       		.byte	0x50
+ 1052 01d9 02       		.uleb128 0x2
+ 1053 01da 08       		.byte	0x8
+ 1054 01db 24       		.byte	0x24
+ 1055 01dc 0C       		.uleb128 0xc
+ 1056 01dd 01       		.uleb128 0x1
+ 1057 01de 51       		.byte	0x51
+ 1058 01df 01       		.uleb128 0x1
+ 1059 01e0 42       		.byte	0x42
+ 1060 01e1 00       		.byte	0
+ 1061 01e2 0B       		.uleb128 0xb
+ 1062 01e3 14000000 		.4byte	.LVL13
+ 1063 01e7 D9000000 		.4byte	0xd9
+ 1064 01eb FB010000 		.4byte	0x1fb
+ 1065 01ef 0C       		.uleb128 0xc
+ 1066 01f0 01       		.uleb128 0x1
+ 1067 01f1 50       		.byte	0x50
+ 1068 01f2 02       		.uleb128 0x2
+ 1069 01f3 08       		.byte	0x8
+ 1070 01f4 25       		.byte	0x25
+ 1071 01f5 0C       		.uleb128 0xc
+ 1072 01f6 01       		.uleb128 0x1
+ 1073 01f7 51       		.byte	0x51
+ 1074 01f8 01       		.uleb128 0x1
+ 1075 01f9 42       		.byte	0x42
+ 1076 01fa 00       		.byte	0
+ 1077 01fb 0B       		.uleb128 0xb
+ 1078 01fc 20000000 		.4byte	.LVL16
+ 1079 0200 D9000000 		.4byte	0xd9
+ 1080 0204 14020000 		.4byte	0x214
+ 1081 0208 0C       		.uleb128 0xc
+ 1082 0209 01       		.uleb128 0x1
+ 1083 020a 50       		.byte	0x50
+ 1084 020b 02       		.uleb128 0x2
+ 1085 020c 08       		.byte	0x8
+ 1086 020d 26       		.byte	0x26
+ 1087 020e 0C       		.uleb128 0xc
+ 1088 020f 01       		.uleb128 0x1
+ 1089 0210 51       		.byte	0x51
+ 1090 0211 01       		.uleb128 0x1
+ 1091 0212 42       		.byte	0x42
+ 1092 0213 00       		.byte	0
+ 1093 0214 0E       		.uleb128 0xe
+ 1094 0215 2C000000 		.4byte	.LVL19
+ 1095 0219 D9000000 		.4byte	0xd9
+ 1096 021d 0C       		.uleb128 0xc
+ 1097 021e 01       		.uleb128 0x1
+ 1098 021f 50       		.byte	0x50
+ 1099 0220 02       		.uleb128 0x2
+ 1100 0221 08       		.byte	0x8
+ARM GAS  C:\Users\HPz420\AppData\Local\Temp\ccVnhUOL.s 			page 28
+
+
+ 1101 0222 27       		.byte	0x27
+ 1102 0223 0C       		.uleb128 0xc
+ 1103 0224 01       		.uleb128 0x1
+ 1104 0225 51       		.byte	0x51
+ 1105 0226 01       		.uleb128 0x1
+ 1106 0227 42       		.byte	0x42
+ 1107 0228 00       		.byte	0
+ 1108 0229 00       		.byte	0
+ 1109 022a 0F       		.uleb128 0xf
+ 1110 022b 98020000 		.4byte	.LASF35
+ 1111 022f 01       		.byte	0x1
+ 1112 0230 2F       		.byte	0x2f
+ 1113 0231 00000000 		.4byte	.LFB63
+ 1114 0235 12000000 		.4byte	.LFE63-.LFB63
+ 1115 0239 01       		.uleb128 0x1
+ 1116 023a 9C       		.byte	0x9c
+ 1117 023b 6A020000 		.4byte	0x26a
+ 1118 023f 10       		.uleb128 0x10
+ 1119 0240 6E000000 		.4byte	.LASF26
+ 1120 0244 01       		.byte	0x1
+ 1121 0245 31       		.byte	0x31
+ 1122 0246 99000000 		.4byte	0x99
+ 1123 024a B3000000 		.4byte	.LLST3
+ 1124 024e 0A       		.uleb128 0xa
+ 1125 024f 06000000 		.4byte	.LVL21
+ 1126 0253 9F010000 		.4byte	0x19f
+ 1127 0257 0A       		.uleb128 0xa
+ 1128 0258 0C000000 		.4byte	.LVL23
+ 1129 025c 30090000 		.4byte	0x930
+ 1130 0260 0A       		.uleb128 0xa
+ 1131 0261 10000000 		.4byte	.LVL24
+ 1132 0265 3B090000 		.4byte	0x93b
+ 1133 0269 00       		.byte	0
+ 1134 026a 11       		.uleb128 0x11
+ 1135 026b 17040000 		.4byte	.LASF27
+ 1136 026f 01       		.byte	0x1
+ 1137 0270 C6       		.byte	0xc6
+ 1138 0271 99000000 		.4byte	0x99
+ 1139 0275 00000000 		.4byte	.LFB67
+ 1140 0279 34000000 		.4byte	.LFE67-.LFB67
+ 1141 027d 01       		.uleb128 0x1
+ 1142 027e 9C       		.byte	0x9c
+ 1143 027f FD020000 		.4byte	0x2fd
+ 1144 0283 10       		.uleb128 0x10
+ 1145 0284 45030000 		.4byte	.LASF28
+ 1146 0288 01       		.byte	0x1
+ 1147 0289 C8       		.byte	0xc8
+ 1148 028a 99000000 		.4byte	0x99
+ 1149 028e C6000000 		.4byte	.LLST4
+ 1150 0292 12       		.uleb128 0x12
+ 1151 0293 75030000 		.4byte	.LASF29
+ 1152 0297 01       		.byte	0x1
+ 1153 0298 C9       		.byte	0xc9
+ 1154 0299 99000000 		.4byte	0x99
+ 1155 029d 00       		.byte	0
+ 1156 029e 10       		.uleb128 0x10
+ 1157 029f 37000000 		.4byte	.LASF30
+ARM GAS  C:\Users\HPz420\AppData\Local\Temp\ccVnhUOL.s 			page 29
+
+
+ 1158 02a3 01       		.byte	0x1
+ 1159 02a4 CA       		.byte	0xca
+ 1160 02a5 99000000 		.4byte	0x99
+ 1161 02a9 05010000 		.4byte	.LLST5
+ 1162 02ad 10       		.uleb128 0x10
+ 1163 02ae 3F000000 		.4byte	.LASF31
+ 1164 02b2 01       		.byte	0x1
+ 1165 02b3 CB       		.byte	0xcb
+ 1166 02b4 99000000 		.4byte	0x99
+ 1167 02b8 5C010000 		.4byte	.LLST6
+ 1168 02bc 10       		.uleb128 0x10
+ 1169 02bd 47000000 		.4byte	.LASF32
+ 1170 02c1 01       		.byte	0x1
+ 1171 02c2 CC       		.byte	0xcc
+ 1172 02c3 99000000 		.4byte	0x99
+ 1173 02c7 9D010000 		.4byte	.LLST7
+ 1174 02cb 12       		.uleb128 0x12
+ 1175 02cc 4B030000 		.4byte	.LASF33
+ 1176 02d0 01       		.byte	0x1
+ 1177 02d1 CD       		.byte	0xcd
+ 1178 02d2 81000000 		.4byte	0x81
+ 1179 02d6 00       		.byte	0
+ 1180 02d7 0A       		.uleb128 0xa
+ 1181 02d8 06000000 		.4byte	.LVL26
+ 1182 02dc 9F010000 		.4byte	0x19f
+ 1183 02e0 0B       		.uleb128 0xb
+ 1184 02e1 1C000000 		.4byte	.LVL29
+ 1185 02e5 46090000 		.4byte	0x946
+ 1186 02e9 F3020000 		.4byte	0x2f3
+ 1187 02ed 0C       		.uleb128 0xc
+ 1188 02ee 01       		.uleb128 0x1
+ 1189 02ef 50       		.byte	0x50
+ 1190 02f0 01       		.uleb128 0x1
+ 1191 02f1 3A       		.byte	0x3a
+ 1192 02f2 00       		.byte	0
+ 1193 02f3 0A       		.uleb128 0xa
+ 1194 02f4 24000000 		.4byte	.LVL32
+ 1195 02f8 9F010000 		.4byte	0x19f
+ 1196 02fc 00       		.byte	0
+ 1197 02fd 11       		.uleb128 0x11
+ 1198 02fe B9020000 		.4byte	.LASF34
+ 1199 0302 01       		.byte	0x1
+ 1200 0303 F4       		.byte	0xf4
+ 1201 0304 99000000 		.4byte	0x99
+ 1202 0308 00000000 		.4byte	.LFB68
+ 1203 030c 24000000 		.4byte	.LFE68-.LFB68
+ 1204 0310 01       		.uleb128 0x1
+ 1205 0311 9C       		.byte	0x9c
+ 1206 0312 38030000 		.4byte	0x338
+ 1207 0316 10       		.uleb128 0x10
+ 1208 0317 61010000 		.4byte	.LASF25
+ 1209 031b 01       		.byte	0x1
+ 1210 031c F6       		.byte	0xf6
+ 1211 031d 99000000 		.4byte	0x99
+ 1212 0321 D3010000 		.4byte	.LLST8
+ 1213 0325 0A       		.uleb128 0xa
+ 1214 0326 06000000 		.4byte	.LVL37
+ARM GAS  C:\Users\HPz420\AppData\Local\Temp\ccVnhUOL.s 			page 30
+
+
+ 1215 032a 6A020000 		.4byte	0x26a
+ 1216 032e 0A       		.uleb128 0xa
+ 1217 032f 14000000 		.4byte	.LVL39
+ 1218 0333 6A020000 		.4byte	0x26a
+ 1219 0337 00       		.byte	0
+ 1220 0338 13       		.uleb128 0x13
+ 1221 0339 2E030000 		.4byte	.LASF36
+ 1222 033d 01       		.byte	0x1
+ 1223 033e 3801     		.2byte	0x138
+ 1224 0340 00000000 		.4byte	.LFB72
+ 1225 0344 34000000 		.4byte	.LFE72-.LFB72
+ 1226 0348 01       		.uleb128 0x1
+ 1227 0349 9C       		.byte	0x9c
+ 1228 034a CD030000 		.4byte	0x3cd
+ 1229 034e 08       		.uleb128 0x8
+ 1230 034f AA020000 		.4byte	.LASF20
+ 1231 0353 01       		.byte	0x1
+ 1232 0354 3801     		.2byte	0x138
+ 1233 0356 81000000 		.4byte	0x81
+ 1234 035a 12020000 		.4byte	.LLST9
+ 1235 035e 08       		.uleb128 0x8
+ 1236 035f 00000000 		.4byte	.LASF21
+ 1237 0363 01       		.byte	0x1
+ 1238 0364 3801     		.2byte	0x138
+ 1239 0366 81000000 		.4byte	0x81
+ 1240 036a 33020000 		.4byte	.LLST10
+ 1241 036e 08       		.uleb128 0x8
+ 1242 036f 26030000 		.4byte	.LASF37
+ 1243 0373 01       		.byte	0x1
+ 1244 0374 3801     		.2byte	0x138
+ 1245 0376 81000000 		.4byte	0x81
+ 1246 037a 54020000 		.4byte	.LLST11
+ 1247 037e 09       		.uleb128 0x9
+ 1248 037f 5A020000 		.4byte	.LASF38
+ 1249 0383 01       		.byte	0x1
+ 1250 0384 3A01     		.2byte	0x13a
+ 1251 0386 CD030000 		.4byte	0x3cd
+ 1252 038a 02       		.uleb128 0x2
+ 1253 038b 91       		.byte	0x91
+ 1254 038c 6C       		.sleb128 -20
+ 1255 038d 0A       		.uleb128 0xa
+ 1256 038e 0E000000 		.4byte	.LVL44
+ 1257 0392 F9080000 		.4byte	0x8f9
+ 1258 0396 0B       		.uleb128 0xb
+ 1259 0397 22000000 		.4byte	.LVL45
+ 1260 039b 51090000 		.4byte	0x951
+ 1261 039f BA030000 		.4byte	0x3ba
+ 1262 03a3 0C       		.uleb128 0xc
+ 1263 03a4 01       		.uleb128 0x1
+ 1264 03a5 50       		.byte	0x50
+ 1265 03a6 02       		.uleb128 0x2
+ 1266 03a7 74       		.byte	0x74
+ 1267 03a8 00       		.sleb128 0
+ 1268 03a9 0C       		.uleb128 0xc
+ 1269 03aa 01       		.uleb128 0x1
+ 1270 03ab 51       		.byte	0x51
+ 1271 03ac 02       		.uleb128 0x2
+ARM GAS  C:\Users\HPz420\AppData\Local\Temp\ccVnhUOL.s 			page 31
+
+
+ 1272 03ad 91       		.byte	0x91
+ 1273 03ae 6C       		.sleb128 -20
+ 1274 03af 0C       		.uleb128 0xc
+ 1275 03b0 01       		.uleb128 0x1
+ 1276 03b1 52       		.byte	0x52
+ 1277 03b2 01       		.uleb128 0x1
+ 1278 03b3 32       		.byte	0x32
+ 1279 03b4 0C       		.uleb128 0xc
+ 1280 03b5 01       		.uleb128 0x1
+ 1281 03b6 53       		.byte	0x53
+ 1282 03b7 01       		.uleb128 0x1
+ 1283 03b8 30       		.byte	0x30
+ 1284 03b9 00       		.byte	0
+ 1285 03ba 0A       		.uleb128 0xa
+ 1286 03bb 26000000 		.4byte	.LVL46
+ 1287 03bf 5C090000 		.4byte	0x95c
+ 1288 03c3 0A       		.uleb128 0xa
+ 1289 03c4 30000000 		.4byte	.LVL47
+ 1290 03c8 F9080000 		.4byte	0x8f9
+ 1291 03cc 00       		.byte	0
+ 1292 03cd 14       		.uleb128 0x14
+ 1293 03ce 81000000 		.4byte	0x81
+ 1294 03d2 DD030000 		.4byte	0x3dd
+ 1295 03d6 15       		.uleb128 0x15
+ 1296 03d7 D2000000 		.4byte	0xd2
+ 1297 03db 01       		.byte	0x1
+ 1298 03dc 00       		.byte	0
+ 1299 03dd 0F       		.uleb128 0xf
+ 1300 03de BA010000 		.4byte	.LASF39
+ 1301 03e2 01       		.byte	0x1
+ 1302 03e3 40       		.byte	0x40
+ 1303 03e4 00000000 		.4byte	.LFB65
+ 1304 03e8 A0000000 		.4byte	.LFE65-.LFB65
+ 1305 03ec 01       		.uleb128 0x1
+ 1306 03ed 9C       		.byte	0x9c
+ 1307 03ee 48050000 		.4byte	0x548
+ 1308 03f2 10       		.uleb128 0x10
+ 1309 03f3 AA020000 		.4byte	.LASF20
+ 1310 03f7 01       		.byte	0x1
+ 1311 03f8 42       		.byte	0x42
+ 1312 03f9 81000000 		.4byte	0x81
+ 1313 03fd 75020000 		.4byte	.LLST12
+ 1314 0401 0B       		.uleb128 0xb
+ 1315 0402 10000000 		.4byte	.LVL50
+ 1316 0406 38030000 		.4byte	0x338
+ 1317 040a 20040000 		.4byte	0x420
+ 1318 040e 0C       		.uleb128 0xc
+ 1319 040f 01       		.uleb128 0x1
+ 1320 0410 50       		.byte	0x50
+ 1321 0411 02       		.uleb128 0x2
+ 1322 0412 74       		.byte	0x74
+ 1323 0413 00       		.sleb128 0
+ 1324 0414 0C       		.uleb128 0xc
+ 1325 0415 01       		.uleb128 0x1
+ 1326 0416 51       		.byte	0x51
+ 1327 0417 01       		.uleb128 0x1
+ 1328 0418 30       		.byte	0x30
+ARM GAS  C:\Users\HPz420\AppData\Local\Temp\ccVnhUOL.s 			page 32
+
+
+ 1329 0419 0C       		.uleb128 0xc
+ 1330 041a 01       		.uleb128 0x1
+ 1331 041b 52       		.byte	0x52
+ 1332 041c 02       		.uleb128 0x2
+ 1333 041d 09       		.byte	0x9
+ 1334 041e FF       		.byte	0xff
+ 1335 041f 00       		.byte	0
+ 1336 0420 0B       		.uleb128 0xb
+ 1337 0421 1A000000 		.4byte	.LVL51
+ 1338 0425 38030000 		.4byte	0x338
+ 1339 0429 3E040000 		.4byte	0x43e
+ 1340 042d 0C       		.uleb128 0xc
+ 1341 042e 01       		.uleb128 0x1
+ 1342 042f 50       		.byte	0x50
+ 1343 0430 02       		.uleb128 0x2
+ 1344 0431 74       		.byte	0x74
+ 1345 0432 00       		.sleb128 0
+ 1346 0433 0C       		.uleb128 0xc
+ 1347 0434 01       		.uleb128 0x1
+ 1348 0435 51       		.byte	0x51
+ 1349 0436 01       		.uleb128 0x1
+ 1350 0437 31       		.byte	0x31
+ 1351 0438 0C       		.uleb128 0xc
+ 1352 0439 01       		.uleb128 0x1
+ 1353 043a 52       		.byte	0x52
+ 1354 043b 01       		.uleb128 0x1
+ 1355 043c 30       		.byte	0x30
+ 1356 043d 00       		.byte	0
+ 1357 043e 0B       		.uleb128 0xb
+ 1358 043f 24000000 		.4byte	.LVL52
+ 1359 0443 38030000 		.4byte	0x338
+ 1360 0447 5D040000 		.4byte	0x45d
+ 1361 044b 0C       		.uleb128 0xc
+ 1362 044c 01       		.uleb128 0x1
+ 1363 044d 50       		.byte	0x50
+ 1364 044e 02       		.uleb128 0x2
+ 1365 044f 74       		.byte	0x74
+ 1366 0450 00       		.sleb128 0
+ 1367 0451 0C       		.uleb128 0xc
+ 1368 0452 01       		.uleb128 0x1
+ 1369 0453 51       		.byte	0x51
+ 1370 0454 01       		.uleb128 0x1
+ 1371 0455 32       		.byte	0x32
+ 1372 0456 0C       		.uleb128 0xc
+ 1373 0457 01       		.uleb128 0x1
+ 1374 0458 52       		.byte	0x52
+ 1375 0459 02       		.uleb128 0x2
+ 1376 045a 09       		.byte	0x9
+ 1377 045b FF       		.byte	0xff
+ 1378 045c 00       		.byte	0
+ 1379 045d 0B       		.uleb128 0xb
+ 1380 045e 2E000000 		.4byte	.LVL53
+ 1381 0462 38030000 		.4byte	0x338
+ 1382 0466 7C040000 		.4byte	0x47c
+ 1383 046a 0C       		.uleb128 0xc
+ 1384 046b 01       		.uleb128 0x1
+ 1385 046c 50       		.byte	0x50
+ARM GAS  C:\Users\HPz420\AppData\Local\Temp\ccVnhUOL.s 			page 33
+
+
+ 1386 046d 02       		.uleb128 0x2
+ 1387 046e 74       		.byte	0x74
+ 1388 046f 00       		.sleb128 0
+ 1389 0470 0C       		.uleb128 0xc
+ 1390 0471 01       		.uleb128 0x1
+ 1391 0472 51       		.byte	0x51
+ 1392 0473 01       		.uleb128 0x1
+ 1393 0474 34       		.byte	0x34
+ 1394 0475 0C       		.uleb128 0xc
+ 1395 0476 01       		.uleb128 0x1
+ 1396 0477 52       		.byte	0x52
+ 1397 0478 02       		.uleb128 0x2
+ 1398 0479 09       		.byte	0x9
+ 1399 047a FF       		.byte	0xff
+ 1400 047b 00       		.byte	0
+ 1401 047c 0B       		.uleb128 0xb
+ 1402 047d 38000000 		.4byte	.LVL54
+ 1403 0481 38030000 		.4byte	0x338
+ 1404 0485 9A040000 		.4byte	0x49a
+ 1405 0489 0C       		.uleb128 0xc
+ 1406 048a 01       		.uleb128 0x1
+ 1407 048b 50       		.byte	0x50
+ 1408 048c 02       		.uleb128 0x2
+ 1409 048d 74       		.byte	0x74
+ 1410 048e 00       		.sleb128 0
+ 1411 048f 0C       		.uleb128 0xc
+ 1412 0490 01       		.uleb128 0x1
+ 1413 0491 51       		.byte	0x51
+ 1414 0492 01       		.uleb128 0x1
+ 1415 0493 35       		.byte	0x35
+ 1416 0494 0C       		.uleb128 0xc
+ 1417 0495 01       		.uleb128 0x1
+ 1418 0496 52       		.byte	0x52
+ 1419 0497 01       		.uleb128 0x1
+ 1420 0498 30       		.byte	0x30
+ 1421 0499 00       		.byte	0
+ 1422 049a 0B       		.uleb128 0xb
+ 1423 049b 42000000 		.4byte	.LVL55
+ 1424 049f 38030000 		.4byte	0x338
+ 1425 04a3 B9040000 		.4byte	0x4b9
+ 1426 04a7 0C       		.uleb128 0xc
+ 1427 04a8 01       		.uleb128 0x1
+ 1428 04a9 50       		.byte	0x50
+ 1429 04aa 02       		.uleb128 0x2
+ 1430 04ab 74       		.byte	0x74
+ 1431 04ac 00       		.sleb128 0
+ 1432 04ad 0C       		.uleb128 0xc
+ 1433 04ae 01       		.uleb128 0x1
+ 1434 04af 51       		.byte	0x51
+ 1435 04b0 01       		.uleb128 0x1
+ 1436 04b1 36       		.byte	0x36
+ 1437 04b2 0C       		.uleb128 0xc
+ 1438 04b3 01       		.uleb128 0x1
+ 1439 04b4 52       		.byte	0x52
+ 1440 04b5 02       		.uleb128 0x2
+ 1441 04b6 09       		.byte	0x9
+ 1442 04b7 FF       		.byte	0xff
+ARM GAS  C:\Users\HPz420\AppData\Local\Temp\ccVnhUOL.s 			page 34
+
+
+ 1443 04b8 00       		.byte	0
+ 1444 04b9 0B       		.uleb128 0xb
+ 1445 04ba 4C000000 		.4byte	.LVL56
+ 1446 04be 38030000 		.4byte	0x338
+ 1447 04c2 D7040000 		.4byte	0x4d7
+ 1448 04c6 0C       		.uleb128 0xc
+ 1449 04c7 01       		.uleb128 0x1
+ 1450 04c8 50       		.byte	0x50
+ 1451 04c9 02       		.uleb128 0x2
+ 1452 04ca 74       		.byte	0x74
+ 1453 04cb 00       		.sleb128 0
+ 1454 04cc 0C       		.uleb128 0xc
+ 1455 04cd 01       		.uleb128 0x1
+ 1456 04ce 51       		.byte	0x51
+ 1457 04cf 01       		.uleb128 0x1
+ 1458 04d0 38       		.byte	0x38
+ 1459 04d1 0C       		.uleb128 0xc
+ 1460 04d2 01       		.uleb128 0x1
+ 1461 04d3 52       		.byte	0x52
+ 1462 04d4 01       		.uleb128 0x1
+ 1463 04d5 30       		.byte	0x30
+ 1464 04d6 00       		.byte	0
+ 1465 04d7 0B       		.uleb128 0xb
+ 1466 04d8 56000000 		.4byte	.LVL57
+ 1467 04dc 38030000 		.4byte	0x338
+ 1468 04e0 F5040000 		.4byte	0x4f5
+ 1469 04e4 0C       		.uleb128 0xc
+ 1470 04e5 01       		.uleb128 0x1
+ 1471 04e6 50       		.byte	0x50
+ 1472 04e7 02       		.uleb128 0x2
+ 1473 04e8 74       		.byte	0x74
+ 1474 04e9 00       		.sleb128 0
+ 1475 04ea 0C       		.uleb128 0xc
+ 1476 04eb 01       		.uleb128 0x1
+ 1477 04ec 51       		.byte	0x51
+ 1478 04ed 01       		.uleb128 0x1
+ 1479 04ee 3A       		.byte	0x3a
+ 1480 04ef 0C       		.uleb128 0xc
+ 1481 04f0 01       		.uleb128 0x1
+ 1482 04f1 52       		.byte	0x52
+ 1483 04f2 01       		.uleb128 0x1
+ 1484 04f3 34       		.byte	0x34
+ 1485 04f4 00       		.byte	0
+ 1486 04f5 0B       		.uleb128 0xb
+ 1487 04f6 60000000 		.4byte	.LVL58
+ 1488 04fa 38030000 		.4byte	0x338
+ 1489 04fe 13050000 		.4byte	0x513
+ 1490 0502 0C       		.uleb128 0xc
+ 1491 0503 01       		.uleb128 0x1
+ 1492 0504 50       		.byte	0x50
+ 1493 0505 02       		.uleb128 0x2
+ 1494 0506 74       		.byte	0x74
+ 1495 0507 00       		.sleb128 0
+ 1496 0508 0C       		.uleb128 0xc
+ 1497 0509 01       		.uleb128 0x1
+ 1498 050a 51       		.byte	0x51
+ 1499 050b 01       		.uleb128 0x1
+ARM GAS  C:\Users\HPz420\AppData\Local\Temp\ccVnhUOL.s 			page 35
+
+
+ 1500 050c 3B       		.byte	0x3b
+ 1501 050d 0C       		.uleb128 0xc
+ 1502 050e 01       		.uleb128 0x1
+ 1503 050f 52       		.byte	0x52
+ 1504 0510 01       		.uleb128 0x1
+ 1505 0511 34       		.byte	0x34
+ 1506 0512 00       		.byte	0
+ 1507 0513 0B       		.uleb128 0xb
+ 1508 0514 6A000000 		.4byte	.LVL59
+ 1509 0518 38030000 		.4byte	0x338
+ 1510 051c 32050000 		.4byte	0x532
+ 1511 0520 0C       		.uleb128 0xc
+ 1512 0521 01       		.uleb128 0x1
+ 1513 0522 50       		.byte	0x50
+ 1514 0523 02       		.uleb128 0x2
+ 1515 0524 74       		.byte	0x74
+ 1516 0525 00       		.sleb128 0
+ 1517 0526 0C       		.uleb128 0xc
+ 1518 0527 01       		.uleb128 0x1
+ 1519 0528 51       		.byte	0x51
+ 1520 0529 01       		.uleb128 0x1
+ 1521 052a 3C       		.byte	0x3c
+ 1522 052b 0C       		.uleb128 0xc
+ 1523 052c 01       		.uleb128 0x1
+ 1524 052d 52       		.byte	0x52
+ 1525 052e 02       		.uleb128 0x2
+ 1526 052f 09       		.byte	0x9
+ 1527 0530 FF       		.byte	0xff
+ 1528 0531 00       		.byte	0
+ 1529 0532 0E       		.uleb128 0xe
+ 1530 0533 72000000 		.4byte	.LVL60
+ 1531 0537 D9000000 		.4byte	0xd9
+ 1532 053b 0C       		.uleb128 0xc
+ 1533 053c 01       		.uleb128 0x1
+ 1534 053d 50       		.byte	0x50
+ 1535 053e 02       		.uleb128 0x2
+ 1536 053f 74       		.byte	0x74
+ 1537 0540 00       		.sleb128 0
+ 1538 0541 0C       		.uleb128 0xc
+ 1539 0542 01       		.uleb128 0x1
+ 1540 0543 51       		.byte	0x51
+ 1541 0544 01       		.uleb128 0x1
+ 1542 0545 40       		.byte	0x40
+ 1543 0546 00       		.byte	0
+ 1544 0547 00       		.byte	0
+ 1545 0548 13       		.uleb128 0x13
+ 1546 0549 92010000 		.4byte	.LASF40
+ 1547 054d 01       		.byte	0x1
+ 1548 054e 1501     		.2byte	0x115
+ 1549 0550 00000000 		.4byte	.LFB70
+ 1550 0554 32000000 		.4byte	.LFE70-.LFB70
+ 1551 0558 01       		.uleb128 0x1
+ 1552 0559 9C       		.byte	0x9c
+ 1553 055a F5050000 		.4byte	0x5f5
+ 1554 055e 08       		.uleb128 0x8
+ 1555 055f 59010000 		.4byte	.LASF41
+ 1556 0563 01       		.byte	0x1
+ARM GAS  C:\Users\HPz420\AppData\Local\Temp\ccVnhUOL.s 			page 36
+
+
+ 1557 0564 1501     		.2byte	0x115
+ 1558 0566 99000000 		.4byte	0x99
+ 1559 056a A0020000 		.4byte	.LLST13
+ 1560 056e 0B       		.uleb128 0xb
+ 1561 056f 0E000000 		.4byte	.LVL66
+ 1562 0573 38030000 		.4byte	0x338
+ 1563 0577 8F050000 		.4byte	0x58f
+ 1564 057b 0C       		.uleb128 0xc
+ 1565 057c 01       		.uleb128 0x1
+ 1566 057d 50       		.byte	0x50
+ 1567 057e 02       		.uleb128 0x2
+ 1568 057f 08       		.byte	0x8
+ 1569 0580 24       		.byte	0x24
+ 1570 0581 0C       		.uleb128 0xc
+ 1571 0582 01       		.uleb128 0x1
+ 1572 0583 51       		.byte	0x51
+ 1573 0584 01       		.uleb128 0x1
+ 1574 0585 45       		.byte	0x45
+ 1575 0586 0C       		.uleb128 0xc
+ 1576 0587 01       		.uleb128 0x1
+ 1577 0588 52       		.byte	0x52
+ 1578 0589 04       		.uleb128 0x4
+ 1579 058a 74       		.byte	0x74
+ 1580 058b 00       		.sleb128 0
+ 1581 058c 48       		.byte	0x48
+ 1582 058d 25       		.byte	0x25
+ 1583 058e 00       		.byte	0
+ 1584 058f 0B       		.uleb128 0xb
+ 1585 0590 1A000000 		.4byte	.LVL67
+ 1586 0594 38030000 		.4byte	0x338
+ 1587 0598 B4050000 		.4byte	0x5b4
+ 1588 059c 0C       		.uleb128 0xc
+ 1589 059d 01       		.uleb128 0x1
+ 1590 059e 50       		.byte	0x50
+ 1591 059f 02       		.uleb128 0x2
+ 1592 05a0 08       		.byte	0x8
+ 1593 05a1 25       		.byte	0x25
+ 1594 05a2 0C       		.uleb128 0xc
+ 1595 05a3 01       		.uleb128 0x1
+ 1596 05a4 51       		.byte	0x51
+ 1597 05a5 01       		.uleb128 0x1
+ 1598 05a6 45       		.byte	0x45
+ 1599 05a7 0C       		.uleb128 0xc
+ 1600 05a8 01       		.uleb128 0x1
+ 1601 05a9 52       		.byte	0x52
+ 1602 05aa 08       		.uleb128 0x8
+ 1603 05ab 74       		.byte	0x74
+ 1604 05ac 00       		.sleb128 0
+ 1605 05ad 09       		.byte	0x9
+ 1606 05ae EC       		.byte	0xec
+ 1607 05af 24       		.byte	0x24
+ 1608 05b0 09       		.byte	0x9
+ 1609 05b1 FC       		.byte	0xfc
+ 1610 05b2 25       		.byte	0x25
+ 1611 05b3 00       		.byte	0
+ 1612 05b4 0B       		.uleb128 0xb
+ 1613 05b5 26000000 		.4byte	.LVL68
+ARM GAS  C:\Users\HPz420\AppData\Local\Temp\ccVnhUOL.s 			page 37
+
+
+ 1614 05b9 38030000 		.4byte	0x338
+ 1615 05bd D9050000 		.4byte	0x5d9
+ 1616 05c1 0C       		.uleb128 0xc
+ 1617 05c2 01       		.uleb128 0x1
+ 1618 05c3 50       		.byte	0x50
+ 1619 05c4 02       		.uleb128 0x2
+ 1620 05c5 08       		.byte	0x8
+ 1621 05c6 26       		.byte	0x26
+ 1622 05c7 0C       		.uleb128 0xc
+ 1623 05c8 01       		.uleb128 0x1
+ 1624 05c9 51       		.byte	0x51
+ 1625 05ca 01       		.uleb128 0x1
+ 1626 05cb 45       		.byte	0x45
+ 1627 05cc 0C       		.uleb128 0xc
+ 1628 05cd 01       		.uleb128 0x1
+ 1629 05ce 52       		.byte	0x52
+ 1630 05cf 08       		.uleb128 0x8
+ 1631 05d0 74       		.byte	0x74
+ 1632 05d1 00       		.sleb128 0
+ 1633 05d2 09       		.byte	0x9
+ 1634 05d3 F4       		.byte	0xf4
+ 1635 05d4 24       		.byte	0x24
+ 1636 05d5 09       		.byte	0x9
+ 1637 05d6 FC       		.byte	0xfc
+ 1638 05d7 25       		.byte	0x25
+ 1639 05d8 00       		.byte	0
+ 1640 05d9 0E       		.uleb128 0xe
+ 1641 05da 30000000 		.4byte	.LVL69
+ 1642 05de 38030000 		.4byte	0x338
+ 1643 05e2 0C       		.uleb128 0xc
+ 1644 05e3 01       		.uleb128 0x1
+ 1645 05e4 50       		.byte	0x50
+ 1646 05e5 02       		.uleb128 0x2
+ 1647 05e6 08       		.byte	0x8
+ 1648 05e7 27       		.byte	0x27
+ 1649 05e8 0C       		.uleb128 0xc
+ 1650 05e9 01       		.uleb128 0x1
+ 1651 05ea 51       		.byte	0x51
+ 1652 05eb 01       		.uleb128 0x1
+ 1653 05ec 45       		.byte	0x45
+ 1654 05ed 0C       		.uleb128 0xc
+ 1655 05ee 01       		.uleb128 0x1
+ 1656 05ef 52       		.byte	0x52
+ 1657 05f0 02       		.uleb128 0x2
+ 1658 05f1 74       		.byte	0x74
+ 1659 05f2 00       		.sleb128 0
+ 1660 05f3 00       		.byte	0
+ 1661 05f4 00       		.byte	0
+ 1662 05f5 0F       		.uleb128 0xf
+ 1663 05f6 82000000 		.4byte	.LASF42
+ 1664 05fa 01       		.byte	0x1
+ 1665 05fb 36       		.byte	0x36
+ 1666 05fc 00000000 		.4byte	.LFB64
+ 1667 0600 10000000 		.4byte	.LFE64-.LFB64
+ 1668 0604 01       		.uleb128 0x1
+ 1669 0605 9C       		.byte	0x9c
+ 1670 0606 35060000 		.4byte	0x635
+ARM GAS  C:\Users\HPz420\AppData\Local\Temp\ccVnhUOL.s 			page 38
+
+
+ 1671 060a 10       		.uleb128 0x10
+ 1672 060b F7010000 		.4byte	.LASF43
+ 1673 060f 01       		.byte	0x1
+ 1674 0610 38       		.byte	0x38
+ 1675 0611 99000000 		.4byte	0x99
+ 1676 0615 BE020000 		.4byte	.LLST14
+ 1677 0619 0A       		.uleb128 0xa
+ 1678 061a 06000000 		.4byte	.LVL70
+ 1679 061e 67090000 		.4byte	0x967
+ 1680 0622 0A       		.uleb128 0xa
+ 1681 0623 0A000000 		.4byte	.LVL71
+ 1682 0627 48050000 		.4byte	0x548
+ 1683 062b 0A       		.uleb128 0xa
+ 1684 062c 0E000000 		.4byte	.LVL72
+ 1685 0630 3B090000 		.4byte	0x93b
+ 1686 0634 00       		.byte	0
+ 1687 0635 0F       		.uleb128 0xf
+ 1688 0636 E8020000 		.4byte	.LASF44
+ 1689 063a 01       		.byte	0x1
+ 1690 063b 60       		.byte	0x60
+ 1691 063c 00000000 		.4byte	.LFB66
+ 1692 0640 58010000 		.4byte	.LFE66-.LFB66
+ 1693 0644 01       		.uleb128 0x1
+ 1694 0645 9C       		.byte	0x9c
+ 1695 0646 A4080000 		.4byte	0x8a4
+ 1696 064a 10       		.uleb128 0x10
+ 1697 064b 21000000 		.4byte	.LASF45
+ 1698 064f 01       		.byte	0x1
+ 1699 0650 62       		.byte	0x62
+ 1700 0651 99000000 		.4byte	0x99
+ 1701 0655 D6020000 		.4byte	.LLST15
+ 1702 0659 10       		.uleb128 0x10
+ 1703 065a 1F010000 		.4byte	.LASF46
+ 1704 065e 01       		.byte	0x1
+ 1705 065f 63       		.byte	0x63
+ 1706 0660 99000000 		.4byte	0x99
+ 1707 0664 4D030000 		.4byte	.LLST16
+ 1708 0668 0A       		.uleb128 0xa
+ 1709 0669 06000000 		.4byte	.LVL74
+ 1710 066d 72090000 		.4byte	0x972
+ 1711 0671 0A       		.uleb128 0xa
+ 1712 0672 0A000000 		.4byte	.LVL75
+ 1713 0676 DD030000 		.4byte	0x3dd
+ 1714 067a 0B       		.uleb128 0xb
+ 1715 067b 14000000 		.4byte	.LVL77
+ 1716 067f 48050000 		.4byte	0x548
+ 1717 0683 8E060000 		.4byte	0x68e
+ 1718 0687 0C       		.uleb128 0xc
+ 1719 0688 01       		.uleb128 0x1
+ 1720 0689 50       		.byte	0x50
+ 1721 068a 02       		.uleb128 0x2
+ 1722 068b 75       		.byte	0x75
+ 1723 068c 00       		.sleb128 0
+ 1724 068d 00       		.byte	0
+ 1725 068e 0B       		.uleb128 0xb
+ 1726 068f 1A000000 		.4byte	.LVL78
+ 1727 0693 46090000 		.4byte	0x946
+ARM GAS  C:\Users\HPz420\AppData\Local\Temp\ccVnhUOL.s 			page 39
+
+
+ 1728 0697 A2060000 		.4byte	0x6a2
+ 1729 069b 0C       		.uleb128 0xc
+ 1730 069c 01       		.uleb128 0x1
+ 1731 069d 50       		.byte	0x50
+ 1732 069e 02       		.uleb128 0x2
+ 1733 069f 08       		.byte	0x8
+ 1734 06a0 32       		.byte	0x32
+ 1735 06a1 00       		.byte	0
+ 1736 06a2 0B       		.uleb128 0xb
+ 1737 06a3 26000000 		.4byte	.LVL80
+ 1738 06a7 7D090000 		.4byte	0x97d
+ 1739 06ab B5060000 		.4byte	0x6b5
+ 1740 06af 0C       		.uleb128 0xc
+ 1741 06b0 01       		.uleb128 0x1
+ 1742 06b1 50       		.byte	0x50
+ 1743 06b2 01       		.uleb128 0x1
+ 1744 06b3 30       		.byte	0x30
+ 1745 06b4 00       		.byte	0
+ 1746 06b5 0B       		.uleb128 0xb
+ 1747 06b6 30000000 		.4byte	.LVL82
+ 1748 06ba 48050000 		.4byte	0x548
+ 1749 06be C9060000 		.4byte	0x6c9
+ 1750 06c2 0C       		.uleb128 0xc
+ 1751 06c3 01       		.uleb128 0x1
+ 1752 06c4 50       		.byte	0x50
+ 1753 06c5 02       		.uleb128 0x2
+ 1754 06c6 74       		.byte	0x74
+ 1755 06c7 00       		.sleb128 0
+ 1756 06c8 00       		.byte	0
+ 1757 06c9 0A       		.uleb128 0xa
+ 1758 06ca 34000000 		.4byte	.LVL83
+ 1759 06ce FD020000 		.4byte	0x2fd
+ 1760 06d2 0B       		.uleb128 0xb
+ 1761 06d3 4C000000 		.4byte	.LVL86
+ 1762 06d7 48050000 		.4byte	0x548
+ 1763 06db E6060000 		.4byte	0x6e6
+ 1764 06df 0C       		.uleb128 0xc
+ 1765 06e0 01       		.uleb128 0x1
+ 1766 06e1 50       		.byte	0x50
+ 1767 06e2 02       		.uleb128 0x2
+ 1768 06e3 74       		.byte	0x74
+ 1769 06e4 00       		.sleb128 0
+ 1770 06e5 00       		.byte	0
+ 1771 06e6 0B       		.uleb128 0xb
+ 1772 06e7 5E000000 		.4byte	.LVL90
+ 1773 06eb 7D090000 		.4byte	0x97d
+ 1774 06ef FC060000 		.4byte	0x6fc
+ 1775 06f3 0C       		.uleb128 0xc
+ 1776 06f4 01       		.uleb128 0x1
+ 1777 06f5 50       		.byte	0x50
+ 1778 06f6 04       		.uleb128 0x4
+ 1779 06f7 74       		.byte	0x74
+ 1780 06f8 00       		.sleb128 0
+ 1781 06f9 38       		.byte	0x38
+ 1782 06fa 25       		.byte	0x25
+ 1783 06fb 00       		.byte	0
+ 1784 06fc 0B       		.uleb128 0xb
+ARM GAS  C:\Users\HPz420\AppData\Local\Temp\ccVnhUOL.s 			page 40
+
+
+ 1785 06fd 66000000 		.4byte	.LVL92
+ 1786 0701 48050000 		.4byte	0x548
+ 1787 0705 10070000 		.4byte	0x710
+ 1788 0709 0C       		.uleb128 0xc
+ 1789 070a 01       		.uleb128 0x1
+ 1790 070b 50       		.byte	0x50
+ 1791 070c 02       		.uleb128 0x2
+ 1792 070d 74       		.byte	0x74
+ 1793 070e 00       		.sleb128 0
+ 1794 070f 00       		.byte	0
+ 1795 0710 0B       		.uleb128 0xb
+ 1796 0711 78000000 		.4byte	.LVL96
+ 1797 0715 48050000 		.4byte	0x548
+ 1798 0719 24070000 		.4byte	0x724
+ 1799 071d 0C       		.uleb128 0xc
+ 1800 071e 01       		.uleb128 0x1
+ 1801 071f 50       		.byte	0x50
+ 1802 0720 02       		.uleb128 0x2
+ 1803 0721 74       		.byte	0x74
+ 1804 0722 00       		.sleb128 0
+ 1805 0723 00       		.byte	0
+ 1806 0724 0B       		.uleb128 0xb
+ 1807 0725 82000000 		.4byte	.LVL97
+ 1808 0729 88090000 		.4byte	0x988
+ 1809 072d 44070000 		.4byte	0x744
+ 1810 0731 0C       		.uleb128 0xc
+ 1811 0732 01       		.uleb128 0x1
+ 1812 0733 50       		.byte	0x50
+ 1813 0734 08       		.uleb128 0x8
+ 1814 0735 74       		.byte	0x74
+ 1815 0736 00       		.sleb128 0
+ 1816 0737 09       		.byte	0x9
+ 1817 0738 EC       		.byte	0xec
+ 1818 0739 24       		.byte	0x24
+ 1819 073a 09       		.byte	0x9
+ 1820 073b F4       		.byte	0xf4
+ 1821 073c 25       		.byte	0x25
+ 1822 073d 0C       		.uleb128 0xc
+ 1823 073e 01       		.uleb128 0x1
+ 1824 073f 51       		.byte	0x51
+ 1825 0740 02       		.uleb128 0x2
+ 1826 0741 74       		.byte	0x74
+ 1827 0742 00       		.sleb128 0
+ 1828 0743 00       		.byte	0
+ 1829 0744 0B       		.uleb128 0xb
+ 1830 0745 94000000 		.4byte	.LVL101
+ 1831 0749 7D090000 		.4byte	0x97d
+ 1832 074d 5A070000 		.4byte	0x75a
+ 1833 0751 0C       		.uleb128 0xc
+ 1834 0752 01       		.uleb128 0x1
+ 1835 0753 50       		.byte	0x50
+ 1836 0754 04       		.uleb128 0x4
+ 1837 0755 74       		.byte	0x74
+ 1838 0756 00       		.sleb128 0
+ 1839 0757 38       		.byte	0x38
+ 1840 0758 25       		.byte	0x25
+ 1841 0759 00       		.byte	0
+ARM GAS  C:\Users\HPz420\AppData\Local\Temp\ccVnhUOL.s 			page 41
+
+
+ 1842 075a 0B       		.uleb128 0xb
+ 1843 075b 9C000000 		.4byte	.LVL103
+ 1844 075f 48050000 		.4byte	0x548
+ 1845 0763 6E070000 		.4byte	0x76e
+ 1846 0767 0C       		.uleb128 0xc
+ 1847 0768 01       		.uleb128 0x1
+ 1848 0769 50       		.byte	0x50
+ 1849 076a 02       		.uleb128 0x2
+ 1850 076b 74       		.byte	0x74
+ 1851 076c 00       		.sleb128 0
+ 1852 076d 00       		.byte	0
+ 1853 076e 0B       		.uleb128 0xb
+ 1854 076f AC000000 		.4byte	.LVL107
+ 1855 0773 48050000 		.4byte	0x548
+ 1856 0777 86070000 		.4byte	0x786
+ 1857 077b 0C       		.uleb128 0xc
+ 1858 077c 01       		.uleb128 0x1
+ 1859 077d 50       		.byte	0x50
+ 1860 077e 06       		.uleb128 0x6
+ 1861 077f 74       		.byte	0x74
+ 1862 0780 00       		.sleb128 0
+ 1863 0781 40       		.byte	0x40
+ 1864 0782 46       		.byte	0x46
+ 1865 0783 24       		.byte	0x24
+ 1866 0784 21       		.byte	0x21
+ 1867 0785 00       		.byte	0
+ 1868 0786 0B       		.uleb128 0xb
+ 1869 0787 BC000000 		.4byte	.LVL109
+ 1870 078b 7D090000 		.4byte	0x97d
+ 1871 078f A0070000 		.4byte	0x7a0
+ 1872 0793 0C       		.uleb128 0xc
+ 1873 0794 01       		.uleb128 0x1
+ 1874 0795 50       		.byte	0x50
+ 1875 0796 08       		.uleb128 0x8
+ 1876 0797 74       		.byte	0x74
+ 1877 0798 00       		.sleb128 0
+ 1878 0799 09       		.byte	0x9
+ 1879 079a EC       		.byte	0xec
+ 1880 079b 24       		.byte	0x24
+ 1881 079c 09       		.byte	0x9
+ 1882 079d F4       		.byte	0xf4
+ 1883 079e 25       		.byte	0x25
+ 1884 079f 00       		.byte	0
+ 1885 07a0 0B       		.uleb128 0xb
+ 1886 07a1 C6000000 		.4byte	.LVL111
+ 1887 07a5 48050000 		.4byte	0x548
+ 1888 07a9 B4070000 		.4byte	0x7b4
+ 1889 07ad 0C       		.uleb128 0xc
+ 1890 07ae 01       		.uleb128 0x1
+ 1891 07af 50       		.byte	0x50
+ 1892 07b0 02       		.uleb128 0x2
+ 1893 07b1 74       		.byte	0x74
+ 1894 07b2 00       		.sleb128 0
+ 1895 07b3 00       		.byte	0
+ 1896 07b4 0B       		.uleb128 0xb
+ 1897 07b5 DC000000 		.4byte	.LVL115
+ 1898 07b9 48050000 		.4byte	0x548
+ARM GAS  C:\Users\HPz420\AppData\Local\Temp\ccVnhUOL.s 			page 42
+
+
+ 1899 07bd C9070000 		.4byte	0x7c9
+ 1900 07c1 0C       		.uleb128 0xc
+ 1901 07c2 01       		.uleb128 0x1
+ 1902 07c3 50       		.byte	0x50
+ 1903 07c4 03       		.uleb128 0x3
+ 1904 07c5 40       		.byte	0x40
+ 1905 07c6 47       		.byte	0x47
+ 1906 07c7 24       		.byte	0x24
+ 1907 07c8 00       		.byte	0
+ 1908 07c9 0B       		.uleb128 0xb
+ 1909 07ca EC000000 		.4byte	.LVL119
+ 1910 07ce 48050000 		.4byte	0x548
+ 1911 07d2 DE070000 		.4byte	0x7de
+ 1912 07d6 0C       		.uleb128 0xc
+ 1913 07d7 01       		.uleb128 0x1
+ 1914 07d8 50       		.byte	0x50
+ 1915 07d9 03       		.uleb128 0x3
+ 1916 07da 40       		.byte	0x40
+ 1917 07db 48       		.byte	0x48
+ 1918 07dc 24       		.byte	0x24
+ 1919 07dd 00       		.byte	0
+ 1920 07de 0B       		.uleb128 0xb
+ 1921 07df F2000000 		.4byte	.LVL120
+ 1922 07e3 46090000 		.4byte	0x946
+ 1923 07e7 F2070000 		.4byte	0x7f2
+ 1924 07eb 0C       		.uleb128 0xc
+ 1925 07ec 01       		.uleb128 0x1
+ 1926 07ed 50       		.byte	0x50
+ 1927 07ee 02       		.uleb128 0x2
+ 1928 07ef 08       		.byte	0x8
+ 1929 07f0 FA       		.byte	0xfa
+ 1930 07f1 00       		.byte	0
+ 1931 07f2 0B       		.uleb128 0xb
+ 1932 07f3 F8000000 		.4byte	.LVL121
+ 1933 07f7 48050000 		.4byte	0x548
+ 1934 07fb 05080000 		.4byte	0x805
+ 1935 07ff 0C       		.uleb128 0xc
+ 1936 0800 01       		.uleb128 0x1
+ 1937 0801 50       		.byte	0x50
+ 1938 0802 01       		.uleb128 0x1
+ 1939 0803 30       		.byte	0x30
+ 1940 0804 00       		.byte	0
+ 1941 0805 0B       		.uleb128 0xb
+ 1942 0806 0A010000 		.4byte	.LVL125
+ 1943 080a 48050000 		.4byte	0x548
+ 1944 080e 1A080000 		.4byte	0x81a
+ 1945 0812 0C       		.uleb128 0xc
+ 1946 0813 01       		.uleb128 0x1
+ 1947 0814 50       		.byte	0x50
+ 1948 0815 03       		.uleb128 0x3
+ 1949 0816 40       		.byte	0x40
+ 1950 0817 49       		.byte	0x49
+ 1951 0818 24       		.byte	0x24
+ 1952 0819 00       		.byte	0
+ 1953 081a 0B       		.uleb128 0xb
+ 1954 081b 10010000 		.4byte	.LVL126
+ 1955 081f 46090000 		.4byte	0x946
+ARM GAS  C:\Users\HPz420\AppData\Local\Temp\ccVnhUOL.s 			page 43
+
+
+ 1956 0823 2E080000 		.4byte	0x82e
+ 1957 0827 0C       		.uleb128 0xc
+ 1958 0828 01       		.uleb128 0x1
+ 1959 0829 50       		.byte	0x50
+ 1960 082a 02       		.uleb128 0x2
+ 1961 082b 08       		.byte	0x8
+ 1962 082c FA       		.byte	0xfa
+ 1963 082d 00       		.byte	0
+ 1964 082e 0B       		.uleb128 0xb
+ 1965 082f 16010000 		.4byte	.LVL127
+ 1966 0833 48050000 		.4byte	0x548
+ 1967 0837 41080000 		.4byte	0x841
+ 1968 083b 0C       		.uleb128 0xc
+ 1969 083c 01       		.uleb128 0x1
+ 1970 083d 50       		.byte	0x50
+ 1971 083e 01       		.uleb128 0x1
+ 1972 083f 30       		.byte	0x30
+ 1973 0840 00       		.byte	0
+ 1974 0841 0B       		.uleb128 0xb
+ 1975 0842 28010000 		.4byte	.LVL131
+ 1976 0846 48050000 		.4byte	0x548
+ 1977 084a 56080000 		.4byte	0x856
+ 1978 084e 0C       		.uleb128 0xc
+ 1979 084f 01       		.uleb128 0x1
+ 1980 0850 50       		.byte	0x50
+ 1981 0851 03       		.uleb128 0x3
+ 1982 0852 40       		.byte	0x40
+ 1983 0853 4A       		.byte	0x4a
+ 1984 0854 24       		.byte	0x24
+ 1985 0855 00       		.byte	0
+ 1986 0856 0B       		.uleb128 0xb
+ 1987 0857 2E010000 		.4byte	.LVL132
+ 1988 085b 46090000 		.4byte	0x946
+ 1989 085f 6A080000 		.4byte	0x86a
+ 1990 0863 0C       		.uleb128 0xc
+ 1991 0864 01       		.uleb128 0x1
+ 1992 0865 50       		.byte	0x50
+ 1993 0866 02       		.uleb128 0x2
+ 1994 0867 08       		.byte	0x8
+ 1995 0868 FA       		.byte	0xfa
+ 1996 0869 00       		.byte	0
+ 1997 086a 0B       		.uleb128 0xb
+ 1998 086b 34010000 		.4byte	.LVL133
+ 1999 086f 48050000 		.4byte	0x548
+ 2000 0873 7D080000 		.4byte	0x87d
+ 2001 0877 0C       		.uleb128 0xc
+ 2002 0878 01       		.uleb128 0x1
+ 2003 0879 50       		.byte	0x50
+ 2004 087a 01       		.uleb128 0x1
+ 2005 087b 30       		.byte	0x30
+ 2006 087c 00       		.byte	0
+ 2007 087d 0B       		.uleb128 0xb
+ 2008 087e 46010000 		.4byte	.LVL137
+ 2009 0882 48050000 		.4byte	0x548
+ 2010 0886 93080000 		.4byte	0x893
+ 2011 088a 0C       		.uleb128 0xc
+ 2012 088b 01       		.uleb128 0x1
+ARM GAS  C:\Users\HPz420\AppData\Local\Temp\ccVnhUOL.s 			page 44
+
+
+ 2013 088c 50       		.byte	0x50
+ 2014 088d 04       		.uleb128 0x4
+ 2015 088e 40       		.byte	0x40
+ 2016 088f 4B       		.byte	0x4b
+ 2017 0890 24       		.byte	0x24
+ 2018 0891 1F       		.byte	0x1f
+ 2019 0892 00       		.byte	0
+ 2020 0893 0E       		.uleb128 0xe
+ 2021 0894 50010000 		.4byte	.LVL141
+ 2022 0898 48050000 		.4byte	0x548
+ 2023 089c 0C       		.uleb128 0xc
+ 2024 089d 01       		.uleb128 0x1
+ 2025 089e 50       		.byte	0x50
+ 2026 089f 02       		.uleb128 0x2
+ 2027 08a0 74       		.byte	0x74
+ 2028 08a1 00       		.sleb128 0
+ 2029 08a2 00       		.byte	0
+ 2030 08a3 00       		.byte	0
+ 2031 08a4 16       		.uleb128 0x16
+ 2032 08a5 7C030000 		.4byte	.LASF47
+ 2033 08a9 05       		.byte	0x5
+ 2034 08aa 1207     		.2byte	0x712
+ 2035 08ac B0080000 		.4byte	0x8b0
+ 2036 08b0 06       		.uleb128 0x6
+ 2037 08b1 76000000 		.4byte	0x76
+ 2038 08b5 17       		.uleb128 0x17
+ 2039 08b6 55000000 		.4byte	.LASF48
+ 2040 08ba 01       		.byte	0x1
+ 2041 08bb 24       		.byte	0x24
+ 2042 08bc 81000000 		.4byte	0x81
+ 2043 08c0 05       		.uleb128 0x5
+ 2044 08c1 03       		.byte	0x3
+ 2045 08c2 00000000 		.4byte	FPData
+ 2046 08c6 17       		.uleb128 0x17
+ 2047 08c7 8B010000 		.4byte	.LASF49
+ 2048 08cb 01       		.byte	0x1
+ 2049 08cc 25       		.byte	0x25
+ 2050 08cd 8D000000 		.4byte	0x8d
+ 2051 08d1 05       		.uleb128 0x5
+ 2052 08d2 03       		.byte	0x3
+ 2053 08d3 00000000 		.4byte	FPAddr
+ 2054 08d7 17       		.uleb128 0x17
+ 2055 08d8 74000000 		.4byte	.LASF50
+ 2056 08dc 01       		.byte	0x1
+ 2057 08dd 26       		.byte	0x26
+ 2058 08de 81000000 		.4byte	0x81
+ 2059 08e2 05       		.uleb128 0x5
+ 2060 08e3 03       		.byte	0x3
+ 2061 08e4 00000000 		.4byte	FPCtrl
+ 2062 08e8 17       		.uleb128 0x17
+ 2063 08e9 08000000 		.4byte	.LASF51
+ 2064 08ed 01       		.byte	0x1
+ 2065 08ee 27       		.byte	0x27
+ 2066 08ef 99000000 		.4byte	0x99
+ 2067 08f3 05       		.uleb128 0x5
+ 2068 08f4 03       		.byte	0x3
+ 2069 08f5 00000000 		.4byte	FPLong
+ARM GAS  C:\Users\HPz420\AppData\Local\Temp\ccVnhUOL.s 			page 45
+
+
+ 2070 08f9 18       		.uleb128 0x18
+ 2071 08fa 25020000 		.4byte	.LASF52
+ 2072 08fe 25020000 		.4byte	.LASF52
+ 2073 0902 06       		.byte	0x6
+ 2074 0903 A4       		.byte	0xa4
+ 2075 0904 18       		.uleb128 0x18
+ 2076 0905 6C020000 		.4byte	.LASF53
+ 2077 0909 6C020000 		.4byte	.LASF53
+ 2078 090d 06       		.byte	0x6
+ 2079 090e B1       		.byte	0xb1
+ 2080 090f 18       		.uleb128 0x18
+ 2081 0910 A6010000 		.4byte	.LASF54
+ 2082 0914 A6010000 		.4byte	.LASF54
+ 2083 0918 06       		.byte	0x6
+ 2084 0919 B6       		.byte	0xb6
+ 2085 091a 18       		.uleb128 0x18
+ 2086 091b 4A040000 		.4byte	.LASF55
+ 2087 091f 4A040000 		.4byte	.LASF55
+ 2088 0923 06       		.byte	0x6
+ 2089 0924 B5       		.byte	0xb5
+ 2090 0925 18       		.uleb128 0x18
+ 2091 0926 E4010000 		.4byte	.LASF56
+ 2092 092a E4010000 		.4byte	.LASF56
+ 2093 092e 06       		.byte	0x6
+ 2094 092f B7       		.byte	0xb7
+ 2095 0930 18       		.uleb128 0x18
+ 2096 0931 0F000000 		.4byte	.LASF57
+ 2097 0935 0F000000 		.4byte	.LASF57
+ 2098 0939 07       		.byte	0x7
+ 2099 093a 2F       		.byte	0x2f
+ 2100 093b 18       		.uleb128 0x18
+ 2101 093c 4F000000 		.4byte	.LASF58
+ 2102 0940 4F000000 		.4byte	.LASF58
+ 2103 0944 08       		.byte	0x8
+ 2104 0945 0F       		.byte	0xf
+ 2105 0946 18       		.uleb128 0x18
+ 2106 0947 38040000 		.4byte	.LASF59
+ 2107 094b 38040000 		.4byte	.LASF59
+ 2108 094f 09       		.byte	0x9
+ 2109 0950 76       		.byte	0x76
+ 2110 0951 18       		.uleb128 0x18
+ 2111 0952 12020000 		.4byte	.LASF60
+ 2112 0956 12020000 		.4byte	.LASF60
+ 2113 095a 06       		.byte	0x6
+ 2114 095b A7       		.byte	0xa7
+ 2115 095c 18       		.uleb128 0x18
+ 2116 095d D7020000 		.4byte	.LASF61
+ 2117 0961 D7020000 		.4byte	.LASF61
+ 2118 0965 06       		.byte	0x6
+ 2119 0966 A3       		.byte	0xa3
+ 2120 0967 18       		.uleb128 0x18
+ 2121 0968 5C000000 		.4byte	.LASF62
+ 2122 096c 5C000000 		.4byte	.LASF62
+ 2123 0970 0A       		.byte	0xa
+ 2124 0971 30       		.byte	0x30
+ 2125 0972 18       		.uleb128 0x18
+ 2126 0973 40040000 		.4byte	.LASF63
+ARM GAS  C:\Users\HPz420\AppData\Local\Temp\ccVnhUOL.s 			page 46
+
+
+ 2127 0977 40040000 		.4byte	.LASF63
+ 2128 097b 06       		.byte	0x6
+ 2129 097c 93       		.byte	0x93
+ 2130 097d 18       		.uleb128 0x18
+ 2131 097e 60030000 		.4byte	.LASF64
+ 2132 0982 60030000 		.4byte	.LASF64
+ 2133 0986 0B       		.byte	0xb
+ 2134 0987 12       		.byte	0x12
+ 2135 0988 18       		.uleb128 0x18
+ 2136 0989 A2000000 		.4byte	.LASF65
+ 2137 098d A2000000 		.4byte	.LASF65
+ 2138 0991 0B       		.byte	0xb
+ 2139 0992 10       		.byte	0x10
+ 2140 0993 00       		.byte	0
+ 2141              		.section	.debug_abbrev,"",%progbits
+ 2142              	.Ldebug_abbrev0:
+ 2143 0000 01       		.uleb128 0x1
+ 2144 0001 11       		.uleb128 0x11
+ 2145 0002 01       		.byte	0x1
+ 2146 0003 25       		.uleb128 0x25
+ 2147 0004 0E       		.uleb128 0xe
+ 2148 0005 13       		.uleb128 0x13
+ 2149 0006 0B       		.uleb128 0xb
+ 2150 0007 03       		.uleb128 0x3
+ 2151 0008 0E       		.uleb128 0xe
+ 2152 0009 1B       		.uleb128 0x1b
+ 2153 000a 0E       		.uleb128 0xe
+ 2154 000b 55       		.uleb128 0x55
+ 2155 000c 17       		.uleb128 0x17
+ 2156 000d 11       		.uleb128 0x11
+ 2157 000e 01       		.uleb128 0x1
+ 2158 000f 10       		.uleb128 0x10
+ 2159 0010 17       		.uleb128 0x17
+ 2160 0011 00       		.byte	0
+ 2161 0012 00       		.byte	0
+ 2162 0013 02       		.uleb128 0x2
+ 2163 0014 24       		.uleb128 0x24
+ 2164 0015 00       		.byte	0
+ 2165 0016 0B       		.uleb128 0xb
+ 2166 0017 0B       		.uleb128 0xb
+ 2167 0018 3E       		.uleb128 0x3e
+ 2168 0019 0B       		.uleb128 0xb
+ 2169 001a 03       		.uleb128 0x3
+ 2170 001b 0E       		.uleb128 0xe
+ 2171 001c 00       		.byte	0
+ 2172 001d 00       		.byte	0
+ 2173 001e 03       		.uleb128 0x3
+ 2174 001f 16       		.uleb128 0x16
+ 2175 0020 00       		.byte	0
+ 2176 0021 03       		.uleb128 0x3
+ 2177 0022 0E       		.uleb128 0xe
+ 2178 0023 3A       		.uleb128 0x3a
+ 2179 0024 0B       		.uleb128 0xb
+ 2180 0025 3B       		.uleb128 0x3b
+ 2181 0026 0B       		.uleb128 0xb
+ 2182 0027 49       		.uleb128 0x49
+ 2183 0028 13       		.uleb128 0x13
+ARM GAS  C:\Users\HPz420\AppData\Local\Temp\ccVnhUOL.s 			page 47
+
+
+ 2184 0029 00       		.byte	0
+ 2185 002a 00       		.byte	0
+ 2186 002b 04       		.uleb128 0x4
+ 2187 002c 24       		.uleb128 0x24
+ 2188 002d 00       		.byte	0
+ 2189 002e 0B       		.uleb128 0xb
+ 2190 002f 0B       		.uleb128 0xb
+ 2191 0030 3E       		.uleb128 0x3e
+ 2192 0031 0B       		.uleb128 0xb
+ 2193 0032 03       		.uleb128 0x3
+ 2194 0033 08       		.uleb128 0x8
+ 2195 0034 00       		.byte	0
+ 2196 0035 00       		.byte	0
+ 2197 0036 05       		.uleb128 0x5
+ 2198 0037 16       		.uleb128 0x16
+ 2199 0038 00       		.byte	0
+ 2200 0039 03       		.uleb128 0x3
+ 2201 003a 0E       		.uleb128 0xe
+ 2202 003b 3A       		.uleb128 0x3a
+ 2203 003c 0B       		.uleb128 0xb
+ 2204 003d 3B       		.uleb128 0x3b
+ 2205 003e 05       		.uleb128 0x5
+ 2206 003f 49       		.uleb128 0x49
+ 2207 0040 13       		.uleb128 0x13
+ 2208 0041 00       		.byte	0
+ 2209 0042 00       		.byte	0
+ 2210 0043 06       		.uleb128 0x6
+ 2211 0044 35       		.uleb128 0x35
+ 2212 0045 00       		.byte	0
+ 2213 0046 49       		.uleb128 0x49
+ 2214 0047 13       		.uleb128 0x13
+ 2215 0048 00       		.byte	0
+ 2216 0049 00       		.byte	0
+ 2217 004a 07       		.uleb128 0x7
+ 2218 004b 2E       		.uleb128 0x2e
+ 2219 004c 01       		.byte	0x1
+ 2220 004d 3F       		.uleb128 0x3f
+ 2221 004e 19       		.uleb128 0x19
+ 2222 004f 03       		.uleb128 0x3
+ 2223 0050 0E       		.uleb128 0xe
+ 2224 0051 3A       		.uleb128 0x3a
+ 2225 0052 0B       		.uleb128 0xb
+ 2226 0053 3B       		.uleb128 0x3b
+ 2227 0054 05       		.uleb128 0x5
+ 2228 0055 27       		.uleb128 0x27
+ 2229 0056 19       		.uleb128 0x19
+ 2230 0057 49       		.uleb128 0x49
+ 2231 0058 13       		.uleb128 0x13
+ 2232 0059 11       		.uleb128 0x11
+ 2233 005a 01       		.uleb128 0x1
+ 2234 005b 12       		.uleb128 0x12
+ 2235 005c 06       		.uleb128 0x6
+ 2236 005d 40       		.uleb128 0x40
+ 2237 005e 18       		.uleb128 0x18
+ 2238 005f 9742     		.uleb128 0x2117
+ 2239 0061 19       		.uleb128 0x19
+ 2240 0062 01       		.uleb128 0x1
+ARM GAS  C:\Users\HPz420\AppData\Local\Temp\ccVnhUOL.s 			page 48
+
+
+ 2241 0063 13       		.uleb128 0x13
+ 2242 0064 00       		.byte	0
+ 2243 0065 00       		.byte	0
+ 2244 0066 08       		.uleb128 0x8
+ 2245 0067 05       		.uleb128 0x5
+ 2246 0068 00       		.byte	0
+ 2247 0069 03       		.uleb128 0x3
+ 2248 006a 0E       		.uleb128 0xe
+ 2249 006b 3A       		.uleb128 0x3a
+ 2250 006c 0B       		.uleb128 0xb
+ 2251 006d 3B       		.uleb128 0x3b
+ 2252 006e 05       		.uleb128 0x5
+ 2253 006f 49       		.uleb128 0x49
+ 2254 0070 13       		.uleb128 0x13
+ 2255 0071 02       		.uleb128 0x2
+ 2256 0072 17       		.uleb128 0x17
+ 2257 0073 00       		.byte	0
+ 2258 0074 00       		.byte	0
+ 2259 0075 09       		.uleb128 0x9
+ 2260 0076 34       		.uleb128 0x34
+ 2261 0077 00       		.byte	0
+ 2262 0078 03       		.uleb128 0x3
+ 2263 0079 0E       		.uleb128 0xe
+ 2264 007a 3A       		.uleb128 0x3a
+ 2265 007b 0B       		.uleb128 0xb
+ 2266 007c 3B       		.uleb128 0x3b
+ 2267 007d 05       		.uleb128 0x5
+ 2268 007e 49       		.uleb128 0x49
+ 2269 007f 13       		.uleb128 0x13
+ 2270 0080 02       		.uleb128 0x2
+ 2271 0081 18       		.uleb128 0x18
+ 2272 0082 00       		.byte	0
+ 2273 0083 00       		.byte	0
+ 2274 0084 0A       		.uleb128 0xa
+ 2275 0085 898201   		.uleb128 0x4109
+ 2276 0088 00       		.byte	0
+ 2277 0089 11       		.uleb128 0x11
+ 2278 008a 01       		.uleb128 0x1
+ 2279 008b 31       		.uleb128 0x31
+ 2280 008c 13       		.uleb128 0x13
+ 2281 008d 00       		.byte	0
+ 2282 008e 00       		.byte	0
+ 2283 008f 0B       		.uleb128 0xb
+ 2284 0090 898201   		.uleb128 0x4109
+ 2285 0093 01       		.byte	0x1
+ 2286 0094 11       		.uleb128 0x11
+ 2287 0095 01       		.uleb128 0x1
+ 2288 0096 31       		.uleb128 0x31
+ 2289 0097 13       		.uleb128 0x13
+ 2290 0098 01       		.uleb128 0x1
+ 2291 0099 13       		.uleb128 0x13
+ 2292 009a 00       		.byte	0
+ 2293 009b 00       		.byte	0
+ 2294 009c 0C       		.uleb128 0xc
+ 2295 009d 8A8201   		.uleb128 0x410a
+ 2296 00a0 00       		.byte	0
+ 2297 00a1 02       		.uleb128 0x2
+ARM GAS  C:\Users\HPz420\AppData\Local\Temp\ccVnhUOL.s 			page 49
+
+
+ 2298 00a2 18       		.uleb128 0x18
+ 2299 00a3 9142     		.uleb128 0x2111
+ 2300 00a5 18       		.uleb128 0x18
+ 2301 00a6 00       		.byte	0
+ 2302 00a7 00       		.byte	0
+ 2303 00a8 0D       		.uleb128 0xd
+ 2304 00a9 34       		.uleb128 0x34
+ 2305 00aa 00       		.byte	0
+ 2306 00ab 03       		.uleb128 0x3
+ 2307 00ac 0E       		.uleb128 0xe
+ 2308 00ad 3A       		.uleb128 0x3a
+ 2309 00ae 0B       		.uleb128 0xb
+ 2310 00af 3B       		.uleb128 0x3b
+ 2311 00b0 05       		.uleb128 0x5
+ 2312 00b1 49       		.uleb128 0x49
+ 2313 00b2 13       		.uleb128 0x13
+ 2314 00b3 02       		.uleb128 0x2
+ 2315 00b4 17       		.uleb128 0x17
+ 2316 00b5 00       		.byte	0
+ 2317 00b6 00       		.byte	0
+ 2318 00b7 0E       		.uleb128 0xe
+ 2319 00b8 898201   		.uleb128 0x4109
+ 2320 00bb 01       		.byte	0x1
+ 2321 00bc 11       		.uleb128 0x11
+ 2322 00bd 01       		.uleb128 0x1
+ 2323 00be 31       		.uleb128 0x31
+ 2324 00bf 13       		.uleb128 0x13
+ 2325 00c0 00       		.byte	0
+ 2326 00c1 00       		.byte	0
+ 2327 00c2 0F       		.uleb128 0xf
+ 2328 00c3 2E       		.uleb128 0x2e
+ 2329 00c4 01       		.byte	0x1
+ 2330 00c5 3F       		.uleb128 0x3f
+ 2331 00c6 19       		.uleb128 0x19
+ 2332 00c7 03       		.uleb128 0x3
+ 2333 00c8 0E       		.uleb128 0xe
+ 2334 00c9 3A       		.uleb128 0x3a
+ 2335 00ca 0B       		.uleb128 0xb
+ 2336 00cb 3B       		.uleb128 0x3b
+ 2337 00cc 0B       		.uleb128 0xb
+ 2338 00cd 27       		.uleb128 0x27
+ 2339 00ce 19       		.uleb128 0x19
+ 2340 00cf 11       		.uleb128 0x11
+ 2341 00d0 01       		.uleb128 0x1
+ 2342 00d1 12       		.uleb128 0x12
+ 2343 00d2 06       		.uleb128 0x6
+ 2344 00d3 40       		.uleb128 0x40
+ 2345 00d4 18       		.uleb128 0x18
+ 2346 00d5 9742     		.uleb128 0x2117
+ 2347 00d7 19       		.uleb128 0x19
+ 2348 00d8 01       		.uleb128 0x1
+ 2349 00d9 13       		.uleb128 0x13
+ 2350 00da 00       		.byte	0
+ 2351 00db 00       		.byte	0
+ 2352 00dc 10       		.uleb128 0x10
+ 2353 00dd 34       		.uleb128 0x34
+ 2354 00de 00       		.byte	0
+ARM GAS  C:\Users\HPz420\AppData\Local\Temp\ccVnhUOL.s 			page 50
+
+
+ 2355 00df 03       		.uleb128 0x3
+ 2356 00e0 0E       		.uleb128 0xe
+ 2357 00e1 3A       		.uleb128 0x3a
+ 2358 00e2 0B       		.uleb128 0xb
+ 2359 00e3 3B       		.uleb128 0x3b
+ 2360 00e4 0B       		.uleb128 0xb
+ 2361 00e5 49       		.uleb128 0x49
+ 2362 00e6 13       		.uleb128 0x13
+ 2363 00e7 02       		.uleb128 0x2
+ 2364 00e8 17       		.uleb128 0x17
+ 2365 00e9 00       		.byte	0
+ 2366 00ea 00       		.byte	0
+ 2367 00eb 11       		.uleb128 0x11
+ 2368 00ec 2E       		.uleb128 0x2e
+ 2369 00ed 01       		.byte	0x1
+ 2370 00ee 3F       		.uleb128 0x3f
+ 2371 00ef 19       		.uleb128 0x19
+ 2372 00f0 03       		.uleb128 0x3
+ 2373 00f1 0E       		.uleb128 0xe
+ 2374 00f2 3A       		.uleb128 0x3a
+ 2375 00f3 0B       		.uleb128 0xb
+ 2376 00f4 3B       		.uleb128 0x3b
+ 2377 00f5 0B       		.uleb128 0xb
+ 2378 00f6 27       		.uleb128 0x27
+ 2379 00f7 19       		.uleb128 0x19
+ 2380 00f8 49       		.uleb128 0x49
+ 2381 00f9 13       		.uleb128 0x13
+ 2382 00fa 11       		.uleb128 0x11
+ 2383 00fb 01       		.uleb128 0x1
+ 2384 00fc 12       		.uleb128 0x12
+ 2385 00fd 06       		.uleb128 0x6
+ 2386 00fe 40       		.uleb128 0x40
+ 2387 00ff 18       		.uleb128 0x18
+ 2388 0100 9742     		.uleb128 0x2117
+ 2389 0102 19       		.uleb128 0x19
+ 2390 0103 01       		.uleb128 0x1
+ 2391 0104 13       		.uleb128 0x13
+ 2392 0105 00       		.byte	0
+ 2393 0106 00       		.byte	0
+ 2394 0107 12       		.uleb128 0x12
+ 2395 0108 34       		.uleb128 0x34
+ 2396 0109 00       		.byte	0
+ 2397 010a 03       		.uleb128 0x3
+ 2398 010b 0E       		.uleb128 0xe
+ 2399 010c 3A       		.uleb128 0x3a
+ 2400 010d 0B       		.uleb128 0xb
+ 2401 010e 3B       		.uleb128 0x3b
+ 2402 010f 0B       		.uleb128 0xb
+ 2403 0110 49       		.uleb128 0x49
+ 2404 0111 13       		.uleb128 0x13
+ 2405 0112 1C       		.uleb128 0x1c
+ 2406 0113 0B       		.uleb128 0xb
+ 2407 0114 00       		.byte	0
+ 2408 0115 00       		.byte	0
+ 2409 0116 13       		.uleb128 0x13
+ 2410 0117 2E       		.uleb128 0x2e
+ 2411 0118 01       		.byte	0x1
+ARM GAS  C:\Users\HPz420\AppData\Local\Temp\ccVnhUOL.s 			page 51
+
+
+ 2412 0119 3F       		.uleb128 0x3f
+ 2413 011a 19       		.uleb128 0x19
+ 2414 011b 03       		.uleb128 0x3
+ 2415 011c 0E       		.uleb128 0xe
+ 2416 011d 3A       		.uleb128 0x3a
+ 2417 011e 0B       		.uleb128 0xb
+ 2418 011f 3B       		.uleb128 0x3b
+ 2419 0120 05       		.uleb128 0x5
+ 2420 0121 27       		.uleb128 0x27
+ 2421 0122 19       		.uleb128 0x19
+ 2422 0123 11       		.uleb128 0x11
+ 2423 0124 01       		.uleb128 0x1
+ 2424 0125 12       		.uleb128 0x12
+ 2425 0126 06       		.uleb128 0x6
+ 2426 0127 40       		.uleb128 0x40
+ 2427 0128 18       		.uleb128 0x18
+ 2428 0129 9742     		.uleb128 0x2117
+ 2429 012b 19       		.uleb128 0x19
+ 2430 012c 01       		.uleb128 0x1
+ 2431 012d 13       		.uleb128 0x13
+ 2432 012e 00       		.byte	0
+ 2433 012f 00       		.byte	0
+ 2434 0130 14       		.uleb128 0x14
+ 2435 0131 01       		.uleb128 0x1
+ 2436 0132 01       		.byte	0x1
+ 2437 0133 49       		.uleb128 0x49
+ 2438 0134 13       		.uleb128 0x13
+ 2439 0135 01       		.uleb128 0x1
+ 2440 0136 13       		.uleb128 0x13
+ 2441 0137 00       		.byte	0
+ 2442 0138 00       		.byte	0
+ 2443 0139 15       		.uleb128 0x15
+ 2444 013a 21       		.uleb128 0x21
+ 2445 013b 00       		.byte	0
+ 2446 013c 49       		.uleb128 0x49
+ 2447 013d 13       		.uleb128 0x13
+ 2448 013e 2F       		.uleb128 0x2f
+ 2449 013f 0B       		.uleb128 0xb
+ 2450 0140 00       		.byte	0
+ 2451 0141 00       		.byte	0
+ 2452 0142 16       		.uleb128 0x16
+ 2453 0143 34       		.uleb128 0x34
+ 2454 0144 00       		.byte	0
+ 2455 0145 03       		.uleb128 0x3
+ 2456 0146 0E       		.uleb128 0xe
+ 2457 0147 3A       		.uleb128 0x3a
+ 2458 0148 0B       		.uleb128 0xb
+ 2459 0149 3B       		.uleb128 0x3b
+ 2460 014a 05       		.uleb128 0x5
+ 2461 014b 49       		.uleb128 0x49
+ 2462 014c 13       		.uleb128 0x13
+ 2463 014d 3F       		.uleb128 0x3f
+ 2464 014e 19       		.uleb128 0x19
+ 2465 014f 3C       		.uleb128 0x3c
+ 2466 0150 19       		.uleb128 0x19
+ 2467 0151 00       		.byte	0
+ 2468 0152 00       		.byte	0
+ARM GAS  C:\Users\HPz420\AppData\Local\Temp\ccVnhUOL.s 			page 52
+
+
+ 2469 0153 17       		.uleb128 0x17
+ 2470 0154 34       		.uleb128 0x34
+ 2471 0155 00       		.byte	0
+ 2472 0156 03       		.uleb128 0x3
+ 2473 0157 0E       		.uleb128 0xe
+ 2474 0158 3A       		.uleb128 0x3a
+ 2475 0159 0B       		.uleb128 0xb
+ 2476 015a 3B       		.uleb128 0x3b
+ 2477 015b 0B       		.uleb128 0xb
+ 2478 015c 49       		.uleb128 0x49
+ 2479 015d 13       		.uleb128 0x13
+ 2480 015e 3F       		.uleb128 0x3f
+ 2481 015f 19       		.uleb128 0x19
+ 2482 0160 02       		.uleb128 0x2
+ 2483 0161 18       		.uleb128 0x18
+ 2484 0162 00       		.byte	0
+ 2485 0163 00       		.byte	0
+ 2486 0164 18       		.uleb128 0x18
+ 2487 0165 2E       		.uleb128 0x2e
+ 2488 0166 00       		.byte	0
+ 2489 0167 3F       		.uleb128 0x3f
+ 2490 0168 19       		.uleb128 0x19
+ 2491 0169 3C       		.uleb128 0x3c
+ 2492 016a 19       		.uleb128 0x19
+ 2493 016b 6E       		.uleb128 0x6e
+ 2494 016c 0E       		.uleb128 0xe
+ 2495 016d 03       		.uleb128 0x3
+ 2496 016e 0E       		.uleb128 0xe
+ 2497 016f 3A       		.uleb128 0x3a
+ 2498 0170 0B       		.uleb128 0xb
+ 2499 0171 3B       		.uleb128 0x3b
+ 2500 0172 0B       		.uleb128 0xb
+ 2501 0173 00       		.byte	0
+ 2502 0174 00       		.byte	0
+ 2503 0175 00       		.byte	0
+ 2504              		.section	.debug_loc,"",%progbits
+ 2505              	.Ldebug_loc0:
+ 2506              	.LLST0:
+ 2507 0000 00000000 		.4byte	.LVL0
+ 2508 0004 09000000 		.4byte	.LVL1-1
+ 2509 0008 0100     		.2byte	0x1
+ 2510 000a 50       		.byte	0x50
+ 2511 000b 09000000 		.4byte	.LVL1-1
+ 2512 000f 38000000 		.4byte	.LFE71
+ 2513 0013 0400     		.2byte	0x4
+ 2514 0015 F3       		.byte	0xf3
+ 2515 0016 01       		.uleb128 0x1
+ 2516 0017 50       		.byte	0x50
+ 2517 0018 9F       		.byte	0x9f
+ 2518 0019 00000000 		.4byte	0
+ 2519 001d 00000000 		.4byte	0
+ 2520              	.LLST1:
+ 2521 0021 00000000 		.4byte	.LVL0
+ 2522 0025 09000000 		.4byte	.LVL1-1
+ 2523 0029 0100     		.2byte	0x1
+ 2524 002b 51       		.byte	0x51
+ 2525 002c 09000000 		.4byte	.LVL1-1
+ARM GAS  C:\Users\HPz420\AppData\Local\Temp\ccVnhUOL.s 			page 53
+
+
+ 2526 0030 38000000 		.4byte	.LFE71
+ 2527 0034 0400     		.2byte	0x4
+ 2528 0036 F3       		.byte	0xf3
+ 2529 0037 01       		.uleb128 0x1
+ 2530 0038 51       		.byte	0x51
+ 2531 0039 9F       		.byte	0x9f
+ 2532 003a 00000000 		.4byte	0
+ 2533 003e 00000000 		.4byte	0
+ 2534              	.LLST2:
+ 2535 0042 02000000 		.4byte	.LVL10
+ 2536 0046 0A000000 		.4byte	.LVL11
+ 2537 004a 0200     		.2byte	0x2
+ 2538 004c 30       		.byte	0x30
+ 2539 004d 9F       		.byte	0x9f
+ 2540 004e 0A000000 		.4byte	.LVL11
+ 2541 0052 0C000000 		.4byte	.LVL12
+ 2542 0056 0100     		.2byte	0x1
+ 2543 0058 50       		.byte	0x50
+ 2544 0059 0C000000 		.4byte	.LVL12
+ 2545 005d 16000000 		.4byte	.LVL14
+ 2546 0061 0100     		.2byte	0x1
+ 2547 0063 54       		.byte	0x54
+ 2548 0064 16000000 		.4byte	.LVL14
+ 2549 0068 18000000 		.4byte	.LVL15
+ 2550 006c 0100     		.2byte	0x1
+ 2551 006e 50       		.byte	0x50
+ 2552 006f 18000000 		.4byte	.LVL15
+ 2553 0073 22000000 		.4byte	.LVL17
+ 2554 0077 0100     		.2byte	0x1
+ 2555 0079 54       		.byte	0x54
+ 2556 007a 22000000 		.4byte	.LVL17
+ 2557 007e 24000000 		.4byte	.LVL18
+ 2558 0082 0100     		.2byte	0x1
+ 2559 0084 50       		.byte	0x50
+ 2560 0085 24000000 		.4byte	.LVL18
+ 2561 0089 2C000000 		.4byte	.LVL19
+ 2562 008d 0100     		.2byte	0x1
+ 2563 008f 54       		.byte	0x54
+ 2564 0090 2C000000 		.4byte	.LVL19
+ 2565 0094 2E000000 		.4byte	.LVL20
+ 2566 0098 0600     		.2byte	0x6
+ 2567 009a 70       		.byte	0x70
+ 2568 009b 00       		.sleb128 0
+ 2569 009c 74       		.byte	0x74
+ 2570 009d 00       		.sleb128 0
+ 2571 009e 21       		.byte	0x21
+ 2572 009f 9F       		.byte	0x9f
+ 2573 00a0 2E000000 		.4byte	.LVL20
+ 2574 00a4 30000000 		.4byte	.LFE69
+ 2575 00a8 0100     		.2byte	0x1
+ 2576 00aa 50       		.byte	0x50
+ 2577 00ab 00000000 		.4byte	0
+ 2578 00af 00000000 		.4byte	0
+ 2579              	.LLST3:
+ 2580 00b3 06000000 		.4byte	.LVL21
+ 2581 00b7 08000000 		.4byte	.LVL22
+ 2582 00bb 0100     		.2byte	0x1
+ARM GAS  C:\Users\HPz420\AppData\Local\Temp\ccVnhUOL.s 			page 54
+
+
+ 2583 00bd 50       		.byte	0x50
+ 2584 00be 00000000 		.4byte	0
+ 2585 00c2 00000000 		.4byte	0
+ 2586              	.LLST4:
+ 2587 00c6 06000000 		.4byte	.LVL26
+ 2588 00ca 18000000 		.4byte	.LVL28
+ 2589 00ce 0100     		.2byte	0x1
+ 2590 00d0 50       		.byte	0x50
+ 2591 00d1 18000000 		.4byte	.LVL28
+ 2592 00d5 20000000 		.4byte	.LVL31
+ 2593 00d9 0100     		.2byte	0x1
+ 2594 00db 55       		.byte	0x55
+ 2595 00dc 24000000 		.4byte	.LVL32
+ 2596 00e0 2E000000 		.4byte	.LVL34
+ 2597 00e4 0100     		.2byte	0x1
+ 2598 00e6 50       		.byte	0x50
+ 2599 00e7 30000000 		.4byte	.LVL35
+ 2600 00eb 32000000 		.4byte	.LVL36
+ 2601 00ef 0100     		.2byte	0x1
+ 2602 00f1 50       		.byte	0x50
+ 2603 00f2 32000000 		.4byte	.LVL36
+ 2604 00f6 34000000 		.4byte	.LFE67
+ 2605 00fa 0100     		.2byte	0x1
+ 2606 00fc 55       		.byte	0x55
+ 2607 00fd 00000000 		.4byte	0
+ 2608 0101 00000000 		.4byte	0
+ 2609              	.LLST5:
+ 2610 0105 02000000 		.4byte	.LVL25
+ 2611 0109 0E000000 		.4byte	.LVL27
+ 2612 010d 0200     		.2byte	0x2
+ 2613 010f 30       		.byte	0x30
+ 2614 0110 9F       		.byte	0x9f
+ 2615 0111 0E000000 		.4byte	.LVL27
+ 2616 0115 18000000 		.4byte	.LVL28
+ 2617 0119 0100     		.2byte	0x1
+ 2618 011b 50       		.byte	0x50
+ 2619 011c 18000000 		.4byte	.LVL28
+ 2620 0120 20000000 		.4byte	.LVL31
+ 2621 0124 0100     		.2byte	0x1
+ 2622 0126 55       		.byte	0x55
+ 2623 0127 20000000 		.4byte	.LVL31
+ 2624 012b 2C000000 		.4byte	.LVL33
+ 2625 012f 0100     		.2byte	0x1
+ 2626 0131 54       		.byte	0x54
+ 2627 0132 2C000000 		.4byte	.LVL33
+ 2628 0136 30000000 		.4byte	.LVL35
+ 2629 013a 0200     		.2byte	0x2
+ 2630 013c 30       		.byte	0x30
+ 2631 013d 9F       		.byte	0x9f
+ 2632 013e 30000000 		.4byte	.LVL35
+ 2633 0142 32000000 		.4byte	.LVL36
+ 2634 0146 0100     		.2byte	0x1
+ 2635 0148 50       		.byte	0x50
+ 2636 0149 32000000 		.4byte	.LVL36
+ 2637 014d 34000000 		.4byte	.LFE67
+ 2638 0151 0100     		.2byte	0x1
+ 2639 0153 55       		.byte	0x55
+ARM GAS  C:\Users\HPz420\AppData\Local\Temp\ccVnhUOL.s 			page 55
+
+
+ 2640 0154 00000000 		.4byte	0
+ 2641 0158 00000000 		.4byte	0
+ 2642              	.LLST6:
+ 2643 015c 02000000 		.4byte	.LVL25
+ 2644 0160 0E000000 		.4byte	.LVL27
+ 2645 0164 0200     		.2byte	0x2
+ 2646 0166 30       		.byte	0x30
+ 2647 0167 9F       		.byte	0x9f
+ 2648 0168 0E000000 		.4byte	.LVL27
+ 2649 016c 20000000 		.4byte	.LVL31
+ 2650 0170 0100     		.2byte	0x1
+ 2651 0172 54       		.byte	0x54
+ 2652 0173 20000000 		.4byte	.LVL31
+ 2653 0177 2C000000 		.4byte	.LVL33
+ 2654 017b 0100     		.2byte	0x1
+ 2655 017d 56       		.byte	0x56
+ 2656 017e 2C000000 		.4byte	.LVL33
+ 2657 0182 30000000 		.4byte	.LVL35
+ 2658 0186 0200     		.2byte	0x2
+ 2659 0188 30       		.byte	0x30
+ 2660 0189 9F       		.byte	0x9f
+ 2661 018a 30000000 		.4byte	.LVL35
+ 2662 018e 34000000 		.4byte	.LFE67
+ 2663 0192 0100     		.2byte	0x1
+ 2664 0194 54       		.byte	0x54
+ 2665 0195 00000000 		.4byte	0
+ 2666 0199 00000000 		.4byte	0
+ 2667              	.LLST7:
+ 2668 019d 02000000 		.4byte	.LVL25
+ 2669 01a1 0E000000 		.4byte	.LVL27
+ 2670 01a5 0200     		.2byte	0x2
+ 2671 01a7 30       		.byte	0x30
+ 2672 01a8 9F       		.byte	0x9f
+ 2673 01a9 0E000000 		.4byte	.LVL27
+ 2674 01ad 1E000000 		.4byte	.LVL30
+ 2675 01b1 0100     		.2byte	0x1
+ 2676 01b3 56       		.byte	0x56
+ 2677 01b4 2C000000 		.4byte	.LVL33
+ 2678 01b8 30000000 		.4byte	.LVL35
+ 2679 01bc 0200     		.2byte	0x2
+ 2680 01be 30       		.byte	0x30
+ 2681 01bf 9F       		.byte	0x9f
+ 2682 01c0 30000000 		.4byte	.LVL35
+ 2683 01c4 34000000 		.4byte	.LFE67
+ 2684 01c8 0100     		.2byte	0x1
+ 2685 01ca 56       		.byte	0x56
+ 2686 01cb 00000000 		.4byte	0
+ 2687 01cf 00000000 		.4byte	0
+ 2688              	.LLST8:
+ 2689 01d3 10000000 		.4byte	.LVL38
+ 2690 01d7 13000000 		.4byte	.LVL39-1
+ 2691 01db 0100     		.2byte	0x1
+ 2692 01dd 53       		.byte	0x53
+ 2693 01de 14000000 		.4byte	.LVL39
+ 2694 01e2 18000000 		.4byte	.LVL40
+ 2695 01e6 0100     		.2byte	0x1
+ 2696 01e8 50       		.byte	0x50
+ARM GAS  C:\Users\HPz420\AppData\Local\Temp\ccVnhUOL.s 			page 56
+
+
+ 2697 01e9 18000000 		.4byte	.LVL40
+ 2698 01ed 1E000000 		.4byte	.LVL41
+ 2699 01f1 0100     		.2byte	0x1
+ 2700 01f3 53       		.byte	0x53
+ 2701 01f4 1E000000 		.4byte	.LVL41
+ 2702 01f8 20000000 		.4byte	.LVL42
+ 2703 01fc 0100     		.2byte	0x1
+ 2704 01fe 50       		.byte	0x50
+ 2705 01ff 20000000 		.4byte	.LVL42
+ 2706 0203 24000000 		.4byte	.LFE68
+ 2707 0207 0100     		.2byte	0x1
+ 2708 0209 53       		.byte	0x53
+ 2709 020a 00000000 		.4byte	0
+ 2710 020e 00000000 		.4byte	0
+ 2711              	.LLST9:
+ 2712 0212 00000000 		.4byte	.LVL43
+ 2713 0216 0D000000 		.4byte	.LVL44-1
+ 2714 021a 0100     		.2byte	0x1
+ 2715 021c 50       		.byte	0x50
+ 2716 021d 0D000000 		.4byte	.LVL44-1
+ 2717 0221 34000000 		.4byte	.LFE72
+ 2718 0225 0400     		.2byte	0x4
+ 2719 0227 F3       		.byte	0xf3
+ 2720 0228 01       		.uleb128 0x1
+ 2721 0229 50       		.byte	0x50
+ 2722 022a 9F       		.byte	0x9f
+ 2723 022b 00000000 		.4byte	0
+ 2724 022f 00000000 		.4byte	0
+ 2725              	.LLST10:
+ 2726 0233 00000000 		.4byte	.LVL43
+ 2727 0237 0D000000 		.4byte	.LVL44-1
+ 2728 023b 0100     		.2byte	0x1
+ 2729 023d 51       		.byte	0x51
+ 2730 023e 0D000000 		.4byte	.LVL44-1
+ 2731 0242 34000000 		.4byte	.LFE72
+ 2732 0246 0400     		.2byte	0x4
+ 2733 0248 F3       		.byte	0xf3
+ 2734 0249 01       		.uleb128 0x1
+ 2735 024a 51       		.byte	0x51
+ 2736 024b 9F       		.byte	0x9f
+ 2737 024c 00000000 		.4byte	0
+ 2738 0250 00000000 		.4byte	0
+ 2739              	.LLST11:
+ 2740 0254 00000000 		.4byte	.LVL43
+ 2741 0258 0D000000 		.4byte	.LVL44-1
+ 2742 025c 0100     		.2byte	0x1
+ 2743 025e 52       		.byte	0x52
+ 2744 025f 0D000000 		.4byte	.LVL44-1
+ 2745 0263 34000000 		.4byte	.LFE72
+ 2746 0267 0400     		.2byte	0x4
+ 2747 0269 F3       		.byte	0xf3
+ 2748 026a 01       		.uleb128 0x1
+ 2749 026b 52       		.byte	0x52
+ 2750 026c 9F       		.byte	0x9f
+ 2751 026d 00000000 		.4byte	0
+ 2752 0271 00000000 		.4byte	0
+ 2753              	.LLST12:
+ARM GAS  C:\Users\HPz420\AppData\Local\Temp\ccVnhUOL.s 			page 57
+
+
+ 2754 0275 02000000 		.4byte	.LVL48
+ 2755 0279 06000000 		.4byte	.LVL49
+ 2756 027d 0300     		.2byte	0x3
+ 2757 027f 08       		.byte	0x8
+ 2758 0280 24       		.byte	0x24
+ 2759 0281 9F       		.byte	0x9f
+ 2760 0282 06000000 		.4byte	.LVL49
+ 2761 0286 74000000 		.4byte	.LVL61
+ 2762 028a 0100     		.2byte	0x1
+ 2763 028c 54       		.byte	0x54
+ 2764 028d 76000000 		.4byte	.LVL62
+ 2765 0291 8E000000 		.4byte	.LVL63
+ 2766 0295 0100     		.2byte	0x1
+ 2767 0297 54       		.byte	0x54
+ 2768 0298 00000000 		.4byte	0
+ 2769 029c 00000000 		.4byte	0
+ 2770              	.LLST13:
+ 2771 02a0 00000000 		.4byte	.LVL64
+ 2772 02a4 0A000000 		.4byte	.LVL65
+ 2773 02a8 0100     		.2byte	0x1
+ 2774 02aa 50       		.byte	0x50
+ 2775 02ab 0A000000 		.4byte	.LVL65
+ 2776 02af 32000000 		.4byte	.LFE70
+ 2777 02b3 0100     		.2byte	0x1
+ 2778 02b5 54       		.byte	0x54
+ 2779 02b6 00000000 		.4byte	0
+ 2780 02ba 00000000 		.4byte	0
+ 2781              	.LLST14:
+ 2782 02be 06000000 		.4byte	.LVL70
+ 2783 02c2 09000000 		.4byte	.LVL71-1
+ 2784 02c6 0600     		.2byte	0x6
+ 2785 02c8 70       		.byte	0x70
+ 2786 02c9 00       		.sleb128 0
+ 2787 02ca 08       		.byte	0x8
+ 2788 02cb FF       		.byte	0xff
+ 2789 02cc 1A       		.byte	0x1a
+ 2790 02cd 9F       		.byte	0x9f
+ 2791 02ce 00000000 		.4byte	0
+ 2792 02d2 00000000 		.4byte	0
+ 2793              	.LLST15:
+ 2794 02d6 02000000 		.4byte	.LVL73
+ 2795 02da 30000000 		.4byte	.LVL82
+ 2796 02de 0200     		.2byte	0x2
+ 2797 02e0 30       		.byte	0x30
+ 2798 02e1 9F       		.byte	0x9f
+ 2799 02e2 34000000 		.4byte	.LVL83
+ 2800 02e6 48000000 		.4byte	.LVL85
+ 2801 02ea 0100     		.2byte	0x1
+ 2802 02ec 50       		.byte	0x50
+ 2803 02ed 68000000 		.4byte	.LVL93
+ 2804 02f1 74000000 		.4byte	.LVL95
+ 2805 02f5 0100     		.2byte	0x1
+ 2806 02f7 50       		.byte	0x50
+ 2807 02f8 9E000000 		.4byte	.LVL104
+ 2808 02fc A8000000 		.4byte	.LVL106
+ 2809 0300 0100     		.2byte	0x1
+ 2810 0302 50       		.byte	0x50
+ARM GAS  C:\Users\HPz420\AppData\Local\Temp\ccVnhUOL.s 			page 58
+
+
+ 2811 0303 C8000000 		.4byte	.LVL112
+ 2812 0307 D8000000 		.4byte	.LVL114
+ 2813 030b 0100     		.2byte	0x1
+ 2814 030d 50       		.byte	0x50
+ 2815 030e DE000000 		.4byte	.LVL116
+ 2816 0312 E8000000 		.4byte	.LVL118
+ 2817 0316 0100     		.2byte	0x1
+ 2818 0318 50       		.byte	0x50
+ 2819 0319 FC000000 		.4byte	.LVL122
+ 2820 031d 06010000 		.4byte	.LVL124
+ 2821 0321 0100     		.2byte	0x1
+ 2822 0323 50       		.byte	0x50
+ 2823 0324 1A010000 		.4byte	.LVL128
+ 2824 0328 24010000 		.4byte	.LVL130
+ 2825 032c 0100     		.2byte	0x1
+ 2826 032e 50       		.byte	0x50
+ 2827 032f 38010000 		.4byte	.LVL134
+ 2828 0333 42010000 		.4byte	.LVL136
+ 2829 0337 0100     		.2byte	0x1
+ 2830 0339 50       		.byte	0x50
+ 2831 033a 48010000 		.4byte	.LVL138
+ 2832 033e 4C010000 		.4byte	.LVL140
+ 2833 0342 0100     		.2byte	0x1
+ 2834 0344 50       		.byte	0x50
+ 2835 0345 00000000 		.4byte	0
+ 2836 0349 00000000 		.4byte	0
+ 2837              	.LLST16:
+ 2838 034d 02000000 		.4byte	.LVL73
+ 2839 0351 0A000000 		.4byte	.LVL75
+ 2840 0355 0200     		.2byte	0x2
+ 2841 0357 30       		.byte	0x30
+ 2842 0358 9F       		.byte	0x9f
+ 2843 0359 0A000000 		.4byte	.LVL75
+ 2844 035d 0E000000 		.4byte	.LVL76
+ 2845 0361 0200     		.2byte	0x2
+ 2846 0363 31       		.byte	0x31
+ 2847 0364 9F       		.byte	0x9f
+ 2848 0365 0E000000 		.4byte	.LVL76
+ 2849 0369 2A000000 		.4byte	.LVL81
+ 2850 036d 0100     		.2byte	0x1
+ 2851 036f 55       		.byte	0x55
+ 2852 0370 2A000000 		.4byte	.LVL81
+ 2853 0374 54000000 		.4byte	.LVL88
+ 2854 0378 0100     		.2byte	0x1
+ 2855 037a 54       		.byte	0x54
+ 2856 037b 58000000 		.4byte	.LVL89
+ 2857 037f 8A000000 		.4byte	.LVL99
+ 2858 0383 0100     		.2byte	0x1
+ 2859 0385 54       		.byte	0x54
+ 2860 0386 8E000000 		.4byte	.LVL100
+ 2861 038a A4000000 		.4byte	.LVL105
+ 2862 038e 0100     		.2byte	0x1
+ 2863 0390 54       		.byte	0x54
+ 2864 0391 A4000000 		.4byte	.LVL105
+ 2865 0395 A8000000 		.4byte	.LVL106
+ 2866 0399 0700     		.2byte	0x7
+ 2867 039b 74       		.byte	0x74
+ARM GAS  C:\Users\HPz420\AppData\Local\Temp\ccVnhUOL.s 			page 59
+
+
+ 2868 039c 00       		.sleb128 0
+ 2869 039d 40       		.byte	0x40
+ 2870 039e 46       		.byte	0x46
+ 2871 039f 24       		.byte	0x24
+ 2872 03a0 21       		.byte	0x21
+ 2873 03a1 9F       		.byte	0x9f
+ 2874 03a2 A8000000 		.4byte	.LVL106
+ 2875 03a6 AB000000 		.4byte	.LVL107-1
+ 2876 03aa 0100     		.2byte	0x1
+ 2877 03ac 50       		.byte	0x50
+ 2878 03ad AB000000 		.4byte	.LVL107-1
+ 2879 03b1 B4000000 		.4byte	.LVL108
+ 2880 03b5 0700     		.2byte	0x7
+ 2881 03b7 74       		.byte	0x74
+ 2882 03b8 00       		.sleb128 0
+ 2883 03b9 40       		.byte	0x40
+ 2884 03ba 46       		.byte	0x46
+ 2885 03bb 24       		.byte	0x24
+ 2886 03bc 21       		.byte	0x21
+ 2887 03bd 9F       		.byte	0x9f
+ 2888 03be B4000000 		.4byte	.LVL108
+ 2889 03c2 C0000000 		.4byte	.LVL110
+ 2890 03c6 0100     		.2byte	0x1
+ 2891 03c8 56       		.byte	0x56
+ 2892 03c9 C0000000 		.4byte	.LVL110
+ 2893 03cd D4000000 		.4byte	.LVL113
+ 2894 03d1 0100     		.2byte	0x1
+ 2895 03d3 54       		.byte	0x54
+ 2896 03d4 D4000000 		.4byte	.LVL113
+ 2897 03d8 DE000000 		.4byte	.LVL116
+ 2898 03dc 0400     		.2byte	0x4
+ 2899 03de 40       		.byte	0x40
+ 2900 03df 47       		.byte	0x47
+ 2901 03e0 24       		.byte	0x24
+ 2902 03e1 9F       		.byte	0x9f
+ 2903 03e2 DE000000 		.4byte	.LVL116
+ 2904 03e6 E4000000 		.4byte	.LVL117
+ 2905 03ea 0100     		.2byte	0x1
+ 2906 03ec 54       		.byte	0x54
+ 2907 03ed E4000000 		.4byte	.LVL117
+ 2908 03f1 F2000000 		.4byte	.LVL120
+ 2909 03f5 0400     		.2byte	0x4
+ 2910 03f7 40       		.byte	0x40
+ 2911 03f8 48       		.byte	0x48
+ 2912 03f9 24       		.byte	0x24
+ 2913 03fa 9F       		.byte	0x9f
+ 2914 03fb F2000000 		.4byte	.LVL120
+ 2915 03ff FC000000 		.4byte	.LVL122
+ 2916 0403 0200     		.2byte	0x2
+ 2917 0405 30       		.byte	0x30
+ 2918 0406 9F       		.byte	0x9f
+ 2919 0407 FC000000 		.4byte	.LVL122
+ 2920 040b 02010000 		.4byte	.LVL123
+ 2921 040f 0100     		.2byte	0x1
+ 2922 0411 54       		.byte	0x54
+ 2923 0412 02010000 		.4byte	.LVL123
+ 2924 0416 10010000 		.4byte	.LVL126
+ARM GAS  C:\Users\HPz420\AppData\Local\Temp\ccVnhUOL.s 			page 60
+
+
+ 2925 041a 0400     		.2byte	0x4
+ 2926 041c 40       		.byte	0x40
+ 2927 041d 49       		.byte	0x49
+ 2928 041e 24       		.byte	0x24
+ 2929 041f 9F       		.byte	0x9f
+ 2930 0420 10010000 		.4byte	.LVL126
+ 2931 0424 1A010000 		.4byte	.LVL128
+ 2932 0428 0200     		.2byte	0x2
+ 2933 042a 30       		.byte	0x30
+ 2934 042b 9F       		.byte	0x9f
+ 2935 042c 1A010000 		.4byte	.LVL128
+ 2936 0430 20010000 		.4byte	.LVL129
+ 2937 0434 0100     		.2byte	0x1
+ 2938 0436 54       		.byte	0x54
+ 2939 0437 20010000 		.4byte	.LVL129
+ 2940 043b 2E010000 		.4byte	.LVL132
+ 2941 043f 0400     		.2byte	0x4
+ 2942 0441 40       		.byte	0x40
+ 2943 0442 4A       		.byte	0x4a
+ 2944 0443 24       		.byte	0x24
+ 2945 0444 9F       		.byte	0x9f
+ 2946 0445 2E010000 		.4byte	.LVL132
+ 2947 0449 38010000 		.4byte	.LVL134
+ 2948 044d 0200     		.2byte	0x2
+ 2949 044f 30       		.byte	0x30
+ 2950 0450 9F       		.byte	0x9f
+ 2951 0451 38010000 		.4byte	.LVL134
+ 2952 0455 3E010000 		.4byte	.LVL135
+ 2953 0459 0100     		.2byte	0x1
+ 2954 045b 54       		.byte	0x54
+ 2955 045c 3E010000 		.4byte	.LVL135
+ 2956 0460 48010000 		.4byte	.LVL138
+ 2957 0464 0500     		.2byte	0x5
+ 2958 0466 40       		.byte	0x40
+ 2959 0467 4B       		.byte	0x4b
+ 2960 0468 24       		.byte	0x24
+ 2961 0469 1F       		.byte	0x1f
+ 2962 046a 9F       		.byte	0x9f
+ 2963 046b 48010000 		.4byte	.LVL138
+ 2964 046f 58010000 		.4byte	.LFE66
+ 2965 0473 0100     		.2byte	0x1
+ 2966 0475 54       		.byte	0x54
+ 2967 0476 00000000 		.4byte	0
+ 2968 047a 00000000 		.4byte	0
+ 2969              		.section	.debug_aranges,"",%progbits
+ 2970 0000 64000000 		.4byte	0x64
+ 2971 0004 0200     		.2byte	0x2
+ 2972 0006 00000000 		.4byte	.Ldebug_info0
+ 2973 000a 04       		.byte	0x4
+ 2974 000b 00       		.byte	0
+ 2975 000c 0000     		.2byte	0
+ 2976 000e 0000     		.2byte	0
+ 2977 0010 00000000 		.4byte	.LFB71
+ 2978 0014 38000000 		.4byte	.LFE71-.LFB71
+ 2979 0018 00000000 		.4byte	.LFB69
+ 2980 001c 30000000 		.4byte	.LFE69-.LFB69
+ 2981 0020 00000000 		.4byte	.LFB63
+ARM GAS  C:\Users\HPz420\AppData\Local\Temp\ccVnhUOL.s 			page 61
+
+
+ 2982 0024 12000000 		.4byte	.LFE63-.LFB63
+ 2983 0028 00000000 		.4byte	.LFB67
+ 2984 002c 34000000 		.4byte	.LFE67-.LFB67
+ 2985 0030 00000000 		.4byte	.LFB68
+ 2986 0034 24000000 		.4byte	.LFE68-.LFB68
+ 2987 0038 00000000 		.4byte	.LFB72
+ 2988 003c 34000000 		.4byte	.LFE72-.LFB72
+ 2989 0040 00000000 		.4byte	.LFB65
+ 2990 0044 A0000000 		.4byte	.LFE65-.LFB65
+ 2991 0048 00000000 		.4byte	.LFB70
+ 2992 004c 32000000 		.4byte	.LFE70-.LFB70
+ 2993 0050 00000000 		.4byte	.LFB64
+ 2994 0054 10000000 		.4byte	.LFE64-.LFB64
+ 2995 0058 00000000 		.4byte	.LFB66
+ 2996 005c 58010000 		.4byte	.LFE66-.LFB66
+ 2997 0060 00000000 		.4byte	0
+ 2998 0064 00000000 		.4byte	0
+ 2999              		.section	.debug_ranges,"",%progbits
+ 3000              	.Ldebug_ranges0:
+ 3001 0000 00000000 		.4byte	.LFB71
+ 3002 0004 38000000 		.4byte	.LFE71
+ 3003 0008 00000000 		.4byte	.LFB69
+ 3004 000c 30000000 		.4byte	.LFE69
+ 3005 0010 00000000 		.4byte	.LFB63
+ 3006 0014 12000000 		.4byte	.LFE63
+ 3007 0018 00000000 		.4byte	.LFB67
+ 3008 001c 34000000 		.4byte	.LFE67
+ 3009 0020 00000000 		.4byte	.LFB68
+ 3010 0024 24000000 		.4byte	.LFE68
+ 3011 0028 00000000 		.4byte	.LFB72
+ 3012 002c 34000000 		.4byte	.LFE72
+ 3013 0030 00000000 		.4byte	.LFB65
+ 3014 0034 A0000000 		.4byte	.LFE65
+ 3015 0038 00000000 		.4byte	.LFB70
+ 3016 003c 32000000 		.4byte	.LFE70
+ 3017 0040 00000000 		.4byte	.LFB64
+ 3018 0044 10000000 		.4byte	.LFE64
+ 3019 0048 00000000 		.4byte	.LFB66
+ 3020 004c 58010000 		.4byte	.LFE66
+ 3021 0050 00000000 		.4byte	0
+ 3022 0054 00000000 		.4byte	0
+ 3023              		.section	.debug_line,"",%progbits
+ 3024              	.Ldebug_line0:
+ 3025 0000 36030000 		.section	.debug_str,"MS",%progbits,1
+ 3025      0200A801 
+ 3025      00000201 
+ 3025      FB0E0D00 
+ 3025      01010101 
+ 3026              	.LASF21:
+ 3027 0000 6374726C 		.ascii	"ctrlAdr\000"
+ 3027      41647200 
+ 3028              	.LASF51:
+ 3029 0008 46504C6F 		.ascii	"FPLong\000"
+ 3029      6E6700
+ 3030              	.LASF57:
+ 3031 000f 5A38305F 		.ascii	"Z80_Data_In_Write\000"
+ 3031      44617461 
+ARM GAS  C:\Users\HPz420\AppData\Local\Temp\ccVnhUOL.s 			page 62
+
+
+ 3031      5F496E5F 
+ 3031      57726974 
+ 3031      6500
+ 3032              	.LASF45:
+ 3033 0021 73776974 		.ascii	"switchesVal\000"
+ 3033      63686573 
+ 3033      56616C00 
+ 3034              	.LASF2:
+ 3035 002d 73686F72 		.ascii	"short int\000"
+ 3035      7420696E 
+ 3035      7400
+ 3036              	.LASF30:
+ 3037 0037 76616C4D 		.ascii	"valMin1\000"
+ 3037      696E3100 
+ 3038              	.LASF31:
+ 3039 003f 76616C4D 		.ascii	"valMin2\000"
+ 3039      696E3200 
+ 3040              	.LASF32:
+ 3041 0047 76616C4D 		.ascii	"valMin3\000"
+ 3041      696E3300 
+ 3042              	.LASF58:
+ 3043 004f 61636B49 		.ascii	"ackIO\000"
+ 3043      4F00
+ 3044              	.LASF48:
+ 3045 0055 46504461 		.ascii	"FPData\000"
+ 3045      746100
+ 3046              	.LASF62:
+ 3047 005c 5A38305F 		.ascii	"Z80_Data_Out_Read\000"
+ 3047      44617461 
+ 3047      5F4F7574 
+ 3047      5F526561 
+ 3047      6400
+ 3048              	.LASF26:
+ 3049 006e 66705661 		.ascii	"fpVal\000"
+ 3049      6C00
+ 3050              	.LASF50:
+ 3051 0074 46504374 		.ascii	"FPCtrl\000"
+ 3051      726C00
+ 3052              	.LASF12:
+ 3053 007b 75696E74 		.ascii	"uint16\000"
+ 3053      313600
+ 3054              	.LASF42:
+ 3055 0082 46726F6E 		.ascii	"FrontPanelZ80Write\000"
+ 3055      7450616E 
+ 3055      656C5A38 
+ 3055      30577269 
+ 3055      746500
+ 3056              	.LASF67:
+ 3057 0095 46726F6E 		.ascii	"FrontPanel.c\000"
+ 3057      7450616E 
+ 3057      656C2E63 
+ 3057      00
+ 3058              	.LASF65:
+ 3059 00a2 57726974 		.ascii	"WriteExtSRAM\000"
+ 3059      65457874 
+ 3059      5352414D 
+ 3059      00
+ARM GAS  C:\Users\HPz420\AppData\Local\Temp\ccVnhUOL.s 			page 63
+
+
+ 3060              	.LASF68:
+ 3061 00af 433A5C55 		.ascii	"C:\\Users\\HPz420\\Documents\\GitHub\\Retro-Compute"
+ 3061      73657273 
+ 3061      5C48507A 
+ 3061      3432305C 
+ 3061      446F6375 
+ 3062 00dd 72735C5A 		.ascii	"rs\\Z80\\PSOC\\PSOC_Design_Files\\Z80-PSoC-3-Chips_"
+ 3062      38305C50 
+ 3062      534F435C 
+ 3062      50534F43 
+ 3062      5F446573 
+ 3063 010c 3030325C 		.ascii	"002\\Z80_3Pin.cydsn\000"
+ 3063      5A38305F 
+ 3063      3350696E 
+ 3063      2E637964 
+ 3063      736E00
+ 3064              	.LASF46:
+ 3065 011f 4C454473 		.ascii	"LEDsVal\000"
+ 3065      56616C00 
+ 3066              	.LASF14:
+ 3067 0127 666C6F61 		.ascii	"float\000"
+ 3067      7400
+ 3068              	.LASF24:
+ 3069 012d 72644275 		.ascii	"rdBuff\000"
+ 3069      666600
+ 3070              	.LASF6:
+ 3071 0134 6C6F6E67 		.ascii	"long long int\000"
+ 3071      206C6F6E 
+ 3071      6720696E 
+ 3071      7400
+ 3072              	.LASF7:
+ 3073 0142 6C6F6E67 		.ascii	"long long unsigned int\000"
+ 3073      206C6F6E 
+ 3073      6720756E 
+ 3073      7369676E 
+ 3073      65642069 
+ 3074              	.LASF41:
+ 3075 0159 6C656473 		.ascii	"ledsVal\000"
+ 3075      56616C00 
+ 3076              	.LASF25:
+ 3077 0161 73776974 		.ascii	"switchVals\000"
+ 3077      63685661 
+ 3077      6C7300
+ 3078              	.LASF4:
+ 3079 016c 6C6F6E67 		.ascii	"long int\000"
+ 3079      20696E74 
+ 3079      00
+ 3080              	.LASF22:
+ 3081 0175 72656164 		.ascii	"readRegister_MCP23017\000"
+ 3081      52656769 
+ 3081      73746572 
+ 3081      5F4D4350 
+ 3081      32333031 
+ 3082              	.LASF49:
+ 3083 018b 46504164 		.ascii	"FPAddr\000"
+ 3083      647200
+ 3084              	.LASF40:
+ARM GAS  C:\Users\HPz420\AppData\Local\Temp\ccVnhUOL.s 			page 64
+
+
+ 3085 0192 77726974 		.ascii	"writeFrontPanelLEDs\000"
+ 3085      6546726F 
+ 3085      6E745061 
+ 3085      6E656C4C 
+ 3085      45447300 
+ 3086              	.LASF54:
+ 3087 01a6 4932435F 		.ascii	"I2C_MasterWriteByte\000"
+ 3087      4D617374 
+ 3087      65725772 
+ 3087      69746542 
+ 3087      79746500 
+ 3088              	.LASF39:
+ 3089 01ba 696E6974 		.ascii	"init_FrontPanel\000"
+ 3089      5F46726F 
+ 3089      6E745061 
+ 3089      6E656C00 
+ 3090              	.LASF18:
+ 3091 01ca 6C6F6E67 		.ascii	"long double\000"
+ 3091      20646F75 
+ 3091      626C6500 
+ 3092              	.LASF1:
+ 3093 01d6 756E7369 		.ascii	"unsigned char\000"
+ 3093      676E6564 
+ 3093      20636861 
+ 3093      7200
+ 3094              	.LASF56:
+ 3095 01e4 4932435F 		.ascii	"I2C_MasterReadByte\000"
+ 3095      4D617374 
+ 3095      65725265 
+ 3095      61644279 
+ 3095      746500
+ 3096              	.LASF43:
+ 3097 01f7 6F757456 		.ascii	"outVal\000"
+ 3097      616C00
+ 3098              	.LASF0:
+ 3099 01fe 7369676E 		.ascii	"signed char\000"
+ 3099      65642063 
+ 3099      68617200 
+ 3100              	.LASF10:
+ 3101 020a 696E7433 		.ascii	"int32_t\000"
+ 3101      325F7400 
+ 3102              	.LASF60:
+ 3103 0212 4932435F 		.ascii	"I2C_MasterWriteBuf\000"
+ 3103      4D617374 
+ 3103      65725772 
+ 3103      69746542 
+ 3103      756600
+ 3104              	.LASF52:
+ 3105 0225 4932435F 		.ascii	"I2C_MasterClearStatus\000"
+ 3105      4D617374 
+ 3105      6572436C 
+ 3105      65617253 
+ 3105      74617475 
+ 3106              	.LASF8:
+ 3107 023b 756E7369 		.ascii	"unsigned int\000"
+ 3107      676E6564 
+ 3107      20696E74 
+ARM GAS  C:\Users\HPz420\AppData\Local\Temp\ccVnhUOL.s 			page 65
+
+
+ 3107      00
+ 3108              	.LASF5:
+ 3109 0248 6C6F6E67 		.ascii	"long unsigned int\000"
+ 3109      20756E73 
+ 3109      69676E65 
+ 3109      6420696E 
+ 3109      7400
+ 3110              	.LASF38:
+ 3111 025a 4D435032 		.ascii	"MCP23017_WrBuffer\000"
+ 3111      33303137 
+ 3111      5F577242 
+ 3111      75666665 
+ 3111      7200
+ 3112              	.LASF53:
+ 3113 026c 4932435F 		.ascii	"I2C_MasterSendStart\000"
+ 3113      4D617374 
+ 3113      65725365 
+ 3113      6E645374 
+ 3113      61727400 
+ 3114              	.LASF3:
+ 3115 0280 73686F72 		.ascii	"short unsigned int\000"
+ 3115      7420756E 
+ 3115      7369676E 
+ 3115      65642069 
+ 3115      6E7400
+ 3116              	.LASF16:
+ 3117 0293 63686172 		.ascii	"char\000"
+ 3117      00
+ 3118              	.LASF35:
+ 3119 0298 46726F6E 		.ascii	"FrontPanelZ80Read\000"
+ 3119      7450616E 
+ 3119      656C5A38 
+ 3119      30526561 
+ 3119      6400
+ 3120              	.LASF20:
+ 3121 02aa 63686970 		.ascii	"chipAddr\000"
+ 3121      41646472 
+ 3121      00
+ 3122              	.LASF11:
+ 3123 02b3 75696E74 		.ascii	"uint8\000"
+ 3123      3800
+ 3124              	.LASF34:
+ 3125 02b9 77616974 		.ascii	"waitFrontPanelSwitchesPressed\000"
+ 3125      46726F6E 
+ 3125      7450616E 
+ 3125      656C5377 
+ 3125      69746368 
+ 3126              	.LASF61:
+ 3127 02d7 4932435F 		.ascii	"I2C_MasterStatus\000"
+ 3127      4D617374 
+ 3127      65725374 
+ 3127      61747573 
+ 3127      00
+ 3128              	.LASF44:
+ 3129 02e8 72756E46 		.ascii	"runFrontPanel\000"
+ 3129      726F6E74 
+ 3129      50616E65 
+ARM GAS  C:\Users\HPz420\AppData\Local\Temp\ccVnhUOL.s 			page 66
+
+
+ 3129      6C00
+ 3130              	.LASF13:
+ 3131 02f6 75696E74 		.ascii	"uint32\000"
+ 3131      333200
+ 3132              	.LASF17:
+ 3133 02fd 72656738 		.ascii	"reg8\000"
+ 3133      00
+ 3134              	.LASF23:
+ 3135 0302 72656164 		.ascii	"readFrontPanelSwitchesStatic\000"
+ 3135      46726F6E 
+ 3135      7450616E 
+ 3135      656C5377 
+ 3135      69746368 
+ 3136              	.LASF15:
+ 3137 031f 646F7562 		.ascii	"double\000"
+ 3137      6C6500
+ 3138              	.LASF37:
+ 3139 0326 6374726C 		.ascii	"ctrlVal\000"
+ 3139      56616C00 
+ 3140              	.LASF36:
+ 3141 032e 77726974 		.ascii	"writeRegister_MCP23017\000"
+ 3141      65526567 
+ 3141      69737465 
+ 3141      725F4D43 
+ 3141      50323330 
+ 3142              	.LASF28:
+ 3143 0345 72645661 		.ascii	"rdVal\000"
+ 3143      6C00
+ 3144              	.LASF33:
+ 3145 034b 6B657950 		.ascii	"keyPressed\000"
+ 3145      72657373 
+ 3145      656400
+ 3146              	.LASF9:
+ 3147 0356 5F5F696E 		.ascii	"__int32_t\000"
+ 3147      7433325F 
+ 3147      7400
+ 3148              	.LASF64:
+ 3149 0360 52656164 		.ascii	"ReadExtSRAM\000"
+ 3149      45787453 
+ 3149      52414D00 
+ 3150              	.LASF19:
+ 3151 036c 73697A65 		.ascii	"sizetype\000"
+ 3151      74797065 
+ 3151      00
+ 3152              	.LASF29:
+ 3153 0375 72657456 		.ascii	"retVal\000"
+ 3153      616C00
+ 3154              	.LASF47:
+ 3155 037c 49544D5F 		.ascii	"ITM_RxBuffer\000"
+ 3155      52784275 
+ 3155      66666572 
+ 3155      00
+ 3156              	.LASF66:
+ 3157 0389 474E5520 		.ascii	"GNU C11 5.4.1 20160609 (release) [ARM/embedded-5-br"
+ 3157      43313120 
+ 3157      352E342E 
+ 3157      31203230 
+ARM GAS  C:\Users\HPz420\AppData\Local\Temp\ccVnhUOL.s 			page 67
+
+
+ 3157      31363036 
+ 3158 03bc 616E6368 		.ascii	"anch revision 237715] -mcpu=cortex-m3 -mthumb -g -O"
+ 3158      20726576 
+ 3158      6973696F 
+ 3158      6E203233 
+ 3158      37373135 
+ 3159 03ef 67202D66 		.ascii	"g -ffunction-sections -ffat-lto-objects\000"
+ 3159      66756E63 
+ 3159      74696F6E 
+ 3159      2D736563 
+ 3159      74696F6E 
+ 3160              	.LASF27:
+ 3161 0417 72656164 		.ascii	"readFrontPanelSwitchesRegistered\000"
+ 3161      46726F6E 
+ 3161      7450616E 
+ 3161      656C5377 
+ 3161      69746368 
+ 3162              	.LASF59:
+ 3163 0438 43794465 		.ascii	"CyDelay\000"
+ 3163      6C617900 
+ 3164              	.LASF63:
+ 3165 0440 4932435F 		.ascii	"I2C_Start\000"
+ 3165      53746172 
+ 3165      7400
+ 3166              	.LASF55:
+ 3167 044a 4932435F 		.ascii	"I2C_MasterSendStop\000"
+ 3167      4D617374 
+ 3167      65725365 
+ 3167      6E645374 
+ 3167      6F7000
+ 3168              		.ident	"GCC: (GNU Tools for ARM Embedded Processors) 5.4.1 20160609 (release) [ARM/embedded-5-bran
