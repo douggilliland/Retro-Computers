@@ -44,12 +44,18 @@ uint32 FPLong;      // Long value of the Front Panel
 #define LD_ADDR     0x04    // Load address bits and read memory
 #define RUN_SW      0x80    // Run Switch
 
+//////////////////////////////////////////////////////////////////////////////
+// FrontPanelZ80Read() - Read the Front Panel switches to the Z80
+
 void FrontPanelZ80Read(void)
 {
     uint32 fpVal = readFrontPanelSwitchesStatic();
     Z80_Data_In_Write(fpVal);
     ackIO();
 }
+
+//////////////////////////////////////////////////////////////////////////////
+// FrontPanelZ80Read() - Write to the Front Panel LEDs from the Z80
 
 void FrontPanelZ80Write(void)
 {
