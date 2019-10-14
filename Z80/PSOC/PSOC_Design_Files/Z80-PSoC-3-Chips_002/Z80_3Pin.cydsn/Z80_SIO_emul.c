@@ -12,6 +12,7 @@
 
 #include <project.h>
 #include "Z80_SIO_emul.h"
+#include "Z80_IO_Handle.h"
 
 volatile uint8 SIO_A_Ctrl1;
 volatile uint8 SIO_A_Ctrl2;

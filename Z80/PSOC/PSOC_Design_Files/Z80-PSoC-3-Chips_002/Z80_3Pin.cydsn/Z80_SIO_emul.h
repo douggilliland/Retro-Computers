@@ -12,8 +12,7 @@
 
 #include <project.h>
 
-void ackIO(void);
-void waitNextIORq(void);
+void sendCharToZ80(uint8 rxChar);
 void SioReadDataA(void);
 void SioWriteDataA(void);
 void SioReadStatusA(uint8 regNum);
@@ -24,7 +23,6 @@ void SioWriteDataB(void);
 void SioReadStatusB(uint8 regNum);
 void SioReadIntRegB();
 void SioWriteCtrlB(void);
-void sendCharToZ80(uint8 rxChar);
 
 #define IORQ_BIT    0X01
 #define CPURD_BIT   0X02
