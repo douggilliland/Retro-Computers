@@ -9,10 +9,11 @@
  *
  * ========================================
 */
-#include "project.h"
+#include "project.h"        // all of the #includes from Cypress generated Hardware APIs
 #include "stdio.h"
-#include "FrontPanel.h"
 #include "ExtSRAM.h"
+#include "FrontPanel.h"
+#include "Z80_IO_Handle.h"
 #include "Z80_SIO_emul.h"
 
 extern void loadSRAM(void);
@@ -93,7 +94,14 @@ int main(void)
             {
                 /* Read received data and re-enable OUT endpoint. */
                 count = USBUART_GetAll(buffer);
-                sendCharToZ80(buffer[0]);
+                if (count == 1)     // Input 1 character immediately
+                {
+                    sendCharToZ80(buffer[0]);
+                }
+                else                // more than 1 char was in the USB packet received from the host
+                {
+                    putBufferToZ80(count,buffer);
+                }
 
 //                if (0u != count)
 //                {
@@ -121,6 +129,7 @@ int main(void)
 //                        USBUART_PutData(NULL, 0u);
 //                    }
 //                }
+                
             }
         }
 
