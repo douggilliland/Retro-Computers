@@ -51,6 +51,12 @@
 #define SRAMRD_BIT      0x04    // 1 = SRAM read
 #define SRAMWR_BIT      0x08    // 1 = SRAM write
 #define CPURESET_BIT    0x10    // 1 = Z80 held in reset
+#define MONITOR_TERMINATION 0x00000000
+#define MONITOR_START       0x00000000
+#define MONITOR_FINISH      0x00004000
+#define MONITOR_LENGTH      0x00004000
+
+extern unsigned char monitor_basic_eprom[];
 
 ////////////////////////////////////////////////////////////////////////////
 // SetExtSRAMAddr(addr) - Set the address registers for the SRAM
@@ -149,5 +155,24 @@ uint32 TestSRAM(void)
     ExtSRAMCtl_Control = (CPURESET_BIT);              // Leave Z80 in reset
     return(POST_PASSED);
 }
+
+////////////////////////////////////////////////////////////////////////////
+// void loadSRAM(void) - Load the SRAM on the card with the ROM code
+// Initial code build is monitor plus BASIC code
+
+void loadSRAM(void)
+{
+    uint32 charCount;
+    uint32 SRAMAddr = MONITOR_START;
+    volatile uint8 dataVal;
+    for (charCount = 0; charCount < MONITOR_LENGTH; charCount++)
+    {
+        dataVal = monitor_basic_eprom[charCount];
+        WriteExtSRAM(SRAMAddr,dataVal);
+        SRAMAddr++;
+    }
+}
+
+
 
 /* [] END OF FILE */
