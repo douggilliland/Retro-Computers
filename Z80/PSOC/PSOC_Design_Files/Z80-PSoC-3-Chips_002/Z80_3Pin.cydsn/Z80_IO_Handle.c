@@ -11,14 +11,9 @@
 */
 
 #include <project.h>
+#include "Z80_IO_Handle.h"
 #include "Z80_SIO_emul.h"
 #include "FrontPanel.h"
-
-#define SIOA_D      0x00
-#define SIOA_C      0x02
-#define SIOB_D      0x01
-#define SIOB_C      0x03
-#define FR_PNL_IO   0x18    // decimal 28
 
 void HandleZ80IO(void)
 {
@@ -72,22 +67,62 @@ void HandleZ80IO(void)
                 return;
             }
             break;
-        case FR_PNL_IO:
+        case FR_PNL_IO_LO:
             if (ioCrtlRegVal == REGULAR_READ_CYCLE)            // regular read cycle
             {
-                FrontPanelZ80Read();
+                FrontPanelZ80Read(0);
                 return;
             }
             else if (ioCrtlRegVal == REGULAR_WRITE_CYCLE)      // regular write cycle
             {
-                FrontPanelZ80Write();
+                FrontPanelZ80Write(0);
                 return;
             }
             break;
+        case FR_PNL_IO_LO_MID:
+            if (ioCrtlRegVal == REGULAR_READ_CYCLE)            // regular read cycle
+            {
+                FrontPanelZ80Read(0);
+                return;
+            }
+            else if (ioCrtlRegVal == REGULAR_WRITE_CYCLE)      // regular write cycle
+            {
+                FrontPanelZ80Write(0);
+                return;
+            }
+            break;
+        case FR_PNL_IO_HI_MID:
+            if (ioCrtlRegVal == REGULAR_READ_CYCLE)            // regular read cycle
+            {
+                FrontPanelZ80Read(0);
+                return;
+            }
+            else if (ioCrtlRegVal == REGULAR_WRITE_CYCLE)      // regular write cycle
+            {
+                FrontPanelZ80Write(0);
+                return;
+            }
+            break;
+        case FR_PNL_IO_HI:
+            if (ioCrtlRegVal == REGULAR_READ_CYCLE)            // regular read cycle
+            {
+                FrontPanelZ80Read(0);
+                return;
+            }
+            else if (ioCrtlRegVal == REGULAR_WRITE_CYCLE)      // regular write cycle
+            {
+                FrontPanelZ80Write(0);
+                return;
+            }
             break;
         default:    // Handle other cases
             break;
     }
+}
+
+void putBufferToZ80(uint16 count, uint8 buffer[])
+{
+    
 }
 
 void ackIO(void)
