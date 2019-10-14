@@ -16,5 +16,6 @@ void SetExtSRAMAddr(uint32);
 void WriteExtSRAM(uint32, uint8);
 uint32 TestSRAM(void);
 uint8 ReadExtSRAM(uint32);
+void loadSRAM(void);
 
 /* [] END OF FILE */

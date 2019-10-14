@@ -1,28 +1,16 @@
 /* ========================================
  *
- * Copyright YOUR COMPANY, THE YEAR
+ * Copyright LAND BOARDS, LLC, 2019
  * All Rights Reserved
  * UNPUBLISHED, LICENSED SOFTWARE.
  *
  * CONFIDENTIAL AND PROPRIETARY INFORMATION
- * WHICH IS THE PROPERTY OF your company.
+ * WHICH IS THE PROPERTY OF Land Boards, LLC.
  *
  * ========================================
 */
 
 #include <project.h>
-
-void sendCharToZ80(uint8 rxChar);
-void SioReadDataA(void);
-void SioWriteDataA(void);
-void SioReadStatusA(uint8 regNum);
-void SioReadIntRegA();
-void SioWriteCtrlA(void);
-void SioReadDataB(void);
-void SioWriteDataB(void);
-void SioReadStatusB(uint8 regNum);
-void SioReadIntRegB();
-void SioWriteCtrlB(void);
 
 #define IORQ_BIT    0X01
 #define CPURD_BIT   0X02
@@ -35,9 +23,24 @@ void SioWriteCtrlB(void);
     
 #define CLR_IO_INT_BIT 1
 
-#define SIOA_D      0x00
-#define SIOA_C      0x02
-#define SIOB_D      0x01
-#define SIOB_C      0x03
+#define SIOA_D          0x00
+#define SIOA_C          0x02
+#define SIOB_D          0x01
+#define SIOB_C          0x03
+
+#define SIOA_CHAR_RDY   0x1
+
+void sendCharToZ80(uint8 rxChar);
+void SioReadDataA(void);
+void SioWriteDataA(void);
+void SioReadStatusA(uint8 regNum);
+void SioReadIntRegA();
+void SioWriteCtrlA(void);
+void SioReadDataB(void);
+void SioWriteDataB(void);
+void SioReadStatusB(uint8 regNum);
+void SioReadIntRegB();
+void SioWriteCtrlB(void);
+uint8 checkSIOReceiverBusy(void);
 
 /* [] END OF FILE */

@@ -1,11 +1,11 @@
 /* ========================================
  *
- * Copyright YOUR COMPANY, THE YEAR
+ * Copyright LAND BOARDS, LLC, 2019
  * All Rights Reserved
  * UNPUBLISHED, LICENSED SOFTWARE.
  *
  * CONFIDENTIAL AND PROPRIETARY INFORMATION
- * WHICH IS THE PROPERTY OF your company.
+ * WHICH IS THE PROPERTY OF Land Boards, LLC.
  *
  * ========================================
 */
@@ -120,11 +120,6 @@ void HandleZ80IO(void)
     }
 }
 
-void putBufferToZ80(uint16 count, uint8 buffer[])
-{
-    
-}
-
 void ackIO(void)
 {
     IO_Ctrl_Reg_Write(IO_Ctrl_Reg_Read() | CLR_IO_INT_BIT);
@@ -134,5 +129,6 @@ void waitNextIORq(void)
 {
     while ((IO_Stat_Reg_Read() & IOBUSY_BIT) == 0x00);
 }
+
 
 /* [] END OF FILE */

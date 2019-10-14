@@ -1,11 +1,11 @@
 /* ========================================
  *
- * Copyright YOUR COMPANY, THE YEAR
+ * Copyright LAND BOARDS, LLC, 2019
  * All Rights Reserved
  * UNPUBLISHED, LICENSED SOFTWARE.
  *
  * CONFIDENTIAL AND PROPRIETARY INFORMATION
- * WHICH IS THE PROPERTY OF your company.
+ * WHICH IS THE PROPERTY OF Land Boards, LLC.
  *
  * ========================================
 */
@@ -32,7 +32,7 @@ volatile uint8 SIO_A_RD0;
 volatile uint8 SIO_A_RD1;
 volatile uint8 SIO_A_RD2;
 volatile uint8 UART_A_TXD;
-volatile uint8 UART_A_TXD_BUSY;
+//volatile uint8 UART_A_TXD_BUSY;
 
 volatile uint8 SIO_B_Ctrl1;
 volatile uint8 SIO_B_Ctrl2;
@@ -54,12 +54,20 @@ volatile uint8 SIO_B_RD2;
 volatile uint8 UART_B_TXD;
 volatile uint8 UART_B_TXD_BUSY;
 
+///////////////////////////////////////////////////////////////////////////////
+// void sendCharToZ80(uint8 rxChar) - Send a character to the Z80 by placing it
+// into the SIO_A_DataIn register and making the RxCharacterAvailable active.
+
 void sendCharToZ80(uint8 rxChar)
 {
     SIO_A_DataIn = rxChar;                          // Put the char into the buffer
-    SIO_A_RD0 |= 0x1;                               // Rx Character Available
+    SIO_A_RD0 |= SIOA_CHAR_RDY;                     // Rx Character Available
+    // TBD - Should check the SIO Interrupt enable bit before setting IRQ line
     IO_Ctrl_Reg_Write(IO_Ctrl_Reg_Read() | 0x04);   // Set IRQ* line
 }
+
+///////////////////////////////////////////////////////////////////////////////
+// SioReadDataA(void)- Z80 is requesting data from Serial Port A
 
 void SioReadDataA(void)
 {
@@ -67,6 +75,9 @@ void SioReadDataA(void)
     SIO_A_RD0 &= 0xFE;                              // No Rx Character Available
     ackIO();
 }
+
+///////////////////////////////////////////////////////////////////////////////
+// void SioWriteDataA(void) - Send a single byte from the Z80 to the USB
 
 void SioWriteDataA(void)
 {
@@ -76,8 +87,11 @@ void SioWriteDataA(void)
     buffer[0] = Z80_Data_Out_Read();
     USBUART_PutData(buffer, count);
     ackIO();
-    UART_A_TXD_BUSY = 1;
+//    UART_A_TXD_BUSY = 1;
 }
+
+///////////////////////////////////////////////////////////////////////////////
+// void SioReadStatusA(uint8 regNum) - Read the Port A Status registers
 
 void SioReadStatusA(uint8 regNum)
 {
@@ -123,12 +137,19 @@ void SioReadStatusA(uint8 regNum)
     }
 }
 
+///////////////////////////////////////////////////////////////////////////////
+// void SioReadIntRegA() - Read the Port A Interrupt Vector value
+// Interrupt vector is found in the SIO_B_WR2 register
+
 void SioReadIntRegA()
 {
     Z80_Data_In_Write(SIO_B_WR2);
     IO_Ctrl_Reg_Write(IO_Ctrl_Reg_Read() & 0xFB);   // Clear IRQ* line
     ackIO();
 }
+
+///////////////////////////////////////////////////////////////////////////////
+// void SioWriteCtrlA(void) - Write to the SIO Port A control registers
 
 void SioWriteCtrlA(void)
 {
@@ -164,7 +185,7 @@ void SioWriteCtrlA(void)
                 SIO_A_RD0 = 0x44;
                 SIO_A_RD1 = 0x01;
                 SIO_A_RD2 = 0x00;
-                UART_A_TXD_BUSY = 0;
+//                UART_A_TXD_BUSY = 0;
             }
             break;
         case 0x1:               
@@ -225,6 +246,10 @@ void SioWriteCtrlA(void)
     }
 }
 
+///////////////////////////////////////////////////////////////////////////////
+// void SioReadDataB(void) - Read data from the UART Port B
+// Included here for completeness but not implemented in hardware on PSoC card
+
 void SioReadDataB(void)
 {
     Z80_Data_In_Write(SIO_B_DataIn);
@@ -232,11 +257,17 @@ void SioReadDataB(void)
     ackIO();    
 }
 
+///////////////////////////////////////////////////////////////////////////////
+// void SioWriteDataB(void) put data into the transmitter (a stub in this case)
+
 void SioWriteDataB(void)
 {
     UART_B_TXD = 0;
     ackIO();
 }
+
+///////////////////////////////////////////////////////////////////////////////
+// void SioReadStatusB(uint8 regNum) - Read the Port B status register
 
 void SioReadStatusB(uint8 regNum)
 {
@@ -283,12 +314,18 @@ void SioReadStatusB(uint8 regNum)
     ackIO();    
 }
 
+///////////////////////////////////////////////////////////////////////////////
+// void SioReadIntRegB(void) - Read the Interrupt vector
+
 void SioReadIntRegB(void)
 {
     Z80_Data_In_Write(SIO_B_WR2);
     IO_Ctrl_Reg_Write(IO_Ctrl_Reg_Read() & 0xFB);   // Clear IRQ* line
     ackIO();
 }
+
+///////////////////////////////////////////////////////////////////////////////
+// void SioWriteCtrlB(void) - Write to the Port B control registers
 
 void SioWriteCtrlB(void)
 {
@@ -383,6 +420,17 @@ void SioWriteCtrlB(void)
             SIO_B_WR7 = SIO_B_Ctrl2;
             break;
     }
+}
+
+///////////////////////////////////////////////////////////////////////////////
+// uint8 checkSIOReceiverBusy(void) - Check the SIO port A receiver status
+// Returns: 
+//  0 if the port can take another character
+//  1 if the port is busy and can't take another character
+
+uint8 checkSIOReceiverBusy(void)
+{
+    return (SIO_A_RD0 & SIOA_CHAR_RDY);
 }
 
 /* [] END OF FILE */

@@ -1,11 +1,11 @@
 /* ========================================
  *
- * Copyright YOUR COMPANY, THE YEAR
+ * Copyright LAND BOARDS, LLC, 2019
  * All Rights Reserved
  * UNPUBLISHED, LICENSED SOFTWARE.
  *
  * CONFIDENTIAL AND PROPRIETARY INFORMATION
- * WHICH IS THE PROPERTY OF your company.
+ * WHICH IS THE PROPERTY OF Land Boards, LLC.
  *
  * ========================================
 */
@@ -25,7 +25,6 @@
 // Function Prototypes follow
 
 void HandleZ80IO(void);
-void putBufferToZ80(uint16, uint8 buffer[]);
 void ackIO(void);
 void waitNextIORq(void);
 

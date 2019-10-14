@@ -14,18 +14,7 @@
 #include "FrontPanel.h"
 #include "ExtSRAM.h"
 #include "Z80_SIO_emul.h"
-
-#define MCP23017_IODIR_DEFVAL    0xff       // Initially set all channels to inputs
-#define MCP23017_IODIR_ALL_INS   0xff
-#define MCP23017_IODIR_ALL_OUTS  0x00
-
-#define MCP23017_IPOL_INVERT     0xFF       // Input polarity = invert jumpers
-#define MCP23017_GPINTEN_DISABLE 0x00       // Disable GPIO for interrupt on change
-#define MCP23017_GPINTEN_ENABLE  0xFF       // Enable GPIO for interrupt on change
-#define MCP23017_INTCON_DEFVAL   0x00       // Int for change from previous pin
-#define MCP23017_IOCON_DEFVAL    0x04       // Disable sequential,  active-low
-#define MCP23017_GPPU_DISABLE    0x00       // Disable pull-ups
-#define MCP23017_GPPU_ENABLE     0xFF       // Enable pull-ups
+#include "Z80_IO_Handle.h"
 
 //////////////////////////////////////////////////////////////////////////////
 // Front Panel Handler
@@ -37,12 +26,7 @@ uint8 FPData;       // Data that is on the Front Panel (bottom 8 LEDs)
 uint16 FPAddr;      // Address that is on the Front Panel (middle 16 lEDs)
 uint8 FPCtrl;       // Control that is on the Front Panel (top 8 LEDs)
 uint32 FPLong;      // Long value of the Front Panel
-
-// Bits of FPCtrl
-#define INC_ADDR    0x01    // Increment address and read memory value at next address
-#define ST_INC      0x02    // Store data value, increment address and read next memory 
-#define LD_ADDR     0x04    // Load address bits and read memory
-#define RUN_SW      0x80    // Run Switch
+uint32 LEDsVal;         // Front Panel LEDs - copy here
 
 //////////////////////////////////////////////////////////////////////////////
 // FrontPanelZ80Read() - Read the Front Panel switches to the Z80
@@ -65,8 +49,10 @@ void FrontPanelZ80Read(uint8 portSelect)
         case 3:
             fpByte = ((uint8) (fpVal>>24)) & 0xff;
             break;
+        default:
+            fpByte = 0;
     }
-    Z80_Data_In_Write(fpVal);
+    Z80_Data_In_Write(fpByte);
     ackIO();
 }
 

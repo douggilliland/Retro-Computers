@@ -16,7 +16,6 @@
 #include "Z80_IO_Handle.h"
 #include "Z80_SIO_emul.h"
 
-extern void loadSRAM(void);
 
 #define USBFS_DEVICE    (0u)
 
@@ -28,9 +27,6 @@ extern void loadSRAM(void);
 
 ////////////////////////////////////////////////////////////////////////////
 // Function prototypes
-
-uint32 TestSRAM(void);
-void HandleZ80IO(void);
 
 ////////////////////////////////////////////////////////////////////////////
 // PostLed(postVal) - Blink the LED the number of times (postVal)
@@ -52,9 +48,10 @@ void PostLed(uint32 postVal)
 
 int main(void)
 {
-    uint16 count;
-    
+    uint16 USB_To_Z80_RxBytes_count = 0;    
     uint8 buffer[USBUART_BUFFER_SIZE];
+    uint16 bufferOff = 0;
+    
     uint32 postVal;
     
     /* Start USBFS operation with 5-V operation. */
@@ -90,19 +87,16 @@ int main(void)
         if (0u != USBUART_GetConfiguration())
         {
             /* Check for input data from host. */
-            if (0u != USBUART_DataIsReady())
+            /* Only do the check if the buffer is already empty */
+            if ((0u != USBUART_DataIsReady()) & (USB_To_Z80_RxBytes_count == 0))
             {
                 /* Read received data and re-enable OUT endpoint. */
-                count = USBUART_GetAll(buffer);
-                if (count == 1)     // Input 1 character immediately
+                USB_To_Z80_RxBytes_count = USBUART_GetAll(buffer);
+                if (USB_To_Z80_RxBytes_count == 1)     // Input 1 character immediately
                 {
                     sendCharToZ80(buffer[0]);
+                    USB_To_Z80_RxBytes_count = 0;
                 }
-                else                // more than 1 char was in the USB packet received from the host
-                {
-                    putBufferToZ80(count,buffer);
-                }
-
 //                if (0u != count)
 //                {
 //                    /* Wait until component is ready to send data to host. */
@@ -118,6 +112,7 @@ int main(void)
 //                    *  that the end of the segment is properly identified by 
 //                    *  the terminal.
 //                    */
+// Might have to add back in this code
 //                    if (USBUART_BUFFER_SIZE == count)
 //                    {
 //                        /* Wait until component is ready to send data to PC. */
@@ -132,7 +127,19 @@ int main(void)
                 
             }
         }
-
+        if (USB_To_Z80_RxBytes_count > 0)           // There are chars in the input buffer (USB -> Z80)
+        {
+            if (checkSIOReceiverBusy() == 0)        // Check if receive buffer can take another character
+            {
+                sendCharToZ80(buffer[bufferOff]);   // Send received character to Z80 SIO interface
+                bufferOff++;                        // ready for next character
+                USB_To_Z80_RxBytes_count--;         // worked off one character
+                if (USB_To_Z80_RxBytes_count == 0)  // Sent last character to Z80
+                {
+                    bufferOff = 0;                  // point back to start of character in buffer
+                }
+            }
+        }
         if ((IO_Stat_Reg_Read() & IOBUSY_BIT) == IOBUSY_BIT)
         {
             HandleZ80IO();

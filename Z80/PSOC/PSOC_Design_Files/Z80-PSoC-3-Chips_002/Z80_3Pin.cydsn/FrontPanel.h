@@ -35,22 +35,40 @@
 #define MCP23017_OLATA_REGADR    0x14
 #define MCP23017_OLATB_REGADR    0x15
 
+#define MCP23017_IODIR_DEFVAL    0xff       // Initially set all channels to inputs
+#define MCP23017_IODIR_ALL_INS   0xff
+#define MCP23017_IODIR_ALL_OUTS  0x00
+
+#define MCP23017_IPOL_INVERT     0xFF       // Input polarity = invert jumpers
+#define MCP23017_GPINTEN_DISABLE 0x00       // Disable GPIO for interrupt on change
+#define MCP23017_GPINTEN_ENABLE  0xFF       // Enable GPIO for interrupt on change
+#define MCP23017_INTCON_DEFVAL   0x00       // Int for change from previous pin
+#define MCP23017_IOCON_DEFVAL    0x04       // Disable sequential,  active-low
+#define MCP23017_GPPU_DISABLE    0x00       // Disable pull-ups
+#define MCP23017_GPPU_ENABLE     0xFF       // Enable pull-ups
+
 #define MCP23017_0  0x24    // Base address of the first MCP23017 (status/control bits)
 #define MCP23017_1  0x25    // Base address of the second MCP23017 (address bus a8-a15)
 #define MCP23017_2  0x26    // Base address of the third MCP23017 (address bus a0-a7)
 #define MCP23017_3  0x27    // Base address of the fourth MCP23017 (data bus d0-d7)
 
-uint32 LEDsVal;         // Front Panel LEDs - copy here
+// Bits of FPCtrl
+#define INC_ADDR    0x01    // Increment address and read memory value at next address
+#define ST_INC      0x02    // Store data value, increment address and read next memory 
+#define LD_ADDR     0x04    // Load address bits and read memory
+#define RUN_SW      0x80    // Run Switch
 
-void init_FrontPanel(void);
-void runFrontPanel(void);
-uint32 readFrontPanelSwitchesStatic(void);
-uint32 readFrontPanelSwitchesRegistered(void);
-uint32 waitFrontPanelSwitchesPressed();
-void writeFrontPanelLEDs(uint32);
-uint8 readRegister_MCP23017(uint8, uint8);
-void writeRegister_MCP23017(uint8, uint8, uint8);
+// Function Prototypes
+
 void FrontPanelZ80Read(uint8);
 void FrontPanelZ80Write(uint8);
+void init_FrontPanel(void);
+void runFrontPanel(void);
+uint32 readFrontPanelSwitchesRegistered(void);
+uint32 waitFrontPanelSwitchesPressed();
+uint32 readFrontPanelSwitchesStatic(void);
+void writeFrontPanelLEDs(uint32);
+void writeRegister_MCP23017(uint8, uint8, uint8);
+uint8 readRegister_MCP23017(uint8, uint8);
 
 /* [] END OF FILE */
