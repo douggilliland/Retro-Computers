@@ -47,9 +47,25 @@ uint32 FPLong;      // Long value of the Front Panel
 //////////////////////////////////////////////////////////////////////////////
 // FrontPanelZ80Read() - Read the Front Panel switches to the Z80
 
-void FrontPanelZ80Read(void)
+void FrontPanelZ80Read(uint8 portSelect)
 {
     uint32 fpVal = readFrontPanelSwitchesStatic();
+    uint8 fpByte;
+    switch (portSelect & 0x3)
+    {
+        case 0:
+            fpByte = ((uint8) fpVal) & 0xff;
+            break;
+        case 1:
+            fpByte = ((uint8) (fpVal>>8)) & 0xff;
+            break;
+        case 2:
+            fpByte = ((uint8) (fpVal>>16)) & 0xff;
+            break;
+        case 3:
+            fpByte = ((uint8) (fpVal>>24)) & 0xff;
+            break;
+    }
     Z80_Data_In_Write(fpVal);
     ackIO();
 }
@@ -57,10 +73,25 @@ void FrontPanelZ80Read(void)
 //////////////////////////////////////////////////////////////////////////////
 // FrontPanelZ80Read() - Write to the Front Panel LEDs from the Z80
 
-void FrontPanelZ80Write(void)
+void FrontPanelZ80Write(uint8 portSelect)
 {
     uint32 outVal = Z80_Data_Out_Read();
-    writeFrontPanelLEDs((uint8)outVal);
+    switch (portSelect & 0x3)
+    {
+        case 0:
+            LEDsVal &= ((0xffffff00) | outVal);
+            break;
+        case 1:
+            LEDsVal &= ((0xffff00ff) | (outVal<<8));
+            break;
+        case 2:
+            LEDsVal &= ((0xff00ffff) | (outVal<<16));
+            break;
+        case 3:
+            LEDsVal &= ((0x00ffffff) | (outVal<<24));
+            break;
+    }
+    writeFrontPanelLEDs((uint8)LEDsVal);
     ackIO();
 }
 
@@ -102,7 +133,7 @@ void init_FrontPanel(void)
 void runFrontPanel(void)
 {
     uint32 switchesVal = 0;
-    uint32 LEDsVal = 0;
+    LEDsVal = 0;
     
     I2C_Start();
     init_FrontPanel();
