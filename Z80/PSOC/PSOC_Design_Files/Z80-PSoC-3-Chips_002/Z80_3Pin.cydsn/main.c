@@ -92,7 +92,7 @@ int main(void)
             {
                 /* Read received data and re-enable OUT endpoint. */
                 USB_To_Z80_RxBytes_count = USBUART_GetAll(buffer);
-                if (USB_To_Z80_RxBytes_count == 1)     // Input 1 character immediately
+                if ((USB_To_Z80_RxBytes_count == 1) & (checkSIOReceiverBusy() == 0))     // Input 1 character immediately
                 {
                     sendCharToZ80(buffer[0]);
                     USB_To_Z80_RxBytes_count = 0;
