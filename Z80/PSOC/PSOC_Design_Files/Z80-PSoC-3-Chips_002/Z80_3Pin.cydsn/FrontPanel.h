@@ -40,6 +40,8 @@
 #define MCP23017_2  0x26    // Base address of the third MCP23017 (address bus a0-a7)
 #define MCP23017_3  0x27    // Base address of the fourth MCP23017 (data bus d0-d7)
 
+uint32 LEDsVal;         // Front Panel LEDs - copy here
+
 void init_FrontPanel(void);
 void runFrontPanel(void);
 uint32 readFrontPanelSwitchesStatic(void);
@@ -48,7 +50,7 @@ uint32 waitFrontPanelSwitchesPressed();
 void writeFrontPanelLEDs(uint32);
 uint8 readRegister_MCP23017(uint8, uint8);
 void writeRegister_MCP23017(uint8, uint8, uint8);
-void FrontPanelZ80Read(void);
-void FrontPanelZ80Write(void);
+void FrontPanelZ80Read(uint8);
+void FrontPanelZ80Write(uint8);
 
 /* [] END OF FILE */
