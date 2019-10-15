@@ -21,7 +21,7 @@ void HandleZ80IO(void)
     volatile uint8 ioZ80Addr;
     
     ioCrtlRegVal = IO_Stat_Reg_Read();
-    if ((ioCrtlRegVal & 0x19) == 0x10)
+    if ((ioCrtlRegVal & IACK_MASK) == IN_IACK_CYCLE)
     {
         SioReadIntRegB();
         return;
