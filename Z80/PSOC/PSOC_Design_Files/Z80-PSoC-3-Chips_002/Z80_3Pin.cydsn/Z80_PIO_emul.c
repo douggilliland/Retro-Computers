@@ -1,0 +1,43 @@
+/* ========================================
+ *
+ * Copyright LAND BOARDS, LLC, 2019
+ * All Rights Reserved
+ * UNPUBLISHED, LICENSED SOFTWARE.
+ *
+ * CONFIDENTIAL AND PROPRIETARY INFORMATION
+ * WHICH IS THE PROPERTY OF Land Boards, LLC.
+ *
+ * ========================================
+*/
+
+#include <project.h>
+#include "Z80_PIO_emul.h"
+#include "Z80_IO_Handle.h"
+
+volatile uint8 PIO_Mask_Port_0;
+volatile uint8 PIO_Vector_Address_Port_0;       // Mode 2 interrupt vector
+volatile uint8 PIO_Interrupt_Vector_Port_0;
+volatile uint8 PIO_Output_Register_Port_0;
+
+volatile uint8 PIO_Mask_Port_1;
+volatile uint8 PIO_Vector_Address_Port_1;
+volatile uint8 PIO_Interrupt_Vector_Port_1;
+volatile uint8 PIO_Output_Register_Port_1;
+
+#define PIO_OP_MODE_0       0x00 // Output
+#define PIO_OP_MODE_1       0x40 // Input
+#define PIO_OP_MODE_2       0x80 // Bidirectional
+#define PIO_OP_MODE_3       0xC0 // Control which bits are ins/outs
+#define PIO_OP_DIR          0x01 // 1=input, 0-output
+
+#define PIO_INT_EN_BIT      0x80 // 1=enable interrupts, 0-disable interrupts
+#define PIO_AND_OR_BIT      0x40 // 1=AND, 0=OR
+#define PIO_HIGH_LOW        0x20 // 1=monitor for high, 0=monitor for low
+#define PIO_MASK_FOLLOWS    0x10 // Define mask bits follow
+#define PIO_INT_CTL_WORD    0x07 // Signifies Interrupt Control Word
+#define PIO_MASK_BITS       0xFF // Bit mask values
+
+#define PIO_OP_MODE_MASK    0xC0 // Relevant bits
+#define PIO_OP_MODES_WORD   0x0F // Relevant bits
+
+/* [] END OF FILE */

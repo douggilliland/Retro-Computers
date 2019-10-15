@@ -12,21 +12,7 @@
 
 #include <project.h>
 
-#define IORQ_BIT    0X01
-#define CPURD_BIT   0X02
-#define CPUWR_BIT   0X04
-#define M1_BIT      0X08
-#define IOBUSY_BIT  0X10
-#define REGULAR_READ_CYCLE  0x1C
-#define INTR_READ_CYCLE     0x14
-#define REGULAR_WRITE_CYCLE 0x1A
-    
 #define CLR_IO_INT_BIT 1
-
-#define SIOA_D          0x00
-#define SIOA_C          0x02
-#define SIOB_D          0x01
-#define SIOB_C          0x03
 
 #define SIOA_CHAR_RDY   0x1
 #define SIO_RTS 0x2
