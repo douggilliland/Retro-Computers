@@ -29,6 +29,7 @@
 #define SIOB_C          0x03
 
 #define SIOA_CHAR_RDY   0x1
+#define SIO_RTS 0x2
 
 void sendCharToZ80(uint8 rxChar);
 void SioReadDataA(void);

@@ -62,8 +62,8 @@ void sendCharToZ80(uint8 rxChar)
 {
     SIO_A_DataIn = rxChar;                          // Put the char into the buffer
     SIO_A_RD0 |= SIOA_CHAR_RDY;                     // Rx Character Available
-    // TBD - Should check the SIO Interrupt enable bit before setting IRQ line
-    IO_Ctrl_Reg_Write(IO_Ctrl_Reg_Read() | 0x04);   // Set IRQ* line
+    if ((SIO_A_WR1 & 0x18) != 0x00)                 // Omly set IRQ if it is enabled from the WR1 bits
+        IO_Ctrl_Reg_Write(IO_Ctrl_Reg_Read() | 0x04);   // Set IRQ* line
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -430,6 +430,10 @@ void SioWriteCtrlB(void)
 
 uint8 checkSIOReceiverBusy(void)
 {
+    if ((SIO_A_Ctrl2 & SIO_RTS) != SIO_RTS)
+    {
+        return(1);
+    }
     return (SIO_A_RD0 & SIOA_CHAR_RDY);
 }
 

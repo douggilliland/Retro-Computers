@@ -82,36 +82,36 @@ void HandleZ80IO(void)
         case FR_PNL_IO_LO_MID:
             if (ioCrtlRegVal == REGULAR_READ_CYCLE)            // regular read cycle
             {
-                FrontPanelZ80Read(0);
+                FrontPanelZ80Read(1);
                 return;
             }
             else if (ioCrtlRegVal == REGULAR_WRITE_CYCLE)      // regular write cycle
             {
-                FrontPanelZ80Write(0);
+                FrontPanelZ80Write(1);
                 return;
             }
             break;
         case FR_PNL_IO_HI_MID:
             if (ioCrtlRegVal == REGULAR_READ_CYCLE)            // regular read cycle
             {
-                FrontPanelZ80Read(0);
+                FrontPanelZ80Read(2);
                 return;
             }
             else if (ioCrtlRegVal == REGULAR_WRITE_CYCLE)      // regular write cycle
             {
-                FrontPanelZ80Write(0);
+                FrontPanelZ80Write(2);
                 return;
             }
             break;
         case FR_PNL_IO_HI:
             if (ioCrtlRegVal == REGULAR_READ_CYCLE)            // regular read cycle
             {
-                FrontPanelZ80Read(0);
+                FrontPanelZ80Read(3);
                 return;
             }
             else if (ioCrtlRegVal == REGULAR_WRITE_CYCLE)      // regular write cycle
             {
-                FrontPanelZ80Write(0);
+                FrontPanelZ80Write(3);
                 return;
             }
             break;

@@ -65,19 +65,19 @@ void FrontPanelZ80Write(uint8 portSelect)
     switch (portSelect & 0x3)
     {
         case 0:
-            LEDsVal &= ((0xffffff00) | outVal);
+            LEDsVal = ((LEDsVal & 0xffffff00) | outVal);
             break;
         case 1:
-            LEDsVal &= ((0xffff00ff) | (outVal<<8));
+            LEDsVal = ((LEDsVal & 0xffff00ff) | (outVal<<8));
             break;
         case 2:
-            LEDsVal &= ((0xff00ffff) | (outVal<<16));
+            LEDsVal = ((LEDsVal & 0xff00ffff) | (outVal<<16));
             break;
         case 3:
-            LEDsVal &= ((0x00ffffff) | (outVal<<24));
+            LEDsVal = ((LEDsVal & 0x00ffffff) | (outVal<<24));
             break;
     }
-    writeFrontPanelLEDs((uint8)LEDsVal);
+    writeFrontPanelLEDs(LEDsVal);
     ackIO();
 }
 
