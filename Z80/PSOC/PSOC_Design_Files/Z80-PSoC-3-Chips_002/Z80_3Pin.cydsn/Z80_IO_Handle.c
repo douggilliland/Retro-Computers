@@ -13,6 +13,8 @@
 #include <project.h>
 #include "Z80_IO_Handle.h"
 #include "Z80_SIO_emul.h"
+#include "Z80_PIO_emul.h"
+
 #include "FrontPanel.h"
 
 void HandleZ80IO(void)
@@ -112,6 +114,44 @@ void HandleZ80IO(void)
             else if (ioCrtlRegVal == REGULAR_WRITE_CYCLE)      // regular write cycle
             {
                 FrontPanelZ80Write(3);
+                return;
+            }
+            break;
+        case PIOA_D:
+            if (ioCrtlRegVal == REGULAR_READ_CYCLE)             // regular read cycle
+            {
+                PioReadDataA();
+                return;
+            }
+            else if (ioCrtlRegVal == REGULAR_WRITE_CYCLE)      // regular write cycle
+            {
+                PioWriteDataA();
+                return;
+            }
+            break;
+        case PIOA_C:    // Control register
+            if (ioCrtlRegVal == REGULAR_WRITE_CYCLE)      // regular write cycle
+            {
+                PioWriteCtrlA();
+                return;
+            }
+            break;
+        case PIOB_D:
+            if (ioCrtlRegVal == REGULAR_READ_CYCLE)            // regular read cycle
+            {
+                PioReadDataB();
+                return;
+            }
+            else if (ioCrtlRegVal == REGULAR_WRITE_CYCLE)      // regular write cycle
+            {
+                SioWriteDataB();
+                return;
+            }
+            break;
+        case PIOB_C:
+            if (ioCrtlRegVal == REGULAR_WRITE_CYCLE)      // regular write cycle
+            {
+                PioWriteCtrlB();
                 return;
             }
             break;
