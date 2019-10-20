@@ -31,9 +31,10 @@
 // Select the build here. 
 //  Only 1 build at a time is supported.
 //  All other builds are set to undef
-//#undef GRANT_9_CHIP_Z80
+#undef GRANT_9_CHIP_Z80
 //#define GRANT_9_CHIP_Z80
 #define GRANT_7_CHIP_Z80
+//#undef GRANT_7_CHIP_Z80
 
 // defines for building Grant Searle's 9-chip Z80 design
 #ifdef GRANT_9_CHIP_Z80

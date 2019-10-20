@@ -20,5 +20,6 @@ void M6850WriteCtrl(void);
 uint8 checkSerialReceiverBusy(void);
 void sendCharToZ80(uint8);
 void M6850ReadIntReg(void);
+void initM6850StatusRegister(void);
 
 /* [] END OF FILE */

@@ -30,12 +30,20 @@ volatile uint8 M6850_DataOut;
 volatile uint8 M6850_DataIn;
 
 ///////////////////////////////////////////////////////////////////////////////
+// void initM6850StatusRegister(void) - Set the initial value of the status reg
+    
+void initM6850StatusRegister(void)
+{
+    M6850_Status = 0x2;
+}
+
+///////////////////////////////////////////////////////////////////////////////
 // void M6850ReadIntReg(void) - Read the Interrupt vector
 
 void M6850ReadIntReg(void)
 {
     Z80_Data_In_Write(0xFF);
-    IO_Ctrl_Reg_Write(IO_Ctrl_Reg_Read() & 0x7F);   // Clear IRQ* line
+    IO_Ctrl_Reg_Write(IO_Ctrl_Reg_Read() & 0xFB);   // Clear IRQ* line
     ackIO();
 }
 
@@ -59,7 +67,7 @@ void sendCharToZ80(uint8 rxChar)
 
 uint8 checkSerialReceiverBusy(void)
 {
-    if ((M6850_Ctrl & M6850_INT_RTS_MASK) != M6850_RTS_HI__INT_DIS)
+    if ((M6850_Ctrl & M6850_INT_RTS_MASK) == M6850_RTS_HI__INT_DIS)
     {
         return(1);
     }

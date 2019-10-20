@@ -79,7 +79,11 @@ int main(void)
     #ifdef USING_FRONT_PANEL
         runFrontPanel();            // Exits either by pressing EXitFrontPanel or RUN button on front panel
     #else
-        ExtSRAMCtl_Control = 0;     // Run if there's no Front Panel
+        ExtSRAMCtl_Control = 0;     // Auto Run if there's no Front Panel
+    #endif
+
+    #ifdef USING_6850
+        initM6850StatusRegister();
     #endif
 
     for(;;)
