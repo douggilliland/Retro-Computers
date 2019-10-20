@@ -11,9 +11,11 @@
 */
 
 #include <project.h>
+
 #include "Z80_SIO_emul.h"
 #include "Z80_IO_Handle.h"
 
+#ifdef USING_SIO
 volatile uint8 SIO_A_Ctrl1;
 volatile uint8 SIO_A_Ctrl2;
 volatile uint8 SIO_A_Status;
@@ -62,7 +64,7 @@ void sendCharToZ80(uint8 rxChar)
 {
     SIO_A_DataIn = rxChar;                          // Put the char into the buffer
     SIO_A_RD0 |= SIOA_CHAR_RDY;                     // Rx Character Available
-    if ((SIO_A_WR1 & 0x18) != 0x00)                 // Omly set IRQ if it is enabled from the WR1 bits
+    if ((SIO_A_WR1 & 0x18) != 0x00)                 // Only set IRQ if it is enabled from the WR1 bits
         IO_Ctrl_Reg_Write(IO_Ctrl_Reg_Read() | 0x04);   // Set IRQ* line
 }
 
@@ -423,12 +425,12 @@ void SioWriteCtrlB(void)
 }
 
 ///////////////////////////////////////////////////////////////////////////////
-// uint8 checkSIOReceiverBusy(void) - Check the SIO port A receiver status
+// uint8 checkSerialReceiverBusy(void) - Check the SIO port A receiver status
 // Returns: 
 //  0 if the port can take another character
 //  1 if the port is busy and can't take another character
 
-uint8 checkSIOReceiverBusy(void)
+uint8 checkSerialReceiverBusy(void)
 {
     if ((SIO_A_Ctrl2 & SIO_RTS) != SIO_RTS)
     {
@@ -437,4 +439,5 @@ uint8 checkSIOReceiverBusy(void)
     return (SIO_A_RD0 & SIOA_CHAR_RDY);
 }
 
+#endif
 /* [] END OF FILE */

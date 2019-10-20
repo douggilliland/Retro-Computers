@@ -24,11 +24,20 @@ void HandleZ80IO(void)
     volatile uint8 ioZ80Addr;
     
     ioCrtlRegVal = IO_Stat_Reg_Read();
+#ifdef USING_SIO
     if ((ioCrtlRegVal & IACK_MASK) == IN_IACK_CYCLE)
     {
         SioReadIntRegB();
         return;
     }
+#endif
+#ifdef USING_6850
+    if ((ioCrtlRegVal & IACK_MASK) == IN_IACK_CYCLE)
+    {
+        M6850ReadIntReg();
+        return;
+    }
+#endif
     ioZ80Addr = AdrLowIn_Read();
     switch (ioZ80Addr)
     {

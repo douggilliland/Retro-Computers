@@ -11,20 +11,60 @@
 */
 
 #include <project.h>
-#include "Z80_6850_emul.h"
+
+#include "Hardware_Config.h"
+#include "Z80_6850_Emul.h"
 #include "Z80_IO_Handle.h"
 
-#define SIOA_CHAR_RDY               0x01
+#ifdef USING_6850
+
+#define SIO_CHAR_RDY                0x01
 #define M6850_INT_RTS_MASK          0x60
-#define M6850_RTS_LOW__INT_DIS      0x00
-#define M6850_RTS_LOW__INT_EN       0x20
+#define M6850_RTS_LOW__INT_EN       0x20    // Not used by Grant's 7-chip code
 #define M6850_RTS_HI__INT_DIS       0x40
-#define M6850_RTS_LOW__INT_DIS_BK   0x60
+#define M6850_RTS_LOW__INT_DIS_BK   0x60    // Not used by Grant's 7-chip code
 
 volatile uint8 M6850_Ctrl;
 volatile uint8 M6850_Status;
 volatile uint8 M6850_DataOut;
 volatile uint8 M6850_DataIn;
+
+///////////////////////////////////////////////////////////////////////////////
+// void M6850ReadIntReg(void) - Read the Interrupt vector
+
+void M6850ReadIntReg(void)
+{
+    Z80_Data_In_Write(0xFF);
+    IO_Ctrl_Reg_Write(IO_Ctrl_Reg_Read() & 0x7F);   // Clear IRQ* line
+    ackIO();
+}
+
+///////////////////////////////////////////////////////////////////////////////
+// void sendCharToZ80(uint8 rxChar) - Send a character to the Z80 by placing it
+// into the SIO_A_DataIn register and making the RxCharacterAvailable active.
+
+void sendCharToZ80(uint8 rxChar)
+{
+    M6850_DataIn = rxChar;                                          // Put the char into the buffer
+    M6850_Status |= SIO_CHAR_RDY;                                   // Rx Character Available
+    if ((M6850_Ctrl & M6850_INT_RTS_MASK) != M6850_RTS_LOW__INT_EN) // Only set IRQ if it is enabled from the WR1 bits
+        IO_Ctrl_Reg_Write(IO_Ctrl_Reg_Read() | 0x04);               // Set IRQ* line
+}
+
+///////////////////////////////////////////////////////////////////////////////
+// uint8 checkSerialReceiverBusy(void) - Check the Serial port receiver status
+// Returns: 
+//  0 if the port can take another character
+//  1 if the port is busy and can't take another character
+
+uint8 checkSerialReceiverBusy(void)
+{
+    if ((M6850_Ctrl & M6850_INT_RTS_MASK) != M6850_RTS_HI__INT_DIS)
+    {
+        return(1);
+    }
+    return (M6850_Status & SIO_CHAR_RDY);
+}
 
 ///////////////////////////////////////////////////////////////////////////////
 // M6850ReadData(void)- Z80 is reading data from Serial Port
@@ -63,12 +103,11 @@ void M6850ReadStatus(void)
 
 void M6850WriteCtrl(void)
 {
-    uint8 regNum;
     M6850_Ctrl = Z80_Data_Out_Read();
     // TBD - This is where the side effects of changing control codes are handled
     ackIO();
 }
 
-
+#endif
 
 /* [] END OF FILE */

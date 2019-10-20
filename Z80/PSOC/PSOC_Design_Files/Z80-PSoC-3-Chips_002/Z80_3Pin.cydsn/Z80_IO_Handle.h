@@ -12,6 +12,7 @@
 
 #include <project.h>
 
+#define CLR_IO_INT_BIT 1
 #define IORQ_BIT    0X01
 #define CPURD_BIT   0X02
 #define CPUWR_BIT   0X04

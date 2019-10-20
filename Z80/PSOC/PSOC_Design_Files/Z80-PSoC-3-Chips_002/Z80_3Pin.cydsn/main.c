@@ -15,6 +15,7 @@
 #include "FrontPanel.h"
 #include "Z80_IO_Handle.h"
 #include "Z80_SIO_emul.h"
+#include "Z80_6850_emul.h"
 #include "Hardware_Config.h"
 
 #define USBFS_DEVICE    (0u)
@@ -104,7 +105,7 @@ int main(void)
             {
                 /* Read received data and re-enable OUT endpoint. */
                 USB_To_Z80_RxBytes_count = USBUART_GetAll(buffer);
-                if ((USB_To_Z80_RxBytes_count == 1) & (checkSIOReceiverBusy() == 0))     // Input 1 character immediately
+                if ((USB_To_Z80_RxBytes_count == 1) & (checkSerialReceiverBusy() == 0))     // Input 1 character immediately
                 {
                     sendCharToZ80(buffer[0]);
                     USB_To_Z80_RxBytes_count = 0;
@@ -113,7 +114,7 @@ int main(void)
         }
         if (USB_To_Z80_RxBytes_count > 0)           // There are chars in the input buffer (USB -> Z80)
         {
-            if (checkSIOReceiverBusy() == 0)        // Check if receive buffer can take another character
+            if (checkSerialReceiverBusy() == 0)        // Check if receive buffer can take another character
             {
                 sendCharToZ80(buffer[bufferOff]);   // Send received character to Z80 SIO interface
                 bufferOff++;                        // ready for next character

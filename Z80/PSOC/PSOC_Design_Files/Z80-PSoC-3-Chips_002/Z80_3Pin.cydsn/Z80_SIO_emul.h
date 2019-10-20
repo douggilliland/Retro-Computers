@@ -11,8 +11,10 @@
 */
 
 #include <project.h>
+#include "Hardware_Config.h"
 
-#define CLR_IO_INT_BIT 1
+#ifdef USING_SIO
+
 
 #define SIOA_CHAR_RDY   0x1
 #define SIO_RTS 0x2
@@ -28,6 +30,8 @@ void SioWriteDataB(void);
 void SioReadStatusB(uint8 regNum);
 void SioReadIntRegB();
 void SioWriteCtrlB(void);
-uint8 checkSIOReceiverBusy(void);
+uint8 checkSerialReceiverBusy(void);
+
+#endif
 
 /* [] END OF FILE */

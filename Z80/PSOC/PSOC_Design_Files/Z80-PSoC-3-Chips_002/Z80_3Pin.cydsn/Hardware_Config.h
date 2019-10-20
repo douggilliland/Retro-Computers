@@ -16,8 +16,8 @@
 
 // Global choices based on hardware used/not used
 // To include the function comment out the undef and use the include
-#undef USING_FRONT_PANEL        // Assume no front panel
-//#define USING_FRONT_PANEL     // Use front panel
+//#undef USING_FRONT_PANEL        // Assume no front panel
+#define USING_FRONT_PANEL     // Use front panel
 #undef USING_EXP_MCCP23017      // Assume no MCP23017 I2C I/O expansion part
 //#define USING_EXP_MCCP23017   // Use MCP23017 I2C I/O expansion part
 
