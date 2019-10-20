@@ -15,7 +15,8 @@
 #include "Z80_IO_Handle.h"
 #include "Z80_SIO_emul.h"
 #include "Z80_PIO_emul.h"
-#include "Z80_6850_emul.h"
+#include "Z80_6850_Emul.h"
+#include "Z80_CFCard_Emul.h"
 #include "Hardware_Config.h"
 
 void HandleZ80IO(void)
@@ -78,6 +79,88 @@ void HandleZ80IO(void)
             {
                 SioWriteCtrlB();
                 return;
+            }
+            break;
+#endif
+#ifdef USING_CFCARD
+        case CF_DATA:           // 0x10
+            if (ioCrtlRegVal == REGULAR_READ_CYCLE)            // regular read cycle
+            {
+                CFReadData();
+            }
+            else if (ioCrtlRegVal == REGULAR_WRITE_CYCLE)      // regular write cycle
+            {
+                CFWriteData();
+            }
+            break;
+        case CF_FEATURES_ERROR: // 0x11
+            if (ioCrtlRegVal == REGULAR_READ_CYCLE)            // regular read cycle
+            {
+                CFReadErrorStat();
+            }
+            else if (ioCrtlRegVal == REGULAR_WRITE_CYCLE)      // regular write cycle
+            {
+                CFWriteFeatures();
+            }
+            break;
+        case CF_SECCOUNT:       // 0x12
+            if (ioCrtlRegVal == REGULAR_READ_CYCLE)            // regular read cycle
+            {
+                CFReadSectorCount();
+            }
+            else if (ioCrtlRegVal == REGULAR_WRITE_CYCLE)      // regular write cycle
+            {
+                CFWriteSectorCount();
+            }
+            break;
+        case CF_SECTOR_LAB0:    // 0x13
+            if (ioCrtlRegVal == REGULAR_READ_CYCLE)            // regular read cycle
+            {
+                CFReadSector();
+            }
+            else if (ioCrtlRegVal == REGULAR_WRITE_CYCLE)      // regular write cycle
+            {
+                CFWriteLBA0();
+            }
+            break;
+        case CF_CYL_LOW_LBA1:   // 0x14
+            if (ioCrtlRegVal == REGULAR_READ_CYCLE)            // regular read cycle
+            {
+                CFReadCylLow();
+            }
+            else if (ioCrtlRegVal == REGULAR_WRITE_CYCLE)      // regular write cycle
+            {
+                CFWriteLBA1();
+            }
+            break;
+        case CF_CYL_HI_LBA2:    // 0x15
+            if (ioCrtlRegVal == REGULAR_READ_CYCLE)            // regular read cycle
+            {
+                CFReadCylHigh();
+            }
+            else if (ioCrtlRegVal == REGULAR_WRITE_CYCLE)      // regular write cycle
+            {
+                CFWriteLBA2();
+            }
+            break;
+        case CF_HEAD_LBA3:    // 0x16
+            if (ioCrtlRegVal == REGULAR_READ_CYCLE)            // regular read cycle
+            {
+                CFReadHead();
+            }
+            else if (ioCrtlRegVal == REGULAR_WRITE_CYCLE)      // regular write cycle
+            {
+                CFWriteLBA3();
+            }
+            break;
+        case CF_STATUS_COMMAND: // 0x17
+            if (ioCrtlRegVal == REGULAR_READ_CYCLE)            // regular read cycle
+            {
+                CFReadStatus();
+            }
+            else if (ioCrtlRegVal == REGULAR_WRITE_CYCLE)      // regular write cycle
+            {
+                CFWriteCommand();
             }
             break;
 #endif

@@ -27,13 +27,14 @@
 #undef USING_PIO
 #undef USING_SIO
 #undef USING_6850
+#undef USING_CFCARD
 
 // Select the build here. 
 //  Only 1 build at a time is supported.
 //  All other builds are set to undef
-#undef GRANT_9_CHIP_Z80
-//#define GRANT_9_CHIP_Z80
-#define GRANT_7_CHIP_Z80
+//#undef GRANT_9_CHIP_Z80
+#define GRANT_9_CHIP_Z80
+//#define GRANT_7_CHIP_Z80
 //#undef GRANT_7_CHIP_Z80
 
 // defines for building Grant Searle's 9-chip Z80 design
@@ -42,10 +43,21 @@
     #define MONITOR_LENGTH      0x00004000      // 16K build
     // I/O Space Address Map follow
     #define USING_SIO
-        #define SIOA_D              0x00
-        #define SIOA_C              0x02
-        #define SIOB_D              0x01
-        #define SIOB_C              0x03
+        #define SIOA_D          0x00
+        #define SIOA_C          0x02
+        #define SIOB_D          0x01
+        #define SIOB_C          0x03
+    #define USING_CFCARD
+    #ifdef USING_CFCARD
+        #define CF_DATA             0x10
+        #define CF_FEATURES_ERROR   0x11
+        #define CF_SECCOUNT         0x12
+        #define CF_SECTOR_LAB0      0x13
+        #define CF_CYL_LOW_LBA1     0x14
+        #define CF_CYL_HI_LBA2      0x15
+        #define CF_HEAD_LBA3        0x16
+        #define CF_STATUS_COMMAND   0x17
+    #endif
     #ifdef USING_FRONT_PANEL
         #define FR_PNL_IO_LO        0x18    // decimal 24
         #define FR_PNL_IO_LO_MID    0x19    // decimal 25
