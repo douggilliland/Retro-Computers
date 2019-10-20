@@ -4,7 +4,10 @@
 //
 // HEX file conversion to C array by
 //  http://srecord.sourceforge.net/ */
+#include "Hardware_Config.h"
 
+#ifdef GRANT_9_CHIP_Z80
+    
 const unsigned char monitor_basic_eprom[] =
 {
 0xF3, 0xC3, 0x8A, 0x01, 0x00, 0x00, 0x00, 0x00, 0xC3, 0x24, 0x01, 0x00,
@@ -1383,3 +1386,4 @@ const unsigned long eprom_length      = 0x00004000;
 #define MONITOR_START       0x00000000
 #define MONITOR_FINISH      0x00004000
 #define MONITOR_LENGTH      0x00004000
+#endif

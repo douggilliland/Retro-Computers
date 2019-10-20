@@ -12,20 +12,6 @@
 
 #include <project.h>
 
-// I/O Space Address Map follow
-#define SIOA_D              0x00
-#define SIOA_C              0x02
-#define SIOB_D              0x01
-#define SIOB_C              0x03
-#define FR_PNL_IO_LO        0x18    // decimal 24
-#define FR_PNL_IO_LO_MID    0x19    // decimal 25
-#define FR_PNL_IO_HI_MID    0x1A    // decimal 26
-#define FR_PNL_IO_HI        0x1B    // decimal 27
-#define PIOA_D              0x20
-#define PIOA_C              0x22
-#define PIOB_D              0x21
-#define PIOB_C              0x23
-
 #define IORQ_BIT    0X01
 #define CPURD_BIT   0X02
 #define CPUWR_BIT   0X04

@@ -15,7 +15,7 @@
 #include "FrontPanel.h"
 #include "Z80_IO_Handle.h"
 #include "Z80_SIO_emul.h"
-
+#include "Hardware_Config.h"
 
 #define USBFS_DEVICE    (0u)
 
@@ -56,7 +56,14 @@ int main(void)
     
     /* Start USBFS operation with 5-V operation. */
     USBUART_Start(USBFS_DEVICE, USBUART_5V_OPERATION);
-    I2C_Start();
+
+    #ifdef USING_FRONT_PANEL
+        I2C_Start();
+    #else
+        #ifdef USING_EXP_MCCP23017
+            I2C_Start();
+        #endif
+    #endif
     
     CyGlobalIntEnable;          /* Enable global interrupts. */
     
@@ -67,7 +74,12 @@ int main(void)
     if (postVal != 0)
         while(1);
     loadSRAM();
-    runFrontPanel();            // Exits either by pressing EXitFrontPanel or RUN button on front panel
+    
+    #ifdef USING_FRONT_PANEL
+        runFrontPanel();            // Exits either by pressing EXitFrontPanel or RUN button on front panel
+    #else
+        ExtSRAMCtl_Control = 0;     // Run if there's no Front Panel
+    #endif
 
     for(;;)
     {
@@ -97,34 +109,6 @@ int main(void)
                     sendCharToZ80(buffer[0]);
                     USB_To_Z80_RxBytes_count = 0;
                 }
-//                if (0u != count)
-//                {
-//                    /* Wait until component is ready to send data to host. */
-//                    while (0u == USBUART_CDCIsReady())
-//                    {
-//                    }
-//
-//                    /* Send data back to host. */
-//                    USBUART_PutData(buffer, count);
-//
-//                    /* If the last sent packet is exactly the maximum packet 
-//                    *  size, it is followed by a zero-length packet to assure
-//                    *  that the end of the segment is properly identified by 
-//                    *  the terminal.
-//                    */
-// Might have to add back in this code
-//                    if (USBUART_BUFFER_SIZE == count)
-//                    {
-//                        /* Wait until component is ready to send data to PC. */
-//                        while (0u == USBUART_CDCIsReady())
-//                        {
-//                        }
-//
-//                        /* Send zero-length packet to PC. */
-//                        USBUART_PutData(NULL, 0u);
-//                    }
-//                }
-                
             }
         }
         if (USB_To_Z80_RxBytes_count > 0)           // There are chars in the input buffer (USB -> Z80)

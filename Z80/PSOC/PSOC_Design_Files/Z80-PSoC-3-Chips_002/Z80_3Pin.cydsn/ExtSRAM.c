@@ -32,6 +32,7 @@
 #include "Z80_Data_In.h"
 #include "Z80_Data_Out.h"
 #include "ExtSRAM.h"
+#include "Hardware_Config.h"
 
 #define SRAMRW_MASK     0x01
 #define SRAM_WRITE      0x00
@@ -51,12 +52,13 @@
 #define SRAMRD_BIT      0x04    // 1 = SRAM read
 #define SRAMWR_BIT      0x08    // 1 = SRAM write
 #define CPURESET_BIT    0x10    // 1 = Z80 held in reset
-#define MONITOR_TERMINATION 0x00000000
-#define MONITOR_START       0x00000000
-#define MONITOR_FINISH      0x00004000
-#define MONITOR_LENGTH      0x00004000
 
+#ifdef GRANT_9_CHIP_Z80
 extern unsigned char monitor_basic_eprom[];
+#endif
+#ifdef GRANT_7_CHIP_Z80
+extern unsigned char gs7chip_basic_eeprom[];
+#endif
 
 ////////////////////////////////////////////////////////////////////////////
 // SetExtSRAMAddr(addr) - Set the address registers for the SRAM
@@ -167,7 +169,12 @@ void loadSRAM(void)
     volatile uint8 dataVal;
     for (charCount = 0; charCount < MONITOR_LENGTH; charCount++)
     {
+#ifdef GRANT_9_CHIP_Z80
         dataVal = monitor_basic_eprom[charCount];
+#endif
+#ifdef GRANT_7_CHIP_Z80
+        dataVal = gs7chip_basic_eeprom[charCount];
+#endif
         WriteExtSRAM(SRAMAddr,dataVal);
         SRAMAddr++;
     }

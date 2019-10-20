@@ -11,11 +11,12 @@
 */
 
 #include <project.h>
+#include "FrontPanel.h"
 #include "Z80_IO_Handle.h"
 #include "Z80_SIO_emul.h"
 #include "Z80_PIO_emul.h"
-
-#include "FrontPanel.h"
+#include "Z80_6850_emul.h"
+#include "Hardware_Config.h"
 
 void HandleZ80IO(void)
 {
@@ -31,6 +32,7 @@ void HandleZ80IO(void)
     ioZ80Addr = AdrLowIn_Read();
     switch (ioZ80Addr)
     {
+#ifdef USING_SIO
         case SIOA_D:
             if (ioCrtlRegVal == REGULAR_READ_CYCLE)             // regular read cycle
             {
@@ -69,6 +71,34 @@ void HandleZ80IO(void)
                 return;
             }
             break;
+#endif
+#ifdef USING_6850
+        case M6850_D:
+            if (ioCrtlRegVal == REGULAR_READ_CYCLE)             // regular read cycle
+            {
+                M6850ReadData();
+                return;
+            }
+            else if (ioCrtlRegVal == REGULAR_WRITE_CYCLE)      // regular write cycle
+            {
+                M6850WriteData();
+                return;
+            }
+            break;
+        case  M6850_C:    // Control register
+            if (ioCrtlRegVal == REGULAR_READ_CYCLE)             // regular read cycle
+            {
+                M6850ReadStatus();
+                return;
+            }
+            if (ioCrtlRegVal == REGULAR_WRITE_CYCLE)      // regular write cycle
+            {
+                M6850WriteCtrl();
+                return;
+            }
+            break;
+#endif
+#ifdef USING_FRONT_PANEL
         case FR_PNL_IO_LO:
             if (ioCrtlRegVal == REGULAR_READ_CYCLE)            // regular read cycle
             {
@@ -117,6 +147,8 @@ void HandleZ80IO(void)
                 return;
             }
             break;
+#endif
+#ifdef USING_EXP_MCCP23017
         case PIOA_D:
             if (ioCrtlRegVal == REGULAR_READ_CYCLE)             // regular read cycle
             {
@@ -155,6 +187,7 @@ void HandleZ80IO(void)
                 return;
             }
             break;
+#endif
         default:    // Handle other cases
             break;
     }
