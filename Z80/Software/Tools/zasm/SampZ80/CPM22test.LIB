@@ -1,0 +1,495 @@
+_ConIN	equ	1	;Console input
+_ConOUT	equ	2	;Console output
+_RdrIN	equ	3	;Reader input
+_PunOUT	equ	4	;Punch output
+_LstOUT	equ	5	;list output
+_ConDIO	equ	6	;Direct Console IO
+_GetIOB	equ	7	;Get IO byte
+_SetIOB	equ	8	;Set IO byte
+_PrtSTR	equ	9	;print string $ 
+_ConBUF	equ	10	;read console buffer
+_ConSTAT	equ	11	;Get console Status
+_Version	equ	12	;Get version number
+
+CR	equ	0DH
+LF	equ	0AH
+
+_BDOS	equ	5	;BDOS ENTRY POINT
+_Drive	equ	4	;Last Logged Drive
+
+; Invoke BDOS by function number
+
+BDOS	MACRO	?Function
+	mvi	c,?Function
+	call	_BDOS
+	ENDM
+
+; Print a string terminated by $
+
+Print$ 	MACRO	?Str
+	LOCAL	~cont,~msgSTR
+	jmp	~cont
+~msgSTR:	db	?Str,'$'
+~cont:	lxi	D,~msgSTR
+	ifdef	CPM22ASI
+	call	PrintString
+	else
+	mvi	C,_PrtSTR
+	call	_BDOS
+	endm
+	ENDM
+
+; Print a string terminated by $
+
+Print 	MACRO	?Ptr
+	lxi	D,?Ptr
+	ifdef	CPM22ASI
+	call	PrintString
+	else
+	mvi	C,_PrtSTR
+	call	_BDOS
+	endif
+	ENDM
+
+; Set up globals
+
+Globals	MACRO
+gDrive	db       0        ;Saved Current Drive
+gStack	dw       0        ;Saved CP/M Stack
+	ENDM
+
+; Set up Stack
+Stack	MACRO	?Size
+	ds	?Size
+~Stack:	equ	$
+	ENDM
+
+; Startup program
+
+Startup	MACRO	
+~Startup: 
+	sspd	gStack		;save stack
+	ifdef	~Stack
+	lxi	sp,~Stack	;new stack
+	else
+	lspd	0x0006		;Set up Maximum stack
+	dcx	sp
+	endif
+	lda	_Drive		;save drive
+	sta	gDrive
+	ENDM
+
+; Exit program
+
+Exit	MACRO
+~Exit	lda      gDrive		;restore drive
+	sta      _Drive
+	lspd     gStack		;restore stack
+	ret
+	ENDM
+
+; Entry point from CPM
+
+Entry	MACRO	?Saddr
+	org	?Saddr
+~Entry	jmp	~Startup
+	ENDM
+;
+;WARNING - these macros are not debugged(used for testing assembler)
+;
+;     |--------|
+;     |        |
+;     |--------|
+;sp-> |        |	slot 2	-4(ix)	Local Variables
+;     |--------|
+;     |        |	slot 1	-2(ix)
+;     |--------|
+;ix-> | old ix |	Link	4
+;     |--------|
+;     |ret add |	Return	+2(ix)	Call subroutine
+;     |--------|	Address
+;     | parm 1 |	parm 1	+4(ix)	PassByRef
+;     |--------|
+;     | parm 2 |	parm 2	+6(ix)	PassByVAL16
+;     |--------|
+;     | parm 3 |	parm 3	+8(ix)	PassByVAL8
+;     |--------|
+;     |Ret val |	Return	+10(ix)	SetRetSize 2
+;     |--------|	Value
+
+;number of passed parameters are automatically incremented
+;   by PassByVal and PassByRef
+;_PassedSize is set to 0 in SetReturnSize
+;Passed parameters are automatically removed by RemovePassed
+_PassedSize	set	0
+;_Retsize is set by SetReturnSize
+;RemoveReturn uses RetSize to getrid of return value if not
+;  disposed of by GetReturn
+_RetSize 	set	0
+;_ParmSize is used by PutReturn to place the return value on the stack
+_ParmSize 	set	0
+
+LinkIX	MACRO	?disp
+	push	ix
+	lxi	ix,?disp
+	dadx	sp
+	spix
+	lxi	ix,-?disp
+	dadx	sp
+	ENDM
+LinkIY	MACRO	?disp
+	push	iy
+	lxi	iy,?disp
+	dady	sp
+	spiy
+	lxi	iy,-?disp
+	dady	sp
+	ENDM
+UnlkIX	MACRO
+	spix
+	pop	ix
+	ENDM
+UnlkIY	MACRO
+	spiy
+	pop	iy
+	ENDM
+
+;Pass a 16 bit reference
+; NOTE-PassByRef and PassByVal are not needed 
+;     as Pass really does all the work.
+;PassByRef and PassByVal are provided for documentary purposes.
+PassByRef	macro	?rp
+	ifs_ncs	'?reg',eq,'A'
+	 error	Cannot use A as a pointer
+	else
+	 pass	?rp
+	endif
+	endm
+
+;Pass an 8 bit value in A or 16 bit value in rp
+;8 bit value in a is zero filled to make 16 bits.
+PassByVal	macro ?reg
+	pass	?reg
+	endm
+
+Pass	macro ?reg
+_PassedSize	set	_PassedSize+2
+	ifs_ncs	'?reg',eq,'A'
+	 push	hl
+	 mov	l,a
+	 sub	a
+	 mov	h,a
+	 xthl
+	else
+	 push	?reg
+	endif
+	endm
+
+GetLocal	macro	?reg,?slot
+	ifs_ncs	'?reg',eq, 'A'
+	 mov	a,-(((?slot-1)*2)+2)(ix)
+	 EXITM
+	endif
+	ifs_ncs	'?reg',eq, 'bc'
+	 mov	c,-(((?slot-1)*2)+2)(ix)
+	 mov	b,-(((?slot-1)*2)+1)(ix)
+	 EXITM
+	endif
+	ifs_ncs	'?reg',eq, 'de'
+	 mov	e,-(((?slot-1)*2)+2)(ix)
+	 mov	d,-(((?slot-1)*2)+1)(ix)
+	 EXITM
+	endif
+	ifs_ncs	'?reg',eq, 'hl'
+	 mov	l,-(((?slot-1)*2)+2)(ix)
+	 mov	h,-(((?slot-1)*2)+1)(ix)
+	 EXITM
+	endif
+	error	Register must be A BC DE HL 
+
+	endm
+PutLocal	macro	?reg,?slot
+	ifs_ncs	'?reg',eq, 'A'
+	 mov	-(((?slot-1)*2)+2)(ix),a
+	 EXITM
+	endif
+	ifs_ncs	'?reg',eq, 'bc'
+	 mov	-(((?slot-1)*2)+2)(ix),c
+	 mov	-(((?slot-1)*2)+1)(ix),b
+	 EXITM
+	endif
+	ifs_ncs	'?reg',eq, 'de'
+	 mov	-(((?slot-1)*2)+2)(ix),e
+	 mov	-(((?slot-1)*2)+1)(ix),d
+	 EXITM
+	endif
+	ifs_ncs	'?reg',eq, 'hl'
+	 mov	-(((?slot-1)*2)+2)(ix),l
+	 mov	-(((?slot-1)*2)+1)(ix),h
+	 EXITM
+	endif
+	error	Register must be A BC DE HL 
+
+	endm
+
+;get actual value of passed by value parameter
+;	a=8 bit    rp=16 bit
+GetByVal	macro	?reg,?parm
+	ifs_ncs	'?reg',eq, 'A'
+	 mov	a,((?parm-1)*2)+4(ix)
+	 EXITM
+	endif
+	ifs_ncs	'?reg',eq, 'bc'
+	 mov	c,((?parm-1)*2)+4(ix)
+	 mov	b,((?parm-1)*2)+5(ix)
+	 EXITM
+	endif
+	ifs_ncs	'?reg',eq, 'de'
+	 mov	e,((?parm-1)*2)+4(ix)
+	 mov	d,((?parm-1)*2)+5(ix)
+	 EXITM
+	endif
+	ifs_ncs	'?reg',eq, 'hl'
+	 mov	l,((?parm-1)*2)+4(ix)
+	 mov	h,((?parm-1)*2)+5(ix)
+	 EXITM
+	endif
+	error	Register must be A BC DE HL 
+	endm
+;Put value in passed by value parameter
+;	a=8 bit    rp=16 bit
+PutByVal	macro	?reg,?parm
+	ifs_ncs	'?reg',eq, 'A'
+	 mov	((?parm-1)*2)+4(ix),a
+	 EXITM
+	endif
+	ifs_ncs	'?reg',eq, 'bc'
+	 mov	((?parm-1)*2)+4(ix),c
+	 mov	((?parm-1)*2)+5(ix),b
+	 EXITM
+	endif
+	ifs_ncs	'?reg',eq, 'de'
+	 mov	((?parm-1)*2)+4(ix),e
+	 mov	((?parm-1)*2)+5(ix),d
+	 EXITM
+	endif
+	ifs_ncs	'?reg',eq, 'hl'
+	 mov	((?parm-1)*2)+4(ix),l
+	 mov	((?parm-1)*2)+5(ix),h
+	 EXITM
+	endif
+	error	Register must be A BC DE HL 
+	endm
+
+;get actual value of passed by ref parameter 8 or 16
+;	a=8 bit    rp=16 bit
+GetByRef	macro	?reg,?parm
+	ifs_ncs	'?reg',eq, 'hl'
+	 push	de
+	else
+	 push	hl
+	endif
+	
+	mov	l,((?parm-1)*2)+4(ix)
+	mov	h,((?parm-1)*2)+5(ix)
+	ifs_ncs	'?reg',eq, 'A'
+	 mov	a,(hl)
+	 pop	hl
+	 EXITM
+	endif
+	ifs_ncs	'?reg',eq, 'bc'
+	 mov	c,(hl)
+	 inx	hl
+	 mov	b,(hl)
+	 pop	hl
+	 EXITM
+	endif
+	ifs_ncs	'?reg',eq, 'de'
+	 mov	e,(hl)
+	 inx	hl
+	 mov	d,(hl)
+	 pop	hl
+	 EXITM
+	endif
+	ifs_ncs	'?reg',eq, 'hl'
+	 mov	e,(hl)
+	 inx	hl
+	 mov	d,(hl)
+	 mov	l,e
+	 mov	h,d
+	 pop	de
+	 EXITM
+	endif
+	error	Register must be A BC DE HL
+	endm
+
+;Put value in passed by ref parameter 8 or 16
+;	a=8 bit    rp=16 bit
+PutByRef	macro	?reg,?parm
+	ifs_ncs	'?reg',eq, 'hl'
+	 push	de
+	 mov	e,l
+	 mov	d,h
+	else
+	 push	hl
+	endif
+	
+	mov	l,((?parm-1)*2)+4(ix)
+	mov	h,((?parm-1)*2)+5(ix)
+	ifs_ncs	'?reg',eq, 'A'
+	 mov	(hl),a
+	 pop	hl
+	 EXITM
+	endif
+	ifs_ncs	'?reg',eq, 'bc'
+	 mov	(hl),c
+	 inx	hl
+	 mov	(hl),b
+	 pop	hl
+	 EXITM
+	endif
+	ifs_ncs	'?reg',eq, 'de'
+	 mov	(hl),e
+	 inx	hl
+	 mov	(hl),d
+	 pop	hl
+	 EXITM
+	endif
+	ifs_ncs	'?reg',eq, 'hl'
+	 mov	(hl),e
+	 inx	hl
+	 mov	(hl),d
+	 pop	de
+	 EXITM
+	endif
+	error	Register must be A BC DE HL
+	endm
+
+; get pointers to passed by ref/val parameter
+;	rp=16 bit pointer
+PtrToByRef	macro	?rp,?parm
+	ifs_ncs	'?rp',eq, 'hl'
+	 mov	l,((?parm-1)*2)+4(ix)
+	 mov	h,((?parm-1)*2)+5(ix)
+	 EXITM
+	ENDIF
+	ifs_ncs	'?rp',eq, 'de'
+	 mov	e,((?parm-1)*2)+4(ix)
+	 mov	d,((?parm-1)*2)+5(ix)
+	 EXITM
+	ENDIF
+	ifs_ncs	'?rp',eq, 'bc'
+	 mov	c,((?parm-1)*2)+4(ix)
+	 mov	b,((?parm-1)*2)+5(ix)
+	 EXITM
+	ENDIF
+	error	Register must be HL BC DE 
+	endm
+PtrToByVal	macro	?rp,?parm
+	ifs_ncs	'?rp',eq, 'hl'
+	 push	bc
+	 push	ix
+	 pop	hl
+	 lxi	bc,((?parm-1)*2)+4
+	 dad	bc
+	 pop	bc
+	 EXITM
+	endif
+	ifs_ncs	'?rp',eq, 'bc'
+	 push	ix
+	 xthl
+	 lxi	bc,((?parm-1)*2)+4
+	 dad	bc
+	 mov	b,h
+	 mov	c,l
+	 pop	hl
+	 EXITM
+	endif
+	ifs_ncs	'?rp',eq, 'de'
+	 push	ix
+	 xthl
+	 lxi	de,((?parm-1)*2)+4
+	 dad	de
+	 mov	d,h
+	 mov	e,l
+	 pop	hl
+	 EXITM
+	endif
+	error	Register must be HL BC DE
+	endm
+
+;Put an 8 or 16 bit Return Value in the Return Value place
+;	a=8 bit    rp=16 bit
+PutReturn	macro	?reg
+	ifs_ncs	'?reg',eq, 'a'
+	 mov	4+_ParmSize(ix),a
+	 sub	a
+	 mov	5+_ParmSize(ix),a
+	 EXITM
+	endif
+	ifs_ncs	'?reg',eq, 'bc'
+	 mov	4+_ParmSize(ix),c
+	 mov	5+_ParmSize(ix),b
+	 EXITM
+	endif
+	ifs_ncs	'?reg',eq, 'de'
+	 mov	4+_ParmSize(ix),e
+	 mov	5+_ParmSize(ix),d
+	 EXITM
+	endif
+	ifs_ncs	'?reg',eq, 'hl'
+	 mov	4+_ParmSize(ix),l
+	 mov	5+_ParmSize(ix),h
+	 EXITM
+	endif
+	error	Register must be A HL BC DE 
+	endm
+
+;get an 8 or 16 bit return value off the stack and remove it
+;	a=8 bit   rp=16 bit
+GetReturn	macro	?reg
+	pop	?reg
+	endm
+
+;SetReturnSize destroys A and HL
+;RemovePassed and RemoveReturn destroy  HL
+
+;set number of parameters, used by PutReturn
+SetParameterSize	macro	?size
+_ParmSize set	?size
+	endm
+
+;Put a place for return value on the stack and clear it
+SetReturnSize	macro	?size
+_RetSize set	?size
+_PassedSize	set	0
+	if (?size mod 2) ne 0
+	 warning Not Divisible by 2
+	endif
+	if ?size ne 0
+	 sub	a
+	 mov	h,a
+	 mov	l,a
+	 rept	?size/2
+	  push	hl
+	 endm
+	 endif
+	endm
+
+;Remove Passed parameters
+RemovePassed	macro
+	if _PassedSize ne 0
+	 lxi	hl,-_PassedSize
+	 dad	sp
+	 sphl
+	endif
+	endm
+
+;Remove Return Value, if not removed by GetReturn
+RemoveReturn	macro
+	if _RetSize ne 0
+	 lxi	hl,-_RetSize
+	 dad	sp
+	 sphl
+	endif
+	endm
