@@ -16,7 +16,9 @@
 #include "Z80_SIO_emul.h"
 #include "Z80_PIO_emul.h"
 #include "Z80_6850_Emul.h"
-#include "Z80_CFCard_Emul.h"
+#include "Z80_6850_2_Emul.h"
+#include "Z80_SDCard_Emul.h"
+#include "Z80_Mem_Mappers.h"
 #include "Hardware_Config.h"
 
 void HandleZ80IO(void)
@@ -82,85 +84,43 @@ void HandleZ80IO(void)
             }
             break;
 #endif
-#ifdef USING_CFCARD
-        case CF_DATA:           // 0x10
+#ifdef USING_SDCARD
+        case SD_DATA:           // 0x88
             if (ioCrtlRegVal == REGULAR_READ_CYCLE)            // regular read cycle
             {
-                CFReadData();
+                SDReadData();
             }
             else if (ioCrtlRegVal == REGULAR_WRITE_CYCLE)      // regular write cycle
             {
-                CFWriteData();
+                SDWriteData();
             }
             break;
-        case CF_FEATURES_ERROR: // 0x11
+        case SD_CONTROL: // 0x89 - also includes read status
             if (ioCrtlRegVal == REGULAR_READ_CYCLE)            // regular read cycle
             {
-                CFReadErrorStat();
+                SDReadStatus();
             }
             else if (ioCrtlRegVal == REGULAR_WRITE_CYCLE)      // regular write cycle
             {
-                CFWriteFeatures();
+                SDWriteCommand();
             }
             break;
-        case CF_SECCOUNT:       // 0x12
-            if (ioCrtlRegVal == REGULAR_READ_CYCLE)            // regular read cycle
+        case SD_LBA0:    // 0x8A
+            if (ioCrtlRegVal == REGULAR_WRITE_CYCLE)      // regular write cycle
             {
-                CFReadSectorCount();
-            }
-            else if (ioCrtlRegVal == REGULAR_WRITE_CYCLE)      // regular write cycle
-            {
-                CFWriteSectorCount();
+                SDWriteLBA0();
             }
             break;
-        case CF_SECTOR_LAB0:    // 0x13
-            if (ioCrtlRegVal == REGULAR_READ_CYCLE)            // regular read cycle
+        case SD_LBA1:   // 0x8B
+            if (ioCrtlRegVal == REGULAR_WRITE_CYCLE)      // regular write cycle
             {
-                CFReadSector();
-            }
-            else if (ioCrtlRegVal == REGULAR_WRITE_CYCLE)      // regular write cycle
-            {
-                CFWriteLBA0();
+                SDWriteLBA1();
             }
             break;
-        case CF_CYL_LOW_LBA1:   // 0x14
-            if (ioCrtlRegVal == REGULAR_READ_CYCLE)            // regular read cycle
+        case SD_LBA2:    // 0x8C
+            if (ioCrtlRegVal == REGULAR_WRITE_CYCLE)      // regular write cycle
             {
-                CFReadCylLow();
-            }
-            else if (ioCrtlRegVal == REGULAR_WRITE_CYCLE)      // regular write cycle
-            {
-                CFWriteLBA1();
-            }
-            break;
-        case CF_CYL_HI_LBA2:    // 0x15
-            if (ioCrtlRegVal == REGULAR_READ_CYCLE)            // regular read cycle
-            {
-                CFReadCylHigh();
-            }
-            else if (ioCrtlRegVal == REGULAR_WRITE_CYCLE)      // regular write cycle
-            {
-                CFWriteLBA2();
-            }
-            break;
-        case CF_HEAD_LBA3:    // 0x16
-            if (ioCrtlRegVal == REGULAR_READ_CYCLE)            // regular read cycle
-            {
-                CFReadHead();
-            }
-            else if (ioCrtlRegVal == REGULAR_WRITE_CYCLE)      // regular write cycle
-            {
-                CFWriteLBA3();
-            }
-            break;
-        case CF_STATUS_COMMAND: // 0x17
-            if (ioCrtlRegVal == REGULAR_READ_CYCLE)            // regular read cycle
-            {
-                CFReadStatus();
-            }
-            else if (ioCrtlRegVal == REGULAR_WRITE_CYCLE)      // regular write cycle
-            {
-                CFWriteCommand();
+                SDWriteLBA2();
             }
             break;
 #endif
@@ -186,6 +146,32 @@ void HandleZ80IO(void)
             if (ioCrtlRegVal == REGULAR_WRITE_CYCLE)      // regular write cycle
             {
                 M6850WriteCtrl();
+                return;
+            }
+            break;
+#endif
+#ifdef USING_6850_2
+        case M6850_2_D:
+            if (ioCrtlRegVal == REGULAR_READ_CYCLE)             // regular read cycle
+            {
+                M6850_2_ReadData();
+                return;
+            }
+            else if (ioCrtlRegVal == REGULAR_WRITE_CYCLE)      // regular write cycle
+            {
+                M6850_2_WriteData();
+                return;
+            }
+            break;
+        case  M6850_2_C:    // Control register
+            if (ioCrtlRegVal == REGULAR_READ_CYCLE)             // regular read cycle
+            {
+                M6850_2_ReadStatus();
+                return;
+            }
+            if (ioCrtlRegVal == REGULAR_WRITE_CYCLE)      // regular write cycle
+            {
+                M6850_2_WriteCtrl();
                 return;
             }
             break;
@@ -239,6 +225,14 @@ void HandleZ80IO(void)
                 return;
             }
             break;
+#endif
+#ifdef USING_MEM_MAP_1
+        case MEM_MAP_SWAP:
+            if (ioCrtlRegVal == REGULAR_WRITE_CYCLE)      // regular write cycle
+            {
+                write_mem_map_1();
+                return;
+            }
 #endif
 #ifdef USING_EXP_MCCP23017
         case PIOA_D:

@@ -27,7 +27,9 @@
 #undef USING_PIO
 #undef USING_SIO
 #undef USING_6850
-#undef USING_CFCARD
+#undef USING_6850_2
+#undef USING_SDCARD
+#undef USING_MEM_MAP_1  // Swap out first 8KB
 
 // Select the build here. 
 //  Only 1 build at a time is supported.
@@ -49,8 +51,8 @@
         #define SIOA_C          0x02
         #define SIOB_D          0x01
         #define SIOB_C          0x03
-    #define USING_CFCARD
-    #ifdef USING_CFCARD
+    #define USING_SDCARD
+    #ifdef USING_SDCARD
         #define CF_DATA             0x10
         #define CF_FEATURES_ERROR   0x11
         #define CF_SECCOUNT         0x12
@@ -106,11 +108,27 @@
     #define USING_6850
         #define M6850_C              0x80       // Control/Status register
         #define M6850_D              0x81       // Data
+    #define USING_6850_2
+        #define M6850_2_C            0x82       // Control/Status register - 2nd 6850 part (faked)
+        #define M6850_2_D            0x83       // Data
     #ifdef USING_FRONT_PANEL
         #define FR_PNL_IO_LO        0x18    // decimal 24
         #define FR_PNL_IO_LO_MID    0x19    // decimal 25
         #define FR_PNL_IO_HI_MID    0x1A    // decimal 26
         #define FR_PNL_IO_HI        0x1B    // decimal 27
+    #endif
+    #define USING_MEM_MAP_1
+    #ifdef USING_MEM_MAP_1
+        #define MEM_MAP_SWAP        0x38
+    #endif
+    #define USING_SDCARD
+    #ifdef USING_SDCARD
+        #define SD_DATA             0x88
+        #define SD_CONTROL	        0x89
+        #define SD_STATUS	        0x89
+        #define SD_LBA0		        0x8A
+        #define SD_LBA1		        0x8B
+        #define SD_LBA2		        0x8C
     #endif
     #ifdef USING_EXP_MCCP23017
         #define PIOA_D              0x20

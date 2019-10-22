@@ -10,8 +10,9 @@
  * ========================================
 */
 
-// ROM image from Grant Searle's 7-chip Z80 design
-// http://zx80.netai.net/grant/z80/SimpleZ80.html
+// ROM image from Grant Searle's Z80 Multicomp FPGA design
+// http://zx80.netai.net/grant/Multicomp/cpm/fpgaCPM.html#ROMFiles
+// Listing file is BASMON.LST - verified using Front Panel
 
 // Converted to C array using
 /* http://srecord.sourceforge.net/ */

@@ -16,6 +16,7 @@
 #include "Z80_IO_Handle.h"
 #include "Z80_SIO_emul.h"
 #include "Z80_6850_Emul.h"
+#include "Z80_6850_2_Emul.h"
 #include "Hardware_Config.h"
 
 #define USBFS_DEVICE    (0u)
@@ -84,6 +85,9 @@ int main(void)
 
     #ifdef USING_6850
         initM6850StatusRegister();
+    #endif
+    #ifdef USING_6850_2
+        initM6850_2_StatusRegister();
     #endif
 
     for(;;)
