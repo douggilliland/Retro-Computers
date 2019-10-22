@@ -11,15 +11,7 @@
 */
 
 #include <project.h>
-#include "FrontPanel.h"
 #include "Z80_IO_Handle.h"
-#include "Z80_SIO_emul.h"
-#include "Z80_PIO_emul.h"
-#include "Z80_6850_Emul.h"
-#include "Z80_6850_2_Emul.h"
-#include "Z80_SDCard_Emul.h"
-#include "Z80_Mem_Mappers.h"
-#include "Hardware_Config.h"
 
 void HandleZ80IO(void)
 {

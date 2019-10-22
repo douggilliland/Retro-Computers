@@ -11,6 +11,11 @@
 */
 
 #include <project.h>
+#include "FrontPanel.h"
+#include "Z80_SIO_emul.h"
+#include "Z80_6850_Emul.h"
+#include "Z80_6850_2_Emul.h"
+#include "Z80_SDCard_Emul.h"
 
 #define CLR_IO_INT_BIT 1
 #define IORQ_BIT    0X01

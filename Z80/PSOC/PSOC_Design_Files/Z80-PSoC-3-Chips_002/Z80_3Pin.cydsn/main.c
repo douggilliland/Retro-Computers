@@ -9,16 +9,12 @@
  *
  * ========================================
 */
+
 #include "project.h"        // all of the #includes from Cypress generated Hardware APIs
 #include "stdio.h"
-#include "ExtSRAM.h"
-#include "FrontPanel.h"
 #include "Z80_IO_Handle.h"
-#include "Z80_SIO_emul.h"
-#include "Z80_6850_Emul.h"
-#include "Z80_6850_2_Emul.h"
-#include "Z80_SDCard_Emul.h"
 #include "Hardware_Config.h"
+#include "ExtSRAM.h"
 
 #define USBFS_DEVICE    (0u)
 
