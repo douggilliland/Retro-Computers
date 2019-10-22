@@ -17,6 +17,7 @@
 #include "Z80_SIO_emul.h"
 #include "Z80_6850_Emul.h"
 #include "Z80_6850_2_Emul.h"
+#include "Z80_SDCard_Emul.h"
 #include "Hardware_Config.h"
 
 #define USBFS_DEVICE    (0u)
@@ -61,10 +62,12 @@ int main(void)
 
     #ifdef USING_FRONT_PANEL
         I2C_Start();
-    #else
-        #ifdef USING_EXP_MCCP23017
-            I2C_Start();
-        #endif
+    #endif
+    #ifdef USING_EXP_MCCP23017
+        I2C_Start();
+    #endif
+    #ifdef USING_SDCARD
+        SDInit();
     #endif
     
     CyGlobalIntEnable;          /* Enable global interrupts. */

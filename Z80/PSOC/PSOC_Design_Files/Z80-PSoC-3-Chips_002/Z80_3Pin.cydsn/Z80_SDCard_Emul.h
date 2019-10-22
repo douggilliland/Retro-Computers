@@ -15,6 +15,7 @@
 #include "Hardware_Config.h"
 #include "Z80_IO_Handle.h"
 
+void    SDInit(void);
 void    SDReadData(void);
 void    SDWriteData(void);
 void    SDReadStatus(void);

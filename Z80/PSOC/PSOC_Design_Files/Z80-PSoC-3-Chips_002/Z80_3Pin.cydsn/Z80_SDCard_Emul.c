@@ -28,7 +28,7 @@
     ///////////////////////////////////////////////////////////////////////////////
     // void CFInit(void)
         
-    void CFInit(void)
+    void SDInit(void)
     {
         SD_DataOut = 0x0;
         SD_DataIn = 0x0;
