@@ -59,6 +59,9 @@ extern unsigned char monitor_basic_eprom[];
 #ifdef GRANT_7_CHIP_Z80
 extern unsigned char gs7chip_basic_eeprom[];
 #endif
+#ifdef GRANT_FPGA_CPM
+extern const unsigned char gs_fpga_basic_eeprom[];
+#endif
 
 ////////////////////////////////////////////////////////////////////////////
 // SetExtSRAMAddr(addr) - Set the address registers for the SRAM
@@ -174,6 +177,9 @@ void loadSRAM(void)
 #endif
 #ifdef GRANT_7_CHIP_Z80
         dataVal = gs7chip_basic_eeprom[charCount];
+#endif
+#ifdef GRANT_FPGA_CPM
+        dataVal = gs_fpga_basic_eeprom[charCount];
 #endif
         WriteExtSRAM(SRAMAddr,dataVal);
         SRAMAddr++;

@@ -33,9 +33,11 @@
 //  Only 1 build at a time is supported.
 //  All other builds are set to undef
 //#undef GRANT_9_CHIP_Z80
-#define GRANT_9_CHIP_Z80
+//#define GRANT_9_CHIP_Z80
 //#define GRANT_7_CHIP_Z80
 //#undef GRANT_7_CHIP_Z80
+#define GRANT_FPGA_CPM
+//#undef GRANT_FPGA_CPM
 
 // defines for building Grant Searle's 9-chip Z80 design
 #ifdef GRANT_9_CHIP_Z80
@@ -75,6 +77,29 @@
 // defines for building Grant Searle's 7-chip Z80 design
 // http://zx80.netai.net/grant/z80/SimpleZ80.htm
 #ifdef GRANT_7_CHIP_Z80
+    #define MONITOR_START       0x00000000      // EEPROM loads to address 0
+    #define MONITOR_LENGTH      0x00002000      // 8K build
+    // I/O Space Address Map follow
+    #define USING_6850
+        #define M6850_C              0x80       // Control/Status register
+        #define M6850_D              0x81       // Data
+    #ifdef USING_FRONT_PANEL
+        #define FR_PNL_IO_LO        0x18    // decimal 24
+        #define FR_PNL_IO_LO_MID    0x19    // decimal 25
+        #define FR_PNL_IO_HI_MID    0x1A    // decimal 26
+        #define FR_PNL_IO_HI        0x1B    // decimal 27
+    #endif
+    #ifdef USING_EXP_MCCP23017
+        #define PIOA_D              0x20
+        #define PIOA_C              0x22
+        #define PIOB_D              0x21
+        #define PIOB_C              0x23
+    #endif
+#endif
+
+// defines for building Grant Searle's FPGA Z80 design
+// http://zx80.netai.net/grant/Multicomp/index.html
+#ifdef GRANT_FPGA_CPM
     #define MONITOR_START       0x00000000      // EEPROM loads to address 0
     #define MONITOR_LENGTH      0x00002000      // 8K build
     // I/O Space Address Map follow

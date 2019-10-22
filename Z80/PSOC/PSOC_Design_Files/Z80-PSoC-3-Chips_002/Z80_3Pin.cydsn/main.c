@@ -15,7 +15,7 @@
 #include "FrontPanel.h"
 #include "Z80_IO_Handle.h"
 #include "Z80_SIO_emul.h"
-#include "Z80_6850_emul.h"
+#include "Z80_6850_Emul.h"
 #include "Hardware_Config.h"
 
 #define USBFS_DEVICE    (0u)
