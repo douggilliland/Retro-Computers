@@ -2044,4 +2044,9 @@ Connection ~ 11450 1800
 Connection ~ 11550 1800
 Wire Wire Line
 	11550 1800 11550 2250
+NoConn ~ 9900 4350
+NoConn ~ 9900 4550
+NoConn ~ 9900 4650
+NoConn ~ 9900 4750
+NoConn ~ 12450 5650
 $EndSCHEMATC
