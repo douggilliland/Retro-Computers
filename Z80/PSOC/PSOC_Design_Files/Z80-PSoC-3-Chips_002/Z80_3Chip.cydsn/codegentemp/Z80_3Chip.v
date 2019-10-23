@@ -1,6 +1,6 @@
 // ======================================================================
 // Z80_3Chip.v generated from TopDesign.cysch
-// 10/23/2019 at 17:59
+// 10/23/2019 at 18:17
 // This file is auto generated. ANY EDITS YOU MAKE MAY BE LOST WHEN THIS FILE IS REGENERATED!!!
 // ======================================================================
 
@@ -1047,33 +1047,34 @@ module top ;
           wire  Net_263;
           wire  Net_35;
           wire  Net_34;
+          wire  Net_1079;
+          wire  Net_1028;
+          wire  Net_1024;
+          wire  Net_1021;
+          wire  Net_1018;
+          wire [15:11] Z80A;
           wire  Net_1111;
           wire  Net_1113;
           wire  Net_1104;
           wire  Net_1100;
           wire  Net_1112;
-          wire [15:11] Z80A;
           wire  Net_1106;
           wire  Net_1102;
           wire  Net_1033;
           wire  Net_1086;
-          wire  Net_1079;
           wire  Net_1069;
+          wire  BANKED;
           wire  Net_1068;
           wire  Net_1070;
           wire  Net_612;
-          wire  Net_1021;
-          wire  BANKED;
-          wire  Net_1018;
-          wire  Net_1028;
-          wire  Net_627;
           wire  Net_1012;
+          wire  Net_627;
           wire  Net_1015;
-          wire  Net_1024;
+          wire  Net_1017;
           wire  Net_995;
           wire  Net_1005;
-          wire  Net_997;
           wire [5:0] MSK;
+          wire  Net_997;
           wire  Net_823;
           wire  Net_825;
           wire  Net_985;
@@ -1097,8 +1098,8 @@ module top ;
           wire  Net_784;
           wire  Net_786;
           wire  Net_840;
-          wire  Net_894;
           wire  CPURES;
+          wire  Net_894;
           wire  Net_485;
           wire  Net_896;
           wire  Net_390;
@@ -1116,7 +1117,6 @@ module top ;
           wire  Net_768;
           wire  Net_766;
           wire  Net_775;
-          wire  Net_1017;
           wire  Net_479;
           wire  Net_519;
           wire  IOBUSY;
