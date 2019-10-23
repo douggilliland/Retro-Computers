@@ -15,6 +15,12 @@
 
 #include <project.h>
 
+#define BANK_SIZE_32K   0x10
+#define BANK_SIZE_16K   0x18
+#define BANK_SIZE_8K    0x1c
+#define BANK_SIZE_4K    0x1E
+#define BANK_SIZE_2K    0x1F
+
 void init_mem_map_1(void);
 void swap_out_ROM_space(void);
 

@@ -17,10 +17,13 @@
 #include <project.h>
 #include <Z80_PSoC_3Chips.h>
 
+// Memory Mapper version 1 sets bank size to 8KB
+// Points to the first SRAM bank
+
 void init_mem_map_1(void)
 {
     BankBaseAdr_Write(0x00);
-    BankMask_Write(0x1c);
+    BankMask_Write(BANK_SIZE_8K);
     AdrHighOut_Write(0x00);
 }
 

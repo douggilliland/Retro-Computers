@@ -125,7 +125,7 @@
     #ifdef USING_MEM_MAP_1
         #define MEM_MAP_SWAP        0x38
     #endif
-    #define USING_SDCARD
+//    #define USING_SDCARD
     #ifdef USING_SDCARD
         #define SD_DATA             0x88
         #define SD_CONTROL	        0x89

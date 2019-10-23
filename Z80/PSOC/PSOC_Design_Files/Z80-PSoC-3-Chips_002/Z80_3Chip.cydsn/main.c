@@ -74,10 +74,10 @@ int main(void)
     PostLed(postVal+1);         // 1 blink = pass, more than 1 = fail
     if (postVal != 0)
         while(1);
-    loadSRAM();
-#ifdef GRANT_FPGA_CPM
-    init_mem_map_1();
+#ifdef USING_MEM_MAP_1
+    init_mem_map_1();           // Set up the address mapper
 #endif
+    loadSRAM();
     
     #ifdef USING_FRONT_PANEL
         runFrontPanel();            // Exits either by pressing EXitFrontPanel or RUN button on front panel
