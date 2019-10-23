@@ -1,6 +1,3 @@
-#if !defined(Z80IOHANDLE_H)
-#define Z80IOHANDLE_H
-
 /* ========================================
  *
  * Copyright LAND BOARDS, LLC, 2019
@@ -12,6 +9,9 @@
  *
  * ========================================
 */
+
+#if !defined(Z80IOHANDLE_H)
+#define Z80IOHANDLE_H
 
 #include <project.h>
 
@@ -27,6 +27,12 @@
 #define IACK_MASK           0x19
 #define IN_IACK_CYCLE       0x10
     
+#define LED_ON  0
+#define LED_OFF 1
+    
+#define INT_ON  0
+#define INT_OFF 1
+
 // Function Prototypes follow
 
 void HandleZ80IO(void);

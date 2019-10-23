@@ -44,8 +44,6 @@ void initM6850_2_StatusRegister(void)
 
 void M6850_2_ReadIntReg(void)
 {
-//    Z80_Data_In_Write(0xFF);
-//    IO_Ctrl_Reg_Write(IO_Ctrl_Reg_Read() & 0xFB);   // Clear IRQ* line
     ackIO();
 }
 

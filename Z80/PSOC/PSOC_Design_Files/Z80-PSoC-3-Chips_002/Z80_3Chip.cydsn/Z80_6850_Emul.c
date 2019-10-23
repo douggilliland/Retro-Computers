@@ -40,20 +40,21 @@ void initM6850StatusRegister(void)
 void M6850ReadIntReg(void)
 {
     Z80_Data_In_Write(0xFF);
-    IO_Ctrl_Reg_Write(IO_Ctrl_Reg_Read() & 0xFB);   // Clear IRQ* line
+    INT_n_Write(INT_OFF);   // Clear IRQ* line
     ackIO();
 }
 
 ///////////////////////////////////////////////////////////////////////////////
-// void sendCharToZ80(uint8 rxChar) - Send a character to the Z80 by placing it
-// into the SIO_A_DataIn register and making the RxCharacterAvailable active.
+// void sendCharToZ80(uint8 rxChar) - Get ready to send a character to the Z80 
+// by placing it into the SIO_A_DataIn register and making the 
+// RxCharacterAvailable active.
 
 void sendCharToZ80(uint8 rxChar)
 {
     M6850_DataIn = rxChar;                                          // Put the char into the buffer
     M6850_Status |= SIO_CHAR_RDY;                                   // Rx Character Available
     if ((M6850_Ctrl & M6850_INT_RTS_MASK) != M6850_RTS_LOW__INT_EN) // Only set IRQ if it is enabled from the WR1 bits
-        IO_Ctrl_Reg_Write(IO_Ctrl_Reg_Read() | 0x04);               // Set IRQ* line
+        INT_n_Write(INT_ON);               // Set IRQ* line
 }
 
 ///////////////////////////////////////////////////////////////////////////////

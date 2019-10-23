@@ -1,5 +1,5 @@
 /*******************************************************************************
-* File Name: SPIM_1_PM.c
+* File Name: SPI_Master_PM.c
 * Version 2.50
 *
 * Description:
@@ -15,17 +15,17 @@
 * the software package with which this file was provided.
 *******************************************************************************/
 
-#include "SPIM_1_PVT.h"
+#include "SPI_Master_PVT.h"
 
-static SPIM_1_BACKUP_STRUCT SPIM_1_backup =
+static SPI_Master_BACKUP_STRUCT SPI_Master_backup =
 {
-    SPIM_1_DISABLED,
-    SPIM_1_BITCTR_INIT,
+    SPI_Master_DISABLED,
+    SPI_Master_BITCTR_INIT,
 };
 
 
 /*******************************************************************************
-* Function Name: SPIM_1_SaveConfig
+* Function Name: SPI_Master_SaveConfig
 ********************************************************************************
 *
 * Summary:
@@ -38,14 +38,14 @@ static SPIM_1_BACKUP_STRUCT SPIM_1_backup =
 *  None.
 *
 *******************************************************************************/
-void SPIM_1_SaveConfig(void) 
+void SPI_Master_SaveConfig(void) 
 {
 
 }
 
 
 /*******************************************************************************
-* Function Name: SPIM_1_RestoreConfig
+* Function Name: SPI_Master_RestoreConfig
 ********************************************************************************
 *
 * Summary:
@@ -58,14 +58,14 @@ void SPIM_1_SaveConfig(void)
 *  None.
 *
 *******************************************************************************/
-void SPIM_1_RestoreConfig(void) 
+void SPI_Master_RestoreConfig(void) 
 {
 
 }
 
 
 /*******************************************************************************
-* Function Name: SPIM_1_Sleep
+* Function Name: SPI_Master_Sleep
 ********************************************************************************
 *
 * Summary:
@@ -78,23 +78,23 @@ void SPIM_1_RestoreConfig(void)
 *  None.
 *
 * Global Variables:
-*  SPIM_1_backup - modified when non-retention registers are saved.
+*  SPI_Master_backup - modified when non-retention registers are saved.
 *
 * Reentrant:
 *  No.
 *
 *******************************************************************************/
-void SPIM_1_Sleep(void) 
+void SPI_Master_Sleep(void) 
 {
     /* Save components enable state */
-    SPIM_1_backup.enableState = ((uint8) SPIM_1_IS_ENABLED);
+    SPI_Master_backup.enableState = ((uint8) SPI_Master_IS_ENABLED);
 
-    SPIM_1_Stop();
+    SPI_Master_Stop();
 }
 
 
 /*******************************************************************************
-* Function Name: SPIM_1_Wakeup
+* Function Name: SPI_Master_Wakeup
 ********************************************************************************
 *
 * Summary:
@@ -107,41 +107,41 @@ void SPIM_1_Sleep(void)
 *  None.
 *
 * Global Variables:
-*  SPIM_1_backup - used when non-retention registers are restored.
-*  SPIM_1_txBufferWrite - modified every function call - resets to
+*  SPI_Master_backup - used when non-retention registers are restored.
+*  SPI_Master_txBufferWrite - modified every function call - resets to
 *  zero.
-*  SPIM_1_txBufferRead - modified every function call - resets to
+*  SPI_Master_txBufferRead - modified every function call - resets to
 *  zero.
-*  SPIM_1_rxBufferWrite - modified every function call - resets to
+*  SPI_Master_rxBufferWrite - modified every function call - resets to
 *  zero.
-*  SPIM_1_rxBufferRead - modified every function call - resets to
+*  SPI_Master_rxBufferRead - modified every function call - resets to
 *  zero.
 *
 * Reentrant:
 *  No.
 *
 *******************************************************************************/
-void SPIM_1_Wakeup(void) 
+void SPI_Master_Wakeup(void) 
 {
-    #if(SPIM_1_RX_SOFTWARE_BUF_ENABLED)
-        SPIM_1_rxBufferFull  = 0u;
-        SPIM_1_rxBufferRead  = 0u;
-        SPIM_1_rxBufferWrite = 0u;
-    #endif /* (SPIM_1_RX_SOFTWARE_BUF_ENABLED) */
+    #if(SPI_Master_RX_SOFTWARE_BUF_ENABLED)
+        SPI_Master_rxBufferFull  = 0u;
+        SPI_Master_rxBufferRead  = 0u;
+        SPI_Master_rxBufferWrite = 0u;
+    #endif /* (SPI_Master_RX_SOFTWARE_BUF_ENABLED) */
 
-    #if(SPIM_1_TX_SOFTWARE_BUF_ENABLED)
-        SPIM_1_txBufferFull  = 0u;
-        SPIM_1_txBufferRead  = 0u;
-        SPIM_1_txBufferWrite = 0u;
-    #endif /* (SPIM_1_TX_SOFTWARE_BUF_ENABLED) */
+    #if(SPI_Master_TX_SOFTWARE_BUF_ENABLED)
+        SPI_Master_txBufferFull  = 0u;
+        SPI_Master_txBufferRead  = 0u;
+        SPI_Master_txBufferWrite = 0u;
+    #endif /* (SPI_Master_TX_SOFTWARE_BUF_ENABLED) */
 
     /* Clear any data from the RX and TX FIFO */
-    SPIM_1_ClearFIFO();
+    SPI_Master_ClearFIFO();
 
     /* Restore components block enable state */
-    if(0u != SPIM_1_backup.enableState)
+    if(0u != SPI_Master_backup.enableState)
     {
-        SPIM_1_Enable();
+        SPI_Master_Enable();
     }
 }
 

@@ -33,13 +33,14 @@ void PostLed(uint32 postVal)
     uint32 blinkCount = postVal;
     while(blinkCount > 0)
     {
-        IO_Ctrl_Reg_Write(2);   // Turn on the LED
+        LED_Write(0);   // Turn on the LED
         CyDelay(500);
-        IO_Ctrl_Reg_Write(0);   // Turn off the LED
+        LED_Write(1);   // Turn off the LED
         CyDelay(250);
         blinkCount--;   // loop as many times as the POST code
     }
 }
+
 ////////////////////////////////////////////////////////////////////////////
 // main() - Setup and Loop code goes in here
 
@@ -56,12 +57,14 @@ int main(void)
 
     #ifdef USING_FRONT_PANEL
         I2C_Start();
-    #endif
-    #ifdef USING_EXP_MCCP23017
+    #else
+        #ifdef USING_EXP_MCCP23017
         I2C_Start();
+        #endif
     #endif
     #ifdef USING_SDCARD
         SDInit();
+        SPI_Master_Init();
     #endif
     
     CyGlobalIntEnable;          /* Enable global interrupts. */

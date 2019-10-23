@@ -63,7 +63,7 @@ void sendCharToZ80(uint8 rxChar)
     SIO_A_DataIn = rxChar;                          // Put the char into the buffer
     SIO_A_RD0 |= SIOA_CHAR_RDY;                     // Rx Character Available
     if ((SIO_A_WR1 & 0x18) != 0x00)                 // Only set IRQ if it is enabled from the WR1 bits
-        IO_Ctrl_Reg_Write(IO_Ctrl_Reg_Read() | 0x04);   // Set IRQ* line
+        INT_n_Write(0);                             // Set IRQ* line
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -144,7 +144,7 @@ void SioReadStatusA(uint8 regNum)
 void SioReadIntRegA()
 {
     Z80_Data_In_Write(SIO_B_WR2);
-    IO_Ctrl_Reg_Write(IO_Ctrl_Reg_Read() & 0xFB);   // Clear IRQ* line
+    INT_n_Write(1);   // Clear IRQ* line
     ackIO();
 }
 
@@ -320,7 +320,7 @@ void SioReadStatusB(uint8 regNum)
 void SioReadIntRegB(void)
 {
     Z80_Data_In_Write(SIO_B_WR2);
-    IO_Ctrl_Reg_Write(IO_Ctrl_Reg_Read() & 0xFB);   // Clear IRQ* line
+    INT_n_Write(1);   // Clear IRQ* line
     ackIO();
 }
 
