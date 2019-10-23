@@ -12,6 +12,8 @@
  * ========================================
 */
 
+#include <project.h>
+
 // Select hardware to include using
 //  Undef to remove hardware
 //  define to include hardware
