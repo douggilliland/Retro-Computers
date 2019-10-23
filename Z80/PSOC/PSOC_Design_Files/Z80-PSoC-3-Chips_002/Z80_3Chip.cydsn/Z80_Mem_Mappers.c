@@ -10,6 +10,10 @@
  * ========================================
 */
 
+/////////////////////////////////////////////////////////////////////////////////
+// Routines to do memory mapping
+// Mem Map 1 swaps out an 8KB block when CP/M is run
+
 #include <project.h>
 #include <Z80_PSoC_3Chips.h>
 
@@ -20,7 +24,7 @@ void init_mem_map_1(void)
     AdrHighOut_Write(0x00);
 }
 
-void write_mem_map_1(void)
+void swap_out_ROM_space(void)
 {
     AdrHighOut_Write(0x20);     // Set A18..A16 to 0x1
     ackIO();

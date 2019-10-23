@@ -33,8 +33,8 @@ void HandleZ80IO(void)
         return;
     }
 #endif
-    ioZ80Addr = AdrLowIn_Read();
-    switch (ioZ80Addr)
+    ioZ80Addr = AdrLowIn_Read();        // gets the I/O address that the Z80 is accessing
+    switch (ioZ80Addr)                  // call appropriate functions based on the address
     {
 #ifdef USING_SIO
         case SIOA_D:
@@ -87,7 +87,7 @@ void HandleZ80IO(void)
                 SDWriteData();
             }
             break;
-        case SD_CONTROL: // 0x89 - also includes read status
+        case SD_CONTROL: // 0x89 - write command also also includes read status
             if (ioCrtlRegVal == REGULAR_READ_CYCLE)            // regular read cycle
             {
                 SDReadStatus();
@@ -222,7 +222,7 @@ void HandleZ80IO(void)
         case MEM_MAP_SWAP:
             if (ioCrtlRegVal == REGULAR_WRITE_CYCLE)      // regular write cycle
             {
-                write_mem_map_1();
+                swap_out_ROM_space();
                 return;
             }
 #endif

@@ -10,8 +10,11 @@
  * ========================================
 */
 
+/////////////////////////////////////////////////////////////////////////////////
+// Routines to control SD and SDHC cards
+
 #include <project.h>
-#include <Z80_PSOC_3Chips.h>
+#include <Z80_PSoC_3Chips.h>
 
 #ifdef USING_SDCARD
 
@@ -26,9 +29,27 @@
 
     ///////////////////////////////////////////////////////////////////////////////
     // void CFInit(void)
+    // SPI mode 0 is used with SD Cards
+    // Helpful description of SD card initialization
+    //  http://www.dejazzer.com/ee379/lecture_notes/lec12_sd_card.pdf
+    // Helfpul description of SD cards with SPI
+    //  http://elm-chan.org/docs/mmc/mmc_e.html
+    //  MISO pull-up done at PSoC pin with Resisitive pull-up
+    // Initialization sequence requires 74 clocks with SS high which means SS has to be
+    //  controlled by the program, not the SPI_Master element.
         
     void SDInit(void)
     {
+        SPI_SS_SetDriveMode(SPI_SS_DM_STRONG);
+        SPI_SS_Write(1);                            // Set the Slave select line high
+        SPI_Master_Start();
+        // Send at least 74 clocks with SS and MOSI high
+        for (uint8 loopCount = 0; loopCount < 10; loopCount++)
+        {
+            while ((SPI_Master_ReadTxStatus() & SPI_Master_STS_TX_FIFO_NOT_FULL) == 0);
+            SPI_Master_WriteTxData(0xff);
+        }
+        while((SPI_Master_ReadTxStatus() & SPI_Master_STS_TX_FIFO_EMPTY) == 0x0);
         SD_DataOut = 0x0;
         SD_DataIn = 0x0;
         SD_Status = 0x0;
@@ -87,7 +108,9 @@
     {
         Z80_Data_In_Write(SD_Status);
         ackIO();
+        return;
     }
+    
     ///////////////////////////////////////////////////////////////////////////////
     // void CFWriteLBA0(void)
     // SD_LBA0		.EQU	$8A

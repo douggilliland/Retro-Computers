@@ -15,8 +15,8 @@
 
 #include <project.h>
 
-void write_mem_map_1(void);
 void init_mem_map_1(void);
+void swap_out_ROM_space(void);
 
 /* [] END OF FILE */
 

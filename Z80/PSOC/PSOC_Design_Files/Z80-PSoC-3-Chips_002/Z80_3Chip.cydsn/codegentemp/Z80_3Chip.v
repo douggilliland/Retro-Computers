@@ -1,6 +1,6 @@
 // ======================================================================
 // Z80_3Chip.v generated from TopDesign.cysch
-// 10/22/2019 at 22:06
+// 10/23/2019 at 09:31
 // This file is auto generated. ANY EDITS YOU MAKE MAY BE LOST WHEN THIS FILE IS REGENERATED!!!
 // ======================================================================
 
@@ -944,23 +944,24 @@ module top ;
           wire  Net_999;
           wire [4:0] BNK;
           wire  Net_998;
+          wire  Net_1006;
           wire  Net_931;
           wire  Net_916;
           wire  Net_915;
           wire  Net_890;
           wire  Net_889;
-          wire  Net_888;
           wire  ADR_OUT_0;
+          wire  Net_888;
           wire  Net_887;
           wire  Net_886;
           wire  Net_837;
           wire [7:0] Net_831;
           wire  Net_830;
           wire  Net_741;
-          wire  Net_740;
           wire  PSoC_CLK;
-          wire  Net_739;
+          wire  Net_740;
           wire  CPURDn;
+          wire  Net_739;
           wire  Net_738;
           wire  Net_737;
           wire  Net_736;
@@ -974,8 +975,8 @@ module top ;
           wire  Net_758;
           wire  Net_757;
           wire  Net_756;
-          wire  Net_755;
           wire  IORQn;
+          wire  Net_755;
           wire  Net_754;
           wire  Net_753;
           wire  Net_752;
@@ -986,8 +987,8 @@ module top ;
           wire  Net_455;
           wire  Net_937;
           wire  Net_315;
-          wire  Net_314;
           wire  CPUWRn;
+          wire  Net_314;
           wire  Net_313;
           wire  Net_312;
           wire  Net_311;
@@ -995,8 +996,8 @@ module top ;
           wire  Net_309;
           wire  Net_308;
           wire  Net_898;
-          wire  Net_306;
           wire [7:0] ZDO;
+          wire  Net_306;
           wire  Net_305;
           wire  Net_814;
           wire  Net_813;
@@ -1015,20 +1016,20 @@ module top ;
           wire  Net_728;
           wire  Net_727;
           wire  Net_726;
-          wire  Net_725;
           wire  DRV_RAM;
+          wire  Net_725;
           wire  Net_724;
           wire  Net_723;
           wire  Net_722;
           wire  Net_156;
-          wire  Net_155;
           wire  SRAMREAD;
-          wire  Net_499;
+          wire  Net_155;
           wire [7:0] SAR;
           wire  SRAMWRITE;
+          wire  Net_499;
           wire  Net_497;
-          wire  Net_496;
           wire  SRAMCS;
+          wire  Net_496;
           wire  Net_495;
           wire  Net_494;
           wire  Net_492;
@@ -1050,7 +1051,6 @@ module top ;
           wire  Net_263;
           wire  Net_35;
           wire  Net_34;
-          wire  Net_1006;
           wire  Net_995;
           wire  Net_1005;
           wire  Net_997;
@@ -5902,9 +5902,9 @@ module top ;
 
 	cy_psoc3_pins_v1_10
 		#(.id("bfb8130d-ddb5-4b9d-9b7d-107e5af83b98"),
-		  .drive_mode(3'b001),
+		  .drive_mode(3'b010),
 		  .ibuf_enabled(1'b1),
-		  .init_dr_st(1'b0),
+		  .init_dr_st(1'b1),
 		  .input_clk_en(0),
 		  .input_sync(1'b0),
 		  .input_sync_mode(1'b0),
@@ -6147,7 +6147,7 @@ module top ;
 		  .oe_sync(1'b0),
 		  .output_clk_en(0),
 		  .output_clock_mode(1'b0),
-		  .output_conn(1'b1),
+		  .output_conn(1'b0),
 		  .output_mode(1'b0),
 		  .output_reset(0),
 		  .output_sync(1'b0),
@@ -6180,7 +6180,7 @@ module top ;
 		  .input_buffer_sel(2'b00))
 		SPI_SS
 		 (.oe(tmpOE__SPI_SS_net),
-		  .y({Net_1006}),
+		  .y({1'b0}),
 		  .fb({tmpFB_0__SPI_SS_net[0:0]}),
 		  .io({tmpIO_0__SPI_SS_net[0:0]}),
 		  .siovref(tmpSIOVREF__SPI_SS_net),

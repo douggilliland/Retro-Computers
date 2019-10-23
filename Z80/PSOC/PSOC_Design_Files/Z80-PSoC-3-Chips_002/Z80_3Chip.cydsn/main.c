@@ -10,16 +10,16 @@
  * ========================================
 */
 
-#include "project.h"        // all of the #includes from Cypress generated Hardware APIs
-#include "stdio.h"
-#include <Z80_PSoC_3Chips.h>
+#include "project.h"            // all of the #includes from Cypress generated Hardware APIs
+#include "stdio.h"              // sprintf needs this
+#include <Z80_PSoC_3Chips.h>    // Combination of all of the .h Source file
 
 #define USBFS_DEVICE    (0u)
 
-/* The buffer size is equal to the maximum packet size of the IN and OUT bulk
+/* The uartReadBuffer size is equal to the maximum packet size of the IN and OUT bulk
 * endpoints.
 */
-#define USBUART_BUFFER_SIZE (64u)
+#define USBUART_uartBuffer_SIZE (64u)
 #define LINE_STR_LENGTH     (20u)
 
 ////////////////////////////////////////////////////////////////////////////
@@ -47,8 +47,8 @@ void PostLed(uint32 postVal)
 int main(void)
 {
     uint16 USB_To_Z80_RxBytes_count = 0;    
-    uint8 buffer[USBUART_BUFFER_SIZE];
-    uint16 bufferOff = 0;
+    uint8 uartReadBuffer[USBUART_uartBuffer_SIZE];
+    uint16 uartReadBufferOff = 0;
     
     uint32 postVal;
     
@@ -64,7 +64,6 @@ int main(void)
     #endif
     #ifdef USING_SDCARD
         SDInit();
-        SPI_Master_Init();
     #endif
     
     CyGlobalIntEnable;          /* Enable global interrupts. */
@@ -76,6 +75,9 @@ int main(void)
     if (postVal != 0)
         while(1);
     loadSRAM();
+#ifdef GRANT_FPGA_CPM
+    init_mem_map_1();
+#endif
     
     #ifdef USING_FRONT_PANEL
         runFrontPanel();            // Exits either by pressing EXitFrontPanel or RUN button on front panel
@@ -112,24 +114,25 @@ int main(void)
             if ((0u != USBUART_DataIsReady()) & (USB_To_Z80_RxBytes_count == 0))
             {
                 /* Read received data and re-enable OUT endpoint. */
-                USB_To_Z80_RxBytes_count = USBUART_GetAll(buffer);
+                USB_To_Z80_RxBytes_count = USBUART_GetAll(uartReadBuffer);
                 if ((USB_To_Z80_RxBytes_count == 1) & (checkSerialReceiverBusy() == 0))     // Input 1 character immediately
                 {
-                    sendCharToZ80(buffer[0]);
+                    sendCharToZ80(uartReadBuffer[0]);
                     USB_To_Z80_RxBytes_count = 0;
                 }
             }
         }
-        if (USB_To_Z80_RxBytes_count > 0)           // There are chars in the input buffer (USB -> Z80)
+        
+        if (USB_To_Z80_RxBytes_count > 0)           // There are chars in the input uartReadBuffer (USB -> Z80)
         {
-            if (checkSerialReceiverBusy() == 0)        // Check if receive buffer can take another character
+            if (checkSerialReceiverBusy() == 0)        // Check if receive uartReadBuffer can take another character
             {
-                sendCharToZ80(buffer[bufferOff]);   // Send received character to Z80 SIO interface
-                bufferOff++;                        // ready for next character
-                USB_To_Z80_RxBytes_count--;         // worked off one character
-                if (USB_To_Z80_RxBytes_count == 0)  // Sent last character to Z80
+                sendCharToZ80(uartReadBuffer[uartReadBufferOff]);   // Send received character to Z80 SIO interface
+                uartReadBufferOff++;                                // ready for next character
+                USB_To_Z80_RxBytes_count--;                         // worked off one character
+                if (USB_To_Z80_RxBytes_count == 0)                  // Sent last character to Z80
                 {
-                    bufferOff = 0;                  // point back to start of character in buffer
+                    uartReadBufferOff = 0;                          // point back to start of character in uartReadBuffer
                 }
             }
         }
