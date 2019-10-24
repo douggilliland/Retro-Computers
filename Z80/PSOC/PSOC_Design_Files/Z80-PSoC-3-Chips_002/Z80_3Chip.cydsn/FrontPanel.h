@@ -65,7 +65,7 @@
 void FrontPanelZ80Read(uint8);
 void FrontPanelZ80Write(uint8);
 void init_FrontPanel(void);
-void runFrontPanel(void);
+uint8 runFrontPanel(void);
 uint32 readFrontPanelSwitchesRegistered(void);
 uint32 waitFrontPanelSwitchesPressed();
 uint32 readFrontPanelSwitchesStatic(void);

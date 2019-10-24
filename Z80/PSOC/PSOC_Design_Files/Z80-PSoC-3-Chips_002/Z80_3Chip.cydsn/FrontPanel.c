@@ -112,13 +112,16 @@ void init_FrontPanel(void)
 //////////////////////////////////////////////////////////////////////////////////////
 // runFrontPanel()
 // Returns when run button is pressed on front panel
+// Return value 0 = Z80 is left in reset
+//              1 = Z80 is out of reset
 
-void runFrontPanel(void)
+uint8 runFrontPanel(void)
 {
     uint32 switchesVal = 0;
+
     LEDsVal = 0;
     
-    I2C_Start();
+//    I2C_Start();
     init_FrontPanel();
     // Bounce LEDs
     for (LEDsVal = 1; LEDsVal != 0; LEDsVal <<= 1)
@@ -165,7 +168,7 @@ void runFrontPanel(void)
                 ExtSRAMCtl_Control = 0;
                 LEDsVal = 0x08000000;
                 writeFrontPanelLEDs(LEDsVal);       // Leave Run LED on
-                return;
+                return (1);
             }
             else if ((switchesVal & 0x10000000) == 0x10000000)  // TBD
             {
@@ -195,7 +198,7 @@ void runFrontPanel(void)
             {
                 LEDsVal = 0x80000000;
                 writeFrontPanelLEDs(LEDsVal);       // Leave LED on
-                return;
+                return(0);                          // Z80 still in reset
             }
         }
         else    // Non-control switch was pressed

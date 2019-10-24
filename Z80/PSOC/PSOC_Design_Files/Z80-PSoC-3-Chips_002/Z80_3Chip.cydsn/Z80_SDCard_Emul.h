@@ -24,5 +24,11 @@ void    SDWriteLBA1(void);
 void    SDWriteLBA2(void);
 void    SdWriteLBA3(void);
 
+void readSDCard(uint32);
+void putStringToUSB(char *);
+void dumpBuffer(uint8 *);
+void SPI_write(uint8 charToWrite);
+void SD_command(unsigned char, unsigned long, unsigned char, unsigned char);
+    
 /* [] END OF FILE */
 #endif
