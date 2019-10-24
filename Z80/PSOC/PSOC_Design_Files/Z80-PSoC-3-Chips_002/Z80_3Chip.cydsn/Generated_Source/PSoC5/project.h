@@ -161,6 +161,7 @@
 #include "SPI_SS.h"
 #include "CPUA15_aliases.h"
 #include "CPUA15.h"
+#include "SPI_SS_Override.h"
 #include "USBUART_Dm_aliases.h"
 #include "USBUART_Dm.h"
 #include "USBUART_Dp_aliases.h"

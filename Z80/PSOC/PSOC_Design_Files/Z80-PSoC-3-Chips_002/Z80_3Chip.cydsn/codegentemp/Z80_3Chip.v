@@ -1,6 +1,6 @@
 // ======================================================================
 // Z80_3Chip.v generated from TopDesign.cysch
-// 10/23/2019 at 18:17
+// 10/24/2019 at 09:34
 // This file is auto generated. ANY EDITS YOU MAKE MAY BE LOST WHEN THIS FILE IS REGENERATED!!!
 // ======================================================================
 
@@ -938,18 +938,28 @@ endmodule
 module top ;
 
           wire  M1n;
+          wire  Net_1130;
+          wire  Net_1129;
+          wire  Net_1128;
+          wire  Net_1127;
+          wire [4:0] BNK;
+          wire  Net_1126;
+          wire  Net_1125;
+          wire  Net_1123;
+          wire  Net_1122;
+          wire  Net_1121;
           wire  Net_1002;
+          wire  ADR_OUT_0;
           wire  Net_1001;
           wire  Net_1000;
           wire  Net_999;
-          wire [4:0] BNK;
           wire  Net_998;
-          wire  Net_1006;
           wire  Net_931;
           wire  Net_916;
           wire  Net_915;
+          wire  PSoC_CLK;
           wire  Net_890;
-          wire  ADR_OUT_0;
+          wire  CPURDn;
           wire  Net_889;
           wire  Net_888;
           wire  Net_887;
@@ -957,15 +967,14 @@ module top ;
           wire  Net_837;
           wire [7:0] Net_831;
           wire  Net_830;
-          wire  PSoC_CLK;
           wire  Net_741;
-          wire  CPURDn;
           wire  Net_740;
           wire  Net_739;
           wire  Net_738;
           wire  Net_737;
           wire  Net_736;
           wire  Net_735;
+          wire  IORQn;
           wire  Net_734;
           wire  Net_733;
           wire  Net_732;
@@ -974,10 +983,10 @@ module top ;
           wire  Net_759;
           wire  Net_758;
           wire  Net_757;
-          wire  IORQn;
           wire  Net_756;
           wire  Net_755;
           wire  Net_754;
+          wire  CPUWRn;
           wire  Net_753;
           wire  Net_752;
           wire [7:0] Net_459;
@@ -986,7 +995,7 @@ module top ;
           wire  Net_456;
           wire  Net_455;
           wire  Net_937;
-          wire  CPUWRn;
+          wire [7:0] ZDO;
           wire  Net_315;
           wire  Net_314;
           wire  Net_313;
@@ -995,7 +1004,6 @@ module top ;
           wire  Net_310;
           wire  Net_309;
           wire  Net_308;
-          wire [7:0] ZDO;
           wire  Net_898;
           wire  Net_306;
           wire  Net_305;
@@ -1004,27 +1012,27 @@ module top ;
           wire  Net_812;
           wire  Net_811;
           wire  Net_366;
+          wire  DRV_RAM;
           wire  Net_838;
           wire  Net_839;
           wire  Net_731;
           wire  Net_730;
           wire  Net_729;
+          wire  SRAMREAD;
           wire  Net_728;
+          wire [7:0] SAR;
+          wire  SRAMWRITE;
           wire  Net_727;
           wire  Net_726;
-          wire  DRV_RAM;
+          wire  SRAMCS;
           wire  Net_725;
           wire  Net_724;
           wire  Net_723;
           wire  Net_722;
           wire  Net_156;
-          wire  SRAMREAD;
           wire  Net_155;
-          wire [7:0] SAR;
-          wire  SRAMWRITE;
           wire  Net_499;
           wire  Net_497;
-          wire  SRAMCS;
           wire  Net_496;
           wire  Net_495;
           wire  Net_494;
@@ -1044,15 +1052,19 @@ module top ;
           wire  Net_11;
           wire  Net_264;
           wire  Net_36;
+          wire [15:11] Z80A;
           wire  Net_263;
           wire  Net_35;
           wire  Net_34;
+          wire  Net_1116;
+          wire  Net_1117;
+          wire  Net_1120;
           wire  Net_1079;
           wire  Net_1028;
           wire  Net_1024;
           wire  Net_1021;
+          wire  BANKED;
           wire  Net_1018;
-          wire [15:11] Z80A;
           wire  Net_1111;
           wire  Net_1113;
           wire  Net_1104;
@@ -1061,9 +1073,9 @@ module top ;
           wire  Net_1106;
           wire  Net_1102;
           wire  Net_1033;
+          wire [5:0] MSK;
           wire  Net_1086;
           wire  Net_1069;
-          wire  BANKED;
           wire  Net_1068;
           wire  Net_1070;
           wire  Net_612;
@@ -1073,7 +1085,6 @@ module top ;
           wire  Net_1017;
           wire  Net_995;
           wire  Net_1005;
-          wire [5:0] MSK;
           wire  Net_997;
           wire  Net_823;
           wire  Net_825;
@@ -1086,6 +1097,7 @@ module top ;
           wire  Net_514;
           wire  Net_965;
           wire  Net_976;
+          wire  CPURES;
           wire  Net_509;
           wire  Net_513;
           wire  Net_467;
@@ -1098,7 +1110,6 @@ module top ;
           wire  Net_784;
           wire  Net_786;
           wire  Net_840;
-          wire  CPURES;
           wire  Net_894;
           wire  Net_485;
           wire  Net_896;
@@ -1107,6 +1118,7 @@ module top ;
           wire  Net_369;
           wire  Net_391;
           wire  Net_394;
+          wire  IOBUSY;
           wire  Net_389;
           wire  Net_395;
           wire  Net_343;
@@ -1114,12 +1126,12 @@ module top ;
           wire  Net_835;
           wire  Net_772;
           wire  Net_770;
+          wire  CLR_HALT;
           wire  Net_768;
           wire  Net_766;
           wire  Net_775;
           wire  Net_479;
           wire  Net_519;
-          wire  IOBUSY;
           wire  Net_522;
           wire  Net_488;
           wire  Net_397;
@@ -1127,7 +1139,6 @@ module top ;
           wire  Net_432;
           wire  Net_435;
           wire  Net_438;
-          wire  CLR_HALT;
           wire  Net_441;
           wire  Net_444;
           wire  Net_419;
@@ -5759,7 +5770,7 @@ module top ;
     SPI_Master_v2_50_3 SPI_Master (
         .mosi(Net_1005),
         .sclk(Net_995),
-        .ss(Net_1006),
+        .ss(Net_1116),
         .miso(Net_997),
         .clock(1'b0),
         .reset(1'b0),
@@ -6023,7 +6034,7 @@ module top ;
 		  .oe_sync(1'b0),
 		  .output_clk_en(0),
 		  .output_clock_mode(1'b0),
-		  .output_conn(1'b0),
+		  .output_conn(1'b1),
 		  .output_mode(1'b0),
 		  .output_reset(0),
 		  .output_sync(1'b0),
@@ -6056,7 +6067,7 @@ module top ;
 		  .input_buffer_sel(2'b00))
 		SPI_SS
 		 (.oe(tmpOE__SPI_SS_net),
-		  .y({1'b0}),
+		  .y({Net_1120}),
 		  .fb({tmpFB_0__SPI_SS_net[0:0]}),
 		  .io({tmpIO_0__SPI_SS_net[0:0]}),
 		  .siovref(tmpSIOVREF__SPI_SS_net),
@@ -6233,6 +6244,33 @@ module top ;
 
 
     assign Net_1111 = BANKED | DRV_RAM;
+
+
+    assign Net_1120 = Net_1116 | Net_1117;
+
+    CyControlReg_v1_80 SPI_SS_Override (
+        .control_1(Net_1121),
+        .control_2(Net_1122),
+        .control_3(Net_1123),
+        .control_0(Net_1117),
+        .control_4(Net_1125),
+        .control_5(Net_1126),
+        .control_6(Net_1127),
+        .control_7(Net_1128),
+        .clock(1'b0),
+        .reset(1'b0));
+    defparam SPI_SS_Override.Bit0Mode = 0;
+    defparam SPI_SS_Override.Bit1Mode = 0;
+    defparam SPI_SS_Override.Bit2Mode = 0;
+    defparam SPI_SS_Override.Bit3Mode = 0;
+    defparam SPI_SS_Override.Bit4Mode = 0;
+    defparam SPI_SS_Override.Bit5Mode = 0;
+    defparam SPI_SS_Override.Bit6Mode = 0;
+    defparam SPI_SS_Override.Bit7Mode = 0;
+    defparam SPI_SS_Override.BitValue = 0;
+    defparam SPI_SS_Override.BusDisplay = 0;
+    defparam SPI_SS_Override.ExtrReset = 0;
+    defparam SPI_SS_Override.NumOutputs = 1;
 
 
 

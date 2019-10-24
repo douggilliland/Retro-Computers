@@ -41,7 +41,7 @@
     void SDInit(void)
     {
         SPI_SS_SetDriveMode(SPI_SS_DM_STRONG);
-        SPI_SS_Write(1);                            // Set the Slave select line high
+        SPI_SS_Override_Write(1);                            // Set the Slave select line high
         SPI_Master_Start();
         // Send at least 74 clocks with SS and MOSI high
         for (uint8 loopCount = 0; loopCount < 10; loopCount++)
@@ -50,6 +50,8 @@
             SPI_Master_WriteTxData(0xff);
         }
         while((SPI_Master_ReadTxStatus() & SPI_Master_STS_TX_FIFO_EMPTY) == 0x0);
+        SPI_SS_Override_Write(0);                            // Allow the SPI_Master to control the SPI_SS line
+        // Initialize the Z80 interface
         SD_DataOut = 0x0;
         SD_DataIn = 0x0;
         SD_Status = 0x0;
