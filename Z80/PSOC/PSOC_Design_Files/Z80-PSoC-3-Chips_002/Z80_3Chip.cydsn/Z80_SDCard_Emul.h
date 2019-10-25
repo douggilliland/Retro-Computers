@@ -14,6 +14,8 @@
 
 #include <project.h>
 
+extern  volatile uint8 SD_Status;
+    
 void    SDInit(void);
 void    SDReadData(void);
 void    SDWriteData(void);
@@ -28,7 +30,9 @@ void readSDCard(uint32);
 void putStringToUSB(char *);
 void dumpBuffer(uint8 *);
 void SPI_write(uint8 charToWrite);
-void SD_command(unsigned char, unsigned long, unsigned char, unsigned char);
+uint8 SD_command(unsigned char, unsigned long, unsigned char, unsigned char);
+void SD_readSector(uint32, uint8 *);
+void SD_WriteSector(uint32, uint8 *);
     
 /* [] END OF FILE */
 #endif
