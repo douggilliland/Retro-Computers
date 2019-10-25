@@ -1,5 +1,3 @@
-#if !defined(EXTSRAM_H)
-#define EXTSRAM_H
 /* ========================================
  *
  * Copyright YOUR COMPANY, THE YEAR
@@ -12,6 +10,9 @@
  * ========================================
 */
     
+#if !defined(EXTSRAM_H)
+#define EXTSRAM_H
+
 #include <project.h>
 
 void SetExtSRAMAddr(uint32);

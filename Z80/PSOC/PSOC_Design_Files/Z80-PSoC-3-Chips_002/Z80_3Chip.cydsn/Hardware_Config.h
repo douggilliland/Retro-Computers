@@ -1,5 +1,3 @@
-#if !defined(HARDWARECONFIG_H)
-#define HARDWARECONFIG_H
 /* ========================================
  *
  * Copyright LAND BOARDS, LLC, 2019
@@ -11,6 +9,9 @@
  *
  * ========================================
 */
+
+#if !defined(HARDWARECONFIG_H)
+#define HARDWARECONFIG_H
 
 #include <project.h>
 

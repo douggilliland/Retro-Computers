@@ -1,5 +1,3 @@
-#if !defined(Z80SIOEMU_H)
-#define Z80SIOEMU_H
 /* ========================================
  *
  * Copyright LAND BOARDS, LLC, 2019
@@ -11,6 +9,9 @@
  *
  * ========================================
 */
+
+#if !defined(Z80SIOEMU_H)
+#define Z80SIOEMU_H
 
 #include <project.h>
 

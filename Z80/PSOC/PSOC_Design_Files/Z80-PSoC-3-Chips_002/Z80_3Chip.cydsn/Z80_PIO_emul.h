@@ -1,5 +1,3 @@
-#if !defined(Z80PIOEMU_H)
-#define Z80PIOEMU_H
 /* ========================================
  *
  * Copyright LAND BOARDS, LLC, 2019
@@ -12,6 +10,9 @@
  * ========================================
 */
 
+#if !defined(Z80PIOEMU_H)
+#define Z80PIOEMU_H
+    
 #include <project.h>
 
 #define PIO_OP_MODE_0       0x00 // Output

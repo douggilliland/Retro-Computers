@@ -1,5 +1,3 @@
-#if !defined(Z80SDCARDEMU_H)
-#define Z80SDCARDEMU_H
 /* ========================================
  *
  * Copyright LAND BOARDS, LLC, 2019
@@ -11,6 +9,9 @@
  *
  * ========================================
 */
+
+#if !defined(Z80SDCARDEMU_H)
+#define Z80SDCARDEMU_H
 
 #include <project.h>
 

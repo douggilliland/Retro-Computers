@@ -1,16 +1,18 @@
-#if !defined(SDCARD_H)
-#define SDCARD_H
 /* ========================================
  *
- * Copyright YOUR COMPANY, THE YEAR
+ * Copyright LAND BOARDS, LLC, 2019
  * All Rights Reserved
  * UNPUBLISHED, LICENSED SOFTWARE.
  *
  * CONFIDENTIAL AND PROPRIETARY INFORMATION
- * WHICH IS THE PROPERTY OF your company.
+ * WHICH IS THE PROPERTY OF Land Boards, LLC.
  *
  * ========================================
 */
+
+#if !defined(SDCARD_H)
+#define SDCARD_H
+    
 #include <project.h>
 
 extern    uint16 readPointer;

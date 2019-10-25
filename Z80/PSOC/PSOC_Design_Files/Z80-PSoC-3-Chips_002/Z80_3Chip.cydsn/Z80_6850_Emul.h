@@ -1,5 +1,3 @@
-#if !defined(Z806850EMU_H)
-#define Z806850EMU_H
 /* ========================================
  *
  * Copyright LAND BOARDS, LLC, 2019
@@ -12,6 +10,9 @@
  * ========================================
 */
 
+#if !defined(Z806850EMU_H)
+#define Z806850EMU_H
+    
 #include <project.h>
 
 void M6850ReadData(void);

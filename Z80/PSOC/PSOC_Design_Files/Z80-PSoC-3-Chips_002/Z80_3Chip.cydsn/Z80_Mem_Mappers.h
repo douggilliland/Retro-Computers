@@ -1,6 +1,3 @@
-#if !defined(Z80MEMMAPPERS_H)
-#define Z80MEMMAPPERS_H
-
 /* ========================================
  *
  * Copyright LAND BOARDS, LLC, 2019
@@ -12,6 +9,9 @@
  *
  * ========================================
 */
+
+#if !defined(Z80MEMMAPPERS_H)
+#define Z80MEMMAPPERS_H
 
 #include <project.h>
 
