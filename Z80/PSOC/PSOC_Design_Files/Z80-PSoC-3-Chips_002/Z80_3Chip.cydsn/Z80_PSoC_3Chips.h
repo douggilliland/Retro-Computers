@@ -13,6 +13,7 @@
 #include "ExtSRAM.h"
 #include "FrontPanel.h"
 #include "Hardware_Config.h"
+#include "SDCard.h"
 #include "Z80_6850_2_Emul.h"
 #include "Z80_6850_Emul.h"
 #include "Z80_IO_Handle.h"

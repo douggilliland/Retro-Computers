@@ -14,8 +14,22 @@
 
 #include <project.h>
 
-extern  volatile uint8 SD_Status;
-    
+//extern  volatile uint8 SD_Status;
+
+#define CMD12   0x4C
+#define CMD17   0x51
+#define CMD24   0x58
+#define CMD13   0x4D
+  
+extern    volatile uint8 SD_DataOut;
+extern    volatile uint8 SD_DataIn;
+extern    volatile uint8 SD_Status;
+extern    volatile uint8 SD_Command;
+extern    volatile uint8 SD_LBA0_Val;
+extern    volatile uint8 SD_LBA1_Val;
+extern    volatile uint8 SD_LBA2_Val;
+extern    volatile uint8 SD_LBA3_Val;
+
 void    SDInit(void);
 void    SDReadData(void);
 void    SDWriteData(void);
@@ -26,13 +40,6 @@ void    SDWriteLBA1(void);
 void    SDWriteLBA2(void);
 void    SdWriteLBA3(void);
 
-void readSDCard(uint32);
-void putStringToUSB(char *);
-void dumpBuffer(uint8 *);
-void SPI_write(uint8 charToWrite);
-uint8 SD_command(unsigned char, unsigned long, unsigned char, unsigned char);
-void SD_readSector(uint32, uint8 *);
-void SD_WriteSector(uint32, uint8 *);
     
 /* [] END OF FILE */
 #endif
