@@ -14,7 +14,6 @@
 // Routines to control SD and SDHC cards
 
 #include <project.h>
-#include "stdio.h"
 #include <Z80_PSoC_3Chips.h>
 
 #ifdef USING_SDCARD
@@ -27,6 +26,7 @@ volatile uint8 SD_LBA0_Val;
 volatile uint8 SD_LBA1_Val;
 volatile uint8 SD_LBA2_Val;
 volatile uint8 SD_LBA3_Val;
+volatile uint32 writeSectorNumber;
     
 ///////////////////////////////////////////////////////////////////////////////
 // void SDReadData(void)
@@ -47,10 +47,17 @@ void SDReadData(void)
     
 void SDWriteData(void)
 {
-    writeSDBuffer[writePointer++] = Z80_Data_Out_Read();
-    ackIO();
-    if (writePointer > 511)
-        writePointer = 511;
+    writeSDBuffer[writePointer++] = Z80_Data_Out_Read();    // put into the write buffer
+    if (writePointer == 512)    // triggger write after 512 bytes of data
+    {
+        SD_Status = 0x80;
+        SD_WriteSector(writeSectorNumber,writeSDBuffer);
+    }
+    else
+    {
+                SD_Status = 160;
+    }
+    ackIO();    // Freeze Z80 until block write is done
     return;
 }
 
@@ -62,21 +69,20 @@ void SDWriteData(void)
     
 void SDWriteCommand(void)
 {
-    uint32 secNum;
     SD_Command = Z80_Data_Out_Read();
     if (SD_Command == 0x00)
     {
         ackIO();
-        secNum = (SD_LBA3_Val << 24) | (SD_LBA2_Val << 16) | (SD_LBA1_Val << 8) | (SD_LBA0_Val);
+        uint32 secNum = (SD_LBA3_Val << 24) | (SD_LBA2_Val << 16) | (SD_LBA1_Val << 8) | (SD_LBA0_Val);
         SD_readSector(secNum,readSDBuffer);
         readPointer = 0;
         SD_Status = 224;
     }
     else if (SD_Command == 0x01)
     {
-        secNum = (SD_LBA3_Val << 24) | (SD_LBA2_Val << 16) | (SD_LBA1_Val << 8) | (SD_LBA0_Val);
-        SD_WriteSector(secNum,writeSDBuffer);
+        writePointer = 0;
         readPointer = 0;
+        writeSectorNumber = (SD_LBA3_Val << 24) | (SD_LBA2_Val << 16) | (SD_LBA1_Val << 8) | (SD_LBA0_Val);
         SD_Status = 160;
         ackIO();
     }
@@ -135,12 +141,6 @@ void    SDWriteLBA2(void)
     return;
 }
     
-void putStringToUSB(char * stringToPutOutUSB)
-{
-	USBUART_PutData((uint8 *)stringToPutOutUSB, strlen(stringToPutOutUSB));
-	while (0u == USBUART_CDCIsReady());
-}
-
 #endif
 
 /* [] END OF FILE */

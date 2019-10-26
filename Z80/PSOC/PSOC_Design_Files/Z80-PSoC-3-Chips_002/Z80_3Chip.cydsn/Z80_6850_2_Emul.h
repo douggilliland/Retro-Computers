@@ -15,6 +15,12 @@
     
 #include <project.h>
 
+#define SIO_CHAR_RDY                0x01
+#define M6850_INT_RTS_MASK          0x60
+#define M6850_RTS_LOW__INT_EN       0x20    // Not used by Grant's 7-chip code
+#define M6850_RTS_HI__INT_DIS       0x40
+#define M6850_RTS_LOW__INT_DIS_BK   0x60    // Not used by Grant's 7-chip code
+
 void M6850_2_ReadData(void);
 void M6850_2_WriteData(void);
 void M6850_2_ReadStatus(void);

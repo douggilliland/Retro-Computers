@@ -45,6 +45,9 @@
 //#undef GRANT_7_CHIP_Z80
 #define GRANT_FPGA_CPM
 //#undef GRANT_FPGA_CPM
+    
+#define RTC_DATA    0x60    // 96 dec
+#define RTC_CSR     0x61    // 97 dec
 
 // defines for building Grant Searle's 9-chip Z80 design
 #ifdef GRANT_9_CHIP_Z80

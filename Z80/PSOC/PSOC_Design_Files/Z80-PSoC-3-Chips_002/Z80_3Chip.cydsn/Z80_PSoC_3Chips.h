@@ -21,5 +21,9 @@
 #include "Z80_PIO_emul.h"
 #include "Z80_SDCard_Emul.h"
 #include "Z80_SIO_emul.h"
+#include "Z80_RTC.h"
+
+void PostLed(uint32);
+void putStringToUSB(char *);
 
 /* [] END OF FILE */

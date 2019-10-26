@@ -15,34 +15,8 @@
 #include <Z80_PSoC_3Chips.h>    // Combination of all of the .h Source file
 
 #define USBFS_DEVICE    (0u)
-
-/* The uartReadBuffer size is equal to the maximum packet size of the IN and OUT bulk
-* endpoints.
-*/
 #define USBUART_uartBuffer_SIZE (64u)
 #define LINE_STR_LENGTH     (20u)
-
-void putStringToUSB(char *);
-
-
-////////////////////////////////////////////////////////////////////////////
-// Function prototypes
-
-////////////////////////////////////////////////////////////////////////////
-// PostLed(postVal) - Blink the LED the number of times (postVal)
-
-void PostLed(uint32 postVal)
-{
-	uint32 blinkCount = postVal;
-	while(blinkCount > 0)
-	{
-		LED_Write(0);   // Turn on the LED
-		CyDelay(500);
-		LED_Write(1);   // Turn off the LED
-		CyDelay(250);
-		blinkCount--;   // loop as many times as the POST code
-	}
-}
 #define USBUART_Buffer_SIZE (64u)
 
 ////////////////////////////////////////////////////////////////////////////
@@ -51,16 +25,15 @@ void PostLed(uint32 postVal)
 int main(void)
 {
 	uint16 USB_To_Z80_RxBytes_count = 0;    
+	uint8 inBuffer[USBUART_Buffer_SIZE];
 	uint8 uartReadBuffer[USBUART_uartBuffer_SIZE];
-	uint16 uartReadBufferOff = 0;
+    uint16 uartReadBufferOff = 0;
 	uint32 postVal;
 	uint8 Z80Running;
 	uint16 inCount;
-	uint8 inBuffer[USBUART_Buffer_SIZE];
     uint32 sectorNumber = 0;
 	
-	/* Start USBFS operation with 5-V operation. */
-	USBUART_Start(USBFS_DEVICE, USBUART_5V_OPERATION);
+	USBUART_Start(USBFS_DEVICE, USBUART_5V_OPERATION);  // Start USBFS operation with 5-V operation.
 
 	#ifdef USING_FRONT_PANEL
 		I2C_Start();
@@ -74,6 +47,8 @@ int main(void)
 	#endif
 	
 	CyGlobalIntEnable;          /* Enable global interrupts. */
+    
+    init_Z80_RTC();
 	
 	// Do Power On Self Tests (POST)
 	// SRAM POST
@@ -81,18 +56,23 @@ int main(void)
 	PostLed(postVal+1);         // 1 blink = pass, more than 1 = fail
 	if (postVal != 0)
 		while(1);
-#ifdef USING_MEM_MAP_1
-	init_mem_map_1();           // Set up the address mapper
-#endif
+        
+    // Memory Map
+    #ifdef USING_MEM_MAP_1
+	    init_mem_map_1();           // Set up the address mapper
+    #endif
+    
+    // Load SRAM with BIOS image
 	loadSRAM();
 	
-	#ifdef USING_FRONT_PANEL
+	// Front Panel Initialization
+    #ifdef USING_FRONT_PANEL
 		Z80Running = runFrontPanel();            // Exits either by pressing EXitFrontPanel or RUN button on front panel
 	#else
 		ExtSRAMCtl_Control = 0;     // Auto Run if there's no Front Panel
 	#endif
 
-	if (Z80Running == 1)
+	if (Z80Running == 1)    // Z80 Running (RUN front panel switch pushed)
 	{
 		#ifdef USING_6850
 			initM6850StatusRegister();
@@ -102,8 +82,7 @@ int main(void)
 		#endif
 		for(;;)
 		{
-			/* Host can send double SET_INTERFACE request. */
-			if (0u != USBUART_IsConfigurationChanged())
+			if (0u != USBUART_IsConfigurationChanged()) // Host can send double SET_INTERFACE request.
 			{
 				/* Initialize IN endpoints when device is configured. */
 				if (0u != USBUART_GetConfiguration())
@@ -113,9 +92,7 @@ int main(void)
 					USBUART_CDC_Init();
 				}
 			}
-
-			/* Service USB CDC when device is configured. */
-			if (0u != USBUART_GetConfiguration())
+			if (0u != USBUART_GetConfiguration())       // Service USB CDC when device is configured.
 			{
 				/* Check for input data from host. */
 				/* Only do the check if the buffer is already empty */
@@ -130,7 +107,6 @@ int main(void)
 					}
 				}
 			}
-			
 			if (USB_To_Z80_RxBytes_count > 0)           // There are chars in the input uartReadBuffer (USB -> Z80)
 			{
 				if (checkSerialReceiverBusy() == 0)        // Check if receive uartReadBuffer can take another character
@@ -150,36 +126,27 @@ int main(void)
 			}
 		}
 	}
-	else        // Z80 is not running
+	else                    // Z80 is not running (EXFP front panel switch pushed)
 	{
 		while(1)
 		{
-			/* Host can send double SET_INTERFACE request. */
-			if (0u != USBUART_IsConfigurationChanged())
+			
+			if (0u != USBUART_IsConfigurationChanged()) // Host can send double SET_INTERFACE request
 			{
-				/* Initialize IN endpoints when device is configured. */
-				if (0u != USBUART_GetConfiguration())
+				if (0u != USBUART_GetConfiguration())   // Initialize IN endpoints when device is configured
 				{
-					/* Enumeration is done, enable OUT endpoint to receive data 
-					 * from host. */
-					USBUART_CDC_Init();
+					USBUART_CDC_Init();                 // Enumeration is done, enable OUT endpoint to receive data from host
 				}
 			}
-
-			/* Service USB CDC when device is configured. */
-			if (0u != USBUART_GetConfiguration())
+			
+			if (0u != USBUART_GetConfiguration())       // Service USB CDC when device is configured
 			{
-				/* Check for input data from host. */
-				/* Only do the check if the buffer is already empty */
-				if (0u != USBUART_DataIsReady())
+				if (0u != USBUART_DataIsReady())        // Check for input data from host
 				{
-				/* Read received data and re-enable OUT endpoint. */
-				inCount = USBUART_GetAll(inBuffer);
-
+				inCount = USBUART_GetAll(inBuffer);     // Read received data and re-enable OUT endpoint
 				if (0u != inCount)
 				{
-					/* Wait until component is ready to send data to host. */
-					while (0u == USBUART_CDCIsReady());
+					while (0u == USBUART_CDCIsReady()); // Wait until component is ready to send data to host
 					if ((inBuffer[0] == 'r') || (inBuffer[0] == 'R'))
 					{
 						putStringToUSB("Read from the SD Card\n\r");
@@ -192,20 +159,13 @@ int main(void)
 						putStringToUSB("R - Read SD Card\n\r");
 						putStringToUSB("? - Print this menu\n\r");
 					}
-					/* If the last sent packet is exactly the maximum packet 
-					*  size, it is followed by a zero-length packet to assure
-					*  that the end of the segment is properly identified by 
-					*  the terminal.
-					*/
+					/* If the last sent packet is exactly the maximum packet size, it is followed by a 
+                    zero-length packet to assure that the end of the segment is properly identified by 
+					*  the terminal. */
 					if (USBUART_Buffer_SIZE == inCount)
 					{
-						/* Wait until component is ready to send data to PC. */
-						while (0u == USBUART_CDCIsReady())
-						{
-						}
-
-						/* Send zero-length packet to PC. */
-						USBUART_PutData(NULL, 0u);
+						while (0u == USBUART_CDCIsReady()); // Wait until component is ready to send data to PC						
+						USBUART_PutData(NULL, 0u);          // Send zero-length packet to PC
 					}
 				}
 			}

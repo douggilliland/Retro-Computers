@@ -22,7 +22,6 @@ extern    uint8 readSDBuffer[512];
 extern    uint8 writeSDBuffer[512];
 
 void readSDCard(uint32);
-void putStringToUSB(char *);
 void dumpBuffer(uint8 *);
 void SPI_write(uint8 charToWrite);
 uint8 SD_command(unsigned char, unsigned long, unsigned char, unsigned char);

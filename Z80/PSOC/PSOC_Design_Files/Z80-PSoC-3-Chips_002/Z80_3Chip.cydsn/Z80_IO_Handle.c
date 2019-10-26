@@ -76,17 +76,27 @@ void HandleZ80IO(void)
             }
             break;
 #endif
-#ifdef USING_SDCARD
-        case SD_DATA:           // 0x88
+        case RTC_DATA:
             if (ioCrtlRegVal == REGULAR_READ_CYCLE)            // regular read cycle
             {
-                SDReadData();
+                readRTC();
             }
             else if (ioCrtlRegVal == REGULAR_WRITE_CYCLE)      // regular write cycle
             {
-                SDWriteData();
+                writeRTC();
             }
             break;
+        case RTC_CSR:
+            if (ioCrtlRegVal == REGULAR_READ_CYCLE)            // regular read cycle
+            {
+                readRTCCmd();
+            }
+            else if (ioCrtlRegVal == REGULAR_WRITE_CYCLE)      // regular write cycle
+            {
+                commandRTC();
+            }
+            break;
+#ifdef USING_SDCARD
         case SD_CONTROL: // 0x89 - write command also also includes read status
             if (ioCrtlRegVal == REGULAR_READ_CYCLE)            // regular read cycle
             {
@@ -95,6 +105,16 @@ void HandleZ80IO(void)
             else if (ioCrtlRegVal == REGULAR_WRITE_CYCLE)      // regular write cycle
             {
                 SDWriteCommand();
+            }
+            break;
+        case SD_DATA:           // 0x88
+            if (ioCrtlRegVal == REGULAR_READ_CYCLE)            // regular read cycle
+            {
+                SDReadData();
+            }
+            else if (ioCrtlRegVal == REGULAR_WRITE_CYCLE)      // regular write cycle
+            {
+                SDWriteData();
             }
             break;
         case SD_LBA0:    // 0x8A
