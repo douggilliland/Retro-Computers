@@ -91,6 +91,9 @@ void SDInit(void)
     SD_LBA1_Val = 0x0;
     SD_LBA2_Val = 0x0;
     SD_LBA3_Val = 0x0;
+    while ((SPI_Master_ReadTxStatus() & SPI_Master_STS_SPI_DONE) != SPI_Master_STS_SPI_DONE);
+    SPI_Master_ClearFIFO();
+    SPI_SS_Out_Write(1);
     SD_Status = 0x80;   // Set to SD card ready  
 }
 
