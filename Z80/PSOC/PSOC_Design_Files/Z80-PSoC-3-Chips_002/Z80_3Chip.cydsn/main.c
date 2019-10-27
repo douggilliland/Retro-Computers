@@ -10,7 +10,7 @@
  * ========================================
 */
 
-#include "project.h"            // all of the #includes from Cypress generated Hardware APIs
+#include "project.h"            // All of the #includes from Cypress generated Hardware APIs
 #include "stdio.h"              // sprintf needs this
 #include <Z80_PSoC_3Chips.h>    // Combination of all of the .h Source file
 
@@ -150,13 +150,30 @@ int main(void)
 					if ((inBuffer[0] == 'r') || (inBuffer[0] == 'R'))
 					{
 						putStringToUSB("Read from the SD Card\n\r");
-                        readSDCard(sectorNumber);
-                        sectorNumber++;
+                        readSDCard(0x200000);
+					}
+					if (inBuffer[0] == '1')
+					{
+						putStringToUSB("Read first sector from the SD Card\n\r");
+                        readSDCard(0x0);
+					}
+					else if ((inBuffer[0] == 'w') || (inBuffer[0] == 'W'))
+					{
+						putStringToUSB("Write to the SD Card\n\r");
+                        writeSDCard(0x200000);
+					}
+					else if ((inBuffer[0] == 'i') || (inBuffer[0] == 'I'))
+					{
+						putStringToUSB("Initialize the SD Card\n\r");
+                        SDInit();
 					}
 					else
 					{
 						putStringToUSB("\n\rLand Boards, LLC - Z80_PSoC monitor\n\r");
 						putStringToUSB("R - Read SD Card\n\r");
+						putStringToUSB("1 - Read first sector of the SD Card\n\r");
+						putStringToUSB("W - Write SD Card\n\r");
+						putStringToUSB("I - Initialize SD Card\n\r");
 						putStringToUSB("? - Print this menu\n\r");
 					}
 					/* If the last sent packet is exactly the maximum packet size, it is followed by a 

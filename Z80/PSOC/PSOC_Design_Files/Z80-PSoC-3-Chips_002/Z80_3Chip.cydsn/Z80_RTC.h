@@ -16,15 +16,15 @@
 #include <project.h>
 #include <Z80_PSoC_3Chips.h>
 
-    enum rtcStates 
+enum rtcStates 
 {
-    RTC_SEC,
-    RTC_MIN,
-    RTC_HR,
-    RTC_DAY,
-    RTC_MON,
-    RTC_YR_HI,
-    RTC_YR_LO
+    RTC_SEC,    // 0
+    RTC_MIN,    // 1
+    RTC_HR,     // 2
+    RTC_DAY,    // 3
+    RTC_MON,    // 4
+    RTC_YR_HI,  // 5
+    RTC_YR_LO   // 6
 };
 
 void init_Z80_RTC(void);

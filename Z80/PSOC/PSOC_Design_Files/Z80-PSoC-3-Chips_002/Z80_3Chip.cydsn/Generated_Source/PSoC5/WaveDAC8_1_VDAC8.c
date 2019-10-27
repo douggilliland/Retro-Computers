@@ -1,5 +1,5 @@
 /*******************************************************************************
-* File Name: VDAC8_1.c  
+* File Name: WaveDAC8_1_VDAC8.c  
 * Version 1.90
 *
 * Description:
@@ -18,25 +18,25 @@
 *******************************************************************************/
 
 #include "cytypes.h"
-#include "VDAC8_1.h"
+#include "WaveDAC8_1_VDAC8.h"
 
 #if (CY_PSOC5A)
 #include <CyLib.h>
 #endif /* CY_PSOC5A */
 
-uint8 VDAC8_1_initVar = 0u;
+uint8 WaveDAC8_1_VDAC8_initVar = 0u;
 
 #if (CY_PSOC5A)
-    static uint8 VDAC8_1_restoreVal = 0u;
+    static uint8 WaveDAC8_1_VDAC8_restoreVal = 0u;
 #endif /* CY_PSOC5A */
 
 #if (CY_PSOC5A)
-    static VDAC8_1_backupStruct VDAC8_1_backup;
+    static WaveDAC8_1_VDAC8_backupStruct WaveDAC8_1_VDAC8_backup;
 #endif /* CY_PSOC5A */
 
 
 /*******************************************************************************
-* Function Name: VDAC8_1_Init
+* Function Name: WaveDAC8_1_VDAC8_Init
 ********************************************************************************
 * Summary:
 *  Initialize to the schematic state.
@@ -52,32 +52,32 @@ uint8 VDAC8_1_initVar = 0u;
 * Side Effects:
 *
 *******************************************************************************/
-void VDAC8_1_Init(void) 
+void WaveDAC8_1_VDAC8_Init(void) 
 {
-    VDAC8_1_CR0 = (VDAC8_1_MODE_V );
+    WaveDAC8_1_VDAC8_CR0 = (WaveDAC8_1_VDAC8_MODE_V );
 
     /* Set default data source */
-    #if(VDAC8_1_DEFAULT_DATA_SRC != 0 )
-        VDAC8_1_CR1 = (VDAC8_1_DEFAULT_CNTL | VDAC8_1_DACBUS_ENABLE) ;
+    #if(WaveDAC8_1_VDAC8_DEFAULT_DATA_SRC != 0 )
+        WaveDAC8_1_VDAC8_CR1 = (WaveDAC8_1_VDAC8_DEFAULT_CNTL | WaveDAC8_1_VDAC8_DACBUS_ENABLE) ;
     #else
-        VDAC8_1_CR1 = (VDAC8_1_DEFAULT_CNTL | VDAC8_1_DACBUS_DISABLE) ;
-    #endif /* (VDAC8_1_DEFAULT_DATA_SRC != 0 ) */
+        WaveDAC8_1_VDAC8_CR1 = (WaveDAC8_1_VDAC8_DEFAULT_CNTL | WaveDAC8_1_VDAC8_DACBUS_DISABLE) ;
+    #endif /* (WaveDAC8_1_VDAC8_DEFAULT_DATA_SRC != 0 ) */
 
     /* Set default strobe mode */
-    #if(VDAC8_1_DEFAULT_STRB != 0)
-        VDAC8_1_Strobe |= VDAC8_1_STRB_EN ;
-    #endif/* (VDAC8_1_DEFAULT_STRB != 0) */
+    #if(WaveDAC8_1_VDAC8_DEFAULT_STRB != 0)
+        WaveDAC8_1_VDAC8_Strobe |= WaveDAC8_1_VDAC8_STRB_EN ;
+    #endif/* (WaveDAC8_1_VDAC8_DEFAULT_STRB != 0) */
 
     /* Set default range */
-    VDAC8_1_SetRange(VDAC8_1_DEFAULT_RANGE); 
+    WaveDAC8_1_VDAC8_SetRange(WaveDAC8_1_VDAC8_DEFAULT_RANGE); 
 
     /* Set default speed */
-    VDAC8_1_SetSpeed(VDAC8_1_DEFAULT_SPEED);
+    WaveDAC8_1_VDAC8_SetSpeed(WaveDAC8_1_VDAC8_DEFAULT_SPEED);
 }
 
 
 /*******************************************************************************
-* Function Name: VDAC8_1_Enable
+* Function Name: WaveDAC8_1_VDAC8_Enable
 ********************************************************************************
 * Summary:
 *  Enable the VDAC8
@@ -93,25 +93,25 @@ void VDAC8_1_Init(void)
 * Side Effects:
 *
 *******************************************************************************/
-void VDAC8_1_Enable(void) 
+void WaveDAC8_1_VDAC8_Enable(void) 
 {
-    VDAC8_1_PWRMGR |= VDAC8_1_ACT_PWR_EN;
-    VDAC8_1_STBY_PWRMGR |= VDAC8_1_STBY_PWR_EN;
+    WaveDAC8_1_VDAC8_PWRMGR |= WaveDAC8_1_VDAC8_ACT_PWR_EN;
+    WaveDAC8_1_VDAC8_STBY_PWRMGR |= WaveDAC8_1_VDAC8_STBY_PWR_EN;
 
     /*This is to restore the value of register CR0 ,
     which is modified  in Stop API , this prevents misbehaviour of VDAC */
     #if (CY_PSOC5A)
-        if(VDAC8_1_restoreVal == 1u) 
+        if(WaveDAC8_1_VDAC8_restoreVal == 1u) 
         {
-             VDAC8_1_CR0 = VDAC8_1_backup.data_value;
-             VDAC8_1_restoreVal = 0u;
+             WaveDAC8_1_VDAC8_CR0 = WaveDAC8_1_VDAC8_backup.data_value;
+             WaveDAC8_1_VDAC8_restoreVal = 0u;
         }
     #endif /* CY_PSOC5A */
 }
 
 
 /*******************************************************************************
-* Function Name: VDAC8_1_Start
+* Function Name: WaveDAC8_1_VDAC8_Start
 ********************************************************************************
 *
 * Summary:
@@ -126,29 +126,29 @@ void VDAC8_1_Enable(void)
 *  void 
 *
 * Global variables:
-*  VDAC8_1_initVar: Is modified when this function is called for the 
+*  WaveDAC8_1_VDAC8_initVar: Is modified when this function is called for the 
 *  first time. Is used to ensure that initialization happens only once.
 *
 *******************************************************************************/
-void VDAC8_1_Start(void)  
+void WaveDAC8_1_VDAC8_Start(void)  
 {
     /* Hardware initiazation only needs to occure the first time */
-    if(VDAC8_1_initVar == 0u)
+    if(WaveDAC8_1_VDAC8_initVar == 0u)
     { 
-        VDAC8_1_Init();
-        VDAC8_1_initVar = 1u;
+        WaveDAC8_1_VDAC8_Init();
+        WaveDAC8_1_VDAC8_initVar = 1u;
     }
 
     /* Enable power to DAC */
-    VDAC8_1_Enable();
+    WaveDAC8_1_VDAC8_Enable();
 
     /* Set default value */
-    VDAC8_1_SetValue(VDAC8_1_DEFAULT_DATA); 
+    WaveDAC8_1_VDAC8_SetValue(WaveDAC8_1_VDAC8_DEFAULT_DATA); 
 }
 
 
 /*******************************************************************************
-* Function Name: VDAC8_1_Stop
+* Function Name: WaveDAC8_1_VDAC8_Stop
 ********************************************************************************
 *
 * Summary:
@@ -165,24 +165,24 @@ void VDAC8_1_Start(void)
 * Side Effects:
 *
 *******************************************************************************/
-void VDAC8_1_Stop(void) 
+void WaveDAC8_1_VDAC8_Stop(void) 
 {
     /* Disble power to DAC */
-    VDAC8_1_PWRMGR &= (uint8)(~VDAC8_1_ACT_PWR_EN);
-    VDAC8_1_STBY_PWRMGR &= (uint8)(~VDAC8_1_STBY_PWR_EN);
+    WaveDAC8_1_VDAC8_PWRMGR &= (uint8)(~WaveDAC8_1_VDAC8_ACT_PWR_EN);
+    WaveDAC8_1_VDAC8_STBY_PWRMGR &= (uint8)(~WaveDAC8_1_VDAC8_STBY_PWR_EN);
 
     /* This is a work around for PSoC5A  ,
     this sets VDAC to current mode with output off */
     #if (CY_PSOC5A)
-        VDAC8_1_backup.data_value = VDAC8_1_CR0;
-        VDAC8_1_CR0 = VDAC8_1_CUR_MODE_OUT_OFF;
-        VDAC8_1_restoreVal = 1u;
+        WaveDAC8_1_VDAC8_backup.data_value = WaveDAC8_1_VDAC8_CR0;
+        WaveDAC8_1_VDAC8_CR0 = WaveDAC8_1_VDAC8_CUR_MODE_OUT_OFF;
+        WaveDAC8_1_VDAC8_restoreVal = 1u;
     #endif /* CY_PSOC5A */
 }
 
 
 /*******************************************************************************
-* Function Name: VDAC8_1_SetSpeed
+* Function Name: WaveDAC8_1_VDAC8_SetSpeed
 ********************************************************************************
 *
 * Summary:
@@ -199,16 +199,16 @@ void VDAC8_1_Stop(void)
 * Side Effects:
 *
 *******************************************************************************/
-void VDAC8_1_SetSpeed(uint8 speed) 
+void WaveDAC8_1_VDAC8_SetSpeed(uint8 speed) 
 {
     /* Clear power mask then write in new value */
-    VDAC8_1_CR0 &= (uint8)(~VDAC8_1_HS_MASK);
-    VDAC8_1_CR0 |=  (speed & VDAC8_1_HS_MASK);
+    WaveDAC8_1_VDAC8_CR0 &= (uint8)(~WaveDAC8_1_VDAC8_HS_MASK);
+    WaveDAC8_1_VDAC8_CR0 |=  (speed & WaveDAC8_1_VDAC8_HS_MASK);
 }
 
 
 /*******************************************************************************
-* Function Name: VDAC8_1_SetRange
+* Function Name: WaveDAC8_1_VDAC8_SetRange
 ********************************************************************************
 *
 * Summary:
@@ -225,16 +225,16 @@ void VDAC8_1_SetSpeed(uint8 speed)
 * Side Effects:
 *
 *******************************************************************************/
-void VDAC8_1_SetRange(uint8 range) 
+void WaveDAC8_1_VDAC8_SetRange(uint8 range) 
 {
-    VDAC8_1_CR0 &= (uint8)(~VDAC8_1_RANGE_MASK);      /* Clear existing mode */
-    VDAC8_1_CR0 |= (range & VDAC8_1_RANGE_MASK);      /*  Set Range  */
-    VDAC8_1_DacTrim();
+    WaveDAC8_1_VDAC8_CR0 &= (uint8)(~WaveDAC8_1_VDAC8_RANGE_MASK);      /* Clear existing mode */
+    WaveDAC8_1_VDAC8_CR0 |= (range & WaveDAC8_1_VDAC8_RANGE_MASK);      /*  Set Range  */
+    WaveDAC8_1_VDAC8_DacTrim();
 }
 
 
 /*******************************************************************************
-* Function Name: VDAC8_1_SetValue
+* Function Name: WaveDAC8_1_VDAC8_SetValue
 ********************************************************************************
 *
 * Summary:
@@ -251,25 +251,25 @@ void VDAC8_1_SetRange(uint8 range)
 * Side Effects:
 *
 *******************************************************************************/
-void VDAC8_1_SetValue(uint8 value) 
+void WaveDAC8_1_VDAC8_SetValue(uint8 value) 
 {
     #if (CY_PSOC5A)
-        uint8 VDAC8_1_intrStatus = CyEnterCriticalSection();
+        uint8 WaveDAC8_1_VDAC8_intrStatus = CyEnterCriticalSection();
     #endif /* CY_PSOC5A */
 
-    VDAC8_1_Data = value;                /*  Set Value  */
+    WaveDAC8_1_VDAC8_Data = value;                /*  Set Value  */
 
     /* PSOC5A requires a double write */
     /* Exit Critical Section */
     #if (CY_PSOC5A)
-        VDAC8_1_Data = value;
-        CyExitCriticalSection(VDAC8_1_intrStatus);
+        WaveDAC8_1_VDAC8_Data = value;
+        CyExitCriticalSection(WaveDAC8_1_VDAC8_intrStatus);
     #endif /* CY_PSOC5A */
 }
 
 
 /*******************************************************************************
-* Function Name: VDAC8_1_DacTrim
+* Function Name: WaveDAC8_1_VDAC8_DacTrim
 ********************************************************************************
 *
 * Summary:
@@ -286,12 +286,12 @@ void VDAC8_1_SetValue(uint8 value)
 * Side Effects:
 *
 *******************************************************************************/
-void VDAC8_1_DacTrim(void) 
+void WaveDAC8_1_VDAC8_DacTrim(void) 
 {
     uint8 mode;
 
-    mode = (uint8)((VDAC8_1_CR0 & VDAC8_1_RANGE_MASK) >> 2) + VDAC8_1_TRIM_M7_1V_RNG_OFFSET;
-    VDAC8_1_TR = CY_GET_XTND_REG8((uint8 *)(VDAC8_1_DAC_TRIM_BASE + mode));
+    mode = (uint8)((WaveDAC8_1_VDAC8_CR0 & WaveDAC8_1_VDAC8_RANGE_MASK) >> 2) + WaveDAC8_1_VDAC8_TRIM_M7_1V_RNG_OFFSET;
+    WaveDAC8_1_VDAC8_TR = CY_GET_XTND_REG8((uint8 *)(WaveDAC8_1_VDAC8_DAC_TRIM_BASE + mode));
 }
 
 

@@ -71,7 +71,6 @@ void readRTCCmd(void)
 void writeRTC(void)
 {
     uint16 year;
-    uint16 year2;
     uint8 wrVal = Z80_Data_Out_Read();
     
     switch (rtcState)

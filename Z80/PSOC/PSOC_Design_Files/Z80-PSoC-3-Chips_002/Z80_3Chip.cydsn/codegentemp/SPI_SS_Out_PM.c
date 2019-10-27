@@ -1,5 +1,5 @@
 /*******************************************************************************
-* File Name: SPI_SS_Override_PM.c
+* File Name: SPI_SS_Out_PM.c
 * Version 1.80
 *
 * Description:
@@ -15,16 +15,16 @@
 * the software package with which this file was provided.
 *******************************************************************************/
 
-#include "SPI_SS_Override.h"
+#include "SPI_SS_Out.h"
 
 /* Check for removal by optimization */
-#if !defined(SPI_SS_Override_Sync_ctrl_reg__REMOVED)
+#if !defined(SPI_SS_Out_Sync_ctrl_reg__REMOVED)
 
-static SPI_SS_Override_BACKUP_STRUCT  SPI_SS_Override_backup = {0u};
+static SPI_SS_Out_BACKUP_STRUCT  SPI_SS_Out_backup = {0u};
 
     
 /*******************************************************************************
-* Function Name: SPI_SS_Override_SaveConfig
+* Function Name: SPI_SS_Out_SaveConfig
 ********************************************************************************
 *
 * Summary:
@@ -37,14 +37,14 @@ static SPI_SS_Override_BACKUP_STRUCT  SPI_SS_Override_backup = {0u};
 *  None
 *
 *******************************************************************************/
-void SPI_SS_Override_SaveConfig(void) 
+void SPI_SS_Out_SaveConfig(void) 
 {
-    SPI_SS_Override_backup.controlState = SPI_SS_Override_Control;
+    SPI_SS_Out_backup.controlState = SPI_SS_Out_Control;
 }
 
 
 /*******************************************************************************
-* Function Name: SPI_SS_Override_RestoreConfig
+* Function Name: SPI_SS_Out_RestoreConfig
 ********************************************************************************
 *
 * Summary:
@@ -58,14 +58,14 @@ void SPI_SS_Override_SaveConfig(void)
 *
 *
 *******************************************************************************/
-void SPI_SS_Override_RestoreConfig(void) 
+void SPI_SS_Out_RestoreConfig(void) 
 {
-     SPI_SS_Override_Control = SPI_SS_Override_backup.controlState;
+     SPI_SS_Out_Control = SPI_SS_Out_backup.controlState;
 }
 
 
 /*******************************************************************************
-* Function Name: SPI_SS_Override_Sleep
+* Function Name: SPI_SS_Out_Sleep
 ********************************************************************************
 *
 * Summary:
@@ -78,14 +78,14 @@ void SPI_SS_Override_RestoreConfig(void)
 *  None
 *
 *******************************************************************************/
-void SPI_SS_Override_Sleep(void) 
+void SPI_SS_Out_Sleep(void) 
 {
-    SPI_SS_Override_SaveConfig();
+    SPI_SS_Out_SaveConfig();
 }
 
 
 /*******************************************************************************
-* Function Name: SPI_SS_Override_Wakeup
+* Function Name: SPI_SS_Out_Wakeup
 ********************************************************************************
 *
 * Summary:
@@ -98,9 +98,9 @@ void SPI_SS_Override_Sleep(void)
 *  None
 *
 *******************************************************************************/
-void SPI_SS_Override_Wakeup(void)  
+void SPI_SS_Out_Wakeup(void)  
 {
-    SPI_SS_Override_RestoreConfig();
+    SPI_SS_Out_RestoreConfig();
 }
 
 #endif /* End check for removal by optimization */

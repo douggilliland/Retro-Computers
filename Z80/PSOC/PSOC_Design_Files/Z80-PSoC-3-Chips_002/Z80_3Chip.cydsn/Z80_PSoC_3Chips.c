@@ -10,6 +10,9 @@
  * ========================================
 */
 
+////////////////////////////////////////////////////////////////////////////
+// General support functions for the Z80_PSOC card
+
 #include <project.h>
 #include "stdio.h"
 #include <Z80_PSoC_3Chips.h>

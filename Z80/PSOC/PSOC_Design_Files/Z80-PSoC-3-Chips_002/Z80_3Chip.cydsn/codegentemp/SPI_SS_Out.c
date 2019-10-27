@@ -1,5 +1,5 @@
 /*******************************************************************************
-* File Name: SPI_SS_Override.c  
+* File Name: SPI_SS_Out.c  
 * Version 1.80
 *
 * Description:
@@ -14,14 +14,14 @@
 * the software package with which this file was provided.
 *******************************************************************************/
 
-#include "SPI_SS_Override.h"
+#include "SPI_SS_Out.h"
 
 /* Check for removal by optimization */
-#if !defined(SPI_SS_Override_Sync_ctrl_reg__REMOVED)
+#if !defined(SPI_SS_Out_Sync_ctrl_reg__REMOVED)
 
     
 /*******************************************************************************
-* Function Name: SPI_SS_Override_Write
+* Function Name: SPI_SS_Out_Write
 ********************************************************************************
 *
 * Summary:
@@ -34,14 +34,14 @@
 *  None.
 *
 *******************************************************************************/
-void SPI_SS_Override_Write(uint8 control) 
+void SPI_SS_Out_Write(uint8 control) 
 {
-    SPI_SS_Override_Control = control;
+    SPI_SS_Out_Control = control;
 }
 
 
 /*******************************************************************************
-* Function Name: SPI_SS_Override_Read
+* Function Name: SPI_SS_Out_Read
 ********************************************************************************
 *
 * Summary:
@@ -54,9 +54,9 @@ void SPI_SS_Override_Write(uint8 control)
 *  Returns the current value in the Control Register.
 *
 *******************************************************************************/
-uint8 SPI_SS_Override_Read(void) 
+uint8 SPI_SS_Out_Read(void) 
 {
-    return SPI_SS_Override_Control;
+    return SPI_SS_Out_Control;
 }
 
 #endif /* End check for removal by optimization */

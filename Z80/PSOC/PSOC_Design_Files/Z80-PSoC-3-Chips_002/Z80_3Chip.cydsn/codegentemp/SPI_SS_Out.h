@@ -1,5 +1,5 @@
 /*******************************************************************************
-* File Name: SPI_SS_Override.h  
+* File Name: SPI_SS_Out.h  
 * Version 1.80
 *
 * Description:
@@ -14,8 +14,8 @@
 * the software package with which this file was provided.
 *******************************************************************************/
 
-#if !defined(CY_CONTROL_REG_SPI_SS_Override_H) /* CY_CONTROL_REG_SPI_SS_Override_H */
-#define CY_CONTROL_REG_SPI_SS_Override_H
+#if !defined(CY_CONTROL_REG_SPI_SS_Out_H) /* CY_CONTROL_REG_SPI_SS_Out_H */
+#define CY_CONTROL_REG_SPI_SS_Out_H
 
 #include "cyfitter.h"
 
@@ -37,20 +37,20 @@ typedef struct
 {
     uint8 controlState;
 
-} SPI_SS_Override_BACKUP_STRUCT;
+} SPI_SS_Out_BACKUP_STRUCT;
 
 
 /***************************************
 *         Function Prototypes 
 ***************************************/
 
-void    SPI_SS_Override_Write(uint8 control) ;
-uint8   SPI_SS_Override_Read(void) ;
+void    SPI_SS_Out_Write(uint8 control) ;
+uint8   SPI_SS_Out_Read(void) ;
 
-void SPI_SS_Override_SaveConfig(void) ;
-void SPI_SS_Override_RestoreConfig(void) ;
-void SPI_SS_Override_Sleep(void) ; 
-void SPI_SS_Override_Wakeup(void) ;
+void SPI_SS_Out_SaveConfig(void) ;
+void SPI_SS_Out_RestoreConfig(void) ;
+void SPI_SS_Out_Sleep(void) ; 
+void SPI_SS_Out_Wakeup(void) ;
 
 
 /***************************************
@@ -58,10 +58,10 @@ void SPI_SS_Override_Wakeup(void) ;
 ***************************************/
 
 /* Control Register */
-#define SPI_SS_Override_Control        (* (reg8 *) SPI_SS_Override_Sync_ctrl_reg__CONTROL_REG )
-#define SPI_SS_Override_Control_PTR    (  (reg8 *) SPI_SS_Override_Sync_ctrl_reg__CONTROL_REG )
+#define SPI_SS_Out_Control        (* (reg8 *) SPI_SS_Out_Sync_ctrl_reg__CONTROL_REG )
+#define SPI_SS_Out_Control_PTR    (  (reg8 *) SPI_SS_Out_Sync_ctrl_reg__CONTROL_REG )
 
-#endif /* End CY_CONTROL_REG_SPI_SS_Override_H */
+#endif /* End CY_CONTROL_REG_SPI_SS_Out_H */
 
 
 /* [] END OF FILE */

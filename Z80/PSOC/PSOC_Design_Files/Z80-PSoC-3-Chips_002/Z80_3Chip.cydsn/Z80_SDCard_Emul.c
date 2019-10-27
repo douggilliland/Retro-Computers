@@ -29,36 +29,39 @@ volatile uint8 SD_LBA3_Val;
 volatile uint32 writeSectorNumber;
     
 ///////////////////////////////////////////////////////////////////////////////
-// void SDReadData(void)
+// void SDReadData(void) - Read the data from the Z80 one byte at a time
 // SD_DATA		.EQU	$88
 
 void SDReadData(void)
 {
     Z80_Data_In_Write(readSDBuffer[readPointer++]);
     if (readPointer == 512)
-        SD_Status = 0x80;   // Read the last byte
+    {
+        SD_Status = SD_CARD_READY;   // Read the last byte
+        readPointer = 0;
+    }
     ackIO();
-    return;
 }
 
 ///////////////////////////////////////////////////////////////////////////////
 // void CFWriteData(void)
 // SD_DATA		.EQU	$88
-    
+// The write of the 512th byte to the SD card holds the CPU in WAIT until done
+
 void SDWriteData(void)
 {
-    writeSDBuffer[writePointer++] = Z80_Data_Out_Read();    // put into the write buffer
+    if (writePointer < 512)
+    {
+        writeSDBuffer[writePointer++] = Z80_Data_Out_Read();    // put into the write buffer
+        SD_Status = SD_CARD_TX_RDY;
+    }
     if (writePointer == 512)    // triggger write after 512 bytes of data
     {
-        SD_Status = 0x80;
         SD_WriteSector(writeSectorNumber,writeSDBuffer);
-    }
-    else
-    {
-                SD_Status = 160;
+        writePointer = 0;   // reset the write pointer when done
+        SD_Status = SD_CARD_READY;
     }
     ackIO();    // Freeze Z80 until block write is done
-    return;
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -70,15 +73,15 @@ void SDWriteData(void)
 void SDWriteCommand(void)
 {
     SD_Command = Z80_Data_Out_Read();
-    if (SD_Command == 0x00)
+    if (SD_Command == 0x00)         // Read command
     {
         ackIO();
         uint32 secNum = (SD_LBA3_Val << 24) | (SD_LBA2_Val << 16) | (SD_LBA1_Val << 8) | (SD_LBA0_Val);
-        SD_readSector(secNum,readSDBuffer);
+        SD_ReadSector(secNum,readSDBuffer);
+        SD_Status = SD_CARD_RX_READY;
         readPointer = 0;
-        SD_Status = 224;
     }
-    else if (SD_Command == 0x01)
+    else if (SD_Command == 0x01)    // Write command
     {
         writePointer = 0;
         readPointer = 0;
