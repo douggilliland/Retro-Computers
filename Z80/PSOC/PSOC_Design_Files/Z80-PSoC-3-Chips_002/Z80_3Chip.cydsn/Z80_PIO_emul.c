@@ -1,13 +1,13 @@
 /* ========================================
- *
- * Copyright LAND BOARDS, LLC, 2019
- * All Rights Reserved
- * UNPUBLISHED, LICENSED SOFTWARE.
- *
- * CONFIDENTIAL AND PROPRIETARY INFORMATION
- * WHICH IS THE PROPERTY OF Land Boards, LLC.
- *
- * ========================================
+*
+* Copyright LAND BOARDS, LLC, 2019
+* All Rights Reserved
+* UNPUBLISHED, LICENSED SOFTWARE.
+*
+* CONFIDENTIAL AND PROPRIETARY INFORMATION
+* WHICH IS THE PROPERTY OF Land Boards, LLC.
+*
+* ========================================
 */
 
 #include <project.h>
@@ -25,32 +25,32 @@ volatile uint8 PIO_Output_Register_Port_1;
 
 void PioReadDataA(void)
 {
-    
+	
 }
 
 void PioWriteDataA(void)
 {
-    
+	
 }
 
 void PioWriteCtrlA(void)
 {
-    
+	
 }
 
 void PioReadDataB(void)
 {
-    
+	
 }
 
 void PioWriteDataB(void)
 {
-    
+	
 }
 
 void PioWriteCtrlB(void)
 {
-    
+	
 }
 
 /* [] END OF FILE */

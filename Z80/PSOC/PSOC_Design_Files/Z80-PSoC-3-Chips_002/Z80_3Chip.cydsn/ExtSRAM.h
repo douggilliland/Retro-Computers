@@ -1,15 +1,15 @@
 /* ========================================
- *
- * Copyright YOUR COMPANY, THE YEAR
- * All Rights Reserved
- * UNPUBLISHED, LICENSED SOFTWARE.
- *
- * CONFIDENTIAL AND PROPRIETARY INFORMATION
- * WHICH IS THE PROPERTY OF your company.
- *
- * ========================================
+*
+* Copyright YOUR COMPANY, THE YEAR
+* All Rights Reserved
+* UNPUBLISHED, LICENSED SOFTWARE.
+*
+* CONFIDENTIAL AND PROPRIETARY INFORMATION
+* WHICH IS THE PROPERTY OF your company.
+*
+* ========================================
 */
-    
+
 #if !defined(EXTSRAM_H)
 #define EXTSRAM_H
 

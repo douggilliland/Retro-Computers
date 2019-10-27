@@ -49,6 +49,8 @@ int main(void)
 	CyGlobalIntEnable;          /* Enable global interrupts. */
     
     init_Z80_RTC();
+    
+    init_DAC();
 	
 	// Do Power On Self Tests (POST)
 	// SRAM POST

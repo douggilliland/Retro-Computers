@@ -1,13 +1,13 @@
 /* ========================================
- *
- * Copyright LAND BOARDS, LLC, 2019
- * All Rights Reserved
- * UNPUBLISHED, LICENSED SOFTWARE.
- *
- * CONFIDENTIAL AND PROPRIETARY INFORMATION
- * WHICH IS THE PROPERTY OF LAND BOARDS, LLC.
- *
- * ========================================
+*
+* Copyright LAND BOARDS, LLC, 2019
+* All Rights Reserved
+* UNPUBLISHED, LICENSED SOFTWARE.
+*
+* CONFIDENTIAL AND PROPRIETARY INFORMATION
+* WHICH IS THE PROPERTY OF LAND BOARDS, LLC.
+*
+* ========================================
 */
 
 ////////////////////////////////////////////////////////////////////////////
@@ -61,9 +61,9 @@ extern const unsigned char gs_fpga_basic_eeprom[];
 
 void SetExtSRAMAddr(uint32 addr)
 {
-    AdrLowOut_Control = addr & 0xff;        // bottom 8-bits of the address A0..A7
-    AdrMidOut_Control = (addr>>8) & 0x7;
-    AdrHighOut_Control = (addr>>11) & 0xFF;
+	AdrLowOut_Control = addr & 0xff;        // bottom 8-bits of the address A0..A7
+	AdrMidOut_Control = (addr>>8) & 0x7;
+	AdrHighOut_Control = (addr>>11) & 0xFF;
 }
 
 ////////////////////////////////////////////////////////////////////////////
@@ -72,13 +72,13 @@ void SetExtSRAMAddr(uint32 addr)
 
 uint8 ReadExtSRAM(uint32 addr)
 {
-    uint8 rdVal;
-    SetExtSRAMAddr(addr);
-    ExtSRAMCtl_Control = (CPURESET_BIT | DRVRAM_BIT | SRAMRD_BIT);               // Set R/W* to Read
-    ExtSRAMCtl_Control = (CPURESET_BIT | DRVRAM_BIT | SRAMRD_BIT | SRAMCS_BIT);  // Assert SRAMCS
-    rdVal = Z80_Data_Out_Status;
-    ExtSRAMCtl_Control = (CPURESET_BIT | DRVRAM_BIT);                            // Remove SRAMCS
-    return(rdVal);
+	uint8 rdVal;
+	SetExtSRAMAddr(addr);
+	ExtSRAMCtl_Control = (CPURESET_BIT | DRVRAM_BIT | SRAMRD_BIT);               // Set R/W* to Read
+	ExtSRAMCtl_Control = (CPURESET_BIT | DRVRAM_BIT | SRAMRD_BIT | SRAMCS_BIT);  // Assert SRAMCS
+	rdVal = Z80_Data_Out_Status;
+	ExtSRAMCtl_Control = (CPURESET_BIT | DRVRAM_BIT);                            // Remove SRAMCS
+	return(rdVal);
 }
 
 ////////////////////////////////////////////////////////////////////////////
@@ -87,11 +87,11 @@ uint8 ReadExtSRAM(uint32 addr)
 
 void WriteExtSRAM(uint32 addr, uint8 data)
 {
-    SetExtSRAMAddr(addr);
-    ExtSRAMCtl_Control = (CPURESET_BIT | DRVRAM_BIT | SRAMWR_BIT);               // Set R/W* to Write
-    Z80_Data_In_Control = data;                                                // Provide value to SRAM data bus
-    ExtSRAMCtl_Control = (CPURESET_BIT | DRVRAM_BIT | SRAMWR_BIT | SRAMCS_BIT);  // Assert SRAMCSn
-    ExtSRAMCtl_Control = (CPURESET_BIT | DRVRAM_BIT);                            // De-assert SRAMCSn, Set to read
+	SetExtSRAMAddr(addr);
+	ExtSRAMCtl_Control = (CPURESET_BIT | DRVRAM_BIT | SRAMWR_BIT);               // Set R/W* to Write
+	Z80_Data_In_Control = data;                                                // Provide value to SRAM data bus
+	ExtSRAMCtl_Control = (CPURESET_BIT | DRVRAM_BIT | SRAMWR_BIT | SRAMCS_BIT);  // Assert SRAMCSn
+	ExtSRAMCtl_Control = (CPURESET_BIT | DRVRAM_BIT);                            // De-assert SRAMCSn, Set to read
 }
 
 ////////////////////////////////////////////////////////////////////////////
@@ -110,48 +110,48 @@ void WriteExtSRAM(uint32 addr, uint8 data)
 
 uint32 TestSRAM(void)
 {
-    volatile uint32 sramAddr;
-    volatile uint8 sramData;
-    volatile uint8 sramReadData;
-    ExtSRAMCtl_Control = (CPURESET_BIT | DRVRAM_BIT);              // Z80 in reset, SRAM deselected, DRV_RAM asserted
-    // Do a single write/read of the first location as a quick test
-    WriteExtSRAM(0x0,0x55);             // Write 0x55 to the SRAM
-    if (ReadExtSRAM(0x0) != 0x55)       // Read the SRAM
-        return(POST_FAILED_SINGLE_LOCATION_TEST);   // Post failed
-    // Write/read a data ramp to exercise address lines (step in address bits)
-    sramData = 1;
-    for (sramAddr = 1; sramAddr < 0x80000; sramAddr <<= 1)
-    {
-        WriteExtSRAM(sramAddr,sramData);
-        sramData++;
-    }
-    // Bounce a one across the address lines to test all 512KB
-    sramData = 1;
-    for (sramAddr = 1; sramAddr < 0x80000; sramAddr <<= 1)
-    {
-        sramReadData = ReadExtSRAM(sramAddr);
-        if (sramReadData != sramData)
-            return(POST_FAILED_ADDRESS_RAMP);
-        sramData++;
-    }
-    // Fill all of the SRAM with data = bottom of 8 bits of address
-    sramData = 0;
-    for (sramAddr = 0; sramAddr < 0x80000; sramAddr++)
-    {
-        WriteExtSRAM(sramAddr,sramData);
-        sramData++;
-    }
-    // Verify the SRAM has data=address
-    sramData = 0;
-    for (sramAddr = 0; sramAddr < 0x80000; sramAddr++)
-    {
-        sramReadData = ReadExtSRAM(sramAddr);
-        if (sramReadData != sramData)
-            return(POST_FAILED_TEST_ALL_RAM);
-        sramData++;
-    }
-    ExtSRAMCtl_Control = (CPURESET_BIT);              // Leave Z80 in reset
-    return(POST_PASSED);
+	volatile uint32 sramAddr;
+	volatile uint8 sramData;
+	volatile uint8 sramReadData;
+	ExtSRAMCtl_Control = (CPURESET_BIT | DRVRAM_BIT);              // Z80 in reset, SRAM deselected, DRV_RAM asserted
+	// Do a single write/read of the first location as a quick test
+	WriteExtSRAM(0x0,0x55);             // Write 0x55 to the SRAM
+	if (ReadExtSRAM(0x0) != 0x55)       // Read the SRAM
+	return(POST_FAILED_SINGLE_LOCATION_TEST);   // Post failed
+	// Write/read a data ramp to exercise address lines (step in address bits)
+	sramData = 1;
+	for (sramAddr = 1; sramAddr < 0x80000; sramAddr <<= 1)
+	{
+		WriteExtSRAM(sramAddr,sramData);
+		sramData++;
+	}
+	// Bounce a one across the address lines to test all 512KB
+	sramData = 1;
+	for (sramAddr = 1; sramAddr < 0x80000; sramAddr <<= 1)
+	{
+		sramReadData = ReadExtSRAM(sramAddr);
+		if (sramReadData != sramData)
+		return(POST_FAILED_ADDRESS_RAMP);
+		sramData++;
+	}
+	// Fill all of the SRAM with data = bottom of 8 bits of address
+	sramData = 0;
+	for (sramAddr = 0; sramAddr < 0x80000; sramAddr++)
+	{
+		WriteExtSRAM(sramAddr,sramData);
+		sramData++;
+	}
+	// Verify the SRAM has data=address
+	sramData = 0;
+	for (sramAddr = 0; sramAddr < 0x80000; sramAddr++)
+	{
+		sramReadData = ReadExtSRAM(sramAddr);
+		if (sramReadData != sramData)
+		return(POST_FAILED_TEST_ALL_RAM);
+		sramData++;
+	}
+	ExtSRAMCtl_Control = (CPURESET_BIT);              // Leave Z80 in reset
+	return(POST_PASSED);
 }
 
 ////////////////////////////////////////////////////////////////////////////
@@ -160,23 +160,23 @@ uint32 TestSRAM(void)
 
 void loadSRAM(void)
 {
-    uint32 charCount;
-    uint32 SRAMAddr = MONITOR_START;
-    volatile uint8 dataVal;
-    for (charCount = 0; charCount < MONITOR_LENGTH; charCount++)
-    {
+	uint32 charCount;
+	uint32 SRAMAddr = MONITOR_START;
+	volatile uint8 dataVal;
+	for (charCount = 0; charCount < MONITOR_LENGTH; charCount++)
+	{
 #ifdef GRANT_9_CHIP_Z80
-        dataVal = monitor_basic_eprom[charCount];
+		dataVal = monitor_basic_eprom[charCount];
 #endif
 #ifdef GRANT_7_CHIP_Z80
-        dataVal = gs7chip_basic_eeprom[charCount];
+		dataVal = gs7chip_basic_eeprom[charCount];
 #endif
 #ifdef GRANT_FPGA_CPM
-        dataVal = gs_fpga_basic_eeprom[charCount];
+		dataVal = gs_fpga_basic_eeprom[charCount];
 #endif
-        WriteExtSRAM(SRAMAddr,dataVal);
-        SRAMAddr++;
-    }
+		WriteExtSRAM(SRAMAddr,dataVal);
+		SRAMAddr++;
+	}
 }
 
 

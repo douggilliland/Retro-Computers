@@ -22,6 +22,7 @@
 #include "Z80_SDCard_Emul.h"
 #include "Z80_SIO_emul.h"
 #include "Z80_RTC.h"
+#include "Z80_DAC.h"
 
 void PostLed(uint32);
 void putStringToUSB(char *);

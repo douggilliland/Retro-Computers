@@ -1,5 +1,5 @@
 /*******************************************************************************
-* File Name: DAC_OUT.h  
+* File Name: DAC_Out.h  
 * Version 2.20
 *
 * Description:
@@ -15,8 +15,8 @@
 * the software package with which this file was provided.
 *******************************************************************************/
 
-#if !defined(CY_PINS_DAC_OUT_ALIASES_H) /* Pins DAC_OUT_ALIASES_H */
-#define CY_PINS_DAC_OUT_ALIASES_H
+#if !defined(CY_PINS_DAC_Out_ALIASES_H) /* Pins DAC_Out_ALIASES_H */
+#define CY_PINS_DAC_Out_ALIASES_H
 
 #include "cytypes.h"
 #include "cyfitter.h"
@@ -25,12 +25,12 @@
 /***************************************
 *              Constants        
 ***************************************/
-#define DAC_OUT_0			(DAC_OUT__0__PC)
-#define DAC_OUT_0_INTR	((uint16)((uint16)0x0001u << DAC_OUT__0__SHIFT))
+#define DAC_Out_0			(DAC_Out__0__PC)
+#define DAC_Out_0_INTR	((uint16)((uint16)0x0001u << DAC_Out__0__SHIFT))
 
-#define DAC_OUT_INTR_ALL	 ((uint16)(DAC_OUT_0_INTR))
+#define DAC_Out_INTR_ALL	 ((uint16)(DAC_Out_0_INTR))
 
-#endif /* End Pins DAC_OUT_ALIASES_H */
+#endif /* End Pins DAC_Out_ALIASES_H */
 
 
 /* [] END OF FILE */

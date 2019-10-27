@@ -1,13 +1,13 @@
 /* ========================================
- *
- * Copyright LAND BOARDS, LLC, 2019
- * All Rights Reserved
- * UNPUBLISHED, LICENSED SOFTWARE.
- *
- * CONFIDENTIAL AND PROPRIETARY INFORMATION
- * WHICH IS THE PROPERTY OF LAND BOARDS, LLC.
- *
- * ========================================
+*
+* Copyright LAND BOARDS, LLC, 2019
+* All Rights Reserved
+* UNPUBLISHED, LICENSED SOFTWARE.
+*
+* CONFIDENTIAL AND PROPRIETARY INFORMATION
+* WHICH IS THE PROPERTY OF LAND BOARDS, LLC.
+*
+* ========================================
 */
 
 #if !defined(HARDWARECONFIG_H)
@@ -45,9 +45,12 @@
 //#undef GRANT_7_CHIP_Z80
 #define GRANT_FPGA_CPM
 //#undef GRANT_FPGA_CPM
-    
+
 #define RTC_DATA    0x60    // 96 dec
 #define RTC_CSR     0x61    // 97 dec
+
+#define DAC_DATA    0x62    // 98 dec
+#define DAC_CSR     0x63    // 99 dec
 
 // defines for building Grant Searle's 9-chip Z80 design
 #ifdef GRANT_9_CHIP_Z80
@@ -55,10 +58,10 @@
     #define MONITOR_LENGTH      0x00004000      // 16K build
     // I/O Space Address Map follow
     #define USING_SIO
-        #define SIOA_D          0x00
-        #define SIOA_C          0x02
-        #define SIOB_D          0x01
-        #define SIOB_C          0x03
+    #define SIOA_D          0x00
+    #define SIOA_C          0x02
+    #define SIOB_D          0x01
+    #define SIOB_C          0x03
     #define USING_SDCARD
     #ifdef USING_SDCARD
         #define CF_DATA             0x10
@@ -91,8 +94,8 @@
     #define MONITOR_LENGTH      0x00002000      // 8K build
     // I/O Space Address Map follow
     #define USING_6850
-        #define M6850_C              0x80       // Control/Status register
-        #define M6850_D              0x81       // Data
+    #define M6850_C              0x80       // Control/Status register
+    #define M6850_D              0x81       // Data
     #ifdef USING_FRONT_PANEL
         #define FR_PNL_IO_LO        0x18    // decimal 24
         #define FR_PNL_IO_LO_MID    0x19    // decimal 25
@@ -114,11 +117,11 @@
     #define MONITOR_LENGTH      0x00002000      // 8K build
     // I/O Space Address Map follow
     #define USING_6850
-        #define M6850_C              0x80       // Control/Status register
-        #define M6850_D              0x81       // Data
+    #define M6850_C              0x80       // Control/Status register
+    #define M6850_D              0x81       // Data
     #define USING_6850_2
-        #define M6850_2_C            0x82       // Control/Status register - 2nd 6850 part (faked)
-        #define M6850_2_D            0x83       // Data
+    #define M6850_2_C            0x82       // Control/Status register - 2nd 6850 part (faked)
+    #define M6850_2_D            0x83       // Data
     #ifdef USING_FRONT_PANEL
         #define FR_PNL_IO_LO        0x18    // decimal 24
         #define FR_PNL_IO_LO_MID    0x19    // decimal 25
@@ -138,6 +141,7 @@
         #define SD_LBA1		        0x8B
         #define SD_LBA2		        0x8C
     #endif
+    
     #ifdef USING_EXP_MCCP23017
         #define PIOA_D              0x20
         #define PIOA_C              0x22

@@ -1,5 +1,5 @@
 /*******************************************************************************
-* File Name: DAC_OUT.c  
+* File Name: DAC_Out.c  
 * Version 2.20
 *
 * Description:
@@ -15,15 +15,15 @@
 *******************************************************************************/
 
 #include "cytypes.h"
-#include "DAC_OUT.h"
+#include "DAC_Out.h"
 
 /* APIs are not generated for P15[7:6] on PSoC 5 */
 #if !(CY_PSOC5A &&\
-	 DAC_OUT__PORT == 15 && ((DAC_OUT__MASK & 0xC0) != 0))
+	 DAC_Out__PORT == 15 && ((DAC_Out__MASK & 0xC0) != 0))
 
 
 /*******************************************************************************
-* Function Name: DAC_OUT_Write
+* Function Name: DAC_Out_Write
 ****************************************************************************//**
 *
 * \brief Writes the value to the physical port (data output register), masking
@@ -52,17 +52,17 @@
 *  this function.
 *
 * \funcusage
-*  \snippet DAC_OUT_SUT.c usage_DAC_OUT_Write
+*  \snippet DAC_Out_SUT.c usage_DAC_Out_Write
 *******************************************************************************/
-void DAC_OUT_Write(uint8 value)
+void DAC_Out_Write(uint8 value)
 {
-    uint8 staticBits = (DAC_OUT_DR & (uint8)(~DAC_OUT_MASK));
-    DAC_OUT_DR = staticBits | ((uint8)(value << DAC_OUT_SHIFT) & DAC_OUT_MASK);
+    uint8 staticBits = (DAC_Out_DR & (uint8)(~DAC_Out_MASK));
+    DAC_Out_DR = staticBits | ((uint8)(value << DAC_Out_SHIFT) & DAC_Out_MASK);
 }
 
 
 /*******************************************************************************
-* Function Name: DAC_OUT_SetDriveMode
+* Function Name: DAC_Out_SetDriveMode
 ****************************************************************************//**
 *
 * \brief Sets the drive mode for each of the Pins component's pins.
@@ -85,16 +85,16 @@ void DAC_OUT_Write(uint8 value)
 *  APIs (primary method) or disable interrupts around this function.
 *
 * \funcusage
-*  \snippet DAC_OUT_SUT.c usage_DAC_OUT_SetDriveMode
+*  \snippet DAC_Out_SUT.c usage_DAC_Out_SetDriveMode
 *******************************************************************************/
-void DAC_OUT_SetDriveMode(uint8 mode)
+void DAC_Out_SetDriveMode(uint8 mode)
 {
-	CyPins_SetPinDriveMode(DAC_OUT_0, mode);
+	CyPins_SetPinDriveMode(DAC_Out_0, mode);
 }
 
 
 /*******************************************************************************
-* Function Name: DAC_OUT_Read
+* Function Name: DAC_Out_Read
 ****************************************************************************//**
 *
 * \brief Reads the associated physical port (pin status register) and masks 
@@ -108,16 +108,16 @@ void DAC_OUT_SetDriveMode(uint8 mode)
 *  The current value for the pins in the component as a right justified number.
 *
 * \funcusage
-*  \snippet DAC_OUT_SUT.c usage_DAC_OUT_Read  
+*  \snippet DAC_Out_SUT.c usage_DAC_Out_Read  
 *******************************************************************************/
-uint8 DAC_OUT_Read(void)
+uint8 DAC_Out_Read(void)
 {
-    return (DAC_OUT_PS & DAC_OUT_MASK) >> DAC_OUT_SHIFT;
+    return (DAC_Out_PS & DAC_Out_MASK) >> DAC_Out_SHIFT;
 }
 
 
 /*******************************************************************************
-* Function Name: DAC_OUT_ReadDataReg
+* Function Name: DAC_Out_ReadDataReg
 ****************************************************************************//**
 *
 * \brief Reads the associated physical port's data output register and masks 
@@ -126,8 +126,8 @@ uint8 DAC_OUT_Read(void)
 *
 * The data output register controls the signal applied to the physical pin in 
 * conjunction with the drive mode parameter. This is not the same as the 
-* preferred DAC_OUT_Read() API because the 
-* DAC_OUT_ReadDataReg() reads the data register instead of the status 
+* preferred DAC_Out_Read() API because the 
+* DAC_Out_ReadDataReg() reads the data register instead of the status 
 * register. For output pins this is a useful function to determine the value 
 * just written to the pin.
 *
@@ -136,19 +136,19 @@ uint8 DAC_OUT_Read(void)
 *  justified number for the component instance.
 *
 * \funcusage
-*  \snippet DAC_OUT_SUT.c usage_DAC_OUT_ReadDataReg 
+*  \snippet DAC_Out_SUT.c usage_DAC_Out_ReadDataReg 
 *******************************************************************************/
-uint8 DAC_OUT_ReadDataReg(void)
+uint8 DAC_Out_ReadDataReg(void)
 {
-    return (DAC_OUT_DR & DAC_OUT_MASK) >> DAC_OUT_SHIFT;
+    return (DAC_Out_DR & DAC_Out_MASK) >> DAC_Out_SHIFT;
 }
 
 
 /* If interrupt is connected for this Pins component */ 
-#if defined(DAC_OUT_INTSTAT) 
+#if defined(DAC_Out_INTSTAT) 
 
     /*******************************************************************************
-    * Function Name: DAC_OUT_SetInterruptMode
+    * Function Name: DAC_Out_SetInterruptMode
     ****************************************************************************//**
     *
     * \brief Configures the interrupt mode for each of the Pins component's
@@ -161,12 +161,12 @@ uint8 DAC_OUT_ReadDataReg(void)
     * \param position
     *  The pin position as listed in the Pins component. You may OR these to be 
     *  able to configure the interrupt mode of multiple pins within a Pins 
-    *  component. Or you may use DAC_OUT_INTR_ALL to configure the
+    *  component. Or you may use DAC_Out_INTR_ALL to configure the
     *  interrupt mode of all the pins in the Pins component.       
-    *  - DAC_OUT_0_INTR       (First pin in the list)
-    *  - DAC_OUT_1_INTR       (Second pin in the list)
+    *  - DAC_Out_0_INTR       (First pin in the list)
+    *  - DAC_Out_1_INTR       (Second pin in the list)
     *  - ...
-    *  - DAC_OUT_INTR_ALL     (All pins in Pins component)
+    *  - DAC_Out_INTR_ALL     (All pins in Pins component)
     *
     * \param mode
     *  Interrupt mode for the selected pins. Valid options are documented in
@@ -182,19 +182,19 @@ uint8 DAC_OUT_ReadDataReg(void)
     *  port.
     *
     * \funcusage
-    *  \snippet DAC_OUT_SUT.c usage_DAC_OUT_SetInterruptMode
+    *  \snippet DAC_Out_SUT.c usage_DAC_Out_SetInterruptMode
     *******************************************************************************/
-    void DAC_OUT_SetInterruptMode(uint16 position, uint16 mode)
+    void DAC_Out_SetInterruptMode(uint16 position, uint16 mode)
     {
-		if((position & DAC_OUT_0_INTR) != 0u) 
+		if((position & DAC_Out_0_INTR) != 0u) 
 		{ 
-			 DAC_OUT_0_INTTYPE_REG = (uint8)mode; 
+			 DAC_Out_0_INTTYPE_REG = (uint8)mode; 
 		}
     }
     
     
     /*******************************************************************************
-    * Function Name: DAC_OUT_ClearInterrupt
+    * Function Name: DAC_Out_ClearInterrupt
     ****************************************************************************//**
     *
     * \brief Clears any active interrupts attached with the component and returns 
@@ -211,11 +211,11 @@ uint8 DAC_OUT_ReadDataReg(void)
     *  those associated with the Pins component.
     *
     * \funcusage
-    *  \snippet DAC_OUT_SUT.c usage_DAC_OUT_ClearInterrupt
+    *  \snippet DAC_Out_SUT.c usage_DAC_Out_ClearInterrupt
     *******************************************************************************/
-    uint8 DAC_OUT_ClearInterrupt(void)
+    uint8 DAC_Out_ClearInterrupt(void)
     {
-        return (DAC_OUT_INTSTAT & DAC_OUT_MASK) >> DAC_OUT_SHIFT;
+        return (DAC_Out_INTSTAT & DAC_Out_MASK) >> DAC_Out_SHIFT;
     }
 
 #endif /* If Interrupts Are Enabled for this Pins component */ 

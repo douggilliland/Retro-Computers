@@ -1,20 +1,20 @@
 /* ========================================
- *
- * Copyright LAND BOARDS, LLC, 2019
- * All Rights Reserved
- * UNPUBLISHED, LICENSED SOFTWARE.
- *
- * CONFIDENTIAL AND PROPRIETARY INFORMATION
- * WHICH IS THE PROPERTY OF Land Boards, LLC.
- *
- * ========================================
+*
+* Copyright LAND BOARDS, LLC, 2019
+* All Rights Reserved
+* UNPUBLISHED, LICENSED SOFTWARE.
+*
+* CONFIDENTIAL AND PROPRIETARY INFORMATION
+* WHICH IS THE PROPERTY OF Land Boards, LLC.
+*
+* ========================================
 */
 
 #include <project.h>
 #include <Z80_PSoC_3Chips.h>
 
 #ifdef GRANT_FPGA_CPM       // Memory mapper for Grant's CPM in FPGA code
-    
+
 /////////////////////////////////////////////////////////////////////////////////
 // Routines to do memory mapping
 // Mem Map 1 swaps out an 8KB block when CP/M is run
@@ -25,9 +25,9 @@
 
 void init_mem_map_1(void)
 {
-    BankBaseAdr_Write(0x00);
-    BankMask_Write(BANK_SIZE_8K);
-    AdrHighOut_Write(0x00);
+	BankBaseAdr_Write(0x00);
+	BankMask_Write(BANK_SIZE_8K);
+	AdrHighOut_Write(0x00);
 }
 
 /////////////////////////////////////////////////////////////////////////////////
@@ -37,8 +37,8 @@ void init_mem_map_1(void)
 
 void swap_out_ROM_space(void)
 {
-    AdrHighOut_Write(0x20);     // Set A18..A16 to 0x1
-    ackIO();
+	AdrHighOut_Write(0x20);     // Set A18..A16 to 0x1
+	ackIO();
 }
 #endif
 

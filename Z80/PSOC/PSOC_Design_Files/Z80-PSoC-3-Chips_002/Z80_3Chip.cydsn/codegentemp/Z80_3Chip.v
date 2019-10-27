@@ -1,6 +1,6 @@
 // ======================================================================
 // Z80_3Chip.v generated from TopDesign.cysch
-// 10/26/2019 at 19:14
+// 10/27/2019 at 06:52
 // This file is auto generated. ANY EDITS YOU MAKE MAY BE LOST WHEN THIS FILE IS REGENERATED!!!
 // ======================================================================
 
@@ -911,6 +911,219 @@ module USBFS_v3_20_3 (
 
 endmodule
 
+// Component: cy_analog_virtualmux_v1_0
+`ifdef CY_BLK_DIR
+`undef CY_BLK_DIR
+`endif
+
+`ifdef WARP
+`define CY_BLK_DIR "C:\Program Files (x86)\Cypress\PSoC Creator\4.2\PSoC Creator\psoc\content\CyPrimitives\cyprimitives.cylib\cy_analog_virtualmux_v1_0"
+`include "C:\Program Files (x86)\Cypress\PSoC Creator\4.2\PSoC Creator\psoc\content\CyPrimitives\cyprimitives.cylib\cy_analog_virtualmux_v1_0\cy_analog_virtualmux_v1_0.v"
+`else
+`define CY_BLK_DIR "C:\Program Files (x86)\Cypress\PSoC Creator\4.2\PSoC Creator\psoc\content\CyPrimitives\cyprimitives.cylib\cy_analog_virtualmux_v1_0"
+`include "C:\Program Files (x86)\Cypress\PSoC Creator\4.2\PSoC Creator\psoc\content\CyPrimitives\cyprimitives.cylib\cy_analog_virtualmux_v1_0\cy_analog_virtualmux_v1_0.v"
+`endif
+
+// Component: demux_v1_10
+`ifdef CY_BLK_DIR
+`undef CY_BLK_DIR
+`endif
+
+`ifdef WARP
+`define CY_BLK_DIR "C:\Program Files (x86)\Cypress\PSoC Creator\4.2\PSoC Creator\psoc\content\CyPrimitives\cyprimitives.cylib\demux_v1_10"
+`include "C:\Program Files (x86)\Cypress\PSoC Creator\4.2\PSoC Creator\psoc\content\CyPrimitives\cyprimitives.cylib\demux_v1_10\demux_v1_10.v"
+`else
+`define CY_BLK_DIR "C:\Program Files (x86)\Cypress\PSoC Creator\4.2\PSoC Creator\psoc\content\CyPrimitives\cyprimitives.cylib\demux_v1_10"
+`include "C:\Program Files (x86)\Cypress\PSoC Creator\4.2\PSoC Creator\psoc\content\CyPrimitives\cyprimitives.cylib\demux_v1_10\demux_v1_10.v"
+`endif
+
+// VDAC8_v1_90(Data_Source=0, Initial_Value=100, Strobe_Mode=1, VDAC_Range=0, VDAC_Speed=2, Voltage=400, CY_API_CALLBACK_HEADER_INCLUDE=#include "cyapicallbacks.h", CY_COMMENT=, CY_COMPONENT_NAME=VDAC8_v1_90, CY_CONFIG_TITLE=VDAC8, CY_CONST_CONFIG=true, CY_CONTROL_FILE=<:default:>, CY_DATASHEET_FILE=<:default:>, CY_FITTER_NAME=WaveDAC8:VDAC8, CY_INSTANCE_SHORT_NAME=VDAC8, CY_MAJOR_VERSION=1, CY_MINOR_VERSION=90, CY_PDL_DRIVER_NAME=, CY_PDL_DRIVER_REQ_VERSION=, CY_PDL_DRIVER_SUBGROUP=, CY_PDL_DRIVER_VARIANT=, CY_REMOVE=false, CY_SUPPRESS_API_GEN=false, CY_VERSION=PSoC Creator  4.2, INSTANCE_NAME=WaveDAC8_VDAC8, )
+module VDAC8_v1_90_4 (
+    strobe,
+    data,
+    vOut);
+    input       strobe;
+    input      [7:0] data;
+    inout       vOut;
+    electrical  vOut;
+
+    parameter Data_Source = 0;
+    parameter Initial_Value = 100;
+    parameter Strobe_Mode = 1;
+
+    electrical  Net_77;
+          wire  Net_83;
+          wire  Net_82;
+          wire  Net_81;
+
+    cy_psoc3_vidac8_v1_0 viDAC8 (
+        .reset(Net_83),
+        .idir(Net_81),
+        .data(data[7:0]),
+        .strobe(strobe),
+        .vout(vOut),
+        .iout(Net_77),
+        .ioff(Net_82),
+        .strobe_udb(strobe));
+    defparam viDAC8.is_all_if_any = 0;
+    defparam viDAC8.reg_data = 0;
+
+    ZeroTerminal ZeroTerminal_1 (
+        .z(Net_81));
+
+    ZeroTerminal ZeroTerminal_2 (
+        .z(Net_82));
+
+    ZeroTerminal ZeroTerminal_3 (
+        .z(Net_83));
+
+    cy_analog_noconnect_v1_0 cy_analog_noconnect_1 (
+        .noconnect(Net_77));
+
+
+
+endmodule
+
+// WaveDAC8_v2_10(Clock_SRC=1, DAC_Range=0, DacModeReplString=VDAC8, Sample_Clock_Freq=100000, Wave1_Amplitude=1, Wave1_Data=128u,135u,143u,151u,159u,166u,174u,181u,188u,194u,201u,207u,213u,219u,224u,229u,233u,237u,241u,244u,246u,249u,250u,252u,252u,252u,252u,252u,250u,249u,246u,244u,241u,237u,233u,229u,224u,219u,213u,207u,201u,194u,188u,181u,174u,166u,159u,151u,143u,135u,128u,120u,112u,104u,96u,89u,81u,74u,67u,61u,54u,48u,42u,36u,31u,26u,22u,18u,14u,11u,9u,6u,5u,3u,3u,3u,3u,3u,5u,6u,9u,11u,14u,18u,22u,26u,31u,36u,42u,48u,54u,61u,67u,74u,81u,89u,96u,104u,112u,120u, Wave1_DCOffset=0.51, Wave1_Length=100, Wave1_PhaseShift=0, Wave1_Type=0, Wave2_Amplitude=1, Wave2_Data=128u,133u,138u,143u,148u,153u,158u,163u,168u,173u,178u,184u,189u,194u,199u,204u,209u,214u,219u,224u,230u,235u,240u,245u,250u,255u,250u,245u,240u,235u,230u,224u,219u,214u,209u,204u,199u,194u,189u,184u,178u,173u,168u,163u,158u,153u,148u,143u,138u,133u,128u,122u,117u,112u,107u,102u,97u,92u,87u,82u,76u,71u,66u,61u,56u,51u,46u,41u,36u,31u,25u,20u,15u,10u,5u,0u,5u,10u,15u,20u,25u,31u,36u,41u,46u,51u,56u,61u,66u,71u,77u,82u,87u,92u,97u,102u,107u,112u,117u,122u, Wave2_DCOffset=0.51, Wave2_Length=100, Wave2_PhaseShift=0, Wave2_Type=2, CY_API_CALLBACK_HEADER_INCLUDE=#include "cyapicallbacks.h", CY_COMMENT=, CY_COMPONENT_NAME=WaveDAC8_v2_10, CY_CONFIG_TITLE=WaveDAC8, CY_CONST_CONFIG=true, CY_CONTROL_FILE=<:default:>, CY_DATASHEET_FILE=<:default:>, CY_FITTER_NAME=WaveDAC8, CY_INSTANCE_SHORT_NAME=WaveDAC8, CY_MAJOR_VERSION=2, CY_MINOR_VERSION=10, CY_PDL_DRIVER_NAME=, CY_PDL_DRIVER_REQ_VERSION=, CY_PDL_DRIVER_SUBGROUP=, CY_PDL_DRIVER_VARIANT=, CY_REMOVE=false, CY_SUPPRESS_API_GEN=false, CY_VERSION=PSoC Creator  4.2, INSTANCE_NAME=WaveDAC8, )
+module WaveDAC8_v2_10_5 (
+    Wave,
+    ws,
+    clock,
+    wc1,
+    wc2);
+    inout       Wave;
+    electrical  Wave;
+    input       ws;
+    input       clock;
+    output      wc1;
+    output      wc2;
+
+
+          wire  Net_280;
+    electrical  Net_273;
+          wire  Net_202;
+          wire  Net_201;
+          wire [7:0] Net_171;
+          wire [7:0] Net_170;
+          wire  Net_339;
+          wire  Net_341;
+          wire  Net_153;
+    electrical  Net_211;
+          wire  Net_134;
+          wire  Net_107;
+          wire  Net_183;
+          wire  Net_336;
+          wire  Net_279;
+          wire  Net_80;
+    electrical  Net_247;
+    electrical  Net_254;
+    electrical  Net_256;
+    electrical  Net_190;
+    electrical  Net_189;
+
+    cy_analog_noconnect_v1_0 cy_analog_noconnect_1 (
+        .noconnect(Net_211));
+
+
+	cy_clock_v1_0
+		#(.id("40a723a8-f925-4796-8904-80eea7e9c774/77086516-855e-4b7b-abbe-47b22f8543de"),
+		  .source_clock_id(""),
+		  .divisor(0),
+		  .period("10000000000"),
+		  .is_direct(0),
+		  .is_digital(1))
+		DacClk
+		 (.clock_out(Net_279));
+
+
+	// cy_analog_virtualmux_1 (cy_analog_virtualmux_v1_0)
+	cy_connect_v1_0 cy_analog_virtualmux_1_connect(Net_189, Net_256);
+	defparam cy_analog_virtualmux_1_connect.sig_width = 1;
+
+	// cy_analog_virtualmux_2 (cy_analog_virtualmux_v1_0)
+	cy_connect_v1_0 cy_analog_virtualmux_2_connect(Net_190, Net_211);
+	defparam cy_analog_virtualmux_2_connect.sig_width = 1;
+
+    cy_analog_noconnect_v1_0 cy_analog_noconnect_2 (
+        .noconnect(Net_254));
+
+
+	cy_dma_v1_0
+		#(.drq_type(2'b10))
+		Wave1_DMA
+		 (.drq(Net_183),
+		  .trq(1'b0),
+		  .nrq(wc1));
+
+
+
+	cy_dma_v1_0
+		#(.drq_type(2'b10))
+		Wave2_DMA
+		 (.drq(Net_107),
+		  .trq(1'b0),
+		  .nrq(wc2));
+
+
+    // -- De Mux start --
+    if (1)
+    begin : demux
+        reg  tmp__demux_0_reg;
+        reg  tmp__demux_1_reg;
+        always @(Net_336 or Net_134)
+        begin
+            case (Net_134)
+                1'b0:
+                begin
+                    tmp__demux_0_reg = Net_336;
+                    tmp__demux_1_reg = 1'b0;
+                end
+                1'b1:
+                begin
+                    tmp__demux_0_reg = 1'b0;
+                    tmp__demux_1_reg = Net_336;
+                end
+            endcase
+        end
+        assign Net_183 = tmp__demux_0_reg;
+        assign Net_107 = tmp__demux_1_reg;
+    end
+    // -- De Mux end --
+
+	// VirtualMux_1 (cy_virtualmux_v1_0)
+	assign Net_336 = Net_279;
+
+    VDAC8_v1_90_4 VDAC8 (
+        .strobe(Net_336),
+        .data(8'b00000000),
+        .vOut(Net_189));
+    defparam VDAC8.Data_Source = 0;
+    defparam VDAC8.Initial_Value = 100;
+    defparam VDAC8.Strobe_Mode = 1;
+
+	// cy_analog_virtualmux_3 (cy_analog_virtualmux_v1_0)
+	cy_connect_v1_0 cy_analog_virtualmux_3_connect(Wave, Net_256);
+	defparam cy_analog_virtualmux_3_connect.sig_width = 1;
+
+
+    assign Net_280 = Net_80 | Net_279;
+
+    ZeroTerminal ZeroTerminal_1 (
+        .z(Net_80));
+
+    // -- DFF Start --
+    reg  cydff_1;
+    always @(posedge Net_336)
+    begin
+        cydff_1 <= ws;
+    end
+    assign Net_134 = cydff_1;
+    // -- DFF End --
+
+
+
+endmodule
+
 // top
 module top ;
 
@@ -919,6 +1132,9 @@ module top ;
           wire  ADR_OUT_0;
           wire  PSoC_CLK;
           wire  CPURDn;
+          wire  Net_1202;
+          wire  Net_1201;
+          wire  Net_1200;
           wire  Net_1144;
           wire  Net_1143;
           wire  Net_1155;
@@ -929,10 +1145,10 @@ module top ;
           wire  Net_1150;
           wire  Net_1149;
           wire  Net_1148;
+          wire  IORQn;
           wire  Net_1147;
           wire  Net_1146;
           wire  Net_1160;
-          wire  IORQn;
           wire  Net_1159;
           wire  Net_1158;
           wire  Net_1157;
@@ -941,19 +1157,19 @@ module top ;
           wire  Net_931;
           wire  Net_916;
           wire  Net_915;
+          wire  CPUWRn;
           wire  Net_890;
           wire  Net_889;
           wire  Net_888;
-          wire  CPUWRn;
           wire  Net_887;
           wire  Net_886;
           wire  Net_837;
           wire  Net_1145;
           wire  Net_741;
+          wire [7:0] ZDO;
           wire  Net_740;
           wire  Net_739;
           wire  Net_738;
-          wire [7:0] ZDO;
           wire  Net_737;
           wire  Net_736;
           wire  Net_735;
@@ -967,22 +1183,22 @@ module top ;
           wire  Net_757;
           wire  Net_756;
           wire  Net_755;
+          wire  DRV_RAM;
           wire  Net_754;
           wire  Net_753;
           wire  Net_752;
-          wire  DRV_RAM;
           wire [7:0] Net_459;
           wire  Net_458;
-          wire  Net_457;
-          wire  Net_456;
-          wire  Net_455;
           wire  SRAMREAD;
-          wire  Net_937;
+          wire  Net_457;
           wire [7:0] SAR;
           wire  SRAMWRITE;
+          wire  Net_456;
+          wire  Net_455;
+          wire  SRAMCS;
+          wire  Net_937;
           wire  Net_1169;
           wire  Net_1168;
-          wire  SRAMCS;
           wire  Net_1167;
           wire  Net_1166;
           wire  Net_1165;
@@ -1005,10 +1221,10 @@ module top ;
           wire  Net_726;
           wire  Net_725;
           wire  Net_724;
+          wire [15:11] Z80A;
           wire  Net_723;
           wire  Net_722;
           wire  Net_499;
-          wire [15:11] Z80A;
           wire  Net_497;
           wire  Net_496;
           wire  Net_495;
@@ -1016,24 +1232,26 @@ module top ;
           wire  Net_492;
           wire  Net_322;
           wire  Net_855;
+          wire  BANKED;
           wire  Net_145;
           wire  Net_144;
           wire [7:0] Net_418;
-          wire  BANKED;
           wire  Net_417;
           wire  Net_52;
           wire  Net_49;
           wire  Net_23;
           wire  Net_20;
+          wire [5:0] MSK;
           wire  Net_17;
           wire  Net_14;
           wire  Net_11;
           wire  Net_264;
-          wire [5:0] MSK;
           wire  Net_36;
           wire  Net_263;
           wire  Net_35;
           wire  Net_34;
+    electrical  Net_1198;
+          wire  Net_1199;
           wire  Net_1117;
           wire  Net_995;
           wire  Net_1005;
@@ -1046,13 +1264,13 @@ module top ;
           wire  Net_1111;
           wire  Net_1113;
           wire  Net_1104;
+          wire  CPURES;
           wire  Net_1100;
           wire  Net_1112;
           wire  Net_1106;
           wire  Net_1102;
           wire  Net_1033;
           wire  Net_1086;
-          wire  CPURES;
           wire  Net_1069;
           wire  Net_1068;
           wire  Net_1070;
@@ -1067,21 +1285,21 @@ module top ;
           wire  Net_989;
           wire  Net_936;
           wire  Net_984;
+          wire  IOBUSY;
           wire  Net_963;
           wire  Net_977;
           wire  Net_514;
           wire  Net_965;
           wire  Net_976;
           wire  Net_509;
-          wire  IOBUSY;
           wire  Net_513;
+          wire  CLR_HALT;
           wire  Net_467;
           wire  Net_934;
           wire  Net_323;
           wire  Net_318;
           wire  Net_774;
           wire  Net_780;
-          wire  CLR_HALT;
           wire  Net_793;
           wire  Net_784;
           wire  Net_786;
@@ -6159,6 +6377,91 @@ module top ;
         .sof(Net_1143),
         .vbusdet(1'b0));
     defparam USBUART.epDMAautoOptimization = 0;
+
+    WaveDAC8_v2_10_5 WaveDAC8 (
+        .Wave(Net_1198),
+        .ws(Net_1199),
+        .clock(1'b0),
+        .wc1(Net_1201),
+        .wc2(Net_1202));
+
+    assign Net_1199 = 1'h0;
+
+	wire [0:0] tmpOE__DAC_O_net;
+	wire [0:0] tmpFB_0__DAC_O_net;
+	wire [0:0] tmpIO_0__DAC_O_net;
+	wire [0:0] tmpINTERRUPT_0__DAC_O_net;
+	electrical [0:0] tmpSIOVREF__DAC_O_net;
+
+	cy_psoc3_pins_v1_10
+		#(.id("77715107-f8d5-47e5-a629-0fb83101ac6b"),
+		  .drive_mode(3'b000),
+		  .ibuf_enabled(1'b0),
+		  .init_dr_st(1'b0),
+		  .input_clk_en(0),
+		  .input_sync(1'b1),
+		  .input_sync_mode(1'b0),
+		  .intr_mode(2'b00),
+		  .invert_in_clock(0),
+		  .invert_in_clock_en(0),
+		  .invert_in_reset(0),
+		  .invert_out_clock(0),
+		  .invert_out_clock_en(0),
+		  .invert_out_reset(0),
+		  .io_voltage(""),
+		  .layout_mode("CONTIGUOUS"),
+		  .oe_conn(1'b0),
+		  .oe_reset(0),
+		  .oe_sync(1'b0),
+		  .output_clk_en(0),
+		  .output_clock_mode(1'b0),
+		  .output_conn(1'b0),
+		  .output_mode(1'b0),
+		  .output_reset(0),
+		  .output_sync(1'b0),
+		  .pa_in_clock(-1),
+		  .pa_in_clock_en(-1),
+		  .pa_in_reset(-1),
+		  .pa_out_clock(-1),
+		  .pa_out_clock_en(-1),
+		  .pa_out_reset(-1),
+		  .pin_aliases(""),
+		  .pin_mode("A"),
+		  .por_state(4),
+		  .sio_group_cnt(0),
+		  .sio_hyst(1'b1),
+		  .sio_ibuf(""),
+		  .sio_info(2'b00),
+		  .sio_obuf(""),
+		  .sio_refsel(""),
+		  .sio_vtrip(""),
+		  .sio_hifreq(""),
+		  .sio_vohsel(""),
+		  .slew_rate(1'b0),
+		  .spanning(0),
+		  .use_annotation(1'b0),
+		  .vtrip(2'b10),
+		  .width(1),
+		  .ovt_hyst_trim(1'b0),
+		  .ovt_needed(1'b0),
+		  .ovt_slew_control(2'b00),
+		  .input_buffer_sel(2'b00))
+		DAC_O
+		 (.oe(tmpOE__DAC_O_net),
+		  .y({1'b0}),
+		  .fb({tmpFB_0__DAC_O_net[0:0]}),
+		  .analog({Net_1198}),
+		  .io({tmpIO_0__DAC_O_net[0:0]}),
+		  .siovref(tmpSIOVREF__DAC_O_net),
+		  .interrupt({tmpINTERRUPT_0__DAC_O_net[0:0]}),
+		  .in_clock({1'b0}),
+		  .in_clock_en({1'b1}),
+		  .in_reset({1'b0}),
+		  .out_clock({1'b0}),
+		  .out_clock_en({1'b1}),
+		  .out_reset({1'b0}));
+
+	assign tmpOE__DAC_O_net = (`CYDEV_CHIP_MEMBER_USED == `CYDEV_CHIP_MEMBER_3A && `CYDEV_CHIP_REVISION_USED < `CYDEV_CHIP_REVISION_3A_ES3) ? ~{1'b1} : {1'b1};
 
 
 

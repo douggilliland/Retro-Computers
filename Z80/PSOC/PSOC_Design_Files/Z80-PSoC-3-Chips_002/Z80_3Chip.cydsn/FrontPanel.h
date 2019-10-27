@@ -1,18 +1,18 @@
 /* ========================================
- *
- * Copyright Land Boards, LLC, 2019.
- * All Rights Reserved
- * UNPUBLISHED, LICENSED SOFTWARE.
- *
- * CONFIDENTIAL AND PROPRIETARY INFORMATION
- * WHICH IS THE PROPERTY OF LAND BOARDS. LLC.
- *
- * ========================================
+*
+* Copyright Land Boards, LLC, 2019.
+* All Rights Reserved
+* UNPUBLISHED, LICENSED SOFTWARE.
+*
+* CONFIDENTIAL AND PROPRIETARY INFORMATION
+* WHICH IS THE PROPERTY OF LAND BOARDS. LLC.
+*
+* ========================================
 */
 
 #if !defined(FRONTPANEL_H)
 #define FRONTPANEL_H
-    
+
 #include <project.h>
 
 #define MCP23017_IODIRA_REGADR   0x00
