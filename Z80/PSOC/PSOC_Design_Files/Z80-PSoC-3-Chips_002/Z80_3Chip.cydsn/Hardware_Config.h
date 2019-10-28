@@ -80,10 +80,10 @@
         #define FR_PNL_IO_HI        0x1B    // decimal 27
     #endif
     #ifdef USING_EXP_MCCP23017
-        #define PIOA_D              0x20
-        #define PIOA_C              0x22
-        #define PIOB_D              0x21
-        #define PIOB_C              0x23
+        #define PIOA_D              0x20    // decimal 32
+        #define PIOA_C              0x22    // decimal 34
+        #define PIOB_D              0x21    // decimal 33
+        #define PIOB_C              0x23    // decimal 35
     #endif
 #endif
 
@@ -103,10 +103,10 @@
         #define FR_PNL_IO_HI        0x1B    // decimal 27
     #endif
     #ifdef USING_EXP_MCCP23017
-        #define PIOA_D              0x20
-        #define PIOA_C              0x22
-        #define PIOB_D              0x21
-        #define PIOB_C              0x23
+        #define PIOA_D              0x20    // decimal 32
+        #define PIOA_C              0x22    // decimal 34
+        #define PIOB_D              0x21    // decimal 33
+        #define PIOB_C              0x23    // decimal 35
     #endif
 #endif
 
@@ -134,19 +134,18 @@
     #endif
     #define USING_SDCARD
     #ifdef USING_SDCARD
-        #define SD_DATA             0x88
-        #define SD_CONTROL	        0x89
-        #define SD_STATUS	        0x89
-        #define SD_LBA0		        0x8A
-        #define SD_LBA1		        0x8B
-        #define SD_LBA2		        0x8C
+        #define SD_DATA             0x88    // decimal 128
+        #define SD_CONTROL	        0x89    // decimal 129
+        #define SD_STATUS	        0x89    // decimal 129
+        #define SD_LBA0		        0x8A    // decimal 130
+        #define SD_LBA1		        0x8B    // decimal 131
+        #define SD_LBA2		        0x8C    // decimal 132
     #endif
-    
     #ifdef USING_EXP_MCCP23017
-        #define PIOA_D              0x20
-        #define PIOA_C              0x22
-        #define PIOB_D              0x21
-        #define PIOB_C              0x23
+        #define PIOA_D              0x20    // decimal 32
+        #define PIOA_C              0x22    // decimal 34
+        #define PIOB_D              0x21    // decimal 33
+        #define PIOB_C              0x23    // decimal 35
     #endif
 #endif
 

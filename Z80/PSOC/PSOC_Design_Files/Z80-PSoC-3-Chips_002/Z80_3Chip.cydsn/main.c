@@ -145,56 +145,58 @@ int main(void)
 			{
 				if (0u != USBUART_DataIsReady())        // Check for input data from host
 				{
-				inCount = USBUART_GetAll(inBuffer);     // Read received data and re-enable OUT endpoint
-				if (0u != inCount)
-				{
-					while (0u == USBUART_CDCIsReady()); // Wait until component is ready to send data to host
-					if ((inBuffer[0] == 'r') || (inBuffer[0] == 'R'))
-					{
-						putStringToUSB("Read from the SD Card\n\r");
-                        readSDCard(0x200000);
-					}
-					if (inBuffer[0] == '1')
-					{
-						putStringToUSB("Read first sector from the SD Card\n\r");
-                        readSDCard(0x0);
-					}
-					else if ((inBuffer[0] == 'w') || (inBuffer[0] == 'W'))
-					{
-						putStringToUSB("Write to the SD Card\n\r");
-                        writeSDCard(0x200000);
-					}
-					else if ((inBuffer[0] == 'i') || (inBuffer[0] == 'I'))
-					{
-						putStringToUSB("Initialize the SD Card\n\r");
-                        SDInit();
-					}
-					else
-					{
-						putStringToUSB("\n\rLand Boards, LLC - Z80_PSoC monitor\n\r");
-						putStringToUSB("R - Read SD Card\n\r");
-						putStringToUSB("1 - Read first sector of the SD Card\n\r");
-						putStringToUSB("W - Write SD Card\n\r");
-						putStringToUSB("I - Initialize SD Card\n\r");
-						putStringToUSB("? - Print this menu\n\r");
-					}
-					/* If the last sent packet is exactly the maximum packet size, it is followed by a 
-                    zero-length packet to assure that the end of the segment is properly identified by 
-					*  the terminal. */
-					if (USBUART_Buffer_SIZE == inCount)
-					{
-						while (0u == USBUART_CDCIsReady()); // Wait until component is ready to send data to PC						
-						USBUART_PutData(NULL, 0u);          // Send zero-length packet to PC
-					}
-				}
-			}
-			
-			if (USB_To_Z80_RxBytes_count > 0)           // There are chars in the input uartReadBuffer (USB -> Z80)
-			{
-				if (checkSerialReceiverBusy() == 0)        // Check if receive uartReadBuffer can take another character
-				{
-				}
-			}
+    				inCount = USBUART_GetAll(inBuffer);     // Read received data and re-enable OUT endpoint
+    				if (0u != inCount)
+    				{
+    					while (0u == USBUART_CDCIsReady()); // Wait until component is ready to send data to host
+    					if ((inBuffer[0] == 'r') || (inBuffer[0] == 'R'))
+    					{
+    						putStringToUSB("Read from the SD Card\n\r");
+                            readSDCard(0x200000);
+    					}
+    					if (inBuffer[0] == '1')
+    					{
+                            sectorNumber = 0;
+    						putStringToUSB("Read first sector from the SD Card\n\r");
+                            readSDCard(sectorNumber);
+    					}
+    					else if ((inBuffer[0] == 'n') || (inBuffer[0] == 'N'))
+    					{
+    						putStringToUSB("Read next sector from the SD Card\n\r");
+                            readSDCard(sectorNumber);
+                            sectorNumber++;
+                            
+    					}
+    					else if ((inBuffer[0] == 'w') || (inBuffer[0] == 'W'))
+    					{
+    						putStringToUSB("Write to the SD Card\n\r");
+                            writeSDCard(0x200000);
+    					}
+    					else if ((inBuffer[0] == 'i') || (inBuffer[0] == 'I'))
+    					{
+    						putStringToUSB("Initialize the SD Card\n\r");
+                            SDInit();
+    					}
+    					else
+    					{
+    						putStringToUSB("\n\rLand Boards, LLC - Z80_PSoC monitor\n\r");
+    						putStringToUSB("1 - Read first sector of the SD Card\n\r");
+    						putStringToUSB("N - Read next sector of the SD Card\n\r");
+    						putStringToUSB("R - Read SD Card at 1GB Block\n\r");
+    						putStringToUSB("W - Write SD Card at 1GB Block\n\r");
+    						putStringToUSB("I - Initialize SD Card\n\r");
+    						putStringToUSB("? - Print this menu\n\r");
+    					}
+    					/* If the last sent packet is exactly the maximum packet size, it is followed by a 
+                        zero-length packet to assure that the end of the segment is properly identified by 
+    					*  the terminal. */
+    					if (USBUART_Buffer_SIZE == inCount)
+    					{
+    						while (0u == USBUART_CDCIsReady()); // Wait until component is ready to send data to PC						
+    						USBUART_PutData(NULL, 0u);          // Send zero-length packet to PC
+    					}
+    				}
+    			}
 			}
 		}
 	}
