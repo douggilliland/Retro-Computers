@@ -15,6 +15,7 @@
     
 #include <project.h>
 
+#define PIO_
 #define PIO_OP_MODE_0       0x00 // Output
 #define PIO_OP_MODE_1       0x40 // Input
 #define PIO_OP_MODE_2       0x80 // Bidirectional
@@ -30,7 +31,14 @@
 
 #define PIO_OP_MODE_MASK    0xC0 // Relevant bits
 #define PIO_OP_MODES_WORD   0x0F // Relevant bits
+    
+enum PIO_State
+    {
+        PIO_INIT,
+        PIO_CTRL
+    };
 
+void init_PIO(void);
 void PioReadDataA(void);
 void PioWriteDataA(void);
 void PioWriteCtrlA(void);

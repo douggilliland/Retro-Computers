@@ -35,6 +35,7 @@ int main(void)
 	
 	USBUART_Start(USBFS_DEVICE, USBUART_5V_OPERATION);  // Start USBFS operation with 5-V operation.
 
+    // Only want to do a single I2C_Start()
 	#ifdef USING_FRONT_PANEL
 		I2C_Start();
 	#else
@@ -42,6 +43,13 @@ int main(void)
 		I2C_Start();
 		#endif
 	#endif
+    
+    // 
+	#ifdef USING_EXP_MCCP23017
+	init_PIO();
+	#endif
+    
+    
 	#ifdef USING_SDCARD
 		SDInit();
 	#endif
