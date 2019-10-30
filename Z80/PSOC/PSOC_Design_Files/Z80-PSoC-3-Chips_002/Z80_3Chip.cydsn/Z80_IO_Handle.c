@@ -294,7 +294,7 @@ void HandleZ80IO(void)
 		}
 		else if (ioCrtlRegVal == REGULAR_WRITE_CYCLE)      // regular write cycle
 		{
-			SioWriteDataB();
+			PioWriteDataB();
 			return;
 		}
 		break;

@@ -47,18 +47,41 @@ volatile uint8 PIO_State_B;
 
 void init_PIO(void)
 {
+	uint8 chipAddr = 0x20;
     PIO_State_A = PIO_INIT;
     PIO_State_B = PIO_INIT;
+    // Initialize the MCP23017
+	writeRegister_MCP23017(chipAddr,MCP23017_IODIRA_REGADR,MCP23017_IODIR_ALL_INS);     // IO: Port A is inputs
+	writeRegister_MCP23017(chipAddr,MCP23017_IODIRB_REGADR,MCP23017_IODIR_ALL_INS);     // IO: Port B is inputs
+	writeRegister_MCP23017(chipAddr,MCP23017_IPOLA_REGADR,MCP23017_IPOL_INVERT);        // IP: Invert input pins on Port A
+	writeRegister_MCP23017(chipAddr,MCP23017_IPOLB_REGADR,MCP23017_IPOL_INVERT);        // IP: Invert input pins on Port B
+	writeRegister_MCP23017(chipAddr,MCP23017_GPINTENA_REGADR,MCP23017_GPINTEN_DISABLE); // GPINT: Disable interrupts
+	writeRegister_MCP23017(chipAddr,MCP23017_GPINTENB_REGADR,MCP23017_GPINTEN_DISABLE); // GPINT: Disable interrupts
+	writeRegister_MCP23017(chipAddr,MCP23017_DEFVALA_REGADR,0xFF);                      // Default value for pin (interrupt)
+	writeRegister_MCP23017(chipAddr,MCP23017_DEFVALB_REGADR,0xFF);                      // Default value for pin (interrupt)
+	writeRegister_MCP23017(chipAddr,MCP23017_INTCONA_REGADR,MCP23017_INTCON_DEFVAL);    // Int for change from previous pin
+	writeRegister_MCP23017(chipAddr,MCP23017_INTCONB_REGADR,MCP23017_INTCON_DEFVAL);    // Int for change from previous pin
+	// MIRROR: Int pins not connected
+	// SEQOP: Enable sequential operation
+	// HAEN: (Not used on MCP23017)
+	// ODR: Open Drain output (over-rides INTPOL)
+	// INTPOL: Over-ridden by ODR
+	writeRegister_MCP23017(chipAddr,MCP23017_IOCONA_REGADR,MCP23017_IOCON_DEFVAL);      // BANK: Register addresses are sequential
+	writeRegister_MCP23017(chipAddr,MCP23017_IOCONB_REGADR,MCP23017_IOCON_DEFVAL);      // Int for change from previous pin
+	writeRegister_MCP23017(chipAddr,MCP23017_GPPUA_REGADR,MCP23017_GPPU_ENABLE);        // Pull-up to inputs
+	writeRegister_MCP23017(chipAddr,MCP23017_GPPUB_REGADR,MCP23017_GPPU_ENABLE);        // Pull-up to inputs
+	readRegister_MCP23017(chipAddr,MCP23017_INTCAPA_REGADR);                            // Clears interrupt
+	readRegister_MCP23017(chipAddr,MCP23017_INTCAPB_REGADR);                            // Clears interrupt
 }
 
 void PioReadDataA(void)
 {
-	
+    Z80_Data_In_Write(readRegister_MCP23017(MCP23017_PIO_ADDR,MCP23017_GPIOA_REGADR));
 }
 
 void PioWriteDataA(void)
 {
-	
+    writeRegister_MCP23017(MCP23017_PIO_ADDR,MCP23017_OLATA_REGADR,Z80_Data_Out_Read());
 }
 
 void PioWriteCtrlA(void)
@@ -78,12 +101,12 @@ void PioWriteCtrlA(void)
 
 void PioReadDataB(void)
 {
-	
+    Z80_Data_In_Write(readRegister_MCP23017(MCP23017_PIO_ADDR,MCP23017_GPIOB_REGADR));
 }
 
 void PioWriteDataB(void)
 {
-	
+    writeRegister_MCP23017(MCP23017_PIO_ADDR,MCP23017_OLATB_REGADR,Z80_Data_Out_Read());	
 }
 
 void PioWriteCtrlB(void)

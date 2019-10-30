@@ -14,8 +14,10 @@
 #define Z80PIOEMU_H
     
 #include <project.h>
+    
+#define MCP23017_PIO_ADDR   0x20 // I2C Address of the MCP23017
 
-#define PIO_
+#define PIO_OP_MODE_MASK    0xC0 // The Mode bits
 #define PIO_OP_MODE_0       0x00 // Output
 #define PIO_OP_MODE_1       0x40 // Input
 #define PIO_OP_MODE_2       0x80 // Bidirectional
