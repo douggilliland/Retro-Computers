@@ -76,12 +76,24 @@ void init_PIO(void)
 
 void PioReadDataA(void)
 {
-    Z80_Data_In_Write(readRegister_MCP23017(MCP23017_PIO_ADDR,MCP23017_GPIOA_REGADR));
+    if (PIO_State_A == PIO_MODE_1)
+    {
+        Z80_Data_In_Write(readRegister_MCP23017(MCP23017_PIO_ADDR,MCP23017_GPIOA_REGADR));
+    }
+    else
+    {
+        Z80_Data_In_Write(0x55);
+    }
+    ackIO();
 }
 
 void PioWriteDataA(void)
 {
-    writeRegister_MCP23017(MCP23017_PIO_ADDR,MCP23017_OLATA_REGADR,Z80_Data_Out_Read());
+    if (PIO_State_A == PIO_MODE_0)
+    {
+        writeRegister_MCP23017(MCP23017_PIO_ADDR,MCP23017_OLATA_REGADR,Z80_Data_Out_Read());
+    }
+    ackIO();
 }
 
 void PioWriteCtrlA(void)
@@ -96,29 +108,96 @@ void PioWriteCtrlA(void)
     }
     else if (PIO_State_A == PIO_INIT)
     {
+        if ((dataFromZ80 & PIO_MODE_WORD_BITS) == PIO_MODE_WORD_VAL)    // Set mode
+        {
+            if ((dataFromZ80 & PIO_OP_MODE_MASK) == PIO_OP_MODE_0)      // Outputs
+            {
+            	writeRegister_MCP23017(MCP23017_PIO_ADDR,MCP23017_IODIRA_REGADR,MCP23017_IODIR_ALL_OUTS);     // IO: Port A is outputs
+                PIO_State_A = PIO_MODE_0;
+            }
+            else if ((dataFromZ80 & PIO_OP_MODE_MASK) == PIO_OP_MODE_1) // Inputs
+            {
+            	writeRegister_MCP23017(MCP23017_PIO_ADDR,MCP23017_IODIRA_REGADR,MCP23017_IODIR_ALL_INS);     // IO: Port A is inputs
+                PIO_State_A = PIO_MODE_1;
+            }
+            else if ((dataFromZ80 & PIO_OP_MODE_MASK) == PIO_OP_MODE_2) // Bidirectional
+            {
+                PIO_State_A = PIO_MODE_2;
+            }
+            else if ((dataFromZ80 & PIO_OP_MODE_MASK) == PIO_OP_MODE_3) // Controlled direction
+            {
+                PIO_State_A = PIO_MODE_3;
+            }
+        }
+        else
+        {
+            PIO_State_A = PIO_CTRL;
+        }
     }
+    ackIO();
 }
 
 void PioReadDataB(void)
 {
-    Z80_Data_In_Write(readRegister_MCP23017(MCP23017_PIO_ADDR,MCP23017_GPIOB_REGADR));
+    if (PIO_State_A == PIO_MODE_1)
+    {
+        Z80_Data_In_Write(readRegister_MCP23017(MCP23017_PIO_ADDR,MCP23017_GPIOB_REGADR));
+    }
+    else
+    {
+        Z80_Data_In_Write(0xAA);
+    }
+    ackIO();
 }
 
 void PioWriteDataB(void)
 {
-    writeRegister_MCP23017(MCP23017_PIO_ADDR,MCP23017_OLATB_REGADR,Z80_Data_Out_Read());	
+    if (PIO_State_B == PIO_MODE_0)
+    {
+        writeRegister_MCP23017(MCP23017_PIO_ADDR,MCP23017_OLATB_REGADR,Z80_Data_Out_Read());
+    }
+    ackIO();
 }
 
 void PioWriteCtrlB(void)
 {
+    volatile uint8 dataFromZ80 = Z80_Data_Out_Read();
 	if (PIO_State_B == PIO_CTRL)
     {
-        
+        if ((dataFromZ80 & 0x1) == 0x0)
+        {
+            PIO_Vector_Address_Port_B = dataFromZ80;
+        }
     }
     else if (PIO_State_B == PIO_INIT)
     {
-        
+        if ((dataFromZ80 & PIO_MODE_WORD_BITS) == PIO_MODE_WORD_VAL)    // Set mode
+        {
+            if ((dataFromZ80 & PIO_OP_MODE_MASK) == PIO_OP_MODE_0)      // Outputs
+            {
+            	writeRegister_MCP23017(MCP23017_PIO_ADDR,MCP23017_IODIRB_REGADR,MCP23017_IODIR_ALL_OUTS);     // IO: Port A is inputs
+                PIO_State_B = PIO_MODE_0;
+            }
+            else if ((dataFromZ80 & PIO_OP_MODE_MASK) == PIO_OP_MODE_1) // Inputs
+            {
+            	writeRegister_MCP23017(MCP23017_PIO_ADDR,MCP23017_IODIRB_REGADR,MCP23017_IODIR_ALL_INS);     // IO: Port A is inputs
+                PIO_State_B = PIO_MODE_1;
+            }
+            else if ((dataFromZ80 & PIO_OP_MODE_MASK) == PIO_OP_MODE_2) // Bidirectional
+            {
+                PIO_State_B = PIO_MODE_2;
+            }
+            else if ((dataFromZ80 & PIO_OP_MODE_MASK) == PIO_OP_MODE_3) // Controlled direction
+            {
+                PIO_State_B = PIO_MODE_3;
+            }
+        }
+        else
+        {
+            PIO_State_B = PIO_CTRL;
+        }
     }
+    ackIO();
 }
 
 /* [] END OF FILE */

@@ -43,13 +43,7 @@ int main(void)
 		I2C_Start();
 		#endif
 	#endif
-    
-    // 
-	#ifdef USING_EXP_MCCP23017
-	init_PIO();
-	#endif
-    
-    
+        
 	#ifdef USING_SDCARD
 		SDInit();
 	#endif
@@ -78,6 +72,10 @@ int main(void)
 	// Front Panel Initialization
     #ifdef USING_FRONT_PANEL
 		Z80Running = runFrontPanel();            // Exits either by pressing EXitFrontPanel or RUN button on front panel
+    	#ifdef USING_EXP_MCCP23017
+        // The expansion MCP23017 has its reset tied to the CPU reset
+    	init_PIO();
+    	#endif
 	#else
 		ExtSRAMCtl_Control = 0;     // Auto Run if there's no Front Panel
 	#endif

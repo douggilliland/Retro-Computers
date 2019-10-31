@@ -23,6 +23,8 @@
 #define PIO_OP_MODE_2       0x80 // Bidirectional
 #define PIO_OP_MODE_3       0xC0 // Control which bits are ins/outs
 #define PIO_OP_DIR          0x01 // 1=input, 0-output
+#define PIO_MODE_WORD_BITS  0x0F // Mode word bits
+#define PIO_MODE_WORD_VAL   0x0F // Mode word value
 
 #define PIO_INT_EN_BIT      0x80 // 1=enable interrupts, 0-disable interrupts
 #define PIO_AND_OR_BIT      0x40 // 1=AND, 0=OR
@@ -31,13 +33,14 @@
 #define PIO_INT_CTL_WORD    0x07 // Signifies Interrupt Control Word
 #define PIO_MASK_BITS       0xFF // Bit mask values
 
-#define PIO_OP_MODE_MASK    0xC0 // Relevant bits
-#define PIO_OP_MODES_WORD   0x0F // Relevant bits
-    
 enum PIO_State
     {
         PIO_INIT,
-        PIO_CTRL
+        PIO_CTRL,
+        PIO_MODE_0,
+        PIO_MODE_1,
+        PIO_MODE_2,
+        PIO_MODE_3
     };
 
 void init_PIO(void);
