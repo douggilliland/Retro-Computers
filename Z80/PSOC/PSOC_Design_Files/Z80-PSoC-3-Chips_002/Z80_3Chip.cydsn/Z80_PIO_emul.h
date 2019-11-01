@@ -35,8 +35,15 @@
 
 enum PIO_State
     {
+        PIO_UNINIT, 
         PIO_INIT,
-        PIO_CTRL,
+        PIO_INTR,
+        PIO_MODE_3A,
+        PIO_INTR_MASK
+    };
+
+enum PIO_OpMode
+    {
         PIO_MODE_0,
         PIO_MODE_1,
         PIO_MODE_2,
