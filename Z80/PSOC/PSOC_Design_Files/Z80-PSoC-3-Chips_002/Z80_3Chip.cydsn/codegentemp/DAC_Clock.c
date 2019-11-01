@@ -1,6 +1,6 @@
 /*******************************************************************************
-* File Name: WaveDAC8_DacClk.c
-* Version 2.10
+* File Name: DAC_Clock.c
+* Version 2.20
 *
 *  Description:
 *   This file provides the source code to the API for the clock component.
@@ -15,7 +15,7 @@
 *******************************************************************************/
 
 #include <cydevice_trm.h>
-#include "WaveDAC8_DacClk.h"
+#include "DAC_Clock.h"
 
 /* Clock Distribution registers. */
 #define CLK_DIST_LD              (* (reg8 *) CYREG_CLKDIST_LD)
@@ -28,7 +28,7 @@
 
 
 /*******************************************************************************
-* Function Name: WaveDAC8_DacClk_Start
+* Function Name: DAC_Clock_Start
 ********************************************************************************
 *
 * Summary:
@@ -42,16 +42,16 @@
 *  None
 *
 *******************************************************************************/
-void WaveDAC8_DacClk_Start(void) 
+void DAC_Clock_Start(void) 
 {
     /* Set the bit to enable the clock. */
-    WaveDAC8_DacClk_CLKEN |= WaveDAC8_DacClk_CLKEN_MASK;
-	WaveDAC8_DacClk_CLKSTBY |= WaveDAC8_DacClk_CLKSTBY_MASK;
+    DAC_Clock_CLKEN |= DAC_Clock_CLKEN_MASK;
+	DAC_Clock_CLKSTBY |= DAC_Clock_CLKSTBY_MASK;
 }
 
 
 /*******************************************************************************
-* Function Name: WaveDAC8_DacClk_Stop
+* Function Name: DAC_Clock_Stop
 ********************************************************************************
 *
 * Summary:
@@ -68,11 +68,11 @@ void WaveDAC8_DacClk_Start(void)
 *  None
 *
 *******************************************************************************/
-void WaveDAC8_DacClk_Stop(void) 
+void DAC_Clock_Stop(void) 
 {
     /* Clear the bit to disable the clock. */
-    WaveDAC8_DacClk_CLKEN &= (uint8)(~WaveDAC8_DacClk_CLKEN_MASK);
-	WaveDAC8_DacClk_CLKSTBY &= (uint8)(~WaveDAC8_DacClk_CLKSTBY_MASK);
+    DAC_Clock_CLKEN &= (uint8)(~DAC_Clock_CLKEN_MASK);
+	DAC_Clock_CLKSTBY &= (uint8)(~DAC_Clock_CLKSTBY_MASK);
 }
 
 
@@ -80,7 +80,7 @@ void WaveDAC8_DacClk_Stop(void)
 
 
 /*******************************************************************************
-* Function Name: WaveDAC8_DacClk_StopBlock
+* Function Name: DAC_Clock_StopBlock
 ********************************************************************************
 *
 * Summary:
@@ -97,9 +97,9 @@ void WaveDAC8_DacClk_Stop(void)
 *  None
 *
 *******************************************************************************/
-void WaveDAC8_DacClk_StopBlock(void) 
+void DAC_Clock_StopBlock(void) 
 {
-    if ((WaveDAC8_DacClk_CLKEN & WaveDAC8_DacClk_CLKEN_MASK) != 0u)
+    if ((DAC_Clock_CLKEN & DAC_Clock_CLKEN_MASK) != 0u)
     {
 #if HAS_CLKDIST_LD_DISABLE
         uint16 oldDivider;
@@ -107,18 +107,18 @@ void WaveDAC8_DacClk_StopBlock(void)
         CLK_DIST_LD = 0u;
 
         /* Clear all the mask bits except ours. */
-#if defined(WaveDAC8_DacClk__CFG3)
-        CLK_DIST_AMASK = WaveDAC8_DacClk_CLKEN_MASK;
+#if defined(DAC_Clock__CFG3)
+        CLK_DIST_AMASK = DAC_Clock_CLKEN_MASK;
         CLK_DIST_DMASK = 0x00u;
 #else
-        CLK_DIST_DMASK = WaveDAC8_DacClk_CLKEN_MASK;
+        CLK_DIST_DMASK = DAC_Clock_CLKEN_MASK;
         CLK_DIST_AMASK = 0x00u;
-#endif /* WaveDAC8_DacClk__CFG3 */
+#endif /* DAC_Clock__CFG3 */
 
         /* Clear mask of bus clock. */
         CLK_DIST_BCFG2 &= (uint8)(~BCFG2_MASK);
 
-        oldDivider = CY_GET_REG16(WaveDAC8_DacClk_DIV_PTR);
+        oldDivider = CY_GET_REG16(DAC_Clock_DIV_PTR);
         CY_SET_REG16(CYREG_CLKDIST_WRK0, oldDivider);
         CLK_DIST_LD = CYCLK_LD_DISABLE | CYCLK_LD_SYNC_EN | CYCLK_LD_LOAD;
 
@@ -127,13 +127,13 @@ void WaveDAC8_DacClk_StopBlock(void)
 #endif /* HAS_CLKDIST_LD_DISABLE */
 
         /* Clear the bit to disable the clock. */
-        WaveDAC8_DacClk_CLKEN &= (uint8)(~WaveDAC8_DacClk_CLKEN_MASK);
-        WaveDAC8_DacClk_CLKSTBY &= (uint8)(~WaveDAC8_DacClk_CLKSTBY_MASK);
+        DAC_Clock_CLKEN &= (uint8)(~DAC_Clock_CLKEN_MASK);
+        DAC_Clock_CLKSTBY &= (uint8)(~DAC_Clock_CLKSTBY_MASK);
 
 #if HAS_CLKDIST_LD_DISABLE
         /* Clear the disable bit */
         CLK_DIST_LD = 0x00u;
-        CY_SET_REG16(WaveDAC8_DacClk_DIV_PTR, oldDivider);
+        CY_SET_REG16(DAC_Clock_DIV_PTR, oldDivider);
 #endif /* HAS_CLKDIST_LD_DISABLE */
     }
 }
@@ -141,7 +141,7 @@ void WaveDAC8_DacClk_StopBlock(void)
 
 
 /*******************************************************************************
-* Function Name: WaveDAC8_DacClk_StandbyPower
+* Function Name: DAC_Clock_StandbyPower
 ********************************************************************************
 *
 * Summary:
@@ -154,21 +154,21 @@ void WaveDAC8_DacClk_StopBlock(void)
 *  None
 *
 *******************************************************************************/
-void WaveDAC8_DacClk_StandbyPower(uint8 state) 
+void DAC_Clock_StandbyPower(uint8 state) 
 {
     if(state == 0u)
     {
-        WaveDAC8_DacClk_CLKSTBY &= (uint8)(~WaveDAC8_DacClk_CLKSTBY_MASK);
+        DAC_Clock_CLKSTBY &= (uint8)(~DAC_Clock_CLKSTBY_MASK);
     }
     else
     {
-        WaveDAC8_DacClk_CLKSTBY |= WaveDAC8_DacClk_CLKSTBY_MASK;
+        DAC_Clock_CLKSTBY |= DAC_Clock_CLKSTBY_MASK;
     }
 }
 
 
 /*******************************************************************************
-* Function Name: WaveDAC8_DacClk_SetDividerRegister
+* Function Name: DAC_Clock_SetDividerRegister
 ********************************************************************************
 *
 * Summary:
@@ -190,17 +190,17 @@ void WaveDAC8_DacClk_StandbyPower(uint8 state)
 *  None
 *
 *******************************************************************************/
-void WaveDAC8_DacClk_SetDividerRegister(uint16 clkDivider, uint8 restart)
+void DAC_Clock_SetDividerRegister(uint16 clkDivider, uint8 restart)
                                 
 {
     uint8 enabled;
 
-    uint8 currSrc = WaveDAC8_DacClk_GetSourceRegister();
-    uint16 oldDivider = WaveDAC8_DacClk_GetDividerRegister();
+    uint8 currSrc = DAC_Clock_GetSourceRegister();
+    uint16 oldDivider = DAC_Clock_GetDividerRegister();
 
     if (clkDivider != oldDivider)
     {
-        enabled = WaveDAC8_DacClk_CLKEN & WaveDAC8_DacClk_CLKEN_MASK;
+        enabled = DAC_Clock_CLKEN & DAC_Clock_CLKEN_MASK;
 
         if ((currSrc == (uint8)CYCLK_SRC_SEL_CLK_SYNC_D) && ((oldDivider == 0u) || (clkDivider == 0u)))
         {
@@ -210,15 +210,15 @@ void WaveDAC8_DacClk_SetDividerRegister(uint16 clkDivider, uint8 restart)
                 /* Moving away from SSS, set the divider first so when SSS is cleared we    */
                 /* don't halt the clock.  Using the shadow load isn't required as the       */
                 /* divider is ignored while SSS is set.                                     */
-                CY_SET_REG16(WaveDAC8_DacClk_DIV_PTR, clkDivider);
-                WaveDAC8_DacClk_MOD_SRC &= (uint8)(~CYCLK_SSS);
+                CY_SET_REG16(DAC_Clock_DIV_PTR, clkDivider);
+                DAC_Clock_MOD_SRC &= (uint8)(~CYCLK_SSS);
             }
             else
             {
                 /* Moving to SSS, set SSS which then ignores the divider and we can set     */
                 /* it without bothering with the shadow load.                               */
-                WaveDAC8_DacClk_MOD_SRC |= CYCLK_SSS;
-                CY_SET_REG16(WaveDAC8_DacClk_DIV_PTR, clkDivider);
+                DAC_Clock_MOD_SRC |= CYCLK_SSS;
+                CY_SET_REG16(DAC_Clock_DIV_PTR, clkDivider);
             }
         }
         else
@@ -229,18 +229,18 @@ void WaveDAC8_DacClk_SetDividerRegister(uint16 clkDivider, uint8 restart)
                 CLK_DIST_LD = 0x00u;
 
                 /* Clear all the mask bits except ours. */
-#if defined(WaveDAC8_DacClk__CFG3)
-                CLK_DIST_AMASK = WaveDAC8_DacClk_CLKEN_MASK;
+#if defined(DAC_Clock__CFG3)
+                CLK_DIST_AMASK = DAC_Clock_CLKEN_MASK;
                 CLK_DIST_DMASK = 0x00u;
 #else
-                CLK_DIST_DMASK = WaveDAC8_DacClk_CLKEN_MASK;
+                CLK_DIST_DMASK = DAC_Clock_CLKEN_MASK;
                 CLK_DIST_AMASK = 0x00u;
-#endif /* WaveDAC8_DacClk__CFG3 */
+#endif /* DAC_Clock__CFG3 */
                 /* Clear mask of bus clock. */
                 CLK_DIST_BCFG2 &= (uint8)(~BCFG2_MASK);
 
                 /* If clock is currently enabled, disable it if async or going from N-to-1*/
-                if (((WaveDAC8_DacClk_MOD_SRC & CYCLK_SYNC) == 0u) || (clkDivider == 0u))
+                if (((DAC_Clock_MOD_SRC & CYCLK_SYNC) == 0u) || (clkDivider == 0u))
                 {
 #if HAS_CLKDIST_LD_DISABLE
                     CY_SET_REG16(CYREG_CLKDIST_WRK0, oldDivider);
@@ -250,7 +250,7 @@ void WaveDAC8_DacClk_SetDividerRegister(uint16 clkDivider, uint8 restart)
                     while ((CLK_DIST_LD & CYCLK_LD_LOAD) != 0u) { }
 #endif /* HAS_CLKDIST_LD_DISABLE */
 
-                    WaveDAC8_DacClk_CLKEN &= (uint8)(~WaveDAC8_DacClk_CLKEN_MASK);
+                    DAC_Clock_CLKEN &= (uint8)(~DAC_Clock_CLKEN_MASK);
 
 #if HAS_CLKDIST_LD_DISABLE
                     /* Clear the disable bit */
@@ -260,7 +260,7 @@ void WaveDAC8_DacClk_SetDividerRegister(uint16 clkDivider, uint8 restart)
             }
 
             /* Load divide value. */
-            if ((WaveDAC8_DacClk_CLKEN & WaveDAC8_DacClk_CLKEN_MASK) != 0u)
+            if ((DAC_Clock_CLKEN & DAC_Clock_CLKEN_MASK) != 0u)
             {
                 /* If the clock is still enabled, use the shadow registers */
                 CY_SET_REG16(CYREG_CLKDIST_WRK0, clkDivider);
@@ -271,8 +271,8 @@ void WaveDAC8_DacClk_SetDividerRegister(uint16 clkDivider, uint8 restart)
             else
             {
                 /* If the clock is disabled, set the divider directly */
-                CY_SET_REG16(WaveDAC8_DacClk_DIV_PTR, clkDivider);
-				WaveDAC8_DacClk_CLKEN |= enabled;
+                CY_SET_REG16(DAC_Clock_DIV_PTR, clkDivider);
+				DAC_Clock_CLKEN |= enabled;
             }
         }
     }
@@ -280,7 +280,7 @@ void WaveDAC8_DacClk_SetDividerRegister(uint16 clkDivider, uint8 restart)
 
 
 /*******************************************************************************
-* Function Name: WaveDAC8_DacClk_GetDividerRegister
+* Function Name: DAC_Clock_GetDividerRegister
 ********************************************************************************
 *
 * Summary:
@@ -294,14 +294,14 @@ void WaveDAC8_DacClk_SetDividerRegister(uint16 clkDivider, uint8 restart)
 *  divide by 2, the return value will be 1.
 *
 *******************************************************************************/
-uint16 WaveDAC8_DacClk_GetDividerRegister(void) 
+uint16 DAC_Clock_GetDividerRegister(void) 
 {
-    return CY_GET_REG16(WaveDAC8_DacClk_DIV_PTR);
+    return CY_GET_REG16(DAC_Clock_DIV_PTR);
 }
 
 
 /*******************************************************************************
-* Function Name: WaveDAC8_DacClk_SetModeRegister
+* Function Name: DAC_Clock_SetModeRegister
 ********************************************************************************
 *
 * Summary:
@@ -329,14 +329,14 @@ uint16 WaveDAC8_DacClk_GetDividerRegister(void)
 *  None
 *
 *******************************************************************************/
-void WaveDAC8_DacClk_SetModeRegister(uint8 modeBitMask) 
+void DAC_Clock_SetModeRegister(uint8 modeBitMask) 
 {
-    WaveDAC8_DacClk_MOD_SRC |= modeBitMask & (uint8)WaveDAC8_DacClk_MODE_MASK;
+    DAC_Clock_MOD_SRC |= modeBitMask & (uint8)DAC_Clock_MODE_MASK;
 }
 
 
 /*******************************************************************************
-* Function Name: WaveDAC8_DacClk_ClearModeRegister
+* Function Name: DAC_Clock_ClearModeRegister
 ********************************************************************************
 *
 * Summary:
@@ -364,14 +364,14 @@ void WaveDAC8_DacClk_SetModeRegister(uint8 modeBitMask)
 *  None
 *
 *******************************************************************************/
-void WaveDAC8_DacClk_ClearModeRegister(uint8 modeBitMask) 
+void DAC_Clock_ClearModeRegister(uint8 modeBitMask) 
 {
-    WaveDAC8_DacClk_MOD_SRC &= (uint8)(~modeBitMask) | (uint8)(~(uint8)(WaveDAC8_DacClk_MODE_MASK));
+    DAC_Clock_MOD_SRC &= (uint8)(~modeBitMask) | (uint8)(~(uint8)(DAC_Clock_MODE_MASK));
 }
 
 
 /*******************************************************************************
-* Function Name: WaveDAC8_DacClk_GetModeRegister
+* Function Name: DAC_Clock_GetModeRegister
 ********************************************************************************
 *
 * Summary:
@@ -385,14 +385,14 @@ void WaveDAC8_DacClk_ClearModeRegister(uint8 modeBitMask)
 *  ClearModeRegister descriptions for details about the mode bits.
 *
 *******************************************************************************/
-uint8 WaveDAC8_DacClk_GetModeRegister(void) 
+uint8 DAC_Clock_GetModeRegister(void) 
 {
-    return WaveDAC8_DacClk_MOD_SRC & (uint8)(WaveDAC8_DacClk_MODE_MASK);
+    return DAC_Clock_MOD_SRC & (uint8)(DAC_Clock_MODE_MASK);
 }
 
 
 /*******************************************************************************
-* Function Name: WaveDAC8_DacClk_SetSourceRegister
+* Function Name: DAC_Clock_SetSourceRegister
 ********************************************************************************
 *
 * Summary:
@@ -416,39 +416,39 @@ uint8 WaveDAC8_DacClk_GetModeRegister(void)
 *  None
 *
 *******************************************************************************/
-void WaveDAC8_DacClk_SetSourceRegister(uint8 clkSource) 
+void DAC_Clock_SetSourceRegister(uint8 clkSource) 
 {
-    uint16 currDiv = WaveDAC8_DacClk_GetDividerRegister();
-    uint8 oldSrc = WaveDAC8_DacClk_GetSourceRegister();
+    uint16 currDiv = DAC_Clock_GetDividerRegister();
+    uint8 oldSrc = DAC_Clock_GetSourceRegister();
 
     if (((oldSrc != ((uint8)CYCLK_SRC_SEL_CLK_SYNC_D)) && 
         (clkSource == ((uint8)CYCLK_SRC_SEL_CLK_SYNC_D))) && (currDiv == 0u))
     {
         /* Switching to Master and divider is 1, set SSS, which will output master, */
         /* then set the source so we are consistent.                                */
-        WaveDAC8_DacClk_MOD_SRC |= CYCLK_SSS;
-        WaveDAC8_DacClk_MOD_SRC =
-            (WaveDAC8_DacClk_MOD_SRC & (uint8)(~WaveDAC8_DacClk_SRC_SEL_MSK)) | clkSource;
+        DAC_Clock_MOD_SRC |= CYCLK_SSS;
+        DAC_Clock_MOD_SRC =
+            (DAC_Clock_MOD_SRC & (uint8)(~DAC_Clock_SRC_SEL_MSK)) | clkSource;
     }
     else if (((oldSrc == ((uint8)CYCLK_SRC_SEL_CLK_SYNC_D)) && 
             (clkSource != ((uint8)CYCLK_SRC_SEL_CLK_SYNC_D))) && (currDiv == 0u))
     {
         /* Switching from Master to not and divider is 1, set source, so we don't   */
         /* lock when we clear SSS.                                                  */
-        WaveDAC8_DacClk_MOD_SRC =
-            (WaveDAC8_DacClk_MOD_SRC & (uint8)(~WaveDAC8_DacClk_SRC_SEL_MSK)) | clkSource;
-        WaveDAC8_DacClk_MOD_SRC &= (uint8)(~CYCLK_SSS);
+        DAC_Clock_MOD_SRC =
+            (DAC_Clock_MOD_SRC & (uint8)(~DAC_Clock_SRC_SEL_MSK)) | clkSource;
+        DAC_Clock_MOD_SRC &= (uint8)(~CYCLK_SSS);
     }
     else
     {
-        WaveDAC8_DacClk_MOD_SRC =
-            (WaveDAC8_DacClk_MOD_SRC & (uint8)(~WaveDAC8_DacClk_SRC_SEL_MSK)) | clkSource;
+        DAC_Clock_MOD_SRC =
+            (DAC_Clock_MOD_SRC & (uint8)(~DAC_Clock_SRC_SEL_MSK)) | clkSource;
     }
 }
 
 
 /*******************************************************************************
-* Function Name: WaveDAC8_DacClk_GetSourceRegister
+* Function Name: DAC_Clock_GetSourceRegister
 ********************************************************************************
 *
 * Summary:
@@ -461,17 +461,17 @@ void WaveDAC8_DacClk_SetSourceRegister(uint8 clkSource)
 *  The input source of the clock. See SetSourceRegister for details.
 *
 *******************************************************************************/
-uint8 WaveDAC8_DacClk_GetSourceRegister(void) 
+uint8 DAC_Clock_GetSourceRegister(void) 
 {
-    return WaveDAC8_DacClk_MOD_SRC & WaveDAC8_DacClk_SRC_SEL_MSK;
+    return DAC_Clock_MOD_SRC & DAC_Clock_SRC_SEL_MSK;
 }
 
 
-#if defined(WaveDAC8_DacClk__CFG3)
+#if defined(DAC_Clock__CFG3)
 
 
 /*******************************************************************************
-* Function Name: WaveDAC8_DacClk_SetPhaseRegister
+* Function Name: DAC_Clock_SetPhaseRegister
 ********************************************************************************
 *
 * Summary:
@@ -489,14 +489,14 @@ uint8 WaveDAC8_DacClk_GetSourceRegister(void)
 *  None
 *
 *******************************************************************************/
-void WaveDAC8_DacClk_SetPhaseRegister(uint8 clkPhase) 
+void DAC_Clock_SetPhaseRegister(uint8 clkPhase) 
 {
-    WaveDAC8_DacClk_PHASE = clkPhase & WaveDAC8_DacClk_PHASE_MASK;
+    DAC_Clock_PHASE = clkPhase & DAC_Clock_PHASE_MASK;
 }
 
 
 /*******************************************************************************
-* Function Name: WaveDAC8_DacClk_GetPhase
+* Function Name: DAC_Clock_GetPhase
 ********************************************************************************
 *
 * Summary:
@@ -510,12 +510,12 @@ void WaveDAC8_DacClk_SetPhaseRegister(uint8 clkPhase)
 *  Phase of the analog clock. See SetPhaseRegister for details.
 *
 *******************************************************************************/
-uint8 WaveDAC8_DacClk_GetPhaseRegister(void) 
+uint8 DAC_Clock_GetPhaseRegister(void) 
 {
-    return WaveDAC8_DacClk_PHASE & WaveDAC8_DacClk_PHASE_MASK;
+    return DAC_Clock_PHASE & DAC_Clock_PHASE_MASK;
 }
 
-#endif /* WaveDAC8_DacClk__CFG3 */
+#endif /* DAC_Clock__CFG3 */
 
 
 /* [] END OF FILE */

@@ -1,5 +1,5 @@
 /*******************************************************************************
-* File Name: DAC_O.h  
+* File Name: VO.h  
 * Version 2.20
 *
 * Description:
@@ -15,8 +15,8 @@
 * the software package with which this file was provided.
 *******************************************************************************/
 
-#if !defined(CY_PINS_DAC_O_ALIASES_H) /* Pins DAC_O_ALIASES_H */
-#define CY_PINS_DAC_O_ALIASES_H
+#if !defined(CY_PINS_VO_ALIASES_H) /* Pins VO_ALIASES_H */
+#define CY_PINS_VO_ALIASES_H
 
 #include "cytypes.h"
 #include "cyfitter.h"
@@ -25,12 +25,12 @@
 /***************************************
 *              Constants        
 ***************************************/
-#define DAC_O_0			(DAC_O__0__PC)
-#define DAC_O_0_INTR	((uint16)((uint16)0x0001u << DAC_O__0__SHIFT))
+#define VO_0			(VO__0__PC)
+#define VO_0_INTR	((uint16)((uint16)0x0001u << VO__0__SHIFT))
 
-#define DAC_O_INTR_ALL	 ((uint16)(DAC_O_0_INTR))
+#define VO_INTR_ALL	 ((uint16)(VO_0_INTR))
 
-#endif /* End Pins DAC_O_ALIASES_H */
+#endif /* End Pins VO_ALIASES_H */
 
 
 /* [] END OF FILE */

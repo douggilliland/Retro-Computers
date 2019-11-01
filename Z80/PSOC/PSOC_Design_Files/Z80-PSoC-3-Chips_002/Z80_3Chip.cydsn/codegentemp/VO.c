@@ -1,5 +1,5 @@
 /*******************************************************************************
-* File Name: DAC_O.c  
+* File Name: VO.c  
 * Version 2.20
 *
 * Description:
@@ -15,15 +15,15 @@
 *******************************************************************************/
 
 #include "cytypes.h"
-#include "DAC_O.h"
+#include "VO.h"
 
 /* APIs are not generated for P15[7:6] on PSoC 5 */
 #if !(CY_PSOC5A &&\
-	 DAC_O__PORT == 15 && ((DAC_O__MASK & 0xC0) != 0))
+	 VO__PORT == 15 && ((VO__MASK & 0xC0) != 0))
 
 
 /*******************************************************************************
-* Function Name: DAC_O_Write
+* Function Name: VO_Write
 ****************************************************************************//**
 *
 * \brief Writes the value to the physical port (data output register), masking
@@ -52,17 +52,17 @@
 *  this function.
 *
 * \funcusage
-*  \snippet DAC_O_SUT.c usage_DAC_O_Write
+*  \snippet VO_SUT.c usage_VO_Write
 *******************************************************************************/
-void DAC_O_Write(uint8 value)
+void VO_Write(uint8 value)
 {
-    uint8 staticBits = (DAC_O_DR & (uint8)(~DAC_O_MASK));
-    DAC_O_DR = staticBits | ((uint8)(value << DAC_O_SHIFT) & DAC_O_MASK);
+    uint8 staticBits = (VO_DR & (uint8)(~VO_MASK));
+    VO_DR = staticBits | ((uint8)(value << VO_SHIFT) & VO_MASK);
 }
 
 
 /*******************************************************************************
-* Function Name: DAC_O_SetDriveMode
+* Function Name: VO_SetDriveMode
 ****************************************************************************//**
 *
 * \brief Sets the drive mode for each of the Pins component's pins.
@@ -85,16 +85,16 @@ void DAC_O_Write(uint8 value)
 *  APIs (primary method) or disable interrupts around this function.
 *
 * \funcusage
-*  \snippet DAC_O_SUT.c usage_DAC_O_SetDriveMode
+*  \snippet VO_SUT.c usage_VO_SetDriveMode
 *******************************************************************************/
-void DAC_O_SetDriveMode(uint8 mode)
+void VO_SetDriveMode(uint8 mode)
 {
-	CyPins_SetPinDriveMode(DAC_O_0, mode);
+	CyPins_SetPinDriveMode(VO_0, mode);
 }
 
 
 /*******************************************************************************
-* Function Name: DAC_O_Read
+* Function Name: VO_Read
 ****************************************************************************//**
 *
 * \brief Reads the associated physical port (pin status register) and masks 
@@ -108,16 +108,16 @@ void DAC_O_SetDriveMode(uint8 mode)
 *  The current value for the pins in the component as a right justified number.
 *
 * \funcusage
-*  \snippet DAC_O_SUT.c usage_DAC_O_Read  
+*  \snippet VO_SUT.c usage_VO_Read  
 *******************************************************************************/
-uint8 DAC_O_Read(void)
+uint8 VO_Read(void)
 {
-    return (DAC_O_PS & DAC_O_MASK) >> DAC_O_SHIFT;
+    return (VO_PS & VO_MASK) >> VO_SHIFT;
 }
 
 
 /*******************************************************************************
-* Function Name: DAC_O_ReadDataReg
+* Function Name: VO_ReadDataReg
 ****************************************************************************//**
 *
 * \brief Reads the associated physical port's data output register and masks 
@@ -126,8 +126,8 @@ uint8 DAC_O_Read(void)
 *
 * The data output register controls the signal applied to the physical pin in 
 * conjunction with the drive mode parameter. This is not the same as the 
-* preferred DAC_O_Read() API because the 
-* DAC_O_ReadDataReg() reads the data register instead of the status 
+* preferred VO_Read() API because the 
+* VO_ReadDataReg() reads the data register instead of the status 
 * register. For output pins this is a useful function to determine the value 
 * just written to the pin.
 *
@@ -136,19 +136,19 @@ uint8 DAC_O_Read(void)
 *  justified number for the component instance.
 *
 * \funcusage
-*  \snippet DAC_O_SUT.c usage_DAC_O_ReadDataReg 
+*  \snippet VO_SUT.c usage_VO_ReadDataReg 
 *******************************************************************************/
-uint8 DAC_O_ReadDataReg(void)
+uint8 VO_ReadDataReg(void)
 {
-    return (DAC_O_DR & DAC_O_MASK) >> DAC_O_SHIFT;
+    return (VO_DR & VO_MASK) >> VO_SHIFT;
 }
 
 
 /* If interrupt is connected for this Pins component */ 
-#if defined(DAC_O_INTSTAT) 
+#if defined(VO_INTSTAT) 
 
     /*******************************************************************************
-    * Function Name: DAC_O_SetInterruptMode
+    * Function Name: VO_SetInterruptMode
     ****************************************************************************//**
     *
     * \brief Configures the interrupt mode for each of the Pins component's
@@ -161,12 +161,12 @@ uint8 DAC_O_ReadDataReg(void)
     * \param position
     *  The pin position as listed in the Pins component. You may OR these to be 
     *  able to configure the interrupt mode of multiple pins within a Pins 
-    *  component. Or you may use DAC_O_INTR_ALL to configure the
+    *  component. Or you may use VO_INTR_ALL to configure the
     *  interrupt mode of all the pins in the Pins component.       
-    *  - DAC_O_0_INTR       (First pin in the list)
-    *  - DAC_O_1_INTR       (Second pin in the list)
+    *  - VO_0_INTR       (First pin in the list)
+    *  - VO_1_INTR       (Second pin in the list)
     *  - ...
-    *  - DAC_O_INTR_ALL     (All pins in Pins component)
+    *  - VO_INTR_ALL     (All pins in Pins component)
     *
     * \param mode
     *  Interrupt mode for the selected pins. Valid options are documented in
@@ -182,19 +182,19 @@ uint8 DAC_O_ReadDataReg(void)
     *  port.
     *
     * \funcusage
-    *  \snippet DAC_O_SUT.c usage_DAC_O_SetInterruptMode
+    *  \snippet VO_SUT.c usage_VO_SetInterruptMode
     *******************************************************************************/
-    void DAC_O_SetInterruptMode(uint16 position, uint16 mode)
+    void VO_SetInterruptMode(uint16 position, uint16 mode)
     {
-		if((position & DAC_O_0_INTR) != 0u) 
+		if((position & VO_0_INTR) != 0u) 
 		{ 
-			 DAC_O_0_INTTYPE_REG = (uint8)mode; 
+			 VO_0_INTTYPE_REG = (uint8)mode; 
 		}
     }
     
     
     /*******************************************************************************
-    * Function Name: DAC_O_ClearInterrupt
+    * Function Name: VO_ClearInterrupt
     ****************************************************************************//**
     *
     * \brief Clears any active interrupts attached with the component and returns 
@@ -211,11 +211,11 @@ uint8 DAC_O_ReadDataReg(void)
     *  those associated with the Pins component.
     *
     * \funcusage
-    *  \snippet DAC_O_SUT.c usage_DAC_O_ClearInterrupt
+    *  \snippet VO_SUT.c usage_VO_ClearInterrupt
     *******************************************************************************/
-    uint8 DAC_O_ClearInterrupt(void)
+    uint8 VO_ClearInterrupt(void)
     {
-        return (DAC_O_INTSTAT & DAC_O_MASK) >> DAC_O_SHIFT;
+        return (VO_INTSTAT & VO_MASK) >> VO_SHIFT;
     }
 
 #endif /* If Interrupts Are Enabled for this Pins component */ 

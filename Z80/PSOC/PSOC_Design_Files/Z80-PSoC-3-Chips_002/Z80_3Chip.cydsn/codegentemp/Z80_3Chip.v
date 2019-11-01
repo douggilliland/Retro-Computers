@@ -1,6 +1,6 @@
 // ======================================================================
 // Z80_3Chip.v generated from TopDesign.cysch
-// 10/28/2019 at 09:33
+// 11/01/2019 at 19:25
 // This file is auto generated. ANY EDITS YOU MAKE MAY BE LOST WHEN THIS FILE IS REGENERATED!!!
 // ======================================================================
 
@@ -911,6 +911,90 @@ module USBFS_v3_20_3 (
 
 endmodule
 
+// Counter_v3_0(CaptureMode=0, CaptureModeSoftware=0, ClockMode=3, CompareMode=0, CompareModeSoftware=0, CompareStatusEdgeSense=true, CompareValue=65535, CONTROL3=1, ControlRegRemoved=0, CyGetRegReplacementString=CY_GET_REG16, CySetRegReplacementString=CY_SET_REG16, EnableMode=0, FF16=true, FF8=false, FixedFunction=true, FixedFunctionUsed=1, InitCounterValue=65535, InterruptOnCapture=false, InterruptOnCompare=false, InterruptOnOverUnderFlow=false, InterruptOnTC=false, Period=65535, RegDefReplacementString=reg16, RegSizeReplacementString=uint16, ReloadOnCapture=false, ReloadOnCompare=false, ReloadOnOverUnder=true, ReloadOnReset=true, Resolution=16, RunMode=0, UDB16=false, UDB24=false, UDB32=false, UDB8=false, UDBControlReg=false, UseInterrupt=true, VerilogSectionReplacementString=sC16, CY_API_CALLBACK_HEADER_INCLUDE=#include "cyapicallbacks.h", CY_COMMENT=, CY_COMPONENT_NAME=Counter_v3_0, CY_CONFIG_TITLE=Sound_Counter, CY_CONST_CONFIG=true, CY_CONTROL_FILE=<:default:>, CY_DATASHEET_FILE=<:default:>, CY_FITTER_NAME=Sound_Counter, CY_INSTANCE_SHORT_NAME=Sound_Counter, CY_MAJOR_VERSION=3, CY_MINOR_VERSION=0, CY_PDL_DRIVER_NAME=, CY_PDL_DRIVER_REQ_VERSION=, CY_PDL_DRIVER_SUBGROUP=, CY_PDL_DRIVER_VARIANT=, CY_REMOVE=false, CY_SUPPRESS_API_GEN=false, CY_VERSION=PSoC Creator  4.2, INSTANCE_NAME=Sound_Counter, )
+module Counter_v3_0_4 (
+    reset,
+    tc,
+    comp,
+    clock,
+    interrupt,
+    enable,
+    capture,
+    upCnt,
+    downCnt,
+    up_ndown,
+    count);
+    input       reset;
+    output      tc;
+    output      comp;
+    input       clock;
+    output      interrupt;
+    input       enable;
+    input       capture;
+    input       upCnt;
+    input       downCnt;
+    input       up_ndown;
+    input       count;
+
+    parameter CaptureMode = 0;
+    parameter ClockMode = 3;
+    parameter CompareMode = 0;
+    parameter CompareStatusEdgeSense = 1;
+    parameter EnableMode = 0;
+    parameter ReloadOnCapture = 0;
+    parameter ReloadOnCompare = 0;
+    parameter ReloadOnOverUnder = 1;
+    parameter ReloadOnReset = 1;
+    parameter Resolution = 16;
+    parameter RunMode = 0;
+    parameter UseInterrupt = 1;
+
+          wire  Net_47;
+          wire  Net_102;
+          wire  Net_95;
+          wire  Net_82;
+          wire  Net_91;
+          wire  Net_89;
+          wire  Net_49;
+          wire  Net_48;
+          wire  Net_42;
+          wire  Net_43;
+
+    cy_psoc3_timer_v1_0 CounterHW (
+        .timer_reset(reset),
+        .capture(capture),
+        .enable(Net_91),
+        .kill(Net_82),
+        .clock(clock),
+        .tc(Net_48),
+        .compare(Net_47),
+        .interrupt(Net_42));
+
+	// int_vm (cy_virtualmux_v1_0)
+	assign interrupt = Net_42;
+
+	// TC_vm (cy_virtualmux_v1_0)
+	assign tc = Net_48;
+
+    ZeroTerminal ZeroTerminal_1 (
+        .z(Net_82));
+
+	// VirtualMux_1 (cy_virtualmux_v1_0)
+	assign Net_89 = Net_95;
+
+    ZeroTerminal ZeroTerminal_2 (
+        .z(Net_95));
+
+	// vmEnableMode (cy_virtualmux_v1_0)
+	assign Net_91 = enable;
+
+    OneTerminal OneTerminal_1 (
+        .o(Net_102));
+
+
+
+endmodule
+
 // Component: cy_analog_virtualmux_v1_0
 `ifdef CY_BLK_DIR
 `undef CY_BLK_DIR
@@ -938,7 +1022,7 @@ endmodule
 `endif
 
 // VDAC8_v1_90(Data_Source=0, Initial_Value=100, Strobe_Mode=1, VDAC_Range=0, VDAC_Speed=2, Voltage=400, CY_API_CALLBACK_HEADER_INCLUDE=#include "cyapicallbacks.h", CY_COMMENT=, CY_COMPONENT_NAME=VDAC8_v1_90, CY_CONFIG_TITLE=VDAC8, CY_CONST_CONFIG=true, CY_CONTROL_FILE=<:default:>, CY_DATASHEET_FILE=<:default:>, CY_FITTER_NAME=WaveDAC8:VDAC8, CY_INSTANCE_SHORT_NAME=VDAC8, CY_MAJOR_VERSION=1, CY_MINOR_VERSION=90, CY_PDL_DRIVER_NAME=, CY_PDL_DRIVER_REQ_VERSION=, CY_PDL_DRIVER_SUBGROUP=, CY_PDL_DRIVER_VARIANT=, CY_REMOVE=false, CY_SUPPRESS_API_GEN=false, CY_VERSION=PSoC Creator  4.2, INSTANCE_NAME=WaveDAC8_VDAC8, )
-module VDAC8_v1_90_4 (
+module VDAC8_v1_90_5 (
     strobe,
     data,
     vOut);
@@ -984,8 +1068,8 @@ module VDAC8_v1_90_4 (
 
 endmodule
 
-// WaveDAC8_v2_10(Clock_SRC=1, DAC_Range=0, DacModeReplString=VDAC8, Sample_Clock_Freq=100000, Wave1_Amplitude=1, Wave1_Data=128u,135u,143u,151u,159u,166u,174u,181u,188u,194u,201u,207u,213u,219u,224u,229u,233u,237u,241u,244u,246u,249u,250u,252u,252u,252u,252u,252u,250u,249u,246u,244u,241u,237u,233u,229u,224u,219u,213u,207u,201u,194u,188u,181u,174u,166u,159u,151u,143u,135u,128u,120u,112u,104u,96u,89u,81u,74u,67u,61u,54u,48u,42u,36u,31u,26u,22u,18u,14u,11u,9u,6u,5u,3u,3u,3u,3u,3u,5u,6u,9u,11u,14u,18u,22u,26u,31u,36u,42u,48u,54u,61u,67u,74u,81u,89u,96u,104u,112u,120u, Wave1_DCOffset=0.51, Wave1_Length=100, Wave1_PhaseShift=0, Wave1_Type=0, Wave2_Amplitude=1, Wave2_Data=128u,133u,138u,143u,148u,153u,158u,163u,168u,173u,178u,184u,189u,194u,199u,204u,209u,214u,219u,224u,230u,235u,240u,245u,250u,255u,250u,245u,240u,235u,230u,224u,219u,214u,209u,204u,199u,194u,189u,184u,178u,173u,168u,163u,158u,153u,148u,143u,138u,133u,128u,122u,117u,112u,107u,102u,97u,92u,87u,82u,76u,71u,66u,61u,56u,51u,46u,41u,36u,31u,25u,20u,15u,10u,5u,0u,5u,10u,15u,20u,25u,31u,36u,41u,46u,51u,56u,61u,66u,71u,77u,82u,87u,92u,97u,102u,107u,112u,117u,122u, Wave2_DCOffset=0.51, Wave2_Length=100, Wave2_PhaseShift=0, Wave2_Type=2, CY_API_CALLBACK_HEADER_INCLUDE=#include "cyapicallbacks.h", CY_COMMENT=, CY_COMPONENT_NAME=WaveDAC8_v2_10, CY_CONFIG_TITLE=WaveDAC8, CY_CONST_CONFIG=true, CY_CONTROL_FILE=<:default:>, CY_DATASHEET_FILE=<:default:>, CY_FITTER_NAME=WaveDAC8, CY_INSTANCE_SHORT_NAME=WaveDAC8, CY_MAJOR_VERSION=2, CY_MINOR_VERSION=10, CY_PDL_DRIVER_NAME=, CY_PDL_DRIVER_REQ_VERSION=, CY_PDL_DRIVER_SUBGROUP=, CY_PDL_DRIVER_VARIANT=, CY_REMOVE=false, CY_SUPPRESS_API_GEN=false, CY_VERSION=PSoC Creator  4.2, INSTANCE_NAME=WaveDAC8, )
-module WaveDAC8_v2_10_5 (
+// WaveDAC8_v2_10(Clock_SRC=0, DAC_Range=0, DacModeReplString=VDAC8, Sample_Clock_Freq=100000, Wave1_Amplitude=1, Wave1_Data=128u,135u,143u,151u,159u,166u,174u,181u,188u,194u,201u,207u,213u,219u,224u,229u,233u,237u,241u,244u,246u,249u,250u,252u,252u,252u,252u,252u,250u,249u,246u,244u,241u,237u,233u,229u,224u,219u,213u,207u,201u,194u,188u,181u,174u,166u,159u,151u,143u,135u,128u,120u,112u,104u,96u,89u,81u,74u,67u,61u,54u,48u,42u,36u,31u,26u,22u,18u,14u,11u,9u,6u,5u,3u,3u,3u,3u,3u,5u,6u,9u,11u,14u,18u,22u,26u,31u,36u,42u,48u,54u,61u,67u,74u,81u,89u,96u,104u,112u,120u, Wave1_DCOffset=0.51, Wave1_Length=100, Wave1_PhaseShift=0, Wave1_Type=0, Wave2_Amplitude=1, Wave2_Data=128u,132u,138u,143u,148u,152u,158u,162u,168u,172u,178u,182u,188u,192u,198u,202u,208u,213u,218u,222u,228u,232u,238u,242u,248u,252u,248u,242u,238u,232u,228u,222u,218u,212u,208u,202u,198u,192u,188u,182u,178u,173u,168u,162u,158u,152u,148u,143u,138u,132u,128u,122u,118u,112u,107u,102u,97u,93u,88u,83u,78u,73u,68u,62u,57u,52u,47u,42u,37u,33u,28u,23u,18u,13u,8u,3u,8u,13u,18u,23u,28u,33u,37u,42u,47u,52u,57u,62u,68u,73u,78u,83u,88u,93u,97u,102u,107u,112u,118u,122u, Wave2_DCOffset=0.51, Wave2_Length=100, Wave2_PhaseShift=0, Wave2_Type=2, CY_API_CALLBACK_HEADER_INCLUDE=#include "cyapicallbacks.h", CY_COMMENT=, CY_COMPONENT_NAME=WaveDAC8_v2_10, CY_CONFIG_TITLE=WaveDAC8, CY_CONST_CONFIG=true, CY_CONTROL_FILE=<:default:>, CY_DATASHEET_FILE=<:default:>, CY_FITTER_NAME=WaveDAC8, CY_INSTANCE_SHORT_NAME=WaveDAC8, CY_MAJOR_VERSION=2, CY_MINOR_VERSION=10, CY_PDL_DRIVER_NAME=, CY_PDL_DRIVER_REQ_VERSION=, CY_PDL_DRIVER_SUBGROUP=, CY_PDL_DRIVER_VARIANT=, CY_REMOVE=false, CY_SUPPRESS_API_GEN=false, CY_VERSION=PSoC Creator  4.2, INSTANCE_NAME=WaveDAC8, )
+module WaveDAC8_v2_10_6 (
     Wave,
     ws,
     clock,
@@ -1023,18 +1107,6 @@ module WaveDAC8_v2_10_5 (
 
     cy_analog_noconnect_v1_0 cy_analog_noconnect_1 (
         .noconnect(Net_211));
-
-
-	cy_clock_v1_0
-		#(.id("40a723a8-f925-4796-8904-80eea7e9c774/77086516-855e-4b7b-abbe-47b22f8543de"),
-		  .source_clock_id(""),
-		  .divisor(0),
-		  .period("10000000000"),
-		  .is_direct(0),
-		  .is_digital(1))
-		DacClk
-		 (.clock_out(Net_279));
-
 
 	// cy_analog_virtualmux_1 (cy_analog_virtualmux_v1_0)
 	cy_connect_v1_0 cy_analog_virtualmux_1_connect(Net_189, Net_256);
@@ -1091,9 +1163,9 @@ module WaveDAC8_v2_10_5 (
     // -- De Mux end --
 
 	// VirtualMux_1 (cy_virtualmux_v1_0)
-	assign Net_336 = Net_279;
+	assign Net_336 = clock;
 
-    VDAC8_v1_90_4 VDAC8 (
+    VDAC8_v1_90_5 VDAC8 (
         .strobe(Net_336),
         .data(8'b00000000),
         .vOut(Net_189));
@@ -1132,22 +1204,41 @@ module top ;
           wire  ADR_OUT_0;
           wire  PSoC_CLK;
           wire  CPURDn;
-          wire  Net_1202;
-          wire  Net_1201;
-          wire  Net_1200;
+          wire  Net_1235;
+          wire  Net_1234;
+          wire  Net_1244;
+          wire  Net_1243;
+          wire  Net_1242;
+          wire  Net_1241;
+          wire  Net_1240;
+          wire  Net_1239;
+          wire  Net_1238;
+          wire  Net_1237;
+          wire  Net_1236;
+          wire  Net_1297;
+          wire  Net_1315;
+          wire  IORQn;
+          wire  Net_1312;
+          wire  Net_1311;
+          wire  Net_1310;
+          wire  Net_1309;
+          wire  Net_1314;
+          wire  Net_1308;
+          wire  Net_1305;
           wire  Net_1144;
           wire  Net_1143;
           wire  Net_1155;
           wire  Net_1154;
+          wire  CPUWRn;
           wire  Net_1153;
           wire  Net_1152;
           wire  Net_1151;
           wire  Net_1150;
           wire  Net_1149;
           wire  Net_1148;
-          wire  IORQn;
           wire  Net_1147;
           wire  Net_1146;
+          wire [7:0] ZDO;
           wire  Net_1160;
           wire  Net_1159;
           wire  Net_1158;
@@ -1157,7 +1248,6 @@ module top ;
           wire  Net_931;
           wire  Net_916;
           wire  Net_915;
-          wire  CPUWRn;
           wire  Net_890;
           wire  Net_889;
           wire  Net_888;
@@ -1165,15 +1255,19 @@ module top ;
           wire  Net_886;
           wire  Net_837;
           wire  Net_1145;
+          wire  DRV_RAM;
           wire  Net_741;
-          wire [7:0] ZDO;
           wire  Net_740;
           wire  Net_739;
           wire  Net_738;
           wire  Net_737;
+          wire  SRAMREAD;
           wire  Net_736;
+          wire [7:0] SAR;
+          wire  SRAMWRITE;
           wire  Net_735;
           wire  Net_734;
+          wire  SRAMCS;
           wire  Net_733;
           wire  Net_732;
           wire  Net_761;
@@ -1183,19 +1277,14 @@ module top ;
           wire  Net_757;
           wire  Net_756;
           wire  Net_755;
-          wire  DRV_RAM;
           wire  Net_754;
           wire  Net_753;
           wire  Net_752;
           wire [7:0] Net_459;
           wire  Net_458;
-          wire  SRAMREAD;
           wire  Net_457;
-          wire [7:0] SAR;
-          wire  SRAMWRITE;
           wire  Net_456;
           wire  Net_455;
-          wire  SRAMCS;
           wire  Net_937;
           wire  Net_1169;
           wire  Net_1168;
@@ -1204,6 +1293,7 @@ module top ;
           wire  Net_1165;
           wire  Net_1164;
           wire  Net_1163;
+          wire [15:11] Z80A;
           wire  Net_1162;
           wire  Net_1161;
           wire  Net_814;
@@ -1214,6 +1304,7 @@ module top ;
           wire  Net_838;
           wire  Net_839;
           wire  Net_731;
+          wire  BANKED;
           wire  Net_730;
           wire  Net_729;
           wire  Net_728;
@@ -1221,8 +1312,8 @@ module top ;
           wire  Net_726;
           wire  Net_725;
           wire  Net_724;
-          wire [15:11] Z80A;
           wire  Net_723;
+          wire [5:0] MSK;
           wire  Net_722;
           wire  Net_499;
           wire  Net_497;
@@ -1232,7 +1323,6 @@ module top ;
           wire  Net_492;
           wire  Net_322;
           wire  Net_855;
-          wire  BANKED;
           wire  Net_145;
           wire  Net_144;
           wire [7:0] Net_418;
@@ -1241,15 +1331,18 @@ module top ;
           wire  Net_49;
           wire  Net_23;
           wire  Net_20;
-          wire [5:0] MSK;
           wire  Net_17;
           wire  Net_14;
           wire  Net_11;
           wire  Net_264;
+          wire  CPURES;
           wire  Net_36;
           wire  Net_263;
           wire  Net_35;
           wire  Net_34;
+          wire  Net_1249;
+          wire  Net_1246;
+          wire  Net_1313;
     electrical  Net_1198;
           wire  Net_1199;
           wire  Net_1117;
@@ -1261,14 +1354,15 @@ module top ;
           wire  Net_1024;
           wire  Net_1021;
           wire  Net_1018;
+          wire  IOBUSY;
           wire  Net_1111;
           wire  Net_1113;
           wire  Net_1104;
-          wire  CPURES;
           wire  Net_1100;
           wire  Net_1112;
           wire  Net_1106;
           wire  Net_1102;
+          wire  CLR_HALT;
           wire  Net_1033;
           wire  Net_1086;
           wire  Net_1069;
@@ -1285,7 +1379,6 @@ module top ;
           wire  Net_989;
           wire  Net_936;
           wire  Net_984;
-          wire  IOBUSY;
           wire  Net_963;
           wire  Net_977;
           wire  Net_514;
@@ -1293,7 +1386,6 @@ module top ;
           wire  Net_976;
           wire  Net_509;
           wire  Net_513;
-          wire  CLR_HALT;
           wire  Net_467;
           wire  Net_934;
           wire  Net_323;
@@ -6378,20 +6470,36 @@ module top ;
         .vbusdet(1'b0));
     defparam USBUART.epDMAautoOptimization = 0;
 
-    WaveDAC8_v2_10_5 WaveDAC8 (
-        .Wave(Net_1198),
-        .ws(Net_1199),
-        .clock(1'b0),
-        .wc1(Net_1201),
-        .wc2(Net_1202));
+    Counter_v3_0_4 Sound_Counter (
+        .reset(Net_1246),
+        .tc(Net_1313),
+        .comp(Net_1305),
+        .clock(Net_1249),
+        .interrupt(Net_1308),
+        .enable(1'b0),
+        .capture(1'b0),
+        .upCnt(1'b0),
+        .downCnt(1'b0),
+        .up_ndown(1'b1),
+        .count(1'b0));
+    defparam Sound_Counter.CaptureMode = 0;
+    defparam Sound_Counter.ClockMode = 3;
+    defparam Sound_Counter.CompareMode = 0;
+    defparam Sound_Counter.CompareStatusEdgeSense = 1;
+    defparam Sound_Counter.EnableMode = 0;
+    defparam Sound_Counter.ReloadOnCapture = 0;
+    defparam Sound_Counter.ReloadOnCompare = 0;
+    defparam Sound_Counter.ReloadOnOverUnder = 1;
+    defparam Sound_Counter.ReloadOnReset = 1;
+    defparam Sound_Counter.Resolution = 16;
+    defparam Sound_Counter.RunMode = 0;
+    defparam Sound_Counter.UseInterrupt = 1;
 
-    assign Net_1199 = 1'h0;
-
-	wire [0:0] tmpOE__DAC_O_net;
-	wire [0:0] tmpFB_0__DAC_O_net;
-	wire [0:0] tmpIO_0__DAC_O_net;
-	wire [0:0] tmpINTERRUPT_0__DAC_O_net;
-	electrical [0:0] tmpSIOVREF__DAC_O_net;
+	wire [0:0] tmpOE__VO_net;
+	wire [0:0] tmpFB_0__VO_net;
+	wire [0:0] tmpIO_0__VO_net;
+	wire [0:0] tmpINTERRUPT_0__VO_net;
+	electrical [0:0] tmpSIOVREF__VO_net;
 
 	cy_psoc3_pins_v1_10
 		#(.id("77715107-f8d5-47e5-a629-0fb83101ac6b"),
@@ -6446,14 +6554,14 @@ module top ;
 		  .ovt_needed(1'b0),
 		  .ovt_slew_control(2'b00),
 		  .input_buffer_sel(2'b00))
-		DAC_O
-		 (.oe(tmpOE__DAC_O_net),
+		VO
+		 (.oe(tmpOE__VO_net),
 		  .y({1'b0}),
-		  .fb({tmpFB_0__DAC_O_net[0:0]}),
+		  .fb({tmpFB_0__VO_net[0:0]}),
 		  .analog({Net_1198}),
-		  .io({tmpIO_0__DAC_O_net[0:0]}),
-		  .siovref(tmpSIOVREF__DAC_O_net),
-		  .interrupt({tmpINTERRUPT_0__DAC_O_net[0:0]}),
+		  .io({tmpIO_0__VO_net[0:0]}),
+		  .siovref(tmpSIOVREF__VO_net),
+		  .interrupt({tmpINTERRUPT_0__VO_net[0:0]}),
 		  .in_clock({1'b0}),
 		  .in_clock_en({1'b1}),
 		  .in_reset({1'b0}),
@@ -6461,7 +6569,52 @@ module top ;
 		  .out_clock_en({1'b1}),
 		  .out_reset({1'b0}));
 
-	assign tmpOE__DAC_O_net = (`CYDEV_CHIP_MEMBER_USED == `CYDEV_CHIP_MEMBER_3A && `CYDEV_CHIP_REVISION_USED < `CYDEV_CHIP_REVISION_3A_ES3) ? ~{1'b1} : {1'b1};
+	assign tmpOE__VO_net = (`CYDEV_CHIP_MEMBER_USED == `CYDEV_CHIP_MEMBER_3A && `CYDEV_CHIP_REVISION_USED < `CYDEV_CHIP_REVISION_3A_ES3) ? ~{1'b1} : {1'b1};
+
+
+	cy_clock_v1_0
+		#(.id("360327ac-c319-4bad-85f1-bb9fee063736"),
+		  .source_clock_id("61737EF6-3B74-48f9-8B91-F7473A442AE7"),
+		  .divisor(2),
+		  .period("0"),
+		  .is_direct(0),
+		  .is_digital(1))
+		DAC_Clock
+		 (.clock_out(Net_1249));
+
+
+    CyControlReg_v1_80 DAC_Control (
+        .control_1(Net_1236),
+        .control_2(Net_1237),
+        .control_3(Net_1238),
+        .control_0(Net_1199),
+        .control_4(Net_1239),
+        .control_5(Net_1240),
+        .control_6(Net_1241),
+        .control_7(Net_1242),
+        .clock(1'b0),
+        .reset(1'b0));
+    defparam DAC_Control.Bit0Mode = 0;
+    defparam DAC_Control.Bit1Mode = 0;
+    defparam DAC_Control.Bit2Mode = 0;
+    defparam DAC_Control.Bit3Mode = 0;
+    defparam DAC_Control.Bit4Mode = 0;
+    defparam DAC_Control.Bit5Mode = 0;
+    defparam DAC_Control.Bit6Mode = 0;
+    defparam DAC_Control.Bit7Mode = 0;
+    defparam DAC_Control.BitValue = 0;
+    defparam DAC_Control.BusDisplay = 0;
+    defparam DAC_Control.ExtrReset = 0;
+    defparam DAC_Control.NumOutputs = 1;
+
+    WaveDAC8_v2_10_6 WaveDAC8 (
+        .Wave(Net_1198),
+        .ws(Net_1199),
+        .clock(Net_1313),
+        .wc1(Net_1234),
+        .wc2(Net_1235));
+
+    assign Net_1246 = 1'h0;
 
 
 
