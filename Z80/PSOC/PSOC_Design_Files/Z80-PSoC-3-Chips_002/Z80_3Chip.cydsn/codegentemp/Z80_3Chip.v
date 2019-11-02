@@ -1,6 +1,6 @@
 // ======================================================================
 // Z80_3Chip.v generated from TopDesign.cysch
-// 11/01/2019 at 19:25
+// 11/02/2019 at 08:20
 // This file is auto generated. ANY EDITS YOU MAKE MAY BE LOST WHEN THIS FILE IS REGENERATED!!!
 // ======================================================================
 
@@ -5539,10 +5539,10 @@ module top ;
 		#(.id("3ef6089a-404f-4833-9881-9f7f0afe9423"),
 		  .source_clock_id(""),
 		  .divisor(0),
-		  .period("166666666.666667"),
+		  .period("100000000"),
 		  .is_direct(0),
 		  .is_digital(1))
-		Clock_3
+		CPUCLK
 		 (.clock_out(Net_835));
 
 
@@ -5667,9 +5667,9 @@ module top ;
 
 	cy_psoc3_pins_v1_10
 		#(.id("a21eae38-7129-4636-8937-0176608e8955"),
-		  .drive_mode(3'b001),
+		  .drive_mode(3'b010),
 		  .ibuf_enabled(1'b1),
-		  .init_dr_st(1'b0),
+		  .init_dr_st(1'b1),
 		  .input_clk_en(0),
 		  .input_sync(1'b0),
 		  .input_sync_mode(1'b0),
@@ -5741,9 +5741,9 @@ module top ;
 
 	cy_psoc3_pins_v1_10
 		#(.id("a60c2cd4-8e19-485d-8813-d15432bfcc05"),
-		  .drive_mode(3'b001),
+		  .drive_mode(3'b010),
 		  .ibuf_enabled(1'b1),
-		  .init_dr_st(1'b0),
+		  .init_dr_st(1'b1),
 		  .input_clk_en(0),
 		  .input_sync(1'b0),
 		  .input_sync_mode(1'b0),

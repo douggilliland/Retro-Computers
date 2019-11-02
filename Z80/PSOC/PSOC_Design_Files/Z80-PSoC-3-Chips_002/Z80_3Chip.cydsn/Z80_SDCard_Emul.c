@@ -89,6 +89,10 @@ void SDWriteCommand(void)
 		SD_Status = 160;
 		ackIO();
 	}
+    else
+    {
+        ackIO();
+    }
 	return;
 }
 

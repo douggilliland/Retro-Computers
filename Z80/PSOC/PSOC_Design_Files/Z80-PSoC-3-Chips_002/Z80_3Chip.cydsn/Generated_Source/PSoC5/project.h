@@ -126,7 +126,7 @@
 #include "SDA.h"
 #include "CPU_CLK_aliases.h"
 #include "CPU_CLK.h"
-#include "Clock_3.h"
+#include "CPUCLK.h"
 #include "ExtSRAMCtl.h"
 #include "CPURSTn_aliases.h"
 #include "CPURSTn.h"
