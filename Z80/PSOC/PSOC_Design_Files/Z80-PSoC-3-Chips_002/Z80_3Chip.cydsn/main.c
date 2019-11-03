@@ -34,13 +34,12 @@ int main(void)
     uint32 sectorNumber = 0;
 	
 	I2CINT_n_SetDriveMode(I2CINT_n_DM_RES_UP);          // Pull-up the I2C interrupt line
-    
 	USBUART_Start(USBFS_DEVICE, USBUART_5V_OPERATION);  // Start USBFS operation with 5-V operation.
 
     // Only want to do a single I2C_Start()
 	#ifdef USING_FRONT_PANEL
 		I2C_Start();
-	#else
+	#else       // Using expansion mcp23017 but not using front panel
 		#ifdef USING_EXP_MCCP23017
 		I2C_Start();
 		#endif
@@ -76,9 +75,15 @@ int main(void)
 		Z80Running = runFrontPanel();            // Exits either by pressing EXitFrontPanel or RUN button on front panel
         if (Z80Running == 1)
         {
-        	#ifdef USING_EXP_MCCP23017
-            // The expansion MCP23017 has its reset tied to the CPU reset
-        	init_PIO();
+        	#ifdef USING_EXP_MCCP23017  // The expansion MCP23017 has its reset tied to the CPU reset
+            	init_PIO();
+        	#endif
+        	#ifdef USING_FRONT_PANEL
+                I2CINT_ISR_Start();
+        	#else       // Using expansion mcp23017 but not using front panel
+        		#ifdef USING_EXP_MCCP23017
+                I2CINT_ISR_Start();
+        		#endif
         	#endif
         }
 	#else

@@ -286,17 +286,12 @@ uint32 readFrontPanelSwitchesStatic(void)
 {
 	uint32 switchVals = 0;
 	switchVals = readRegister_MCP23017(MCP23017_0,MCP23017_GPIOA_REGADR);
-	readRegister_MCP23017(MCP23017_0,MCP23017_INTCAPA_REGADR);                            // Clears interrupt
 	switchVals = switchVals<<8;
 	switchVals |= readRegister_MCP23017(MCP23017_1,MCP23017_GPIOA_REGADR);
-	readRegister_MCP23017(MCP23017_1,MCP23017_INTCAPA_REGADR);                            // Clears interrupt
 	switchVals = switchVals<<8;
 	switchVals |= readRegister_MCP23017(MCP23017_2,MCP23017_GPIOA_REGADR);
-  	readRegister_MCP23017(MCP23017_2,MCP23017_INTCAPA_REGADR);                            // Clears interrupt
 	switchVals = switchVals<<8;
 	switchVals |= readRegister_MCP23017(MCP23017_3,MCP23017_GPIOA_REGADR);
-    readRegister_MCP23017(MCP23017_3,MCP23017_INTCAPA_REGADR);                            // Clears interrupt
-
 	return (switchVals);
 }
 

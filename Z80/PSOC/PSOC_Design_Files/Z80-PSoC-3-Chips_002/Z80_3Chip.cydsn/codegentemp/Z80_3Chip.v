@@ -1,6 +1,6 @@
 // ======================================================================
 // Z80_3Chip.v generated from TopDesign.cysch
-// 11/03/2019 at 07:14
+// 11/03/2019 at 13:00
 // This file is auto generated. ANY EDITS YOU MAKE MAY BE LOST WHEN THIS FILE IS REGENERATED!!!
 // ======================================================================
 
@@ -1216,8 +1216,8 @@ module top ;
           wire  Net_1237;
           wire  Net_1236;
           wire  Net_1297;
-          wire  Net_1315;
           wire  IORQn;
+          wire  Net_1315;
           wire  Net_1312;
           wire  Net_1311;
           wire  Net_1310;
@@ -1228,8 +1228,8 @@ module top ;
           wire  Net_1144;
           wire  Net_1143;
           wire  Net_1155;
-          wire  Net_1154;
           wire  CPUWRn;
+          wire  Net_1154;
           wire  Net_1153;
           wire  Net_1152;
           wire  Net_1151;
@@ -1237,8 +1237,8 @@ module top ;
           wire  Net_1149;
           wire  Net_1148;
           wire  Net_1147;
-          wire  Net_1146;
           wire [7:0] ZDO;
+          wire  Net_1146;
           wire  Net_1160;
           wire  Net_1159;
           wire  Net_1158;
@@ -1253,20 +1253,20 @@ module top ;
           wire  Net_887;
           wire  Net_886;
           wire  Net_837;
-          wire  Net_1145;
           wire  DRV_RAM;
+          wire  Net_1145;
           wire  Net_741;
           wire  Net_740;
           wire  Net_739;
           wire  Net_738;
-          wire  Net_737;
           wire  SRAMREAD;
-          wire  Net_736;
+          wire  Net_737;
           wire [7:0] SAR;
           wire  SRAMWRITE;
+          wire  Net_736;
           wire  Net_735;
-          wire  Net_734;
           wire  SRAMCS;
+          wire  Net_734;
           wire  Net_733;
           wire  Net_732;
           wire  Net_761;
@@ -1291,8 +1291,8 @@ module top ;
           wire  Net_1166;
           wire  Net_1165;
           wire  Net_1164;
-          wire  Net_1163;
           wire [15:11] Z80A;
+          wire  Net_1163;
           wire  Net_1162;
           wire  Net_1161;
           wire  Net_814;
@@ -1302,8 +1302,8 @@ module top ;
           wire  Net_366;
           wire  Net_838;
           wire  Net_839;
-          wire  Net_731;
           wire  BANKED;
+          wire  Net_731;
           wire  Net_730;
           wire  Net_729;
           wire  Net_728;
@@ -1311,8 +1311,8 @@ module top ;
           wire  Net_726;
           wire  Net_725;
           wire  Net_724;
-          wire  Net_723;
           wire [5:0] MSK;
+          wire  Net_723;
           wire  Net_722;
           wire  Net_499;
           wire  Net_497;
@@ -1333,12 +1333,14 @@ module top ;
           wire  Net_17;
           wire  Net_14;
           wire  Net_11;
-          wire  Net_264;
           wire  CPURES;
+          wire  Net_264;
           wire  Net_36;
           wire  Net_263;
           wire  Net_35;
           wire  Net_34;
+          wire  Net_1321;
+          wire  Net_1322;
           wire  Net_1249;
           wire  Net_1246;
           wire  Net_1313;
@@ -1349,19 +1351,19 @@ module top ;
           wire  Net_1005;
           wire  Net_997;
           wire  Net_1079;
+          wire  IOBUSY;
           wire  Net_1028;
           wire  Net_1024;
           wire  Net_1021;
           wire  Net_1018;
-          wire  IOBUSY;
           wire  Net_1111;
           wire  Net_1113;
           wire  Net_1104;
+          wire  CLR_HALT;
           wire  Net_1100;
           wire  Net_1112;
           wire  Net_1106;
           wire  Net_1102;
-          wire  CLR_HALT;
           wire  Net_1033;
           wire  Net_1086;
           wire  Net_1069;
@@ -5734,7 +5736,6 @@ module top ;
 	assign tmpOE__BUSACK_n_net = (`CYDEV_CHIP_MEMBER_USED == `CYDEV_CHIP_MEMBER_3A && `CYDEV_CHIP_REVISION_USED < `CYDEV_CHIP_REVISION_3A_ES3) ? ~{1'b1} : {1'b1};
 
 	wire [0:0] tmpOE__I2CINT_n_net;
-	wire [0:0] tmpFB_0__I2CINT_n_net;
 	wire [0:0] tmpIO_0__I2CINT_n_net;
 	wire [0:0] tmpINTERRUPT_0__I2CINT_n_net;
 	electrical [0:0] tmpSIOVREF__I2CINT_n_net;
@@ -5795,7 +5796,7 @@ module top ;
 		I2CINT_n
 		 (.oe(tmpOE__I2CINT_n_net),
 		  .y({1'b0}),
-		  .fb({tmpFB_0__I2CINT_n_net[0:0]}),
+		  .fb({Net_1322}),
 		  .io({tmpIO_0__I2CINT_n_net[0:0]}),
 		  .siovref(tmpSIOVREF__I2CINT_n_net),
 		  .interrupt({tmpINTERRUPT_0__I2CINT_n_net[0:0]}),
@@ -6615,6 +6616,16 @@ module top ;
         .wc2(Net_1235));
 
     assign Net_1246 = 1'h0;
+
+
+	cy_isr_v1_0
+		#(.int_type(2'b01))
+		I2CINT_ISR
+		 (.int_signal(Net_1321));
+
+
+
+    assign Net_1321 = ~Net_1322;
 
 
 
