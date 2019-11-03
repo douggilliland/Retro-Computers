@@ -38,8 +38,8 @@ void init_FrontPanel(void)
 		writeRegister_MCP23017(chipAddr,MCP23017_IPOLA_REGADR,MCP23017_IPOL_INVERT);        // IP: Invert input pins on Port A
 		writeRegister_MCP23017(chipAddr,MCP23017_GPINTENA_REGADR,MCP23017_GPINTEN_ENABLE);  // GPINT: Enable interrupts for switches
 		writeRegister_MCP23017(chipAddr,MCP23017_GPINTENB_REGADR,MCP23017_GPINTEN_DISABLE); // GPINT: Disable interrupts for LED outputs
-		writeRegister_MCP23017(chipAddr,MCP23017_DEFVALA_REGADR,0xFF);                      // Default value for pin (interrupt)
-		writeRegister_MCP23017(chipAddr,MCP23017_INTCONA_REGADR,MCP23017_INTCON_DEFVAL);    // Int for change from previous pin
+		writeRegister_MCP23017(chipAddr,MCP23017_DEFVALA_REGADR,MCP23017_DEFVALA_DEFVAL);   // Default value for pin (interrupt)
+		writeRegister_MCP23017(chipAddr,MCP23017_INTCONA_REGADR,MCP23017_INTCON_DEFVAL);    // Int for change from default value
 		writeRegister_MCP23017(chipAddr,MCP23017_IOCONA_REGADR,MCP23017_IOCON_DEFVAL);      
         // BANK: Register addresses are in the same bank (addresses are sequential)
 		// MIRROR: Int pins not connected (they are externally connected together on the Front Panel board)
@@ -286,12 +286,17 @@ uint32 readFrontPanelSwitchesStatic(void)
 {
 	uint32 switchVals = 0;
 	switchVals = readRegister_MCP23017(MCP23017_0,MCP23017_GPIOA_REGADR);
+	readRegister_MCP23017(MCP23017_0,MCP23017_INTCAPA_REGADR);                            // Clears interrupt
 	switchVals = switchVals<<8;
 	switchVals |= readRegister_MCP23017(MCP23017_1,MCP23017_GPIOA_REGADR);
+	readRegister_MCP23017(MCP23017_1,MCP23017_INTCAPA_REGADR);                            // Clears interrupt
 	switchVals = switchVals<<8;
 	switchVals |= readRegister_MCP23017(MCP23017_2,MCP23017_GPIOA_REGADR);
+  	readRegister_MCP23017(MCP23017_2,MCP23017_INTCAPA_REGADR);                            // Clears interrupt
 	switchVals = switchVals<<8;
 	switchVals |= readRegister_MCP23017(MCP23017_3,MCP23017_GPIOA_REGADR);
+    readRegister_MCP23017(MCP23017_3,MCP23017_INTCAPA_REGADR);                            // Clears interrupt
+
 	return (switchVals);
 }
 

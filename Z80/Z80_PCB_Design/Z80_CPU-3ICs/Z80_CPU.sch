@@ -1513,10 +1513,8 @@ F 3 "" H 2200 7250 50  0001 C CNN
 	1    2200 7250
 	1    0    0    -1  
 $EndComp
-Text Label 1150 8600 0    50   ~ 0
-~CPURST
 Wire Wire Line
-	1050 8600 1500 8600
+	850  8600 1500 8600
 Wire Wire Line
 	1500 9100 1500 9200
 Connection ~ 1500 9200
@@ -2267,4 +2265,30 @@ Wire Wire Line
 Connection ~ 1450 8400
 Wire Wire Line
 	1450 8400 1500 8400
+$Comp
+L Device:R R10
+U 1 1 5DC2CA82
+P 850 8350
+F 0 "R10" H 900 8500 50  0000 L CNN
+F 1 "10K" V 850 8250 50  0000 L CNN
+F 2 "Resistor_SMD:R_0805_2012Metric_Pad1.15x1.40mm_HandSolder" V 700 8700 25  0000 C CNN
+F 3 "~" H 850 8350 50  0001 C CNN
+	1    850  8350
+	1    0    0    -1  
+$EndComp
+$Comp
+L power:+5V #PWR04
+U 1 1 5DC6B53D
+P 850 8050
+F 0 "#PWR04" H 850 7900 50  0001 C CNN
+F 1 "+5V" H 865 8223 50  0000 C CNN
+F 2 "" H 850 8050 50  0001 C CNN
+F 3 "" H 850 8050 50  0001 C CNN
+	1    850  8050
+	1    0    0    -1  
+$EndComp
+Wire Wire Line
+	850  8050 850  8200
+Wire Wire Line
+	850  8500 850  8600
 $EndSCHEMATC

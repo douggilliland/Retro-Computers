@@ -45,7 +45,9 @@
 #define MCP23017_IPOL_INVERT     0xFF       // Input polarity = invert jumpers
 #define MCP23017_GPINTEN_DISABLE 0x00       // Disable GPIO for interrupt on change
 #define MCP23017_GPINTEN_ENABLE  0xFF       // Enable GPIO for interrupt on change
-#define MCP23017_INTCON_DEFVAL   0x00       // Int for change from previous pin
+#define MCP23017_DEFVALA_DEFVAL  0x00       // Default vales of interrupt state
+#define MCP23017_INTCON_DEFVAL   0xFF       // Int for different from default value
+#define MCP23017_INTCON_PREVPIN  0x00       // Int for change from previous pin
 #define MCP23017_IOCON_DEFVAL    0x04       // Disable sequential,  active-low
 #define MCP23017_GPPU_DISABLE    0x00       // Disable pull-ups
 #define MCP23017_GPPU_ENABLE     0xFF       // Enable pull-ups

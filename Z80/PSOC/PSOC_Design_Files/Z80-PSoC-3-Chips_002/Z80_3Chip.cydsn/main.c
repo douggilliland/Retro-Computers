@@ -33,6 +33,8 @@ int main(void)
 	uint16 inCount;
     uint32 sectorNumber = 0;
 	
+	I2CINT_n_SetDriveMode(I2CINT_n_DM_RES_UP);          // Pull-up the I2C interrupt line
+    
 	USBUART_Start(USBFS_DEVICE, USBUART_5V_OPERATION);  // Start USBFS operation with 5-V operation.
 
     // Only want to do a single I2C_Start()
@@ -47,7 +49,7 @@ int main(void)
 	#ifdef USING_SDCARD
 		SDInit();
 	#endif
-	
+    
 	CyGlobalIntEnable;          /* Enable global interrupts. */
     
     init_Z80_RTC();
@@ -72,10 +74,13 @@ int main(void)
 	// Front Panel Initialization
     #ifdef USING_FRONT_PANEL
 		Z80Running = runFrontPanel();            // Exits either by pressing EXitFrontPanel or RUN button on front panel
-    	#ifdef USING_EXP_MCCP23017
-        // The expansion MCP23017 has its reset tied to the CPU reset
-    	init_PIO();
-    	#endif
+        if (Z80Running == 1)
+        {
+        	#ifdef USING_EXP_MCCP23017
+            // The expansion MCP23017 has its reset tied to the CPU reset
+        	init_PIO();
+        	#endif
+        }
 	#else
 		ExtSRAMCtl_Control = 0;     // Auto Run if there's no Front Panel
 	#endif
