@@ -52,7 +52,6 @@ volatile uint8 PIO_Mode_B;
 
 void init_PIO(void)
 {
-	uint8 chipAddr = 0x20;
     PIO_State_A = PIO_INIT;
     PIO_Mode_A = PIO_UNINIT;
     PIO_State_B = PIO_INIT;
@@ -66,8 +65,8 @@ void init_PIO(void)
 	writeRegister_MCP23017(MCP23017_PIO_ADDR,MCP23017_GPINTENB_REGADR,MCP23017_GPINTEN_ENABLE);  // GPINT: Enable interrupts
 	writeRegister_MCP23017(MCP23017_PIO_ADDR,MCP23017_DEFVALA_REGADR,MCP23017_DEFVALA_DEFVAL);   // Default value for pin (interrupt)
 	writeRegister_MCP23017(MCP23017_PIO_ADDR,MCP23017_DEFVALB_REGADR,MCP23017_DEFVALA_DEFVAL);   // Default value for pin (interrupt)
-	writeRegister_MCP23017(MCP23017_PIO_ADDR,MCP23017_INTCONA_REGADR,MCP23017_INTCON_DEFVAL);    // Int for change from default value
-	writeRegister_MCP23017(MCP23017_PIO_ADDR,MCP23017_INTCONB_REGADR,MCP23017_INTCON_DEFVAL);    // Int for change from default value
+	writeRegister_MCP23017(MCP23017_PIO_ADDR,MCP23017_INTCONA_REGADR,MCP23017_INTCON_PREVPIN);   // Int for change from default value
+	writeRegister_MCP23017(MCP23017_PIO_ADDR,MCP23017_INTCONB_REGADR,MCP23017_INTCON_PREVPIN);   // Int for change from default value
     // BANK: Register addresses are in the same bank (addresses are sequential)
 	// MIRROR: Int pins not connected (they are externally connected together on the board)
 	// SEQOP: Enable sequential operation (although the driver doesn't use it)

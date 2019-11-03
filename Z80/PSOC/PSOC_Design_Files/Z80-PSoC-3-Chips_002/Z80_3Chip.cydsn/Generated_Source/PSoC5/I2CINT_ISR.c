@@ -166,17 +166,7 @@ CY_ISR(I2CINT_ISR_Interrupt)
 
     /*  Place your Interrupt code here. */
     /* `#START I2CINT_ISR_Interrupt` */
-	#ifdef USING_FRONT_PANEL
-  		readRegister_MCP23017(0x24,MCP23017_INTCAPA_REGADR);                            // Clears interrupt
-  		readRegister_MCP23017(0x25,MCP23017_INTCAPA_REGADR);                            // Clears interrupt
-  		readRegister_MCP23017(0x26,MCP23017_INTCAPA_REGADR);                            // Clears interrupt
-  		readRegister_MCP23017(0x27,MCP23017_INTCAPA_REGADR);                            // Clears interrupt
-		I2C_Start();
-	#endif
-	#ifdef USING_EXP_MCCP23017
-  		readRegister_MCP23017(0x20,MCP23017_INTCAPA_REGADR);                            // Clears interrupt
-  		readRegister_MCP23017(0x20,MCP23017_INTCAPB_REGADR);                            // Clears interrupt
-	#endif
+    I2CIntISR();
     /* `#END` */
 }
 

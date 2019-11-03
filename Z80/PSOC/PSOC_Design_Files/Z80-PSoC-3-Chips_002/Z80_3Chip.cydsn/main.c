@@ -142,6 +142,10 @@ int main(void)
 			{
 				HandleZ80IO();
 			}
+            // Work the I2C Interrupt
+            I2CINT_ISR_Enable();
+            //CyDelayUs(2);
+            I2CINT_ISR_Disable();
 		}
 	}
 	else                    // Z80 is not running (EXFP front panel switch pushed)
@@ -216,6 +220,21 @@ int main(void)
 			}
 		}
 	}
+}
+
+void I2CIntISR(void)
+{
+	#ifdef USING_FRONT_PANEL
+  		readRegister_MCP23017(0x24,MCP23017_INTCAPA_REGADR);                            // Clears interrupt
+  		readRegister_MCP23017(0x25,MCP23017_INTCAPA_REGADR);                            // Clears interrupt
+  		readRegister_MCP23017(0x26,MCP23017_INTCAPA_REGADR);                            // Clears interrupt
+  		readRegister_MCP23017(0x27,MCP23017_INTCAPA_REGADR);                            // Clears interrupt
+		I2C_Start();
+	#endif
+	#ifdef USING_EXP_MCCP23017
+  		readRegister_MCP23017(0x20,MCP23017_INTCAPA_REGADR);                            // Clears interrupt
+  		readRegister_MCP23017(0x20,MCP23017_INTCAPB_REGADR);                            // Clears interrupt
+	#endif
 }
 
 /* [] END OF FILE */
