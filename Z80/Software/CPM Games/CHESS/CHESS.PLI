@@ -1,0 +1,731 @@
+chess: procedure options(main);
+
+/****************************************************************
+*                                                               *
+*   This program has served as a timing test case throughout    *
+*   the PL/I development.  We expect that this program will be  *
+*   extensively changed as various programmers work with it -   *
+*   if you make any great improvements, let us know and we'll   *
+*   send your updated version with our next release (you'll     *
+*   also go in line in the list below, for eternal fame).       *
+*   Feel free to distribute this program, or altered versions   *
+*   thereof, but please keep the list of names intact.  Oh, by  *
+*   the way, CHESS currently plays against itself, and reads a  *
+*   value to determine the search depth (don't make the value   *
+*   too large, or you'll wait quite a while for the moves).     *
+*                                                               *
+*         Programmer         Address             Date           *
+*         ----------      -------------------   ------          *
+*           JWB           Digital Research       3/79           *
+*                                                               *
+*                                                               *
+* (P.S., in its current state, this program takes 1:58 to       *
+*  compile on a 4-mhz Z-80 with a hard disk attached, and 1:45  *
+*  if the $Q compile toggle is enabled.)                        *
+****************************************************************/
+
+    declare (white initial (1), none initial (0), black initial (-1))
+        static fixed (1);
+
+    declare (empty_square initial (0), illegal_square initial (1),
+             white_pawn initial (2), white_knight initial (3),
+             white_bishop initial (4), white_rook initial (5),
+             white_queen initial (6), white_king initial (7),
+             black_pawn initial (8), black_knight initial (9),
+             black_bishop initial (10), black_rook initial (11),
+             black_queen initial (12), black_king initial (13))
+         static fixed (4);
+
+    declare piece_value (0 : 13) static fixed initial
+        (0,0,100,290,310,500,900,8000,-100,-290,-310,-500,-900,-8000);
+
+    declare piece_picture (0 : 13) static char (4) varying initial
+        ('   |','___|',' P |',' N |',' B |',' R |',' Q |',' K |',
+                     '<P>|','<N>|','<B>|','<R>|','<Q>|','<K>|');
+
+    declare bishop_like (0 : 13) static bit initial
+        ('0','0','0','0','1','0','1','0','0','0','1','0','1','0');
+
+    declare rook_like (0 : 13) static bit initial
+        ('0','0','0','0','0','1','1','0','0','0','0','1','1','0');
+
+    declare board (0 : 119) static fixed (4) initial
+        (01,01,01,01,01,01,01,01,01,01,
+         01,01,01,01,01,01,01,01,01,01,
+         01,11,09,10,12,13,10,09,11,01,
+         01,08,08,08,08,08,08,08,08,01,
+         01,00,00,00,00,00,00,00,00,01,
+         01,00,00,00,00,00,00,00,00,01,
+         01,00,00,00,00,00,00,00,00,01,
+         01,00,00,00,00,00,00,00,00,01,
+         01,02,02,02,02,02,02,02,02,01,
+         01,05,03,04,06,07,04,03,05,01,
+         01,01,01,01,01,01,01,01,01,01,
+         01,01,01,01,01,01,01,01,01,01);
+
+    declare center (0 : 119) static fixed (2) initial
+        (00,00,00,00,00,00,00,00,00,00,
+         00,00,00,00,00,00,00,00,00,00,
+         00,00,00,00,00,00,00,00,00,00,
+         00,00,01,01,01,01,01,01,00,00,
+         00,00,01,02,02,02,02,01,00,00,
+         00,00,01,02,03,03,02,01,00,00,
+         00,00,01,02,03,03,02,01,00,00,
+         00,00,01,02,02,02,02,01,00,00,
+         00,00,01,01,01,01,01,01,00,00,
+         00,00,00,00,00,00,00,00,00,00,
+         00,00,00,00,00,00,00,00,00,00,
+         00,00,00,00,00,00,00,00,00,00);
+
+    declare bonus (0 : 119) static fixed (4) initial
+        ( 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+          0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+          0, 1, 3, 2, 1,-9, 3, 4, 1, 0,
+          0, 1, 1, 1, 6, 7, 1, 1, 1, 0,
+          0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+          0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+          0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+          0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+          0, 1, 1, 1, 6, 7, 1, 1, 1, 0,
+          0, 1, 3, 2, 1,-9, 3, 4, 1, 0,
+          0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+          0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+
+    declare (((max_stage,max_cap) initial (3), ply, max_ply) fixed (3),
+        ((move_index, best_move, first_move, last_move) fixed,
+            (stage_lim, stage_lst) fixed (3),
+            move_color fixed (1), cur_piece fixed (4),
+            move_bonus fixed (4)) (0 : 5),
+        next fixed, /* index to next available of */
+        ((est_score, move_score) fixed,
+        (move_from, move_to, move_dir) fixed (7))
+            (0 : 350)) static;
+
+
+
+
+/****************************************************************
+*                                                               *
+*                                                               *
+*                                                               *
+****************************************************************/
+
+    display: procedure;
+
+        declare (i, j) fixed;
+        declare dashes static varying character (41) initial
+            ('        +---+---+---+---+---+---+---+---+'),
+            spaces static varying character (9) initial ('        |');
+
+        put skip(2);
+            do i = 20 to 90 by 10;
+            write from(dashes);
+            put skip;
+            write from(spaces);
+                do j = 1 to 8;
+                write from(piece_picture (board (i + j)));
+                end;
+            put skip;
+            end;
+        write from(dashes);
+        put skip(2);
+    
+        end display;
+
+
+
+/****************************************************************
+*                                                               *
+*                                                               *
+*                                                               *
+****************************************************************/
+
+
+    display_move: procedure (move);
+
+        declare move fixed;
+
+        declare spaces varying character (6) static initial ('      '),
+            dash varying character (1) static initial ('-'),
+            takes varying character (1) static initial ('x'),
+            names (0 : 119) varying character (2) static initial
+                ('  ','  ','  ','  ','  ','  ','  ','  ','  ','  ',
+                 '  ','  ','  ','  ','  ','  ','  ','  ','  ','  ',
+                 '  ','a8','b8','c8','d8','e8','f8','g8','h8','  ',
+                 '  ','a7','b7','c7','d7','e7','f7','g7','h7','  ',
+                 '  ','a6','b6','c6','d6','e6','f6','g6','h6','  ',
+                 '  ','a5','b5','c5','d5','e5','f5','g5','h5','  ',
+                 '  ','a4','b4','c4','d4','e4','f4','g4','h4','  ',
+                 '  ','a3','b3','c3','d3','e3','f3','g3','h3','  ',
+                 '  ','a2','b2','c2','d2','e2','f2','g2','h2','  ',
+                 '  ','a1','b1','c1','d1','e1','f1','g1','h1','  ',
+                 '  ','  ','  ','  ','  ','  ','  ','  ','  ','  ',
+                 '  ','  ','  ','  ','  ','  ','  ','  ','  ','  ');
+
+
+            write from(spaces);
+            write from(names (move_from (move)));
+            if cur_piece (ply) = empty_square then
+                write from(dash);
+            if cur_piece (ply) ~= empty_square then
+                write from(takes);
+            write from(names (move_to (move)));
+            end display_move;
+
+
+/****************************************************************
+*                                                               *
+*                                                               *
+*                                                               *
+****************************************************************/
+
+    color: procedure (square) returns (fixed (1));
+
+        declare square fixed (7);
+
+        if board (square) >= black_pawn then return (black);
+        if board (square) <= illegal_square then return (none);
+        return (white);
+
+        end color;
+
+
+
+
+/****************************************************************
+*                                                               *
+*                                                               *
+*                                                               *
+****************************************************************/
+
+    sort_moves: procedure;
+
+        declare ((i, j, t) fixed, s fixed (7), color fixed (1),
+            switched bit) static;
+
+        color = move_color (ply);
+            do switched = '1' while (switched);
+                switched = '0';
+                do i = first_move (ply) repeat (j)
+                    while (i < last_move (ply));
+                j = i + 1;
+                t = move_score (i) - move_score (j);
+                if t < 0 & color = white | t > 0 & color = black then
+                    do;
+                    switched = '1';
+                    t = est_score (i);
+                    est_score (i) = est_score (j);
+                    est_score (j) = t;
+                    t = move_score (i);
+                    move_score (i) = move_score (j);
+                    move_score (j) = t;
+                    s = move_from (i);
+                    move_from (i) = move_from (j);
+                    move_from (j) = s;
+                    s = move_to (i);
+                    move_to (i) = move_to (j);
+                    move_to (j) = s;
+                    s = move_dir (i);
+                    move_dir (i) = move_dir (j);
+                    move_dir (j) = s;
+                    if i > first_move (ply) then j = j - 2;
+                    end;
+                end;
+            end;
+        best_move (ply) = first_move (ply);
+        end sort_moves;
+
+
+
+/****************************************************************
+*                                                               *
+*                                                               *
+*                                                               *
+****************************************************************/
+
+    generate_moves: procedure;
+
+        declare (move_piece fixed (4), from_square fixed (7),
+            castle_bonus fixed (4), move fixed) static;
+
+
+
+/****************************************************************
+*                                                               *
+*                                                               *
+*                                                               *
+****************************************************************/
+
+        add_move: procedure (to_square, direction);
+            declare to_square fixed (7), direction fixed (5);
+
+            declare (current_piece fixed (4), score fixed) static;
+
+            current_piece = board (to_square);
+            if current_piece = illegal_square then return;
+            if color (to_square) = move_color (ply) then return;
+            move_from (next) = from_square;
+            move_to (next) = to_square;
+            move_dir (next) = direction;
+            score = center (to_square) - center (from_square) +
+                bonus (from_square);
+            if color (from_square) = black then score = - score;
+            score = score - piece_value (current_piece);
+            est_score (next) = score;
+            move_score (next) = score;
+            if move_color (ply) = white then
+                do;
+                if score > move_score (best_move (ply)) then
+                    best_move (ply) = next;
+                end; else
+                do;
+                if score < move_score (best_move (ply)) then
+                    best_move (ply) = next;
+                end;
+            last_move (ply) = next;
+            next = next + 1;
+            end add_move;
+
+
+
+/****************************************************************
+*                                                               *
+*                                                               *
+*                                                               *
+****************************************************************/
+
+        multi_move: procedure (dir);
+            declare dir fixed (5);
+
+            declare ts fixed (7) static;
+
+                do ts = from_square + dir repeat (ts + dir)
+                    while (board (ts) = empty_square);
+                call add_move (ts, dir);
+                end;
+            call add_move (ts, dir); /* adds captures */
+            end multi_move;
+
+
+
+/****************************************************************
+*                                                               *
+*                                                               *
+*                                                               *
+****************************************************************/
+
+
+        generate_piece_moves: procedure;
+
+            move_piece = board (from_square);
+                if move_piece = white_pawn then
+                do;
+                if board (from_square - 10) = empty_square then
+                    do; call add_move (from_square - 10, -10);
+                    if board (from_square - 20) = empty_square then
+                        if bonus (from_square) ~= 0 then
+                            call add_move (from_square - 20, -10);
+                    end;
+                if color (from_square - 9) = -move_color (ply) then
+                    call add_move (from_square - 9, -9);
+                if color (from_square-11) = -move_color (ply) then
+                    call add_move (from_square - 11, -11);
+                end; else
+                if move_piece = black_pawn then
+                do;
+                if board (from_square + 10) = empty_square then
+                    do; call add_move (from_square + 10, 10);
+                    if board (from_square + 20) = empty_square then
+                        if bonus (from_square) ~= 0 then
+                            call add_move (from_square + 20, 10);
+                    end;
+                if color (from_square + 9) = -move_color (ply) then
+                    call add_move (from_square + 9, 9);
+                if color (from_square+11) = -move_color (ply) then
+                    call add_move (from_square + 11, 11);
+                end; else
+                if move_piece = white_knight |
+                move_piece = black_knight then
+                do;
+                call add_move (from_square - 21, -21);
+                call add_move (from_square - 19, -19);
+                call add_move (from_square - 12, -12);
+                call add_move (from_square - 8, -8);
+                call add_move (from_square + 8, 8);
+                call add_move (from_square + 12, 12);
+                call add_move (from_square + 19, 19);
+                call add_move (from_square + 21, 21);
+                end; else
+                if move_piece = white_king |
+                move_piece = black_king then
+                do;
+                call add_move (from_square - 11, -11);
+                call add_move (from_square - 10, -10);
+                call add_move (from_square - 9, -9);
+                call add_move (from_square - 1, -1);
+                call add_move (from_square + 1, 1);
+                call add_move (from_square + 9, 9);
+                call add_move (from_square + 10, 10);
+                call add_move (from_square + 11, 11);
+                castle_bonus = 0;
+                if bonus (from_square) ~= 0 then
+                   do;
+                   if move_piece = white_king then
+                   if from_square = 95 then
+                       castle_bonus = 15;
+                   end; else
+                   do;
+                   if move_piece = black_king then
+                   if from_square = 25 then
+                       castle_bonus = -15;
+                   end;
+                if castle_bonus ~= 0 then
+                   do;
+                    if bonus (from_square + 3) ~= 0 then
+                    if board (from_square + 3) = move_piece-2 then
+                    if board (from_square + 1) = empty_square then
+                    if board (from_square + 2) = empty_square then
+                        do;
+                        call add_move (from_square + 2, 2);
+                        est_score (next - 1) =
+                            est_score (next - 1) + castle_bonus;
+                        move_score (next - 1) =
+                            move_score (next - 1) + castle_bonus;
+                        end;
+                    if bonus (from_square - 4) ~= 0 then
+                    if board (from_square - 4) = move_piece-2 then
+                    if board (from_square - 3) = empty_square then
+                    if board (from_square - 2) = empty_square then
+                    if board (from_square - 1) = empty_square then
+                        do;
+                        call add_move (from_square - 2, -2);
+                        est_score (next - 1) =
+                            est_score (next - 1) + castle_bonus;
+                        move_score (next - 1) =
+                            move_score (next - 1) + castle_bonus;
+                        end;
+                    end;
+                end; else
+                    do;
+                if bishop_like (move_piece) then
+                    do;
+                    call multi_move (-11);
+                    call multi_move (-9);
+                    call multi_move (9);
+                    call multi_move (11);
+                    end;
+                if rook_like (move_piece) then
+                    do;
+                    call multi_move (-10);
+                    call multi_move (10);
+                    call multi_move (1);
+                    call multi_move (-1);
+                    end;
+                end;
+            end generate_piece_moves;
+
+
+
+/****************************************************************
+*                                                               *
+*                                                               *
+*                                                               *
+****************************************************************/
+
+
+        move_prohibited: procedure (best_move, move) returns (bit);
+            declare (best_move, move) fixed;
+
+            declare to_sq fixed (7) static;
+
+                do to_sq = move_from (best_move)
+                    repeat (to_sq + move_dir (best_move))
+                    while (to_sq ~= move_to (best_move));
+                if move_to (move) = to_sq then return ('1');
+                end;
+            if move_to (move) = to_sq then return ('1');
+            return ('0');
+            end move_prohibited;
+
+
+        first_move (ply) = next;
+        best_move (ply) = next;
+        move_index (ply) = next - 1;
+    
+    
+    
+        move = best_move (ply - 2);
+        if ply >= max_ply then
+        if ply >= 2 then
+        if move_from (move_index (ply - 2)) ~= move_from (move) then
+        if move_from (move) ~= move_to (move_index (ply - 1)) then
+        if move_to (move) ~= move_from (move_index (ply - 1)) then
+        if ~ move_prohibited (move, move_index (ply - 1)) then
+        if ~ move_prohibited (move, move_index (ply - 2)) then
+            do;
+            from_square = move_from (move);
+            call add_move (move_to (move), move_dir (move));
+            return;
+            end;
+
+
+
+            do from_square = 21 to 98;
+            if color (from_square) = move_color (ply) then
+                call generate_piece_moves();
+            if ply >= max_ply then
+                if alpha_beta_cutoff (best_move (ply)) then
+                do;
+                last_move (ply) = next - 1;
+                return;
+                end;
+            end;
+
+        return;
+
+        end generate_moves;
+
+
+
+/****************************************************************
+*                                                               *
+*                                                               *
+*                                                               *
+****************************************************************/
+
+    alpha_beta_cutoff: procedure (move) returns (bit);
+        declare move fixed (7);
+
+        declare score fixed static;
+
+        if ply = 0 then return ('0');
+        if move_index (ply - 1) = first_move (ply - 1) then
+            return ('0');
+        if move_index (ply) < first_move (ply) then
+            return ('0');
+        score = move_score (move) +
+                move_score (move_index (ply - 1)) -
+                move_score (best_move (ply - 1));
+        if move_color (ply) = white then return (score > 0);
+        return (score < 0);
+        end alpha_beta_cutoff;
+
+
+
+/****************************************************************
+*                                                               *
+*                                                               *
+*                                                               *
+****************************************************************/
+
+    select_next_move: procedure returns (bit);
+
+        declare (to, from) fixed (7) static;
+
+        if alpha_beta_cutoff (move_index (ply)) then return ('0');
+        move_index (ply) = move_index (ply) + 1;
+        if move_index (ply) > last_move (ply) then return ('0');
+        to = move_to (move_index (ply));
+        from = move_from (move_index (ply));
+        cur_piece (ply) = board (to);
+        if ply >= max_cap & cur_piece (ply) = empty_square then
+             return ('0');
+        board (to) = board (from);
+        board (from) = empty_square;
+        move_bonus (ply) = bonus (from);
+        bonus (from) = 0;
+        if board (to) = white_king | board (to) = black_king then
+            do;
+            if to = from + 2 then
+                do;
+                board (to - 1) = board (to) - 2;
+                board (to + 1) = empty_square;
+                end; else
+            if to = from - 2 then
+                do;
+                board (to + 1) = board (to) - 2;
+                board (to - 2) = empty_square;
+                end;
+            end;
+        return ('1');
+        end select_next_move;
+
+
+
+/****************************************************************
+*                                                               *
+*                                                               *
+*                                                               *
+****************************************************************/
+
+    retract_move: procedure;
+
+        declare (to, from) fixed (7) static;
+
+        to = move_to (move_index (ply));
+        from = move_from (move_index (ply));
+        board (from) = board (to);
+        board (to) = cur_piece (ply);
+        bonus (from) = move_bonus (ply);
+        if board (from) = white_king | board (from) = black_king then
+            do;
+            if to = from + 2 then
+                do;
+                board (to + 1) = board (from) - 2;
+                board (to - 1) = empty_square;
+                end; else
+            if to = from - 2 then
+                do;
+                board (to - 2) = board (from) - 2;
+                board (to + 1) = empty_square;
+                end;
+            end;
+        end retract_move;
+
+
+
+/****************************************************************
+*                                                               *
+*                                                               *
+*                                                               *
+****************************************************************/
+
+    score_ply_moves: procedure recursive;
+
+            do while (select_next_move ());
+            call stage();
+            move_score (move_index (ply)) =
+                move_score (move_index (ply)) +
+                move_score (best_move (ply + 1));
+            if move_color (ply) = white then
+                do;
+                if move_score (move_index (ply)) >
+                    move_score (best_move (ply)) then
+                    best_move (ply) = move_index (ply);
+                end; else
+                do;
+                if move_score (move_index (ply)) <
+                    move_score (best_move (ply)) then
+                    best_move (ply) = move_index (ply);
+                end;
+            call retract_move();
+            end;
+        end score_ply_moves;
+
+
+
+/****************************************************************
+*                                                               *
+*                                                               *
+*                                                               *
+****************************************************************/
+
+
+    stage: procedure recursive;
+
+        declare i fixed static;
+
+        ply = ply + 1;
+        if ply ~= 0 then move_color (ply) = -move_color (ply - 1);
+        stage_lst (ply) = max_ply;
+        stage_lim (ply) = ply + 2;
+        if stage_lim (ply) > max_stage then
+            stage_lim (ply) = max_stage;
+        call generate_moves();
+
+
+        if ply ~= 0 then
+        if cur_piece (ply - 1) = white_king |
+            cur_piece (ply - 1) = black_king then
+            do;
+            move_score (best_move (ply)) = 0;
+            next = first_move (ply);
+            ply = ply - 1;
+            return;
+            end;
+
+
+        if ply < max_ply then
+            do max_ply = stage_lim (ply) repeat (stage_lim (ply) + 1)
+                while (max_ply <= stage_lst (ply));
+            stage_lim (ply) = max_ply;
+                do i = first_move (ply) to last_move (ply);
+                move_score (i) = est_score (i);
+                end;
+            move_index (ply) = first_move (ply) - 1;
+            call score_ply_moves();
+            call sort_moves();
+            end;
+        next = first_move (ply);
+        max_ply = stage_lst (ply);
+        ply = ply - 1;
+        end stage;
+
+
+
+/****************************************************************
+*                                                               *
+*                                                               *
+*                                                               *
+****************************************************************/
+
+    make_move: procedure (color);
+        declare color fixed (1);
+
+        declare (to, from) fixed static;
+
+        next = 0;
+        ply = -1;
+        max_ply = max_stage;
+        move_color (0) = color;
+        call stage();
+        ply = 0;
+        to = move_to (best_move (0));
+        from = move_from (best_move (0));
+        cur_piece (0) = board (to);
+        board (to) = board (from);
+        board (from) = empty_square;
+        bonus (from) = 0;
+        bonus (to) = 0;
+        if board (to) = white_king | board (to) = black_king then
+            do;
+            if to = from + 2 then
+                do;
+                board (to - 1) = board (to) - 2;
+                board (to + 1) = empty_square;
+                bonus (to + 1) = 0;
+                end; else
+            if to = from - 2 then
+                do;
+                board (to + 1) = board (to) - 2;
+                board (to - 2) = empty_square;
+                bonus (to - 2) = 0;
+                end;
+            end;
+        call display_move (best_move (0));
+        end make_move;
+
+    declare (move_number, move_display)
+            fixed (7) static initial(1);
+
+    put skip list('Chess Program Version 1.0');
+    put skip list('Type Search Depth ');
+    get list(max_cap);
+    max_stage = max_cap;
+    put list('Type Number of Moves Between Displays ');
+    get list(move_display);
+        do while ('1');
+        call make_move (white);
+        call make_move (black);
+        put skip;
+        move_number = move_number + 1;
+        if move_number > move_display then
+            do;
+            move_number = 1;
+            call display();
+            end;
+        end;
+
+
+    end chess;
+

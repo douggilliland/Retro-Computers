@@ -26,6 +26,38 @@ uint32 FPLong;      // Long value of the Front Panel
 uint32 LEDsVal;         // Front Panel LEDs - copy here
 
 //////////////////////////////////////////////////////////////////////////////
+// init_FrontPanel() - Switches are on Port A, LEDs are on Port B
+
+void init_FrontPanel(void)
+{
+	uint8 chipAddr;
+	for (chipAddr = 0x24; chipAddr < 0x28; chipAddr++)
+	{
+		writeRegister_MCP23017(chipAddr,MCP23017_IODIRA_REGADR,MCP23017_IODIR_ALL_INS);     // IO: Port A is switches = inputs
+		writeRegister_MCP23017(chipAddr,MCP23017_IODIRB_REGADR,MCP23017_IODIR_ALL_OUTS);    // IO: Port B is LEDs = outputs
+		writeRegister_MCP23017(chipAddr,MCP23017_IPOLA_REGADR,MCP23017_IPOL_INVERT);        // IP: Invert input pins on Port A
+		writeRegister_MCP23017(chipAddr,MCP23017_GPINTENA_REGADR,MCP23017_GPINTEN_ENABLE);  // GPINT: Enable interrupts for switches
+		writeRegister_MCP23017(chipAddr,MCP23017_GPINTENB_REGADR,MCP23017_GPINTEN_DISABLE); // GPINT: Disable interrupts for LED outputs
+		writeRegister_MCP23017(chipAddr,MCP23017_DEFVALA_REGADR,0xFF);                      // Default value for pin (interrupt)
+		writeRegister_MCP23017(chipAddr,MCP23017_INTCONA_REGADR,MCP23017_INTCON_DEFVAL);    // Int for change from previous pin
+		writeRegister_MCP23017(chipAddr,MCP23017_IOCONA_REGADR,MCP23017_IOCON_DEFVAL);      
+        // BANK: Register addresses are in the same bank (addresses are sequential)
+		// MIRROR: Int pins not connected (they are externally connected together on the Front Panel board)
+		// SEQOP: Enable sequential operation (although the driver doesn't use it)
+		// HAEN: (Not used on MCP23017)
+		// ODR: Open Drain output (over-rides INTPOL)
+		// INTPOL: Over-ridden by ODR
+		writeRegister_MCP23017(chipAddr,MCP23017_IOCONB_REGADR,MCP23017_IOCON_DEFVAL);      // Int for change from previous pin
+		writeRegister_MCP23017(chipAddr,MCP23017_GPPUA_REGADR,MCP23017_GPPU_ENABLE);        // Pull-up to switches
+		readRegister_MCP23017(chipAddr,MCP23017_INTCAPA_REGADR);                            // Clears interrupt
+	}
+	FPData = 0;
+	FPAddr = 0;
+	FPCtrl = 0;
+	FPLong = 0;
+}
+
+//////////////////////////////////////////////////////////////////////////////
 // FrontPanelZ80Read() - Read the Front Panel switches to the Z80
 
 void FrontPanelZ80Read(uint8 portSelect)
@@ -76,37 +108,6 @@ void FrontPanelZ80Write(uint8 portSelect)
 	}
 	writeFrontPanelLEDs(LEDsVal);
 	ackIO();
-}
-
-//////////////////////////////////////////////////////////////////////////////
-// init_FrontPanel() - Switches are on Port A, LEDs are on Port B
-
-void init_FrontPanel(void)
-{
-	uint8 chipAddr;
-	for (chipAddr = 0x24; chipAddr < 0x28; chipAddr++)
-	{
-		writeRegister_MCP23017(chipAddr,MCP23017_IODIRA_REGADR,MCP23017_IODIR_ALL_INS);     // IO: Port A is switches = inputs
-		writeRegister_MCP23017(chipAddr,MCP23017_IODIRB_REGADR,MCP23017_IODIR_ALL_OUTS);    // IO: Port B is LEDs = outputs
-		writeRegister_MCP23017(chipAddr,MCP23017_IPOLA_REGADR,MCP23017_IPOL_INVERT);        // IP: Invert input pins on Port A
-		writeRegister_MCP23017(chipAddr,MCP23017_GPINTENA_REGADR,MCP23017_GPINTEN_ENABLE);  // GPINT: Enable interrupts for switches
-		writeRegister_MCP23017(chipAddr,MCP23017_GPINTENB_REGADR,MCP23017_GPINTEN_DISABLE); // GPINT: Disable interrupts for LED outputs
-		writeRegister_MCP23017(chipAddr,MCP23017_DEFVALA_REGADR,0xFF);                      // Default value for pin (interrupt)
-		writeRegister_MCP23017(chipAddr,MCP23017_INTCONA_REGADR,MCP23017_INTCON_DEFVAL);    // Int for change from previous pin
-		writeRegister_MCP23017(chipAddr,MCP23017_IOCONA_REGADR,MCP23017_IOCON_DEFVAL);      // BANK: Register addresses are sequential
-		// MIRROR: Int pins not connected
-		// SEQOP: Enable sequential operation
-		// HAEN: (Not used on MCP23017)
-		// ODR: Open Drain output (over-rides INTPOL)
-		// INTPOL: Over-ridden by ODR
-		writeRegister_MCP23017(chipAddr,MCP23017_IOCONB_REGADR,MCP23017_IOCON_DEFVAL);      // Int for change from previous pin
-		writeRegister_MCP23017(chipAddr,MCP23017_GPPUA_REGADR,MCP23017_GPPU_ENABLE);        // Pull-up to switches
-		readRegister_MCP23017(chipAddr,MCP23017_INTCAPA_REGADR);                            // Clears interrupt
-	}
-	FPData = 0;
-	FPAddr = 0;
-	FPCtrl = 0;
-	FPLong = 0;
 }
 
 //////////////////////////////////////////////////////////////////////////////////////

@@ -170,29 +170,29 @@ CYPACKED typedef struct
 /* IOPINS0_0 Address: CYREG_PRT0_DR Size (bytes): 10 */
 #define BS_IOPINS0_0_VAL ((const uint8 CYFAR *)0x48000AACu)
 
-/* IOPINS0_7 Address: CYREG_PRT12_DR Size (bytes): 10 */
+/* IOPINS0_7 Address: CYREG_PRT12_DM0 Size (bytes): 8 */
 #define BS_IOPINS0_7_VAL ((const uint8 CYFAR *)0x48000AB8u)
 
 /* IOPINS0_8 Address: CYREG_PRT15_DR Size (bytes): 10 */
-#define BS_IOPINS0_8_VAL ((const uint8 CYFAR *)0x48000AC4u)
+#define BS_IOPINS0_8_VAL ((const uint8 CYFAR *)0x48000AC0u)
 
 /* IOPINS0_1 Address: CYREG_PRT1_DM0 Size (bytes): 8 */
-#define BS_IOPINS0_1_VAL ((const uint8 CYFAR *)0x48000AD0u)
+#define BS_IOPINS0_1_VAL ((const uint8 CYFAR *)0x48000ACCu)
 
 /* IOPINS0_2 Address: CYREG_PRT2_DM0 Size (bytes): 8 */
-#define BS_IOPINS0_2_VAL ((const uint8 CYFAR *)0x48000AD8u)
+#define BS_IOPINS0_2_VAL ((const uint8 CYFAR *)0x48000AD4u)
 
 /* IOPINS0_3 Address: CYREG_PRT3_DR Size (bytes): 10 */
-#define BS_IOPINS0_3_VAL ((const uint8 CYFAR *)0x48000AE0u)
+#define BS_IOPINS0_3_VAL ((const uint8 CYFAR *)0x48000ADCu)
 
 /* IOPINS0_4 Address: CYREG_PRT4_DM0 Size (bytes): 8 */
-#define BS_IOPINS0_4_VAL ((const uint8 CYFAR *)0x48000AECu)
+#define BS_IOPINS0_4_VAL ((const uint8 CYFAR *)0x48000AE8u)
 
 /* IOPINS0_5 Address: CYREG_PRT5_DR Size (bytes): 10 */
-#define BS_IOPINS0_5_VAL ((const uint8 CYFAR *)0x48000AF4u)
+#define BS_IOPINS0_5_VAL ((const uint8 CYFAR *)0x48000AF0u)
 
 /* IOPINS0_6 Address: CYREG_PRT6_DR Size (bytes): 10 */
-#define BS_IOPINS0_6_VAL ((const uint8 CYFAR *)0x48000B00u)
+#define BS_IOPINS0_6_VAL ((const uint8 CYFAR *)0x48000AFCu)
 
 
 /*******************************************************************************
@@ -258,7 +258,7 @@ static void ClockSetup(void)
 	CY_SET_XTND_REG8((void CYFAR *)(CYREG_CLKDIST_DCFG0_CFG0 + 0x2u), 0x18u);
 	CY_SET_XTND_REG16((void CYFAR *)(CYREG_CLKDIST_DCFG1_CFG0), 0x0000u);
 	CY_SET_XTND_REG8((void CYFAR *)(CYREG_CLKDIST_DCFG1_CFG0 + 0x2u), 0x58u);
-	CY_SET_XTND_REG16((void CYFAR *)(CYREG_CLKDIST_DCFG2_CFG0), 0x0003u);
+	CY_SET_XTND_REG16((void CYFAR *)(CYREG_CLKDIST_DCFG2_CFG0), 0x0004u);
 	CY_SET_XTND_REG8((void CYFAR *)(CYREG_CLKDIST_DCFG2_CFG0 + 0x2u), 0x18u);
 	CY_SET_XTND_REG16((void CYFAR *)(CYREG_CLKDIST_DCFG3_CFG0), 0x004Au);
 	CY_SET_XTND_REG8((void CYFAR *)(CYREG_CLKDIST_DCFG3_CFG0 + 0x2u), 0x18u);
@@ -475,7 +475,7 @@ void cyfitter_cfg(void)
 
 	/* Perform second pass device configuration. These items must be configured in specific order after the regular configuration is done. */
 	CYCONFIGCPY((void CYFAR *)(CYREG_PRT0_DR), (const void CYFAR *)(BS_IOPINS0_0_VAL), 10u);
-	CYCONFIGCPY((void CYFAR *)(CYREG_PRT12_DR), (const void CYFAR *)(BS_IOPINS0_7_VAL), 10u);
+	CYCONFIGCPY((void CYFAR *)(CYREG_PRT12_DM0), (const void CYFAR *)(BS_IOPINS0_7_VAL), 8u);
 	CYCONFIGCPY((void CYFAR *)(CYREG_PRT15_DR), (const void CYFAR *)(BS_IOPINS0_8_VAL), 10u);
 	CYCONFIGCPY((void CYFAR *)(CYREG_PRT1_DM0), (const void CYFAR *)(BS_IOPINS0_1_VAL), 8u);
 	CYCONFIGCPY((void CYFAR *)(CYREG_PRT2_DM0), (const void CYFAR *)(BS_IOPINS0_2_VAL), 8u);

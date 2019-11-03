@@ -1,6 +1,6 @@
 // ======================================================================
 // Z80_3Chip.v generated from TopDesign.cysch
-// 11/02/2019 at 11:03
+// 11/03/2019 at 07:14
 // This file is auto generated. ANY EDITS YOU MAKE MAY BE LOST WHEN THIS FILE IS REGENERATED!!!
 // ======================================================================
 
@@ -1246,7 +1246,6 @@ module top ;
           wire  Net_1156;
           wire  Net_1116;
           wire  Net_931;
-          wire  Net_916;
           wire  Net_915;
           wire  Net_890;
           wire  Net_889;
@@ -5539,7 +5538,7 @@ module top ;
 		#(.id("3ef6089a-404f-4833-9881-9f7f0afe9423"),
 		  .source_clock_id(""),
 		  .divisor(0),
-		  .period("66666666.6666667"),
+		  .period("83333333.3333333"),
 		  .is_direct(0),
 		  .is_digital(1))
 		CPUCLK
@@ -5735,6 +5734,7 @@ module top ;
 	assign tmpOE__BUSACK_n_net = (`CYDEV_CHIP_MEMBER_USED == `CYDEV_CHIP_MEMBER_3A && `CYDEV_CHIP_REVISION_USED < `CYDEV_CHIP_REVISION_3A_ES3) ? ~{1'b1} : {1'b1};
 
 	wire [0:0] tmpOE__I2CINT_n_net;
+	wire [0:0] tmpFB_0__I2CINT_n_net;
 	wire [0:0] tmpIO_0__I2CINT_n_net;
 	wire [0:0] tmpINTERRUPT_0__I2CINT_n_net;
 	electrical [0:0] tmpSIOVREF__I2CINT_n_net;
@@ -5773,7 +5773,7 @@ module top ;
 		  .pa_out_reset(-1),
 		  .pin_aliases(""),
 		  .pin_mode("I"),
-		  .por_state(4),
+		  .por_state(2),
 		  .sio_group_cnt(0),
 		  .sio_hyst(1'b1),
 		  .sio_ibuf(""),
@@ -5795,7 +5795,7 @@ module top ;
 		I2CINT_n
 		 (.oe(tmpOE__I2CINT_n_net),
 		  .y({1'b0}),
-		  .fb({Net_916}),
+		  .fb({tmpFB_0__I2CINT_n_net[0:0]}),
 		  .io({tmpIO_0__I2CINT_n_net[0:0]}),
 		  .siovref(tmpSIOVREF__I2CINT_n_net),
 		  .interrupt({tmpINTERRUPT_0__I2CINT_n_net[0:0]}),

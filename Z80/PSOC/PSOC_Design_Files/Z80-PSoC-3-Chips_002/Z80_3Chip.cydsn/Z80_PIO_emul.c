@@ -62,14 +62,15 @@ void init_PIO(void)
 	writeRegister_MCP23017(chipAddr,MCP23017_IODIRB_REGADR,MCP23017_IODIR_ALL_INS);     // IO: Port B is inputs
 	writeRegister_MCP23017(chipAddr,MCP23017_IPOLA_REGADR,MCP23017_IPOL_INVERT);        // IP: Invert input pins on Port A
 	writeRegister_MCP23017(chipAddr,MCP23017_IPOLB_REGADR,MCP23017_IPOL_INVERT);        // IP: Invert input pins on Port B
-	writeRegister_MCP23017(chipAddr,MCP23017_GPINTENA_REGADR,MCP23017_GPINTEN_DISABLE); // GPINT: Disable interrupts
-	writeRegister_MCP23017(chipAddr,MCP23017_GPINTENB_REGADR,MCP23017_GPINTEN_DISABLE); // GPINT: Disable interrupts
+	writeRegister_MCP23017(chipAddr,MCP23017_GPINTENA_REGADR,MCP23017_GPINTEN_ENABLE); // GPINT: Disable interrupts
+	writeRegister_MCP23017(chipAddr,MCP23017_GPINTENB_REGADR,MCP23017_GPINTEN_ENABLE); // GPINT: Disable interrupts
 	writeRegister_MCP23017(chipAddr,MCP23017_DEFVALA_REGADR,0xFF);                      // Default value for pin (interrupt)
 	writeRegister_MCP23017(chipAddr,MCP23017_DEFVALB_REGADR,0xFF);                      // Default value for pin (interrupt)
 	writeRegister_MCP23017(chipAddr,MCP23017_INTCONA_REGADR,MCP23017_INTCON_DEFVAL);    // Int for change from previous pin
 	writeRegister_MCP23017(chipAddr,MCP23017_INTCONB_REGADR,MCP23017_INTCON_DEFVAL);    // Int for change from previous pin
-	// MIRROR: Int pins not connected
-	// SEQOP: Enable sequential operation
+    // BANK: Register addresses are in the same bank (addresses are sequential)
+	// MIRROR: Int pins not connected (they are externally connected together on the board)
+	// SEQOP: Enable sequential operation (although the driver doesn't use it)
 	// HAEN: (Not used on MCP23017)
 	// ODR: Open Drain output (over-rides INTPOL)
 	// INTPOL: Over-ridden by ODR

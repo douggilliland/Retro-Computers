@@ -1,4 +1,4 @@
-update=9/24/2019 9:47:15 AM
+update=11/3/2019 7:39:13 AM
 version=1
 last_client=kicad
 [cvpcb]
@@ -48,3 +48,13 @@ LibName16=C:/Users/DGilliland.AACISD/Documents/GitHub/lb-boards/KiCAD/modules/do
 [eeschema]
 version=1
 LibDir=
+[schematic_editor]
+version=1
+PageLayoutDescrFile=
+PlotDirectoryName=
+SubpartIdSeparator=0
+SubpartFirstId=65
+NetFmtName=
+SpiceAjustPassiveValues=0
+LabSize=50
+ERC_TestSimilarLabels=1

@@ -1442,7 +1442,7 @@ Wire Wire Line
 	5200 4550 5200 4450
 Connection ~ 7250 4550
 $Comp
-L LandBoards_Semis:MCP23017P U1
+L FrontPanel-rescue:MCP23017P-LandBoards_Semis U1
 U 1 1 5DC44742
 P 5300 3000
 F 0 "U1" H 5400 4000 60  0000 C CNN
@@ -1453,7 +1453,7 @@ F 3 "" H 5300 3000 60  0000 C CNN
 	1    0    0    -1  
 $EndComp
 $Comp
-L LandBoards_Semis:MCP23017P U2
+L FrontPanel-rescue:MCP23017P-LandBoards_Semis U2
 U 1 1 5DC44E1C
 P 7950 3000
 F 0 "U2" H 8050 4000 60  0000 C CNN
@@ -1464,7 +1464,7 @@ F 3 "" H 7950 3000 60  0000 C CNN
 	1    0    0    -1  
 $EndComp
 $Comp
-L LandBoards_Semis:MCP23017P U3
+L FrontPanel-rescue:MCP23017P-LandBoards_Semis U3
 U 1 1 5DC44F08
 P 10500 3000
 F 0 "U3" H 10600 4000 60  0000 C CNN
@@ -1475,7 +1475,7 @@ F 3 "" H 10500 3000 60  0000 C CNN
 	1    0    0    -1  
 $EndComp
 $Comp
-L LandBoards_Semis:MCP23017P U4
+L FrontPanel-rescue:MCP23017P-LandBoards_Semis U4
 U 1 1 5DC45000
 P 13050 3000
 F 0 "U4" H 13150 4000 60  0000 C CNN
