@@ -26,5 +26,6 @@
 
 void PostLed(uint32);
 void putStringToUSB(char *);
+void I2CIntISR(void);
 
 /* [] END OF FILE */

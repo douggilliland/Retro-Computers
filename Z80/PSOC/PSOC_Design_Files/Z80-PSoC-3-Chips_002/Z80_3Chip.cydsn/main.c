@@ -14,10 +14,10 @@
 #include "stdio.h"              // sprintf needs this
 #include <Z80_PSoC_3Chips.h>    // Combination of all of the .h Source file
 
-#define USBFS_DEVICE    (0u)
+#define USBFS_DEVICE            (0u)
 #define USBUART_uartBuffer_SIZE (64u)
-#define LINE_STR_LENGTH     (20u)
-#define USBUART_Buffer_SIZE (64u)
+#define LINE_STR_LENGTH         (20u)
+#define USBUART_Buffer_SIZE     (64u)
 
 uint32 fpIntVal;
 uint8 pioAIntVals;
@@ -204,7 +204,7 @@ int main(void)
     					{
                             char lineString[10];
     						putStringToUSB("Front Panel Value - ");
-                      		sprintf(lineString,"%08x",fpIntVal);
+                      		sprintf(lineString,"%08lx",fpIntVal);
                             putStringToUSB(lineString);
                             putStringToUSB("\n\r");
                             SDInit();
@@ -233,18 +233,15 @@ int main(void)
 			}
             // Work the I2C Interrupt
             I2CINT_ISR_Enable();
-            //CyDelayUs(2);
+            CyDelayUs(2);
             I2CINT_ISR_Disable();
 		}
 	}
 }
 
-// uint32 fpIntVal;
-// uint8 pioAIntVals;
-// uint8 pioBIntVals;
-
 void I2CIntISR(void)
 {
+    I2CINT_ISR_Disable();
 	#ifdef USING_FRONT_PANEL
   		fpIntVal = readRegister_MCP23017(0x24,MCP23017_INTCAPA_REGADR) << 8;                            // Clears interrupt
   		fpIntVal = ((fpIntVal | readRegister_MCP23017(0x25,MCP23017_INTCAPA_REGADR)) << 8);                            // Clears interrupt

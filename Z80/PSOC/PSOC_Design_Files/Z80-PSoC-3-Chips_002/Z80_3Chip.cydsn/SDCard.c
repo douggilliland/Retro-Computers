@@ -217,7 +217,7 @@ void writeSDCard(uint32 sectorNumber)
 void SD_ReadSector(uint32 sector, uint8 * buffPtr)
 {
 	uint16 loopCount = 0;
-	volatile uint8 junk;
+//	volatile uint8 junk;
 	SPI_SS_Out_Write(0);
 	SPI_write_byte(CMD17);
 	SPI_write_byte(sector>>15); // >>24 + <<9 = >>15
@@ -253,11 +253,11 @@ void SD_ReadSector(uint32 sector, uint8 * buffPtr)
 	// Do 2 dummy reads at the end
 	SPI_write_byte(0xFF);
 	while ((SPI_Master_ReadRxStatus() & SPI_Master_STS_RX_FIFO_NOT_EMPTY) != SPI_Master_STS_RX_FIFO_NOT_EMPTY);
-	junk = SPI_Master_ReadRxData();
+	SPI_Master_ReadRxData();
 	
 	SPI_write_byte(0xFF);
 	while ((SPI_Master_ReadRxStatus() & SPI_Master_STS_RX_FIFO_NOT_EMPTY) != SPI_Master_STS_RX_FIFO_NOT_EMPTY);
-	junk = SPI_Master_ReadRxData();
+	SPI_Master_ReadRxData();
 	SPI_SS_Out_Write(1);
 	
 	SPI_write_byte(0xFF);   // Shift in dummy 1's into the transit causes receive clocks on the SPI
