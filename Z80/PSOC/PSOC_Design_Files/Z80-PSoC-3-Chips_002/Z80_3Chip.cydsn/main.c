@@ -19,6 +19,10 @@
 #define LINE_STR_LENGTH     (20u)
 #define USBUART_Buffer_SIZE (64u)
 
+uint32 fpIntVal;
+uint8 pioAIntVals;
+uint8 pioBIntVals;
+
 ////////////////////////////////////////////////////////////////////////////
 // main() - Setup and Loop code goes in here
 
@@ -151,8 +155,7 @@ int main(void)
 	else                    // Z80 is not running (EXFP front panel switch pushed)
 	{
 		while(1)
-		{
-			
+		{			
 			if (0u != USBUART_IsConfigurationChanged()) // Host can send double SET_INTERFACE request
 			{
 				if (0u != USBUART_GetConfiguration())   // Initialize IN endpoints when device is configured
@@ -197,6 +200,15 @@ int main(void)
     						putStringToUSB("Initialize the SD Card\n\r");
                             SDInit();
     					}
+    					else if ((inBuffer[0] == 'f') || (inBuffer[0] == 'F'))
+    					{
+                            char lineString[10];
+    						putStringToUSB("Front Panel Value - ");
+                      		sprintf(lineString,"%08x",fpIntVal);
+                            putStringToUSB(lineString);
+                            putStringToUSB("\n\r");
+                            SDInit();
+    					}
     					else
     					{
     						putStringToUSB("\n\rLand Boards, LLC - Z80_PSoC monitor\n\r");
@@ -205,6 +217,7 @@ int main(void)
     						putStringToUSB("R - Read SD Card at 1GB Block\n\r");
     						putStringToUSB("W - Write SD Card at 1GB Block\n\r");
     						putStringToUSB("I - Initialize SD Card\n\r");
+                            putStringToUSB("F - Read Front Panel\n\r");
     						putStringToUSB("? - Print this menu\n\r");
     					}
     					/* If the last sent packet is exactly the maximum packet size, it is followed by a 
@@ -218,22 +231,30 @@ int main(void)
     				}
     			}
 			}
+            // Work the I2C Interrupt
+            I2CINT_ISR_Enable();
+            //CyDelayUs(2);
+            I2CINT_ISR_Disable();
 		}
 	}
 }
 
+// uint32 fpIntVal;
+// uint8 pioAIntVals;
+// uint8 pioBIntVals;
+
 void I2CIntISR(void)
 {
 	#ifdef USING_FRONT_PANEL
-  		readRegister_MCP23017(0x24,MCP23017_INTCAPA_REGADR);                            // Clears interrupt
-  		readRegister_MCP23017(0x25,MCP23017_INTCAPA_REGADR);                            // Clears interrupt
-  		readRegister_MCP23017(0x26,MCP23017_INTCAPA_REGADR);                            // Clears interrupt
-  		readRegister_MCP23017(0x27,MCP23017_INTCAPA_REGADR);                            // Clears interrupt
+  		fpIntVal = readRegister_MCP23017(0x24,MCP23017_INTCAPA_REGADR) << 8;                            // Clears interrupt
+  		fpIntVal = ((fpIntVal | readRegister_MCP23017(0x25,MCP23017_INTCAPA_REGADR)) << 8);                            // Clears interrupt
+  		fpIntVal = ((fpIntVal | readRegister_MCP23017(0x26,MCP23017_INTCAPA_REGADR)) << 8);                            // Clears interrupt
+  		fpIntVal = fpIntVal | readRegister_MCP23017(0x27,MCP23017_INTCAPA_REGADR);                            // Clears interrupt
 		I2C_Start();
 	#endif
 	#ifdef USING_EXP_MCCP23017
-  		readRegister_MCP23017(0x20,MCP23017_INTCAPA_REGADR);                            // Clears interrupt
-  		readRegister_MCP23017(0x20,MCP23017_INTCAPB_REGADR);                            // Clears interrupt
+  		pioAIntVals = readRegister_MCP23017(0x20,MCP23017_INTCAPA_REGADR);                            // Clears interrupt
+  		pioBIntVals = readRegister_MCP23017(0x20,MCP23017_INTCAPB_REGADR);                            // Clears interrupt
 	#endif
 }
 
