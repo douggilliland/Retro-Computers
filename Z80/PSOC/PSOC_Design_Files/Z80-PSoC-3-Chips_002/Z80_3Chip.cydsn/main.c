@@ -36,8 +36,11 @@ int main(void)
 	uint8 Z80Running;
 	uint16 inCount;
     uint32 sectorNumber = 0;
+    
+    fpIntVal = 0;
+    pioAIntVals = 0;
+    pioBIntVals = 0;
 	
-	I2CINT_n_SetDriveMode(I2CINT_n_DM_RES_UP);          // Pull-up the I2C interrupt line
 	USBUART_Start(USBFS_DEVICE, USBUART_5V_OPERATION);  // Start USBFS operation with 5-V operation.
 
     // Only want to do a single I2C_Start()
@@ -46,6 +49,17 @@ int main(void)
 	#else       // Using expansion mcp23017 but not using front panel
 		#ifdef USING_EXP_MCCP23017
 		I2C_Start();
+		#endif
+	#endif
+    
+	I2CINT_n_SetDriveMode(I2CINT_n_DM_RES_UP);          // Pull-up the I2C interrupt line
+	#ifdef USING_FRONT_PANEL
+        I2CINT_ISR_Start();
+        I2CINT_ISR_Disable();
+	#else       // Using expansion mcp23017 but not using front panel
+		#ifdef USING_EXP_MCCP23017
+        I2CINT_ISR_Start();
+        I2CINT_ISR_Disable();
 		#endif
 	#endif
         
@@ -79,22 +93,15 @@ int main(void)
 		Z80Running = runFrontPanel();            // Exits either by pressing EXitFrontPanel or RUN button on front panel
         if (Z80Running == 1)
         {
-        	#ifdef USING_EXP_MCCP23017  // The expansion MCP23017 has its reset tied to the CPU reset
+        	#ifdef USING_EXP_MCCP23017  // The expansion MCP23017 has its reset tied to the CPU reset so the Z80 has to be running
             	init_PIO();
-        	#endif
-        	#ifdef USING_FRONT_PANEL
-                I2CINT_ISR_Start();
-        	#else       // Using expansion mcp23017 but not using front panel
-        		#ifdef USING_EXP_MCCP23017
-                I2CINT_ISR_Start();
-        		#endif
         	#endif
         }
 	#else
 		ExtSRAMCtl_Control = 0;     // Auto Run if there's no Front Panel
 	#endif
 
-	if (Z80Running == 1)    // Z80 Running (RUN front panel switch pushed)
+    if (Z80Running == 1)    // Z80 Running (RUN front panel switch pushed)
 	{
 		#ifdef USING_6850
 			initM6850StatusRegister();
@@ -239,19 +246,23 @@ int main(void)
 	}
 }
 
+////////////////////////////////////////////////////////////////////////////
+// void I2CIntISR(void) - Handle the I2CINT* line
+// The routine is called when a button on the front panel is pressed or 
+// Expansion MCP23017 pin is toggle by a JOYPAD or Gen Purp Input.
+
 void I2CIntISR(void)
 {
     I2CINT_ISR_Disable();
 	#ifdef USING_FRONT_PANEL
-  		fpIntVal = readRegister_MCP23017(0x24,MCP23017_INTCAPA_REGADR) << 8;                            // Clears interrupt
-  		fpIntVal = ((fpIntVal | readRegister_MCP23017(0x25,MCP23017_INTCAPA_REGADR)) << 8);                            // Clears interrupt
-  		fpIntVal = ((fpIntVal | readRegister_MCP23017(0x26,MCP23017_INTCAPA_REGADR)) << 8);                            // Clears interrupt
-  		fpIntVal = fpIntVal | readRegister_MCP23017(0x27,MCP23017_INTCAPA_REGADR);                            // Clears interrupt
-		I2C_Start();
+  		fpIntVal = readRegister_MCP23017(0x24,MCP23017_GPIOA_REGADR) << 8;                    // Clears interrupt
+  		fpIntVal = ((readRegister_MCP23017(0x25,MCP23017_GPIOA_REGADR) | fpIntVal) << 8);     // Clears interrupt
+  		fpIntVal = ((readRegister_MCP23017(0x26,MCP23017_GPIOA_REGADR) | fpIntVal) << 8);     // Clears interrupt
+  		fpIntVal = readRegister_MCP23017(0x27,MCP23017_GPIOA_REGADR)   | fpIntVal;            // Clears interrupt
 	#endif
 	#ifdef USING_EXP_MCCP23017
-  		pioAIntVals = readRegister_MCP23017(0x20,MCP23017_INTCAPA_REGADR);                            // Clears interrupt
-  		pioBIntVals = readRegister_MCP23017(0x20,MCP23017_INTCAPB_REGADR);                            // Clears interrupt
+  		pioAIntVals = readRegister_MCP23017(0x20,MCP23017_GPIOA_REGADR);                      // Clears interrupt
+  		pioBIntVals = readRegister_MCP23017(0x20,MCP23017_GPIOB_REGADR);                      // Clears interrupt
 	#endif
 }
 
