@@ -20,7 +20,6 @@
 #include <CyLib.h>
 #include <I2CINT_ISR.h>
 #include "cyapicallbacks.h"
-#include "Z80_PSoC_3Chips.h"
 
 #if !defined(I2CINT_ISR__REMOVED) /* Check for removal by optimization */
 
