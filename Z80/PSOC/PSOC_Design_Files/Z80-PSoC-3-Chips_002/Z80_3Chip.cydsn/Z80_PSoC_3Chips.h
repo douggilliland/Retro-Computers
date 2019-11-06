@@ -24,6 +24,10 @@
 #include "Z80_RTC.h"
 #include "Z80_DAC.h"
 
+extern uint32 fpIntVal;
+extern uint8 pioAIntVals;
+extern uint8 pioBIntVals;
+
 void PostLed(uint32);
 void putStringToUSB(char *);
 void I2CIntISR(void);

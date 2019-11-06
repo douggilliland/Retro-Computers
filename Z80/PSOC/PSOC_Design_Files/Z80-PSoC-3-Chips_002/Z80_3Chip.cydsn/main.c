@@ -209,9 +209,9 @@ int main(void)
     					}
     					else if ((inBuffer[0] == 'f') || (inBuffer[0] == 'F'))
     					{
-                            char lineString[10];
+                            char lineString[16];
     						putStringToUSB("Front Panel Value - ");
-                      		sprintf(lineString,"%08lx",fpIntVal);
+                      		sprintf(lineString,"0x%08lx",fpIntVal);
                             putStringToUSB(lineString);
                             putStringToUSB("\n\r");
                             SDInit();
@@ -244,26 +244,6 @@ int main(void)
             I2CINT_ISR_Disable();
 		}
 	}
-}
-
-////////////////////////////////////////////////////////////////////////////
-// void I2CIntISR(void) - Handle the I2CINT* line
-// The routine is called when a button on the front panel is pressed or 
-// Expansion MCP23017 pin is toggle by a JOYPAD or Gen Purp Input.
-
-void I2CIntISR(void)
-{
-    I2CINT_ISR_Disable();
-	#ifdef USING_FRONT_PANEL
-  		fpIntVal = readRegister_MCP23017(0x24,MCP23017_GPIOA_REGADR) << 8;                    // Clears interrupt
-  		fpIntVal = ((readRegister_MCP23017(0x25,MCP23017_GPIOA_REGADR) | fpIntVal) << 8);     // Clears interrupt
-  		fpIntVal = ((readRegister_MCP23017(0x26,MCP23017_GPIOA_REGADR) | fpIntVal) << 8);     // Clears interrupt
-  		fpIntVal = readRegister_MCP23017(0x27,MCP23017_GPIOA_REGADR)   | fpIntVal;            // Clears interrupt
-	#endif
-	#ifdef USING_EXP_MCCP23017
-  		pioAIntVals = readRegister_MCP23017(0x20,MCP23017_GPIOA_REGADR);                      // Clears interrupt
-  		pioBIntVals = readRegister_MCP23017(0x20,MCP23017_GPIOB_REGADR);                      // Clears interrupt
-	#endif
 }
 
 /* [] END OF FILE */
