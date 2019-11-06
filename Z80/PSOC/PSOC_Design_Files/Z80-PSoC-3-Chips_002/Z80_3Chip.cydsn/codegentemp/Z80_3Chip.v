@@ -1,6 +1,6 @@
 // ======================================================================
 // Z80_3Chip.v generated from TopDesign.cysch
-// 11/05/2019 at 18:15
+// 11/06/2019 at 14:16
 // This file is auto generated. ANY EDITS YOU MAKE MAY BE LOST WHEN THIS FILE IS REGENERATED!!!
 // ======================================================================
 
@@ -1196,6 +1196,92 @@ module WaveDAC8_v2_10_6 (
 
 endmodule
 
+// Component: B_Timer_v2_80
+`ifdef CY_BLK_DIR
+`undef CY_BLK_DIR
+`endif
+
+`ifdef WARP
+`define CY_BLK_DIR "C:\Program Files (x86)\Cypress\PSoC Creator\4.2\PSoC Creator\psoc\content\CyComponentLibrary\CyComponentLibrary.cylib\B_Timer_v2_80"
+`include "C:\Program Files (x86)\Cypress\PSoC Creator\4.2\PSoC Creator\psoc\content\CyComponentLibrary\CyComponentLibrary.cylib\B_Timer_v2_80\B_Timer_v2_80.v"
+`else
+`define CY_BLK_DIR "C:\Program Files (x86)\Cypress\PSoC Creator\4.2\PSoC Creator\psoc\content\CyComponentLibrary\CyComponentLibrary.cylib\B_Timer_v2_80"
+`include "C:\Program Files (x86)\Cypress\PSoC Creator\4.2\PSoC Creator\psoc\content\CyComponentLibrary\CyComponentLibrary.cylib\B_Timer_v2_80\B_Timer_v2_80.v"
+`endif
+
+// Timer_v2_80(CaptureAlternatingFall=false, CaptureAlternatingRise=false, CaptureCount=2, CaptureCounterEnabled=false, CaptureInputEnabled=true, CaptureMode=4, CONTROL3=0, ControlRegRemoved=0, CtlModeReplacementString=SyncCtl, CyGetRegReplacementString=CY_GET_REG24, CySetRegReplacementString=CY_SET_REG24, DeviceFamily=PSoC5, EnableMode=0, FF16=false, FF8=false, FixedFunction=false, FixedFunctionUsed=0, HWCaptureCounterEnabled=false, InterruptOnCapture=false, InterruptOnFIFOFull=false, InterruptOnTC=true, IntOnCapture=0, IntOnFIFOFull=0, IntOnTC=1, NumberOfCaptures=1, param45=1, Period=1199999, RegDefReplacementString=reg32, RegSizeReplacementString=uint32, Resolution=24, RstStatusReplacementString=rstSts, RunMode=1, SiliconRevision=0, SoftwareCaptureModeEnabled=true, SoftwareTriggerModeEnabled=true, TriggerInputEnabled=true, TriggerMode=4, UDB16=false, UDB24=true, UDB32=false, UDB8=false, UDBControlReg=true, UsesHWEnable=0, VerilogSectionReplacementString=sT24, CY_API_CALLBACK_HEADER_INCLUDE=#include "cyapicallbacks.h", CY_COMMENT=, CY_COMPONENT_NAME=Timer_v2_80, CY_CONFIG_TITLE=Timer, CY_CONST_CONFIG=true, CY_CONTROL_FILE=<:default:>, CY_DATASHEET_FILE=<:default:>, CY_FITTER_NAME=Timer, CY_INSTANCE_SHORT_NAME=Timer, CY_MAJOR_VERSION=2, CY_MINOR_VERSION=80, CY_PDL_DRIVER_NAME=, CY_PDL_DRIVER_REQ_VERSION=, CY_PDL_DRIVER_SUBGROUP=, CY_PDL_DRIVER_VARIANT=, CY_REMOVE=false, CY_SUPPRESS_API_GEN=false, CY_VERSION=PSoC Creator  4.2, INSTANCE_NAME=Timer, )
+module Timer_v2_80_7 (
+    reset,
+    interrupt,
+    enable,
+    trigger,
+    capture,
+    capture_out,
+    tc,
+    clock);
+    input       reset;
+    output      interrupt;
+    input       enable;
+    input       trigger;
+    input       capture;
+    output      capture_out;
+    output      tc;
+    input       clock;
+
+    parameter CaptureCount = 2;
+    parameter CaptureCounterEnabled = 0;
+    parameter DeviceFamily = "PSoC5";
+    parameter InterruptOnCapture = 0;
+    parameter InterruptOnTC = 1;
+    parameter Resolution = 24;
+    parameter SiliconRevision = "0";
+
+          wire  Net_261;
+          wire  Net_260;
+          wire  Net_266;
+          wire  Net_102;
+          wire  Net_55;
+          wire  Net_57;
+          wire  Net_53;
+          wire  Net_51;
+
+    ZeroTerminal ZeroTerminal_1 (
+        .z(Net_260));
+
+	// VirtualMux_2 (cy_virtualmux_v1_0)
+	assign interrupt = Net_55;
+
+	// VirtualMux_3 (cy_virtualmux_v1_0)
+	assign tc = Net_53;
+
+    B_Timer_v2_80 TimerUDB (
+        .reset(reset),
+        .interrupt(Net_55),
+        .enable(enable),
+        .trigger(trigger),
+        .capture_in(capture),
+        .capture_out(capture_out),
+        .tc(Net_53),
+        .clock(clock));
+    defparam TimerUDB.Capture_Count = 2;
+    defparam TimerUDB.CaptureCounterEnabled = 0;
+    defparam TimerUDB.CaptureMode = 4;
+    defparam TimerUDB.EnableMode = 0;
+    defparam TimerUDB.InterruptOnCapture = 0;
+    defparam TimerUDB.Resolution = 24;
+    defparam TimerUDB.RunMode = 1;
+    defparam TimerUDB.TriggerMode = 4;
+
+    OneTerminal OneTerminal_1 (
+        .o(Net_102));
+
+	// VirtualMux_1 (cy_virtualmux_v1_0)
+	assign Net_266 = Net_102;
+
+
+
+endmodule
+
 // top
 module top ;
 
@@ -1204,6 +1290,10 @@ module top ;
           wire  ADR_OUT_0;
           wire  PSoC_CLK;
           wire  CPURDn;
+          wire  Net_1329;
+          wire  Net_1328;
+          wire  Net_1325;
+          wire  Net_1347;
           wire  Net_1235;
           wire  Net_1234;
           wire  Net_1244;
@@ -1212,11 +1302,11 @@ module top ;
           wire  Net_1241;
           wire  Net_1240;
           wire  Net_1239;
+          wire  IORQn;
           wire  Net_1238;
           wire  Net_1237;
           wire  Net_1236;
           wire  Net_1297;
-          wire  IORQn;
           wire  Net_1315;
           wire  Net_1312;
           wire  Net_1311;
@@ -1224,20 +1314,20 @@ module top ;
           wire  Net_1309;
           wire  Net_1314;
           wire  Net_1308;
+          wire  CPUWRn;
           wire  Net_1305;
           wire  Net_1144;
           wire  Net_1143;
           wire  Net_1155;
-          wire  CPUWRn;
           wire  Net_1154;
           wire  Net_1153;
           wire  Net_1152;
           wire  Net_1151;
+          wire [7:0] ZDO;
           wire  Net_1150;
           wire  Net_1149;
           wire  Net_1148;
           wire  Net_1147;
-          wire [7:0] ZDO;
           wire  Net_1146;
           wire  Net_1160;
           wire  Net_1159;
@@ -1249,23 +1339,23 @@ module top ;
           wire  Net_915;
           wire  Net_890;
           wire  Net_889;
+          wire  DRV_RAM;
           wire  Net_888;
           wire  Net_887;
           wire  Net_886;
           wire  Net_837;
-          wire  DRV_RAM;
           wire  Net_1145;
-          wire  Net_741;
-          wire  Net_740;
-          wire  Net_739;
-          wire  Net_738;
           wire  SRAMREAD;
-          wire  Net_737;
+          wire  Net_741;
           wire [7:0] SAR;
           wire  SRAMWRITE;
+          wire  Net_740;
+          wire  Net_739;
+          wire  SRAMCS;
+          wire  Net_738;
+          wire  Net_737;
           wire  Net_736;
           wire  Net_735;
-          wire  SRAMCS;
           wire  Net_734;
           wire  Net_733;
           wire  Net_732;
@@ -1287,31 +1377,31 @@ module top ;
           wire  Net_937;
           wire  Net_1169;
           wire  Net_1168;
+          wire [15:11] Z80A;
           wire  Net_1167;
           wire  Net_1166;
           wire  Net_1165;
           wire  Net_1164;
-          wire [15:11] Z80A;
           wire  Net_1163;
           wire  Net_1162;
           wire  Net_1161;
           wire  Net_814;
           wire  Net_813;
           wire  Net_812;
+          wire  BANKED;
           wire  Net_811;
           wire  Net_366;
           wire  Net_838;
           wire  Net_839;
-          wire  BANKED;
           wire  Net_731;
           wire  Net_730;
           wire  Net_729;
           wire  Net_728;
+          wire [5:0] MSK;
           wire  Net_727;
           wire  Net_726;
           wire  Net_725;
           wire  Net_724;
-          wire [5:0] MSK;
           wire  Net_723;
           wire  Net_722;
           wire  Net_499;
@@ -1329,19 +1419,25 @@ module top ;
           wire  Net_52;
           wire  Net_49;
           wire  Net_23;
+          wire  CPURES;
           wire  Net_20;
           wire  Net_17;
           wire  Net_14;
           wire  Net_11;
-          wire  CPURES;
           wire  Net_264;
           wire  Net_36;
           wire  Net_263;
           wire  Net_35;
           wire  Net_34;
+          wire  Net_1327;
+          wire  Net_1326;
+          wire  Net_1333;
+          wire  Net_12;
+          wire  Net_10;
           wire  Net_1321;
           wire  Net_1322;
           wire  Net_1249;
+          wire  IOBUSY;
           wire  Net_1246;
           wire  Net_1313;
     electrical  Net_1198;
@@ -1349,9 +1445,9 @@ module top ;
           wire  Net_1117;
           wire  Net_995;
           wire  Net_1005;
+          wire  CLR_HALT;
           wire  Net_997;
           wire  Net_1079;
-          wire  IOBUSY;
           wire  Net_1028;
           wire  Net_1024;
           wire  Net_1021;
@@ -1359,7 +1455,6 @@ module top ;
           wire  Net_1111;
           wire  Net_1113;
           wire  Net_1104;
-          wire  CLR_HALT;
           wire  Net_1100;
           wire  Net_1112;
           wire  Net_1106;
@@ -6626,6 +6721,49 @@ module top ;
 
 
     assign Net_1321 = ~Net_1322;
+
+
+	cy_clock_v1_0
+		#(.id("c0fb34bd-1044-4931-9788-16b01ce89812"),
+		  .source_clock_id("75C2148C-3656-4d8a-846D-0CAE99AB6FF7"),
+		  .divisor(0),
+		  .period("0"),
+		  .is_direct(1),
+		  .is_digital(1))
+		timer_clock
+		 (.clock_out(Net_10));
+
+
+    ZeroTerminal ZeroTerminal_1 (
+        .z(Net_12));
+
+    Timer_v2_80_7 Timer (
+        .reset(Net_12),
+        .interrupt(Net_1333),
+        .enable(1'b1),
+        .trigger(Net_1326),
+        .capture(Net_1327),
+        .capture_out(Net_1328),
+        .tc(Net_1329),
+        .clock(Net_10));
+    defparam Timer.CaptureCount = 2;
+    defparam Timer.CaptureCounterEnabled = 0;
+    defparam Timer.DeviceFamily = "PSoC5";
+    defparam Timer.InterruptOnCapture = 0;
+    defparam Timer.InterruptOnTC = 1;
+    defparam Timer.Resolution = 24;
+    defparam Timer.SiliconRevision = "0";
+
+
+	cy_isr_v1_0
+		#(.int_type(2'b10))
+		Timer_ISR
+		 (.int_signal(Net_1333));
+
+
+    assign Net_1326 = 1'h0;
+
+    assign Net_1327 = 1'h0;
 
 
 

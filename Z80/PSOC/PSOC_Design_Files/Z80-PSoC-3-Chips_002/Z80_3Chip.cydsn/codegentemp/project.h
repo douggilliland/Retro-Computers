@@ -167,6 +167,8 @@
 #include "DAC_Control.h"
 #include "WaveDAC8.h"
 #include "I2CINT_ISR.h"
+#include "Timer.h"
+#include "Timer_ISR.h"
 #include "SPI_Master_IntClock.h"
 #include "USBUART_Dm_aliases.h"
 #include "USBUART_Dm.h"
