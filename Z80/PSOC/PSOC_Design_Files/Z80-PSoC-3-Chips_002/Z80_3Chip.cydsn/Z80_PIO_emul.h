@@ -49,6 +49,9 @@ enum PIO_OpMode
         PIO_MODE_2,
         PIO_MODE_3
     };
+    
+extern volatile uint8 PIO_Input_Register_Port_A;
+extern volatile uint8 PIO_Input_Register_Port_B;
 
 void init_PIO(void);
 void PioReadDataA(void);

@@ -1,6 +1,6 @@
 // ======================================================================
 // Z80_3Chip.v generated from TopDesign.cysch
-// 11/06/2019 at 14:16
+// 11/07/2019 at 05:24
 // This file is auto generated. ANY EDITS YOU MAKE MAY BE LOST WHEN THIS FILE IS REGENERATED!!!
 // ======================================================================
 
@@ -1293,7 +1293,7 @@ module top ;
           wire  Net_1329;
           wire  Net_1328;
           wire  Net_1325;
-          wire  Net_1347;
+          wire  Net_1351;
           wire  Net_1235;
           wire  Net_1234;
           wire  Net_1244;

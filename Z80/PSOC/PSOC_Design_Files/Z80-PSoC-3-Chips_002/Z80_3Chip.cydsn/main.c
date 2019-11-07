@@ -55,7 +55,7 @@ int main(void)
 	I2CINT_n_SetDriveMode(I2CINT_n_DM_RES_UP);          // Pull-up the I2C interrupt line
 	#ifdef USING_FRONT_PANEL
         I2CINT_ISR_Start();
-        I2CINT_ISR_Disable();
+//        I2CINT_ISR_Disable();
 	#else       // Using expansion mcp23017 but not using front panel
 		#ifdef USING_EXP_MCCP23017
         I2CINT_ISR_Start();

@@ -54,7 +54,7 @@ void I2CIntISR(void)
     uint8 bPortB;
     I2CINT_ISR_Disable();
 	#ifdef USING_FRONT_PANEL
-  		lFPVal = readRegister_MCP23017(0x24,MCP23017_GPIOA_REGADR) << 8;                    // Clears interrupt
+  		lFPVal = readRegister_MCP23017(0x24,MCP23017_GPIOA_REGADR) << 8;                  // Clears interrupt
   		lFPVal = ((readRegister_MCP23017(0x25,MCP23017_GPIOA_REGADR) | lFPVal) << 8);     // Clears interrupt
   		lFPVal = ((readRegister_MCP23017(0x26,MCP23017_GPIOA_REGADR) | lFPVal) << 8);     // Clears interrupt
   		lFPVal = readRegister_MCP23017(0x27,MCP23017_GPIOA_REGADR)   | lFPVal;            // Clears interrupt
@@ -62,8 +62,10 @@ void I2CIntISR(void)
 	#endif
 	#ifdef USING_EXP_MCCP23017
   		bPortA = readRegister_MCP23017(0x20,MCP23017_GPIOA_REGADR);                      // Clears interrupt
+        PIO_Input_Register_Port_A = bPortA;
         pioAIntVals = pioAIntVals ^ bPortA;
   		bPortB = readRegister_MCP23017(0x20,MCP23017_GPIOB_REGADR);                      // Clears interrupt
+        PIO_Input_Register_Port_B = bPortB;
         pioBIntVals = pioBIntVals ^ bPortB;
 	#endif
 }

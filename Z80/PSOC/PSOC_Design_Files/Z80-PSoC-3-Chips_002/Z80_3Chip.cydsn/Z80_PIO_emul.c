@@ -17,14 +17,15 @@ volatile uint8 PIO_Mask_Port_A;
 volatile uint8 PIO_Vector_Address_Port_A;       // Mode 2 interrupt vector
 volatile uint8 PIO_Interrupt_Vector_Port_A;
 volatile uint8 PIO_Interrupt_Ctrl_Word_A;
-volatile uint8 PIO_Output_Register_Port_A;
-
+//volatile uint8 PIO_Output_Register_Port_A;
+volatile uint8 PIO_Input_Register_Port_A;
 
 volatile uint8 PIO_Mask_Port_B;
 volatile uint8 PIO_Vector_Address_Port_B;
 volatile uint8 PIO_Interrupt_Vector_Port_B;
 volatile uint8 PIO_Interrupt_Ctrl_Word_B;
-volatile uint8 PIO_Output_Register_Port_B;
+//volatile uint8 PIO_Output_Register_Port_B;
+volatile uint8 PIO_Input_Register_Port_B;
 
 volatile uint8 PIO_State_A;
 volatile uint8 PIO_Mode_A;
@@ -85,7 +86,8 @@ void PioReadDataA(void)
 {
     if (PIO_State_A == PIO_MODE_1)
     {
-        Z80_Data_In_Write(readRegister_MCP23017(MCP23017_PIO_ADDR,MCP23017_GPIOA_REGADR));
+        // Z80_Data_In_Write(readRegister_MCP23017(MCP23017_PIO_ADDR,MCP23017_GPIOA_REGADR));
+        Z80_Data_In_Write(PIO_Input_Register_Port_A);
     }
     else
     {
@@ -156,7 +158,8 @@ void PioReadDataB(void)
 {
     if (PIO_State_A == PIO_MODE_1)
     {
-        Z80_Data_In_Write(readRegister_MCP23017(MCP23017_PIO_ADDR,MCP23017_GPIOB_REGADR));
+        //Z80_Data_In_Write(readRegister_MCP23017(MCP23017_PIO_ADDR,MCP23017_GPIOB_REGADR));
+        Z80_Data_In_Write(PIO_Input_Register_Port_B);
     }
     else
     {
