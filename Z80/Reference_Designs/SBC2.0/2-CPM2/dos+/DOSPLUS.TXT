@@ -1,0 +1,494 @@
+
+                      D O S +   system documentation
+                                 86/12/07
+                             by C.B. Falconer
+
+
+DOS+  is  a  complete  replacement system  for  CPM2.2  (Copyright  Digital
+Research).    DOS+  provides  many  CPM3  features,   and  several   unique
+capabilities.   It also supplies many ZCPR features,  without requiring any
+extra memory assignments.  DOS+ operates on Z80 CPUs only.
+
+DOS+, CCP+, DDTZ, INITDIR, FDATE, MOVDOS+, SETFLAGS,  XJOB,  TIME and their
+associated documentation are Copyright (c) 1986 by:
+     C.B. Falconer, 680 Hartford Tpk, Hamden CT 06517,
+     Tel (203) 281-1438.                     all rights reserved.
+
+They may be freely copied and distributed provided no charges are made, and
+that  they are not included with other items for sale.  For commercial per-
+mission contact C.B. Falconer.
+
+Contributions are solicited.  All contributions of $20 or over will receive
+notices of available updates and/or revisions.   $50 or over is  considered
+registration,  and  major revisions (on Kaypro 4 or IBMPC format disks,  as
+desired) will be made for 1 year, with source code.
+
+
+                        Features Added over CPM2.2
+                        ==========================
+
+1.   DOS+  will  process files of up to 262,143 records  (like  CPM3),
+     i.e. of over 3 megabytes.
+
+2.   DOS+ allows for time-stamping of all files, for creation, modify,
+     and access.   Creation records only the date,  others record both
+     date and time.  DOS+ may be configured to NOT do access stamping,
+     thus  allowing for the use of write-protected disks.   Note  that
+     the time stamps are NOT identical with CPM3 (DOS+ maintains three
+     values), but are compatible in that the file system will function
+     correctly  under either CPM2 or CPM3.   Time stamping occurs only
+     on drives with the correctly formatted directory (see INITDIR.COM
+     to  initialize disks with/or without files already stored),  when
+     the timer operation is enabled.   If the file is marked read-only
+     no access time will be  maintained.   The FDATE utility acts much
+     like DIR (except that some file  or drive specification  must  be
+     entered) to show the stored time stamps.   Dates are shown in ISO
+     standard format (year/month/day).
+
+3.   DOS+  has compatible DCIO (function 6,  direct console  i/o)  and
+     other  console  calls.   DCIO  can now return a  null,  by  first
+     checking  status (argument 0fdh in register e).   Buffered  input
+     characters will be available to the application with mixed calls.
+     DCIO with argument (in E register) 0fdh performs wait_for_console
+     input (as does CPM3), and with argument 0fch returns a look-ahead
+     console character, i.e.  the  value which will be accessed by the
+     next console input call (provided the console status is 'ready').
+     For this argument register H (and register B) returns the current
+     console column,  as recorded by DOS+.   In addition,  if the bios
+     supports it, this call (function 6,  argument less than 0fch  for
+     direct console output) returns the current screen x-y position as
+     a value in hl.  This is whatever value the bios returns in hl. As
+     a standard,  this should be the  line in h,  and the column in l,
+     each with an offset of 020h added. i.e. 02020h is 0,0, top left.
+
+4.   DOS+ will always pause (on console output) when a CTL-S (DC3)  is
+     entered,  EXCEPT  for DCIO calls.   Thus an accidental  keystroke
+     will no longer leave a program running indefinitely.   However an
+     interrupt driven bios with its own buffer may delay the pause.
+
+5.   DOS+ can be interrupted at any BDOS call (if so configured).  The
+     "break"  key is configurable (default a NUL,  i.e.  CTL-@ on most
+     systems).   If enabled,  DCIO calls can be separately enabled  or
+     disabled.   When a "break" occurs the question "Resume (y/N)?" is
+     asked,  and  a "y" (or "Y") will resume the application  program.
+     Any other key aborts to a  warm  boot.   If  breaks  are disabled
+     the CTL-C character will not abort the application program.  This
+     allows programs to ensure they retain control.
+
+6.   DOS+  errors show the calling function,  and the file name (if  a
+     file  is involved).   All such errors other than disk i/o errors,
+     exit to a warm boot when a <cr> is entered.   For disk i/o errors 
+     options to retry, ignore, or abort are available.  Provisions are
+     made for application programs to intercept and handle any errors.
+
+7.   DOS+ implements the CPM3 calls 104 and 105 (set/get time), when a
+     suitable  timer mechanism is configured.   This mechanism may  be
+     either  a reserved memory area (5 bytes) to hold the time,  or  a
+     routine may be called (which should return such a pointer).   The
+     DE register points to the application array (see definition below
+     of the array) which is filled (1st 4 bytes) on call 105  (seconds
+     are returned in the A register), or used to set (call 104),  when
+     the system seconds value is forced to 0.
+
+8.   DOS+ setuser call (32 = 020h) echoes the user # set.
+
+9.   DOS+ implements a search path, stored in a configurable dedicated
+     memory  area.   TO USE the bios MUST initialize the path at power
+     on (cold-boot).   A single 0 byte at the head of the path  string
+     suffices.    The   path  (like  ZCPR)  consists  of  byte  pairs,
+     specifying  drive  and user,  with '$' specifying  the  defaults.
+     Unlike  ZCPR, the user value specifies under which user the drive
+     search will be made, and only  the current user area is searched.
+     Thus  "A$" causes the A drive to be searched on all  user  areas,
+     and  "B3C2" causes the B drive search under user 3,  C under user
+     2,  etc.  Thus the path string can be thought of as an intermixed
+     set of paths for the various user areas.   The default drive will
+     not  be searched twice.   The path must be terminated with a zero
+     byte.  The path applies only when a file is opened with a default
+     drive specification,  and if a path entry is applied the  callers
+     FCB is marked with the actual drive on which the file was  found.
+     The current default drive is always searched first.
+
+10.  DOS+ makes all $SYS files,  on user area 0,  visible to all users
+     for read.  They may not be written to, nor erased from other user
+     areas.  Thus common utilities and files can be made public.   All
+     $SYS files are treated as read-only, however they may  be  erased
+     from their "home" user area.
+
+11.  DOS+  maintains  the $ARC bit,  resetting it whenever a  file  is
+     modified.  This can co-operate with archiving programs.  This can
+     fail  if  a program performs random writes and fails to close the
+     file.
+
+12.  DOS+ can maintain an exact byte count for a file,  using the same
+     methods  as CPM3.   When a file is opened,  if the current record
+     byte (offset 32 = 020h in the FCB) is set to 0ffh,  the count  of
+     unused  bytes  in the last record will be  returned  there.   The
+     count  may be set with function call 30 (set file attributes)  by
+     setting  the F6 (interface attribute) bit,  and placing the count
+     in  the  current  record  byte.   This  count  is  normally  zero
+     (indicating no unused bytes), and can range up to 07fh = 127.  F6
+     interface bit will be reset when function 30 is complete.
+
+13.  DOS+  scans user area 0 for any file names beginning with '$'  on
+     the disk reset call (not the current user, as in CPM2).  This co-
+     operates with CCP+,  JOB,  and other utilities so that batch jobs
+     can  switch  user areas and continue  functioning.   It  is  only
+     compatible with SUBMIT and earlier versions of JOB, //IF, //SKIP,
+     ZCPR, etc. when the default user is 0.
+
+14.  Like  CPM3,  the  F5  thru  F8 attribute bits  are  reserved  for
+     internal and interface use.  F1 thru F4 are available.
+
+15.  DOS+  returns version number 2.5,  thus avoiding  confusion  with
+     CPM3,  and signalling compatibility with CPM2.2.   Later releases
+     will return 2.6 up, but less than 3.0.   The  "compatibility bit"
+     (see below) can force a 2.2 return value.
+
+16.  DOS+ maintains the entry jump, and the error vectors, in the same
+     locations  as  CPM2.2,   for  compatibility  with  programs  that
+     intercept errors or follow an RSX chain to find the BDOS module.
+
+17.  DOS+ call #210 (0d2h), with suitable arguments in the E register,
+     returns system information.  For version 2.5, the arguments are:
+               0      Return base address for BDOS module.
+                      Used for dynamic reconfiguration.
+               1      Return the current DMA setting.
+               2.     Flush any console input pending, emptying
+                      all buffers.  Returns 0.
+               3.     Returns list device status (ready/not ready)
+               4.     Returns punch   "     "          "
+               5      Returns reader  "     "          "
+     Arguments 3 thru 5 represent ready as 0ffh,  not ready as 0.   If
+     no  custom installation for  punch/reader device status  has been
+     made (see -INSTALL.DOC) their status  is returned 0  (not ready). 
+     Other arguments return 0.
+
+18.  DOS+ call #211 (0d3h) outputs the value in the DE register as  an
+     unsigned 16  bit value,  in decimal,  to the console with leading
+     zero suppression.
+
+19.  DOS+ can be set in "compatibility" mode, which forces the version
+     number call (12 = 0ch) to return 2.2, and eliminates the 0fch and
+     0fdh arguments from the DCIO call (#6). This avoids most problems
+     with existing programs.
+
+20.  DOS+ maintains  the  "list echo" flag as the 1 (lsb)  bit  in the
+     option byte at offset 18h (from the start of BDOS).   This allows
+     application programs to dynamically control such echos as well as
+     other features (such as breaks, access time stamping, etc).  Call
+     #210 with a 0 argument (above) returns a pointer to this area.
+
+
+                              C C P +  system
+                              ===============
+
+CCP+  replaces  the CPM2 CCP and ZCPR.   It is  designed  for  installation
+without re-assembly,  supports DU addressing,  wheel byte, du restrictions,
+and  is generally suitable for both general use and RCPM use.   CCP+ may be
+used  with standard CPM2.2 if desired.   It is incorporated in the  MOVDOS+
+DOS+  installation program,  with search options set for use of DOS+ paths.
+For details on installation options, read -INSTALL.DOS.
+
+The CPM "user" command is eliminated,  in favor of DU addressing.  To login
+to drive b,  user 3,  enter "b3:" for example.   To login to user area 2 on
+the current drive, enter "2:", etc.  ":" alone as a du specification stands
+for all defaults.
+
+1.   DIR  command accepts options "s" (for system files also) and  "o"
+     (for  only  system  files)  following  the  file   specification.
+     Multiple dir arguments may be entered,  using the ";" to separate
+     the sections.  "dir a:;b: o" shows a:, and system files on b:. DU
+     specification may be used.   Areas visible may be different under
+     wheel and non-wheel states.  The number of entries shown per line
+     can be configured at installation time.
+
+2.   The SAVE size argument may have a "+" appended,  to save an extra
+     1/2  page (or single record).   "SAVE 3 blah" keeps a 3 page =  6
+     record  file,  while "SAVE 3+ blah" keeps a 3 1/2 page = 7 record
+     file.  0+ saves 1 record only.
+
+3.   GO command re-executes whatever program is already loaded.   Such
+     a program should be self-initializing.
+
+4.   KILL command halts any executing batch job (created by SUBMIT  or
+     JOB).   It is intended for conditional use in batch jobs, guarded
+     by //IF statements.
+
+5.   CAPS command is a toggle,  and allows lower case command lines to
+     be passed to applications.   When executed it reports the current
+     status.   This  is useful for command line driven  programs  that
+     need lower case arguments (such as Software Tools TRANSLIT).
+
+6.   Extra  blanks are generally acceptable in command lines,  but may
+     create  problems when command lines are passed  to  applications.
+     Thus  "dir  a:" and "dir       a:" are equivalent.   This  avoids
+     nuisance errors.
+
+7.   A configurable option allows the automatic search of A:  whenever
+     the file for a transient (.COM) or TYPE command is not found. For
+     DOS+ this is normally disabled,  and the path is used.   For CPM2
+     this provides most of the abilities of a path.
+
+8.   Whenever a transient application is not found,  the file CCPXTEND
+     (.SYS)  is  automatically loaded and passed the complete  command
+     line.  This  implements  further searches,  in particular  for  a
+     component of COMMAND.LBR,  and can continue to other systems when
+     failure  occurs (such as RUNPCD for Pascal,  or MBASIC for  basic
+     programs,  or JOB for automatic batch execution).   See  CCPXTEND
+     documentation.
+
+9.   Drives  accessible  can  be  configured,  with  individual  drive
+     selection,  for  both  wheel and non-wheel status.   This  avoids
+     drive  selection error aborts on typing  errors.   Similarly  the
+     maximum user areas are configurable.
+
+10.  Individual  commands may be disabled under non-wheel  conditions.
+     Any such will attempt to access a transient.  If prefixed by a DU
+     specification  any  built-in  name may access a  transient  (i.e.
+     "a:dir" will attempt to run a:dir.com,   while "dir" will execute
+     the built-in command).
+
+11.  The $$$.SUB file is always on drive A, user 0.   A submit job may
+     include commands  to change user areas  and continue functioning.
+     The versions of JOB, //IF, //SKIP, XJOB included follow this con-
+     vention.   The KILL command avoids creating long  instructions to
+     abort jobs when an error is detected.
+
+
+                      CCPXTEND.SYS usage (automatic)
+                      ==============================
+
+This is intended to eliminate any syntactical difference between  execution
+of  programs stored in libraries,  and those that reside as files on  disk.
+The  available  program names will not appear in a DIR listing (but can  be
+shown by SD, a public domain program).
+
+
+Use  with  CCP+ results in the following syntax at the CCP level.
+
+B>name [command tail]               executes name as a .COM on any
+                                    drive specified in the path, or
+                                    as a component of COMMAND.LBR
+                                    on any drive on the path.
+
+B>-d: name [command tail]           Executes name as a component
+                                    of d:COMMAND.LBR only.
+
+B>-lbrname name [command tail]      Executes name as a component of
+                                    lbrname.LBR on drives on the path.
+
+B>-d:lbrname name [command tail]    Executes name as a component of
+                                    d:lbrname.LBR only
+
+B>-d:lbrname.ext name [command tail] Executes name as a component
+                                    of d:lbrname.ext only.
+
+Overall, the search path for a command without disk spec. is:
+      1. default drive, current user (normal CPM stops here)
+      2. path drives, current user
+      3. default drive, current user, in COMMAND.LBR
+      4. path drives, current user, in COMMAND.LBR
+      5. Whatever final system is patched into CCPXTEND.SYS
+
+(remembering that $SYS files on user area 0 are available at each step)
+
+NOTE that if a file -nnn.COM exists it can be executed by CCP+ before  this
+CCPXTEND system is reached.
+
+CAVEAT:  the  normal SYSGEN program expects to be loaded without disturbing
+memory  from 0900h up through about 237fh (varies with system).   Even  the
+0900h  may be invalid for some systems (this is where the  bootstrap  image
+goes).   To  use SYSGEN from COMMAND.LBR without taking special precautions
+(for altering systems,  e.g. installing CCP+) this program must not disturb
+this area. This version (LRUN 2.0.4 or CCPXTEND 1.4) does not disturb 0880h
+up, except for the 128 bytes below the CCP.
+
+My  personal  usage is to install virtually all utilities  in  COMMAND.LBR,
+because my system uses a minimun disk allocation of 2k bytes.  Thus, on the
+average,  each  installed program saves 1k bytes of disk space,  and  small
+programs even more.  The following should NOT be installed in libraries:
+
+        WordStar        because the "Run" command within WordStar
+                        must be able to find the file to reload.
+                        If you never use this command WordStar may
+                        be installed in a library.
+        WSxxx.OVR       WordStar cannot find its overlays in a
+                        library.
+        CCPXTEND.SYS    This program itself MUST be directly
+                        available.
+
+and, where my Pascal system is installed:
+
+        PASCALP.PCD     needs to be available as a file for TUNE
+                        to set it's code versus data space usage.
+                        If you never compile large programs and
+                        want to leave it at some setting, go ahead
+                        and install it in PCDS.LBR.  RUNPCD has a
+                        build in library search.
+
+In  general it is useless to install a program that takes an exact multiple
+of the disk allocation unit, except to conserve on directory entries.
+
+Using these techniques my normal system disk (390k,  with 64 max  directory
+entries)  holds  about  110  programs,  and uses only  about  20  directory
+entries.  LRUN is constructed as an "ALIAS" entry for CCPXTEND (or you  may
+consider it the reverse if you prefer).  I have a compiler, 4 assemblers, 3
+linkers,  editor, BBS system, modem program, foreign disk drivers, spooler,
+unspooler,  PCD interpreter,  batch system with conditionals, find and sort
+utilities,  library  utilities,  squeeze/unsqueezers,  cross-referance  for
+Pascal,  Zilog,  Intel  8080,  8086 assemblers,  and much more  immediately
+available.  I virtually never have to change the system disk.
+
+
+                        JOB (v. 1.5) Documentation
+                        ==========================
+
+JOB  is an improved submit facility for CP/m systems,  evolved from  public
+domain SUPERSUB by Ron Fowler.  JOB is copyright (c) 1983, 1984, 1986 by:
+
+     C.B. Falconer,  680 Hartford Tpk, Hamden, CT 06517. (203) 281-1438
+
+JOB may be executed interactively (by "job /") or completely from  the com-
+mand line (by "job / instruction").  Entering "JOB" with no parameters will
+give a short summary. 
+
+JOB allows parameters to be terminated by commas,  thus a pair (i.e.  ",,")
+can  specify  a  null parameter.  In addition,  parameters can  be  "quoted
+strings", to allow any input whatsoever. In a quoted string a quote must be
+represented  by two quotes.  JOB also accepts empty input lines  (e.g.  PIP
+exit command).
+
+JOB creates the $$$.SUB file on drive A,  (user 0 as of JOB15) and thus can
+be executed with any setting of the default drive. In addition JOB searches
+both the default and A drives for the .JOB file when no drive is  specified
+in  the  command  line,  and (ver 1.4) if no .JOB file has yet  been  found
+searches default and system disks for a component of JOBS.LBR file.
+
+Thus  a  set of small .JOB files can be packed into JOBS.LBR  and  executed
+directly.  When many .JOB files are used this can significantly reduce disk
+storage
+
+An  initial line in the .JOB file beginning with ";;"  (double  semi-colon)
+signifies that the line specifies a default set of parameters ($0 thru $9).
+These  are  only  used  when the execution command  line  does  not  supply
+parameters.
+
+JOB does not arbitrarily upshift anything,  however an unmodified CCP  will
+probably upshift all input lines. CCP+ can be set to avoid this upshifting.
+
+JOB  will accept most files created for SUBMIT,  unless supplied parameters
+include commas and quotes.  Since the reverse is not true JOB expects  its'
+input files to be of type .JOB.
+
+JOB15  up is organized to co-operate with CCP+/DOS+ and execute  jobs  thru
+changes in user number.
+
+A  test file to demonstrate JOB parameter handling appears below (note null
+line, and use of initial ";" so that lines are comments to CCP+):
+
+     ;;testingjob parm1, "parm2",, parm4 parm5, ," parm ""7"", "
+     ; null defaults for parm3, parm6, parm8, parm9
+     ;$1;
+
+     ;$2;
+     ;$3,$4,$5,$6;
+     ;$7;
+     ;$8;
+     ;$9;
+     ;$0; <<end of test file>>
+
+try A>JOB TESTJOB
+                      where testjob is the above file from the ";;"
+This simply shows a set of comment commands on the console.
+
+
+                       Conditional batch operations
+                       ============================
+
+These  are  handled by //IF and //SKIP programs,  which are  documented  in
+IFSKIP.DOC (.DZC) separate file.  When combined with the facilities of JOB,
+XJOB, CCP+, and DOS+ an extremely powerful batch capability results.
+
+
+                               DDTZ debugger
+                               =============
+
+DDTZ is documented in the separate file DDTZ.DOC (.DZC)
+
+
+                                 Utilities
+                                 =========
+
+All utilities give a short synopsis of their commands when executed with no
+parameters, or with '?' parameter. MOVDOS+, //IF and //SKIP are exceptions.
+
+
+INITDIR  allows re-organization of existing disks (or hard drives) for time
+stamping.  Files and directories are preserved.  Directories are sorted.
+
+FDATE allows examination of file time stamps, similar to DIR.
+
+MOVDOS+ allows generation of various sized system images. See -INSTALL.DOS.
+
+JOB, //IF, and //SKIP are discussed above.  XJOB replaces XSUB and is docu-
+mented in a separate file, and makes programmed console input feasible.
+
+ENSPOOL (ENSPOL10) allows all  lister output  to be spooled  to a specified
+disk file.  To initialize do "enspool filename.typ".  Output echoed  to the
+list device (by CTL-P) will not be spooled, nor will output via direct bios
+calls.  ENSPOOL is removed by executing it again.   Note that until this is
+done the output file is open, and the appropriate disk must NOT be changed.
+
+UNSPOOL (UNSPOL42) unspools a disk file to the list device.   It is started
+by "unspool filename.typ".
+
+CCPXTEND.SYS is necessary for automatic access to files in COMMAND.LBR.
+
+SETFLAGS allows dynamic re-configuration of  some DOS+ parameters,  in par-
+ticular use of breaks, file access time stamping, and  compatibility  mode.
+Executing SETFLAGS with no parameters shows the command syntax.   When SET-
+FLAGS completes it does not reboot, so that the altered configuration  will
+be in effect for the next program run.   Unless RSX's  are  mounted  (which
+includes ENSPOOL and UNSPOOL) the next reboot will reset the configuration.
+
+FCOPY copies files across user areas.  Unlike PIP it purges the destination
+file first, allowing copying to full disks.  However disk failures can then
+lose a file.  The default destination name is the source name if on a diff-
+erent drive or user (or both).  -v flag causes verification.
+
+FDIFF does a binary comparison between files.  The default "destination" is
+the "source" name, on a different drive or user (or both).
+
+TIME allows setting and  interrogation of  the system time.   Note that the
+timer provisions are usable without any real-time-clock, by manual  setting
+of the timer.  "time ?" gives help,  "time" reports,  "time yy/mm/dd hh-mm"
+sets the system time.  Note use of ISO standard date format,  and that "hh"
+is 24 hour (0..23) time.  Punctuate as shown.
+
+
+Acknowledgement
+===============
+
+DOS+ builds heavily on the earlier P2DOS created by H.A.J. Ten Brugge,
+Molenstraat 33, NL-7491 BD Delden, The Netherlands.  Tel..31-5407-1980
+Contributions by Gary Novasielski, Ron Fowler, and many others have been
+shamelessly incorporated into the system.
+
+
+The timer string and routine
+============================
+
+The timer address should point to a byte array, where
+
+       byte 0 = low byte  } of DR format date, an integer count of
+       byte 1 = high byte } days since 78/1/1   (78/1/1 = 1)
+       byte 2 = hour, 0..23 (in BCD)
+       byte 3 = minute, 0..59 (in BCD)
+       byte 4 = second, 0..59 (in BCD).
+
+If the timer address is a routine it should return hl a pointer to the
+above array.  If the (bc) register is non zero on entry the time is to
+be set, and the bc register points to the array to  set (4 bytes only,
+the seconds byte should be set to zero).
+§

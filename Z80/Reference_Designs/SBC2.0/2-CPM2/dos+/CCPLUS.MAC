@@ -1,0 +1,1370 @@
+title	CCP+ v2.2 (c) by C.B Falconer (1986 Oct. 27)
+;
+; Z80 cpu required.  Use CCPLUS 1.7 for 8080/8085
+;
+; SEE CCP+.DOC for features, etc. Assembles as is with M80 or SLRMAC.
+; For M80 Z80.LIB must be available and must rename source 'CCPLUS'.
+;
+; 2.2	86/10/27. Search suppression for DOS+ use.  Added KILL command
+;	to abort submit/job operations.  CCP+ knows how executed. cbf
+; 2.1	86/10/11 Fixed so "-b:xyz name" executes name in b:xyz.lbr
+;	(with CCPXTEND mounted).  Was aborting. Added non-wheel drive
+;	access checks.  Commands suppressed under wheel now search for
+;	transients, and transient execution is non-suppressable. Now a
+;	du consisting of ":" alone specifies default. Fixed REN. cbf
+; 2.0	86/10/2 Preliminary beta test release. Complete rewrite of 1.7
+;
+ccpver	equ	22;		UPDATE with each revision
+true	equ	-1
+false	equ	not true
+debug	equ	false;		true allows linking to existing code
+cr	equ	0dh
+lf	equ	0ah
+tab	equ	09h
+eof	equ	01ah
+;
+; User configurable values.  See patch area at end.
+doupsft	equ	true;		FALSE for NO command line upshift
+;				at initialization.
+subuser	equ	0;		User # for $$$.sub files
+maxuser	equ	31;		Max user when wheel set
+whluser	equ	13;		Max user when wheel not set
+dcols	equ	5;		columns for directory display
+; END user options
+;
+; For M80 the following must be upper case.
+INCLUDE	Z80.LIB
+;
+; CPM/DOS+ syscall values
+@cin	equ	1
+@cout	equ	2
+@instg	equ	10
+@csta	equ	11
+@rsdsk	equ	13
+@seldk	equ	14
+@fopen	equ	15
+@fclose	equ	16
+@srch1	equ	17
+@srchn	equ	18
+@fpurg	equ	19
+@rdseq	equ	20
+@wtseq	equ	21
+@fnew	equ	22
+@frenm	equ	23
+@curdk	equ	25
+@stdma	equ	26
+@usrcd	equ	32
+;
+; CPM/DOS+ definitions
+reboot	equ	0
+iobyte	equ	reboot+3
+defdu	equ	reboot+4;	user/drive fields
+	if	debug;		link separately
+extrn	 sysfnc
+	else
+sysfnc	 equ	reboot+5;	connector to BDOS system
+	endif
+defcbk	equ	reboot+05ch
+defdma	equ	reboot+080h
+tpa	equ	reboot+100h
+;
+; Macros
+tdig	macro
+	rlc
+	rlc
+	rlc
+	rlc
+	endm
+;
+;	--------- Start	----------
+;
+; Standard entry points.  The "cold" entry is auto-patched to "both"
+; at initial execution, for single sign-on and to cater to peculiar
+; Osborne 1 peculiar cold boot mechanism.
+begin:	jmp	cold;		execute command
+	jmp	warm;		clear command line
+;
+; This MUST start at begin+6 for compatability.
+ibfsiz:	db	126;	size of input buffer. space for eol mark.
+;			127 can cause obscure problems.
+; set the following byte 0 for no cold start default command
+ibflen:	db	0;	patch command length for cold execution
+;			and install command below, 0 terminator
+;
+; For Osborne 1, do not modify. Result won't boot
+iobuff:	dw	0,0,0,0,0,0,0;	needed for OS1 autoboot. Why?
+	db	'  CCP+ v', ccpver/10 + '0', '.', ccpver MOD 10 + '0'
+	db	' (C) 1986, C.B. Falconer,'
+	db	' Tel. (203) 281-1438,'
+	db	' 680 Hartford Tpk., Hamden, CT., USA'
+	ds	136-($-begin),0;	must have 2 spare bytes here.
+;
+nofmsg:	db	'No File',0
+fulmsg:	db	'No room',0
+allmsg:	db	'All (y/N)?',0
+foldms:	db	'File exists',0
+dnmsg:	db	'No '
+upmsg:	db	'UPSHIFT',0
+;
+; Check for valid drive access.  Carry if drive (a) invalid.
+; entry (a) = 0 is default, always valid, 1, 2.. for A, B..
+; a,f,h,l
+drvchk:	lhld	whlmsk
+;	"	"
+; Entry here can check against mask hl (usually drvmsk)
+; a,f,h,l
+drvckw:	ora	a
+	rz
+	dcr	a
+;	"	"
+; move bit (a) of hl to carry. 0 is lsb, 15 is msb
+; a,f,h,l
+bitmsk:	sui	16
+bitm1:	dad	h;		left shift 16-n times
+	inr	a
+	jrnz	bitm1
+	ret
+;
+; Upshift (a) if lower case alpha.
+; a,f
+upshft:	cpi	'a'
+	rc
+	cpi	'z'+1
+	rnc
+	ani	05fh
+	ret
+;
+; Check (a) valid digit, carry if not
+; f
+qnum:	cpi	'0'
+	rc
+	cpi	'9'+1
+	cmc
+	ret
+;
+; crlf to console
+; a,f
+crlf:	mvi	a,cr
+	call	couta
+	mvi	a,lf
+;	"	"
+; console output from (a)
+; a,f
+couta:	push	d
+	mov	e,a
+	mvi	a,@cout
+	call	bdos
+	pop	d
+	ret
+;
+; Numeric 1..99 to console.  Convert to Ascii, zero suppress
+; a,f
+putnum:	cpi	10
+	jrc	pn2;		1 digit only
+	push	b
+	mvi	c,'0'-1
+pn1:	inr	c
+	adi	-10
+	jrc	pn1
+	adi	10
+	push	psw
+	mov	a,c
+	call	couta
+	pop	psw
+	pop	b
+pn2:	adi	'0'
+	jr	couta
+;
+; Test for any console character ready. If so purge it and
+; return nz flag.  Else return z flag.  Nulls absorbed
+; a,f
+qbreak:	mvi	a,@csta
+	call	bdos
+	rz
+	mvi	a,@cin
+	jr	bdos
+;
+; called from xcom and xtyp.  If disk is default then search system
+; disk on failure. z flag indicates failure
+; a,f,d,e
+fopenf:	xra	a
+	sta	frecd
+	lxi	d,fcbdrv
+	lda	cmdmsk+1;	(get high byte)
+	ral
+	jrc	fopen;		search disabled
+	ldax	d
+	ora	a
+	jrnz	fopen;		not default, restrict search
+	call	fopen
+	rnz;			success on default drive
+	inr	a;		i.e. disk a
+	stax	d;		now try the system drive
+	call	fopen
+	rnz;			success
+	stax	d;		restore default drive id for ccpxtd
+	ret
+;
+; open file (de)^. z flag for failure
+; a,f
+fopen:	mvi	a,@fopen
+;	"	"
+; execute functions, Z flag for 0ffh, increment return value
+; a,f
+sfncr:	call	bdos
+	inr	a
+	ret
+;
+; close file (de)^. Z flag for failure
+; a,f
+fclose:	mvi	a,@fclose
+	jr	sfncr
+;
+; search next on (de)^. Z flag for failure, exit (a) incremented
+; a,f
+srchn:	mvi	a,@srchn
+	jr	sfncr
+;
+; search for file fcbdrv. Z flag for failure, exit (a) incremented.
+; a,f,d,e
+ffind:	lxi	d,fcbdrv
+	mvi	a,@srch1
+	jr	sfncr
+;
+; purge file (de)^, z flag for failure
+; a,f
+fpurge:	mvi	a,@fpurg
+	jr	sfncr
+;
+; read from file fcbdrv. z flag for success
+; a,f,d,e
+freadf:	lxi	d,fcbdrv
+;	"	"
+; read from file (de)^. z flag for success
+; a,f,d,e
+rdseq:	mvi	a,@rdseq
+	jr	bdos
+;
+; write to file (de)^. z flag for success
+; a,f
+fwrite:	mvi	a,@wtseq
+	jr	bdos
+;
+; create file (de)^; z flag for success
+; a,f
+create:	mvi	a,@fnew
+	jr	sfncr
+;
+; set dma access to defdma area
+; a,f,d,e
+sdma80:	lxi	d,defdma
+;	"	"
+; set dma access to (de)^
+; a,f
+setdma:	mvi	a,@stdma
+	jr	bdos
+;
+; Find current logged disk
+qdisk:	mvi	a,@curdk
+	jr	bdos
+;
+; Set user to absolute value in fcbusr and select on BDOS.
+; Do not modify or select drive. Leave drv/usr in bc
+; Update fcbusr to absolute value
+; a,f,b,c,e
+setusr:	lbcd	fcbusr;		c := user, b := drive
+	mov	a,c
+	ora	a
+	cm	quser;		default, get current user
+	mov	c,a;		now an absolute value
+	sbcd	fcbusr
+;	"	"
+; set user to a
+; a,f,e
+susera:	mov	e,a
+	jr	suser
+;
+; find current user code
+; a,f,e
+quser:	mvi	e,0ffh
+;	"	"
+; set user (e)
+; a,f
+suser:	mvi	a,@usrcd
+	jr	bdos
+;
+; reset disk system
+; a,f
+rsdisk:	mvi	a,@rsdsk
+;	"	"
+; execute bdos call, return (a), set flags. Preserve other registers
+; This is the sole connection to the outside world.
+; a,f
+bdos:	push	h
+	push	d
+	push	b
+	pushix
+	mov	c,a
+	call	sysfnc
+	ora	a;		set flags on return value
+	popix
+	pop	b
+	pop	d
+	pop	h
+	ret
+;
+; Get a line from $$$.SUB file, and reduce the file size.
+; If anything fails, purge $$$.SUB and reset subflg
+; Line is placed in <ibflen,iobuff). 1st byte is length
+; a,f,d,e,h,l
+getsub:	lda	subusr
+	call	susera
+	lxi	d,subfcb;	Jam the user
+	call	fopen
+	jrz	killsub;	not found
+	push	d
+	lda	subrc
+	dcr	a
+	sta	subrcd
+	lxi	d,ibflen
+	call	setdma
+	pop	d
+	call	rdseq;		load the record
+	jrnz	killsub;	read failed
+	sta	ibflen+127;	ensure eol marked
+	lxi	h,subs2
+	mov	m,a;		zero, mark modified for close
+	inx	h
+	dcr	m;		reduce file size (ok, read worked)
+	call	fclose
+	jrz	killsub;	failure
+	call	qbreak
+	jrz	preset;		no break (else kill the submit job)
+;	"	"
+; kill any existing $$$.sub file,
+; reset subflg, and default drv/usr/dma
+; a,f,d,e
+killsub:
+	lda	subusr
+	call	susera
+	lxi	d,subfcb
+	call	fpurge
+	xra	a
+	sta	subflg
+;	"	"
+; Set default DMA/drive/user (in defdu)
+preset:	call	sdma80;		restore default dma setting
+;	"	"
+; select the default drive/user (in defdu)
+; a,f,e
+setdud:	lda	defdu
+	push	psw
+	tdig
+	ani	0fh
+	call	susera
+	pop	psw
+;	"	"
+; select drive (a). DOS handles redundancies.
+; a,f,e
+seldka:	ani	0fh
+	mov	e,a
+	push	h
+	lhld	drvmsk
+	call	bitmsk;		validate selection, 0..15 here
+	pop	h
+	jc	badcmd;		invalid on this system
+	mvi	a,@seldk
+	jr	bdos
+;
+; Get command, either from subfile (preferred) or console.
+; This line is NOT upshifted.
+; a,f,d,e,h,l
+getcmd:	lda	subflg
+	ora	a
+	cnz	getsub;		Get from sub file if possible
+	lda	defdu
+	push	psw
+	ani	0fh
+	adi	'A'
+	call	couta
+	pop	psw
+	tdig
+	ani	0fh
+	cnz	putnum
+	mvi	a,'>'
+	call	couta;		finish the prompt
+	lda	subflg
+	ora	a
+	lxi	h,iobuff
+	jnz	tstr;		a subfile line loaded, echo & exit
+;	"	"
+; Input line from console. Add line end mark. Return de^ to ibflen 
+; a,f,d,e,h,l
+getln:	lxi	d,ibfsiz
+	mvi	a,@instg
+	call	bdos;		else read from console & exit
+	inx	d;		to ibflen
+	ldax	d
+	mov	l,a
+	xra	a
+	mov	h,a
+	dad	d;		point to line end
+	inx	h
+	mov	m,a;		and mark it
+	ret
+;
+; Parse the next field from the command line (IX^) into fcbdrv. Any
+; drive/user specifications are recorded in fcbdrv and fcbusr
+; (which default to 0 and -1 respectively).  name and type are parsed
+; into fname and ftype, blank padded, with any '*'s expanded into
+; '?'s, and the fields are blank padded.  At exit IX points to the
+; field terminating delimiter char and lastwd points to the 1st char.
+; a contains a count of '?' characters in fname & ftype fields, with
+; flags set on it.  Illegal chars. cause abort.
+; a,f,b,c,d,e,h,l,ix
+parse:	xra	a
+;	"	"
+; Entry to parse 2nd drive spec. for xcom, when a = 010h
+parsef:	lxi	h,fcbusr
+	call	index;		select fcb or alternate fcb
+	call	skipbk;		skip any leading blanks
+	sixd	lastwd;		save marker for errors
+	call	getdu;		c := user, b := drv
+	mov	m,c;		set fcbusr
+	inx	h
+	mov	m,b;		set fcbdrv, set up for ldfld
+	call	lastch
+	cpi	':'
+	cz	nextch;		Absorb any du terminating ':'
+	mvi	b,8
+	push	h
+	call	ldfld;		fill the name field
+	call	lastch
+	cpi	'.'
+	cz	nextch;		Absorb any name terminating '.'
+	mvi	b,3;		 (else terminator blank fills)
+	call	ldfld;		fill the type field
+	mvi	b,3
+parse1:	inx	h
+	mvi	m,0
+	djnz	parse1;		zero ex, s2, s1 fields
+	lxi	b,11 shl 8;	b := 11, c := 0
+	pop	h
+	mvi	a,'?'
+parse2:	inx	h
+	cmp	m
+	jrnz	parse3
+	inr	c
+parse3:	djnz	parse2;		count the '?'s in fname/ftype
+	mov	a,c
+	ora	a;		z flag for no wild cards
+	ret
+;
+; load up to (b) chars from (ix)^ up to (hl)^ up.
+; skip to delimiter.  Implement any wild cards on "*"
+; blank fill if less than (b) chars available.
+; Upshift any lower case characters.
+; a,f,b,h,l,ix
+ldfld:	call	lastch;		on (ix)^ and load it
+	jrz	ldfld4;		delimiter
+	inx	h
+	cpi	'*'
+	jrnz	ldfld1
+	mvi	m,'?';		expand '*'
+	jr	ldfld2;		dont skip past it
+ldfld1:	call	upshft;		upshift any lower case
+	mov	m,a
+	call	nextch
+ldfld2:	djnz	ldfld
+	call	lastch;		on (de)^ and load it
+	rz;			a delimiter
+ldfld3:	call	nextch;		else skip to a delimiter
+	rz
+	jr	ldfld3
+ldfld4:	inx	h
+	mvi	m,' ';		blank fill
+	djnz	ldfld4
+	ret
+;
+; getdu returns any "du" spec. in b and c, with c = user, b = drv
+; The default user is signified by a -1 value, default drive by 0
+; At entry, IX points to the start of the field to be parsed. At
+; exit, either IX is unchanged (no du found), or points to ':'
+; a,f,b,c,d,e,ix
+getdu:	lxi	b,0ffh;		set defaults
+	pushix
+	pop	d;		pre-scan for valid du field
+	ldax	d
+	call	upshft;		2.1 - No ':' abort here
+	call	qnum
+	jrnc	getdu1;		1st char digit, no d
+	cpi	'@'
+	rc;			< '@', no du spec
+	cpi	'P'+1
+	rnc;			> P, no du spec
+	inx	d
+	ldax	d
+	cpi	':'
+	jrz	getdu2;		d spec only
+	call	qnum
+	rc;			no 'du' spec
+getdu1:	inx	d
+	ldax	d
+	cpi	':'
+	jrz	getdu2;		du spec found
+	call	qnum
+	rc;			no du spec
+	inx	d
+	ldax	d
+	cpi	':'
+	rnz;			not terminal ':', no du spec
+;	"	"
+; prescan found a valid du format, now load it
+getdu2:	call	lastch
+	call	qnum
+	jrnc	getdu3;		digit, no d portion
+	call	upshft
+	sui	'@'
+	mov	b,a;		save d portion
+	call	nextch
+getdu3:	cpi	':'
+	rz;			no 'u' portion
+	ani	0fh
+	mov	c,a
+	call	nextch
+	rz;			':', 1 digit only
+	call	dstep;		incorporate
+	call	nextch;		and advance to the (known) ':'
+	lda	maxusr
+	cmp	c
+	jrc	badcmd;		User # too large
+	ret
+;
+; Decimal input step. Carry for overflow. c is accumulator, a digit
+; a,f,c,d
+dstep:	ani	0fh
+	mov	d,a
+	mov	a,c
+	cpi	26
+	cmc
+	rc;			overflow
+	add	a
+	add	a
+	add	c;		5*
+	add	a;		10*
+	add	d
+	mov	c,a;		result
+	ret;			cy for overflow
+;
+; Get next character from line.  Z flag for a delimiter,
+; and abort if the character is illegal. Do not advance past eoln.
+; Return char in a and leave IX pointing to it. cy for eoln
+; a,f,ix
+nextch:	ldx	a,+0
+	ora	a
+	jrz	lastch;		don't advance past eol
+	inxix
+;	"	"
+; Return last character, as above.  Abort if invalid, cy for eoln
+; a,f
+lastch:	ldx	a,+0
+	ora	a
+	stc
+	rz;			null is a delimiter
+	cpi	'=';		and all these
+	rz
+	cpi	'_'
+	rz
+	cpi	'.'
+	rz
+	cpi	':'
+	rz
+	cpi	';'
+	rz
+	cpi	'<'
+	rz
+	cpi	'>';		Redirection chars
+	rz
+	cpi	',';		Operand separator
+	rz
+	cpi	'|';		Piping  separator
+	rz;
+;	"	"
+; Check white space, abort on illegal chars. z flag for white
+qwhite:	cpi	tab
+	rz;			white space is a delimiter
+	cpi	' '
+	jrc	badcmd;		abort on illegals
+	ret
+;
+; skip blanks and tabs in input line.  Abort on illegal chars.
+; return the 1st non-blank char. found.
+; a,f,ix
+skipbk:	call	lastch
+	rc;			eoln
+skip1:	call	qwhite
+	rnz;			not white space
+;	"	"
+; Effectively "call nextch ! call skipbk"
+next:	call	nextch
+	jrnc	skip1
+	ret;			eoln
+;
+; Parse a filename, abort if wild cards specified
+pfwild:	call	parse
+	rz
+;	"	"
+; Badcmd is a command aborter.  It shows the portion of the
+; current line from lastwd^ thru ix, with a '?', kills any
+; submit job in progress, and returns to the command loop.
+badcmd:	call	crlf
+	lhld	lastwd
+	pushix
+	pop	d
+	inx	d
+	mov	a,e
+	sub	l
+	mov	b,a;		char count for the field
+badcd1:	mov	a,m
+	call	couta
+	inx	h
+	djnz	badcd1;		display the field
+	mvi	a,'?'
+	call	couta
+	call	killsub
+	jr	cmdone;		go mark line empty
+;
+;	****************************
+; The 'cold' entry should be at the magic 035Ch from begin
+; to function with the peculiar Osborne 1 bootstrap loader.
+spare	equ	035ch - ($-begin);	available for patching
+	if	spare AND 08000h;	i.e. negative
+   +++	 Code entry point wrong for Osborne 1	+++
+	else
+	 if	spare NE 0
+	  ds	spare,0;	null fill it
+	 endif
+	endif
+;
+;	------- Outer Block --------
+;
+; cold entry and sign-on. This is only used on initial entry, and is
+; automatically patched out.  If "cold" and "both" are not on the
+; same page the relocation mechanism in RELOCCP will have problems.
+cold:	jmp	signon
+;
+; at entry (c) specifies default user/drive
+warm:	xra	a
+	sta	ibflen;		kill prestored command
+;	"	"
+; Initialization. Entry here executes pre-stored command. c = usr/drv
+both:	lxi	sp,stktop
+	lxi	h,both;		Automatic no sign-on patch.
+	shld	begin+1;	also allows for Osborne 1 peculiarity
+	xra	a
+	sta	defdu;		Until input (c) found valid
+	call	rsdisk;		true if any '$*.*' file exists
+	sta	subflg
+	mov	a,c
+	call	dvalid;		So defdu is A0: if invalid
+;	"	"
+; Main loop of the command processor.
+cmdlp:	lxi	sp,stktop;	in case aborted
+	call	preset;		Set default drv/user/dma
+	call	crlf
+	lda	ibflen
+	ora	a
+	cz	getcmd;		No prestored, get new
+	lda	subflg;		(sub breaks checked before and
+	ora	a;		 after echo, to ease operation)
+	cnz	qbreak;		If console break on sub job
+	jrz	cmdlp1
+	call	killsub;	then abort sub in progress
+	jr	cmdone
+cmdlp1:	lxi	h,iobuff;	init cursor to buffer start
+	shld	lastwd
+	push	h
+	popix
+	mov	a,m
+	cpi	'*'
+	jrz	cmdone;		initial '*' is also a comment for now
+	sui	';'
+	jrz	cmdone;		an initial ';' marks a comment line
+	inr	a;		i.e. cpi ':'
+	jrz	cmdone;		and ':' is a label for submit, ignore
+	lda	ibflen
+	ora	a
+	cnz	parse;		next item into fcbdrv
+	lda	ibflen
+	ora	a
+	cnz	exec;		execute the non-null command
+;	"	"
+; Exit point from commands
+cmdone:	xra	a;		badcmd re-enters here
+	sta	ibflen
+	jr	cmdlp;		Until a .COM file reboots
+;
+; hl := hl + a
+; a,f,h,l
+index:	add	l
+	mov	l,a
+	rnc
+	inr	h
+	ret
+;
+;	------- The rest is execution features -------
+;
+; The abilities of CCP+ can be modified fairly freely in the following
+; code, without affecting the main parsing and submit execution.
+;
+;	-----------------------------------------------
+;
+; Check wheel permission for command # (a). At entry,
+; a =   0     1   2     3     4     5    6     7   8	9 (= maxcmd+1)
+; for login, dir, era, type, save, ren, caps, go, kill, xcom 
+; Values 10, 11, 12 for du check on login, dir, xcom respectively
+; Returns carry for controlled command
+; a,f,h,l
+whlchk:	lhld	@wheel
+	mov	a,m
+	ora	a
+	rnz;			wheel set
+	lhld	cmdmsk
+	jmp	bitmsk;		put controlling bit in carry
+;
+; Login to drive/user specified by fcbusr, fcbdrv.
+; a,f,b,c,e
+login:	call	skipbk
+	jrnc	cmdbad;		more in line
+	mvi	a,maxcmd+2;	for logins
+	call	chkdu;		check validity while defaults marked
+	mov	a,c;		chkdu set c := user, b := drv
+	inr	a
+	ora	b
+	rz;			drv/user default, null command
+	call	setusr;		update to abs usr, call bdos
+	mov	a,c
+	tdig
+	ani	0f0h
+	mov	c,a
+	mov	a,b
+	dcr	a
+	jp	login1;		not default drive
+	lda	defdu
+login1:	ani	0fh
+	ora	c
+	mov	c,a;		new defdu value, if valid
+;	"	"
+; validate drive selection before defdu update
+; a,f,e
+dvalid:	call	seldka;		so BDOS aborts if invalid
+	mov	a,c
+	sta	defdu;		outer block does actual selection
+	ret
+;
+; Exec receives the initial command line field parsed into fcbdrv,
+; and is responsible for whatever is done with it.  IX has been advanced
+; to the delimiter past this first field.
+exec:	lda	ftype
+	sui	' '
+	sta	flag;		if good, a default 0
+	jrnz	cmdbad;		No type allowed on initial field
+	lda	fname
+	sui	' '
+	jrz	login;		A login command only
+	lbcd	fcbusr;		Something other than a login command
+	inr	c
+	mov	a,c
+	ora	b
+	mvi	a,maxcmd
+	cz	lookup;		No drv nor user spec, check built-ins
+	lxi	h,xfrtbl;	  (otherwise a file is specified)
+	add	a
+	call	index
+	mov	a,m
+	inx	h
+	mov	h,m
+	mov	l,a
+	pchl;			transfer via hl, returns to main
+;
+; Check validity of du under wheel reset conditions
+; Abort to badcmd if illegal du.  Returns b := drv, c := user
+; Used for login, dir, and execution of transient commands,
+; for which a = 10, 11 or 12 on entry respectively.
+; a,f,b,c,h,l
+chkdu:	lbcd	fcbusr
+	call	whlchk;		Wheel for command access?
+	rnc;			not controlled
+;	"	"
+; Validate against system values, abort if illegal
+	inr	c;		so default is 0
+	lda	whlusr;		max ALLOWED
+	inr	a
+	cmp	c
+	dcr	c;		restore c
+	mov	a,b
+	cnc	drvchk;		if u ok check drive
+	rnc;			drive ok
+;	"	"
+; linkage to badcmd
+cmdbad:	jmp	badcmd
+;
+; search for valid command. Checks (fname) against internal list
+; Returns a := index of command, maxcmd if not found (i.e. xcom)
+; A suppressed command (via wheel/cmdmsk) returns maxcmd
+; a,f,b,c,d,e,h,l
+lookup:	lxi	h,cmdtbl
+	mvi	c,0
+	jr	look4;		to loop entry
+look1:	inx	h
+	djnz	look1;		skip over command table to next
+look2:	inr	c;		advance index, test next entry
+	mov	a,c
+	cpi	maxcmd
+	rnc;			not in command table - exit
+look4:	lxi	d,fname
+	mvi	b,4;		length of command strings
+look5:	ldax	d
+	cmp	m
+	jrnz	look1;		not this one
+	inx	d
+	inx	h
+	djnz	look5;		more chars to check
+	ldax	d
+	cpi	' '
+	jrnz	look2;		Not terminated, not command
+	mov	a,c;		found
+	inr	a;		because 0 describes login
+	call	whlchk;		is command suppressed?
+	mov	a,c
+	rnc
+	mvi	a,maxcmd;	yes, look for transient
+	ret;			found
+;
+; Set drv/user from fcbusr/fcbdrv.  Expected to be restored.
+; This is used only by the built-in and transient commands.
+; Revise fcbusr/drv to specify absolute values.
+; a,f,b,c,e
+setdu:	call	setusr;		b := drv; c := usr
+	mov	a,b
+	dcr	a;		put in range 0..15
+	jp	setdu1;		not default
+	lda	defdu;		else get default setting
+setdu1:	ani	0fh
+	mov	b,a;		now drv/user are absolute values
+	call	seldka;		aborts on invalid
+	inr	b;		non-default, defeat any paths
+	sbcd	fcbusr;		update fcb
+	ret
+;
+; DIR command
+; a,f,b,c,d,e,h,l,ix
+xdir:	call	skipbk
+	xra	a
+	sta	flag
+	call	parse
+	call	skipbk;		so ix^ is at any options (O, S)
+	jrc	xdir3;		end of line, no options
+	call	upshft
+	cpi	'S';		system also
+	jrz	xdir1
+	cpi	'O';		only system
+	jrnz	xdir2;		go check separator
+xdir1:	sta	flag
+	cz	nextch;		position past any flag found
+	call	skipbk
+	jrc	xdir3;		eol, no more
+xdir2:	cpi	';'
+	jrnz	cmdbad;		should have line end now
+xdir3:	call	nextch;		absorb separator
+	mvi	a,maxcmd+3
+	call	chkdu
+	call	setdu;		now bc is abs drv/usr
+	lxi	h,fname
+	mov	a,m
+	cpi	' '
+	jrnz	dir;		something specified
+	mvi	b,11;		set *.* default
+xdir4:	mvi	m,'?';		with 11 "?"s
+	inx	h
+	djnz	xdir4
+;	"	"
+; Parameters set up.  List all matching entries
+dir:	call	ffind;		return (a) := dir ptr + 1
+	jrz	dirx
+	mvi	e,1;		so first item causes new line
+dir1:	dcr	a;		regain dir block pointer
+	rrc
+	rrc
+	rrc
+	ani	060h;
+	mov	c,a;		form dir entry pointer
+	call	qlist
+	jrc	dir9;		suppress this entry
+	dcr	e
+	jrnz	dir2;		not new line needed
+	lda	cols
+	mov	e,a
+	call	crlf
+	call	qdisk
+	adi	'A'
+	call	couta
+	lda	fcbusr
+	ora	a
+	cnz	putnum;		show user if non-zero
+	jr	dir3
+dir2:	mvi	a,' '
+	call	couta
+dir3:	mvi	a,':'
+	call	couta
+	mvi	b,1;		point to 1st char. in fname
+dir4:	mvi	a,' '
+	call	couta
+dir5:	mov	a,b
+	call	idxac
+	ani	07fh;		remove any attribute bit
+	call	couta
+	inr	b;		count position in name
+	mov	a,b
+	cpi	9
+	jrz	dir4;		after fn, insert blank
+	cpi	12
+	jrc	dir5;		not done, continue
+dir9:	call	qbreak;		check for interruption
+	rnz;			user break
+	call	srchn
+	jrnz	dir1;		with (a) := dir entry id
+dirx:	call	skipbk
+	rc;			end of command line, EXIT
+	call	crlf
+	call	setdud;		restore defaults and
+	jmp	xdir;		repeat for next field
+;
+; Check whether entry should be listed.  defdma holds the
+; directory field, c holds the field index, and flags any
+; command input flag (0 if none, <O)nly system, <S>ystem
+; Set carry if listing to be suppressed
+; a,f,b,h,l
+qlist:	mvi	a,10
+	call	idxac
+	mov	b,a;		get system bit
+	lda	flag
+	ora	a
+	jrnz	qlist1;		a flag
+	mov	a,b
+	ral
+	ret;			with carry for system file
+qlist1:	cpi	'S'
+	rz;			(S)ystem also, list this one
+	mov	a,b;		must be (O)nly system
+	cma
+	ral
+	ret;			carry for non-system
+;
+; load (a+c)th char from defdma array
+; a,f,h,l
+idxac:	lxi	h,defdma
+	add	c
+	call	index
+	mov	a,m
+	ret
+;
+; TYPE command execution
+xtype:	call	pfwild;		aborts if wild cards
+	call	setusr;		but not drive, allow paths
+	call	fopenf
+	jrz	getn6;	badcmd
+	call	crlf
+	mvi	b,128
+xtype1:	mov	a,b
+	cpi	128
+	jrc	xtype2;		disk read not needed
+	call	freadf
+	rnz;			eof
+	mov	b,a;		a zero
+xtype2:	inr	b
+	lxi	h,defdma
+	call	index
+	mov	a,m
+	cpi	eof
+	rz
+	call	couta
+	call	qbreak
+	jrz	xtype1;		no interruption
+	ret
+;
+; Get number from command line.
+; Optional final "+" which sets 'flag'
+getnum:	call	pfwild;		forbids wild cards
+	lda	fcbdrv
+	ora	a
+	jrnz	getn6;	badcmd;	starts with "d:"
+	lxi	h,fname
+	lxi	b,11 shl 8;	c := 0, b := 11
+getn1:	mov	a,m
+	cpi	' '
+	jrz	getn5;		done
+	cpi	'+'
+	jrz	getn4;		done, with + flag
+	inx	h
+	call	qnum
+	cnc	dstep;		incorporate
+	jrc	getn6;	badcmd	overflow
+	djnz	getn1
+getn3:	mov	a,c
+	ret
+getn4:	sta	flag;		i.e. "+" terminator
+getn5:	inx	h
+	dcr	b
+	jrz	getn3
+	mov	a,m;		test for excess garbage
+	cpi	' '
+	jrz	getn5
+getn6:	jmp	badcmd
+;
+; SAVE command execution
+xsave:	call	getnum
+	push	psw
+	call	pfwild;		aborts if wildcards
+	call	setdu;		no paths, absolute drive
+	lxi	d,fname
+	ldax	d
+	dcx	d;		to fcbdrv
+	cpi	' '
+	jrz	getn6;	badcmd;	no name specified
+	call	fpurge
+	call	create
+	jrz	xsave3;		fullup
+	xra	a
+	sta	frecd
+	pop	psw
+	mov	l,a
+	mvi	h,0
+	dad	h;		convert pages to records
+	lxi	d,tpa
+	lda	flag
+	ora	a
+	jrz	xsave1
+	inx	h;		extra record to save
+xsave1:	mov	a,h
+	ora	l
+	jrz	xsave2
+	dcx	h
+	push	h
+	lxi	h,128;		advance to next record
+	dad	d
+	push	h;		save next, d is present
+	call	setdma
+	lxi	d,fcbdrv
+	call	fwrite
+	pop	d;		get back next pointer
+	pop	h;		and record counter
+	jrz	xsave1;		write succeeded
+	jr	fullup;		write failure
+xsave2:	lxi	d,fcbdrv;	done
+	call	fclose
+	rnz;			close succeeded
+	push	h;		so we can arrive with
+xsave3:	pop	h;		 junk on the stack
+;	"	"
+; NO ROOM message and return
+fullup:	lxi	h,fulmsg
+	jr	xcaps1;	tstrc
+;
+; CAPS command execution
+xcaps:	lxi	h,lcuc
+	mov	a,m
+	cma
+	mov	m,a
+	ora	a
+	lxi	h,dnmsg
+	jrz	xcaps1
+	lxi	h,upmsg
+xcaps1:	jr	tstrc;		exit with message
+;
+; ERA command execution
+xera:	call	parse
+	cpi	11
+	jrnz	xera1;		not *.* specification
+	lxi	h,allmsg
+	call	tstrc
+	call	getln
+	xchg;			hl points to ibflen
+	dcr	m
+	rnz;			not 1 char reply.  jr byte saver
+	inx	h
+	mov	a,m
+	ani	05fh;		upshift, only interested in 'Y'
+	cpi	'Y'
+	rnz;			not confirmed
+xera1:	call	setdu
+	lxi	d,fcbdrv
+	call	fpurge
+	rnz;			ok
+;	"	"
+; crlf,"NO FILE" message
+; a,f,h,l
+nofile:	lxi	h,nofmsg
+;	"	"
+; crlf, then tstr
+; a,f,h,l
+tstrc:	call	crlf
+;	"	"
+; string (hl) to console until 0 byte
+; a,f,h,l
+tstr:	mov	a,m
+	ora	a
+	rz
+	inx	h
+	call	couta
+	jr	tstr
+;
+; REN command execution
+xren:	call	pfwild;		aborts if wild cards
+	call	setdu
+	push	b
+	call	ffind
+	jrnz	xren2;		new name pre-exists
+	lxi	h,fcbdrv
+	lxi	d,filedn
+	lxi	b,16
+	ldir
+	call	skipbk
+	cpi	'='
+	jrz	xren1
+	cpi	'_'
+	jrnz	xren3;	badcmd;	invalid assignment operator.
+xren1:	call	nextch
+	call	pfwild;		aborts on wild card
+	call	skipbk
+	jrnc	xren3;	badcmd;	extra garbage on line
+	lhld	fcbusr
+	mov	a,l
+	inr	a
+	ora	h
+	jrnz	xren3;	badcmd;	2nd spec has a d/u
+	pop	h;		du from 1st spec, absolute
+	shld	fcbusr;		make them match
+	call	setdu
+	call	ffind;		(sets de := fcbdrv)
+	jrz	nofile;		cant find file to rename
+	mvi	a,@frenm
+	jmp	bdos;		rename and EXIT
+xren2:	pop	psw
+	lxi	h,foldms
+	jr	tstrc;		and EXIT with message
+xren3:	jmp	badcmd;		LINKAGE
+;
+; COM/CCPXTEND.SYS file not found.  (flag specifies which).
+; Recycle the loader to load CCPXTEND or abort.
+; This transient receives the complete command line, and can control
+; any access rights, search libraries, execute interpreters, etc.
+ccpxtd:	lda	fcbdrv;		no ccp extension when disk specified
+	lxi	h,flag;		nor if already tried
+	ora	m
+	jrnz	xren3;	badcmd
+	dcr	a
+	mov	m,a;		set flag to prevent re-execution etc.
+	lxi	b,13;		user, drive, name, type
+	lxi	d,fcbusr;	Now try for ccp extension
+	lxi	h,xtndf
+	jr	xcom1;		load extension and execute
+;
+; anything other than built-ins.  look for a com file first,
+; If this fails, pass the complete command line to CCPXTEND.SYS
+xcom:	mvi	a,maxcmd+4;	for execution
+	call	chkdu;		allows access restriction
+	lxi	h,com
+	lxi	d,ftype
+	lxi	b,3
+xcom1:	ldir;			set file type to ".COM"
+	call	setusr;		leave drive default, for paths
+	call	fopenf
+	jrz	ccpxtd;		not found, exit
+	lxi	h,tpa-128
+xcom2:	lxi	d,128;		advance store ptr.
+	dad	d
+	lxi	d,begin
+	mov	a,l
+	sub	e
+	mov	a,h
+	sbb	d
+	jnc	fullup;		prevent overwriting ccp on load
+	xchg
+	call	setdma
+	xchg
+	call	freadf;		load the COM file
+	jrz	xcom2;		not eof yet
+;	"	"
+; Execute loaded program after parsing command tail into page 0.
+xgo:	call	parse;		1st passed fcb
+	call	next;		past closing delimiter. nextch/skipbk
+	mvi	a,010h
+	call	parsef;		2nd passed fcb
+	xra	a
+	sta	frecd
+	sta	frecnt
+	lxi	d,defcbk
+	lxi	h,fcbdrv
+	lxi	b,33;		set default fcbs for execution
+	ldir
+	lxi	h,iobuff
+	lda	flag
+	ora	a
+	jrnz	xgo2;		keep everything on CCPXTEND
+xgo1:	mov	a,m
+	ora	a
+	jrz	xgo2
+	cpi	' '
+	jrz	xgo2;		skip the command name
+	inx	h
+	jr	xgo1
+xgo2:	mvi	b,0
+	lxi	d,defdma+1
+xgo3:	lda	lcuc
+	ora	a
+	mov	a,m;		set the passed command line
+	cnz	upshft;		upshifting in effect
+	stax	d
+	ora	a
+	jrz	xgo4
+	inr	b;		count chars passed
+	inx	h
+	inx	d
+	jr	xgo3
+xgo4:	mov	a,b
+	sta	defdma;		set cmd line lgh for execution
+	call	crlf
+	call	preset;		preset drive/user/dma
+	jmp	tpa;		EXECUTE. Return to cmdlp on TOS
+;
+xfrtbl:	dw	xdir,	xera
+	dw	xtype,	xsave
+	dw	xren,	xcaps
+	dw	xgo,	killsub
+	dw	xcom;		xcom must be last entry
+maxcmd	equ	($-xfrtbl)/2-1
+;
+; Resident commands
+cmdtbl:	db	'DIR '
+	db	'ERA '
+	db	'TYPE'
+	db	'SAVE'
+	db	'REN '
+	db	'CAPS'
+	db	'GO  '
+	db	'KILL'
+;
+; Check overall size
+	if	($-begin) GT 1896
+	 +++ CCP+ too large +++
+	else;	enough room
+;
+; This space is re-used as execution time stack space.
+;
+; cold entry and sign-on. This is only used on initial entry.
+; If "cold" and "both" are not on the same page the relocation
+; mechanism in RELOCCP will have problems.
+signon:	 lxi	sp,stktop
+	 lxi	h,vermsg
+	 call	tstrc
+	 jmp	both
+;
+; Do not lengthen this message, else signon stack use clobbers it.
+vermsg:	 db	'CCP+ Ver. '
+	 db	ccpver/10 + '0','.',ccpver MOD 10 + '0'
+	 db	0
+	 ds	1944-($-begin),0; working stack space available
+stktop:	 ds	0
+	endif;	Too large check
+;
+; Data area.  Starts at 0798h (from begin)
+;
+; SUBMIT control block. (34 bytes)
+subusr:	db	subuser
+subfcb:	db	1,'$$$     SUB';	drv A, user 0
+subex:	db	0
+subs1:	db	0
+subs2:	db	0
+subrc:	ds	1,0
+subdn:	ds	16,0
+subrcd:	ds	1,0
+subflg:	ds	1,0;		zero prevents sub file searches
+;
+; NOTE: the ",0" in ds statements ensures the areas are 0 filled
+;
+; File control block and receiver of parse fields (34 bytes)
+fcbusr:	ds	1,0
+fcbdrv:	ds	1,0
+fname:	ds	8,0
+ftype:	ds	3,0
+	ds	3,0
+frecnt:	ds	1,0
+filedn:	ds	16,0;		map or altfcb image
+frecd:	ds	1,0
+;
+; Parsing (3 bytes)
+lastwd:	ds	2,0;		start of current word in iobuff
+flag:	ds	1,0;		Command options.  Multiple uses
+;
+; The rest can be re-configured. Placed at the end so location
+; will not change with revisions. 16 bytes for this group
+com:	db	'COM';			file type for transients
+;
+; The following file is loaded, passed the complete command line as
+; entered by the user, and executed whenever a transient command is
+; not found.  Distributed CCPXTEND.SYS checks user 0, then looks in
+; COMMAND.LBR on default and A drives, current user and user 0, and
+; if that fails attempts to execute RUNPCD Pascal interpreter.  You
+; are perfectly free to install whatever CCPXTEND file you prefer.
+; By installing different ones on various drv/user areas you can
+; alter the system characteristics dependent on login area.  If you
+; are using normal CPM2.2 installation of the CPMFIX patch will make
+; files on user area 0 with the SYSTEM attribute visible everywhere,
+; and thus a single CCPXTEND.SYS can serve all areas by default.
+; DOS+ requires no such patch, and implements paths.
+xtndf:	db	0,0,'CCPXTENDSYS';	ccp extension usr/drv/filename
+;
+; Configuration constants for customization. Patchable.
+; These ALWAYS appear in the last 16 bytes of the CCP area.
+cols:	db	dcols;		columns to use for directory
+lcuc:	db	doupsft;	zero to prevent command line upshift
+;				CAPS command modifies at run time.
+maxusr:	db	maxuser;	Limit for parsing. Login max = 15
+whlusr:	db	whluser;	Highest user allowed when @wheel^ = 0
+@wheel:	dw	reboot + 0;	Location of wheel byte. +0 = none.
+;				(reboot always holds 0c3h=jmp)
+;
+; This mask specifies which commands are wheel controlled.
+; bit (lsb)   0     1   2     3     4     5    6     7	 8	9
+; for 	    login, dir, era, type, save, ren, caps, go, kill, trans
+;   AND
+; bit		10   11    12	cause du checks (wheel off) on
+; for	      login  dir  transients (i.e. running .COM files)
+;   AND
+; bit 15 (msb) disables A: search for transients & type command. This
+; is normally disabled for DOS+, since DOS+ provides the search.
+;
+; (The ordering is dependent on the command table)
+; running transients cannot be disabled, bit 9 is ignored
+; Set to enable search for .COM files for CPM use.
+cmdmsk:	dw	0; (use	8000h for DOS+)	Mask for wheel controlled cmds
+;
+; These masks specify drives that may NOT be accessed.  The lsb (of
+; the word, weight 1) specifies  A:, the msb (bit 15, weight 8000h)
+; specifies P:.  DRVMSK can prevent logins causing BDOS SELECT errors
+; by specifying all drives not physically present in the system.
+; WHLMSK is used for security purposes.
+; CAUTION: do not disable drive A on most systems
+drvmsk:	dw	0;		Mask for invalid drives, wheel set
+whlmsk:	dw	0;		Mask for bad drives when @wheel^ = 0
+	db	0,0,0,0;	Spares for future use
+;				(last word is available for ccitcrc)
+;
+; Check for relocator problem
+	if	((both-begin) SHR 8) NE ((cold-begin) SHR 8)
+	 +++ Relocator problems, cold/warm/both pages +++
+	endif;		relocation problem
+;
+	end
+„ü

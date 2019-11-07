@@ -1,0 +1,180 @@
+;       Macro Definitions for CP/M3 BIOS Data Structures.
+
+        ; dtbl  <dph0,dph1,...>         - drive table
+
+        ; dph   translate$table,        - disk parameter header
+        ;       disk$parameter$block,
+        ;       checksum$size,                  (optional)
+        ;       alloc$size                      (optional)
+
+        ; skew  sectors,                - skew table
+        ;       skew$factor,
+        ;       first$sector$number
+
+        ; dpb   physical$sector$size,   - disk parameter block
+        ;       physical$sectors$per$track,
+        ;       number$tracks,
+        ;       block$size,
+        ;       number$dir$entries,
+        ;       track$offset,
+        ;       checksum$vec$size               (optional)
+
+
+;       Drive Table.  Contains 16 one word entries.
+
+dtbl macro ?list
+    local ?n
+?n  set 0
+    irp ?drv,<?list>
+?n  set ?n+1
+        dw      ?drv
+    endm
+
+    if ?n > 16
+.' Too many drives.  Max 16 allowed'
+        exitm
+    endif
+
+    if ?n < 16
+        rept (16-?n)
+        dw      0
+        endm
+    endif
+ endm
+
+dph macro ?trans,?dpb,?csize,?asize
+    local ?csv,?alv
+        dw ?trans               ; translate table address
+        db 0,0,0,0,0,0,0,0,0    ; BDOS Scratch area
+        db 0                    ; media flag
+        dw ?dpb                 ; disk parameter block
+    if not nul ?csize
+        dw ?csv                 ; checksum vector
+    else
+        dw 0FFFEh               ; checksum vector allocated by
+    endif                       ; GENCPM
+    if not nul ?asize
+        dw ?alv                 ; allocation vector
+    else
+        dw 0FFFEh               ; alloc vector allocated by GENCPM
+    endif
+        dw 0fffeh,0fffeh,0fffeh ; dirbcb, dtabcb, hash alloc'd
+                                ; by GENCPM
+        db 0                    ; hash bank
+
+    if not nul ?csize
+?csv    ds      ?csize          ; checksum vector
+    endif
+    if not nul ?asize
+?alv    ds      ?asize          ; allocation vector
+    endif
+
+    endm
+
+dpb macro ?psize,?pspt,?trks,?bls,?ndirs,?off,?ncks
+    local ?spt,?bsh,?blm,?exm,?dsm,?drm,?al0,?al1,?cks,?psh,?psm
+    local ?n
+;; physical sector mask and physical sector shift
+    ?psh        set 0
+    ?n          set ?psize/128
+    ?psm        set ?n-1
+        rept 8
+        ?n      set ?n/2
+            if ?n = 0 
+            exitm
+            endif
+        ?psh    set ?psh + 1
+        endm
+    ?spt        set ?pspt*(?psize/128)
+
+    ?bsh        set 3
+    ?n          set ?bls/1024
+        rept 8
+        ?n      set ?n/2
+            if ?n = 0
+            exitm
+            endif
+        ?bsh    set ?bsh + 1
+        endm
+    ?blm        set ?bls/128-1
+    ?size       set (?trks-?off)*?spt
+    ?dsm        set ?size/(?bls/128)-1
+
+    ?exm        set ?bls/1024
+        if ?dsm > 255
+            if ?bls = 1024
+.'Error, can''t have this size disk with 1k block size'
+            exitm
+            endif
+        ?exm    set ?exm/2
+        endif
+    ?exm        set ?exm-1
+    ?all        set 0
+    ?n          set (?ndirs*32+?bls-1)/?bls
+        rept ?n
+        ?all    set (?all shr 1) or 8000h
+        endm
+    ?al0        set high ?all
+    ?al1        set low ?all
+    ?drm        set ?ndirs-1
+    if not nul ?ncks
+        ?cks    set ?ncks
+    else
+        ?cks    set ?ndirs/4
+    endif
+        dw      ?spt            ; 128 byte records per track
+        db      ?bsh,?blm       ; block shift and mask
+        db      ?exm            ; extent mask
+        dw      ?dsm            ; maximum block number
+        dw      ?drm            ; maximum directory entry number
+        db      ?al0,?al1       ; alloc vector for directory
+        dw      ?cks            ; checksum size
+        dw      ?off            ; offset for system tracks
+        db      ?psh,?psm       ; physical sector size shift
+                                ; and mask
+    endm
+
+;
+gcd macro ?m,?n
+            ;;  greatest common divisor of m,n
+                    ;;  produces value gcdn as result
+                    ;;  (used in sector translate table generation)
+    ?gcdm       set ?m  ;;variable for m
+    ?gcdn       set ?n  ;;variable for n
+    ?gcdr       set 0   ;;variable for r
+        rept 65535
+        ?gcdx   set ?gcdm/?gcdn
+        ?gcdr   set ?gcdm - ?gcdx*?gcdn
+            if ?gcdr = 0
+            exitm
+            endif
+        ?gcdm   set ?gcdn
+        ?gcdn   set ?gcdr
+        endm
+    endm
+
+skew macro ?secs,?skf,?fsc
+;;      generate the translate table
+    ?nxtsec     set 0   ;;next sector to fill
+    ?nxtbas     set 0   ;;moves by one on overflow
+    gcd %?secs,?skf
+    ;;  ?gcdn = gcd(?secs,skew)
+    ?neltst     set ?secs/?gcdn
+    ;;  neltst is number of elements to generate
+    ;;  before we overlap previous elements
+    ?nelts      set ?neltst     ;;counter
+        rept ?secs      ;;once for each sector
+        db      ?nxtsec+?fsc
+        ?nxtsec set ?nxtsec+?skf
+            if ?nxtsec >= ?secs
+            ?nxtsec     set ?nxtsec-?secs
+            endif
+        ?nelts  set ?nelts-1
+            if ?nelts = 0
+            ?nxtbas     set ?nxtbas+1
+            ?nxtsec     set ?nxtbas
+            ?nelts      set ?neltst
+            endif
+        endm
+    endm
+
