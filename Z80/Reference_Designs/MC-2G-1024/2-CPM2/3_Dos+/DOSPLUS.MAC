@@ -1,0 +1,2735 @@
+title	'DOS+ Disk Operating System 2.5'
+;
+ver	equ	5;		3 thru 15 allowable
+;
+; ***************************************************************
+; *								*
+; *  D O S +  Z80 replacement Disk Operating System Version 2.5	*
+; *								*
+; * Copyright (c) 1986 by					*
+; *	 C.B. Falconer, 680 Hartford Tpk.,	(203) 281-1438	*
+; *	 Hamden, Conn. 06517, USA				*
+; *					all rights reserved	*
+; ***************************************************************
+;
+; DOS+ is designed for general usage, and is an improved replacement
+; for CPM 2.2.  DOS+ requires a Z80 cpu.  DOS+ has comprehensive
+; provisions for RCPM security, especially when used with CCP+ (the
+; supplied CCP), and is virtually impregnable with BYERSX.  The system
+; allows extension with user installable RSXs (Resident System Exten-
+; sions), which are used for print spool/unspoolers, the XJOB utility,
+; and others.  These RSX's may be dynamically installed and removed,
+; for optimum memory usage.  DSKDRIVE (the foreign disk driver) and
+; BYERSX (the communications system) must be installed for the target
+; system before use.  See below.
+;
+; Some of the code is quite tricky, in order to pack the features into
+; the available space.  The tricks are usually commented.
+;
+; Revisions:
+; 2.5   (86/12/06) cbf. Prevented permanent lockout of random read
+;	files after a bad seek (can now re-seek, aborted Turbo Pascal).
+;	If the bios supports it (by returning an appropriate value in
+;	HL on console output calls) DCIO output calls (function 6) will
+;	return that value as the current X/Y screen position.  GETINFO
+;	arguments 3, 4 & 5 return List, Punch, and Reader status resp-
+;	ectively (punch/reader only when customization addresses set).
+;	A special vector at offset 01Eh now controls the exit point for
+;	aborts, either from DOS errors, or CTL-C (breaks enabled) from
+;	the console.  If used, the vector resets itself to a warm-boot.
+; 2.4	(86/11/05) cbf. Console buffer read simplified.  No CTL-R,
+;	rub equivalent to bs, CTL-U equivalent to CTL-X. No reg. save
+;	Improved error reports.  Compatibility flag bit.  Setting
+;	break inhibit also prevents ^C break on call 10 (cons. input)
+;	and when exiting from CTL-S output pause.  R/O files are not
+;	stamped for access time.  Extended calls GETINFO and TDEC.
+; 2.3	(86/09/20) cbf. Flags expanded to control time access method.
+;	Time routine may be a pointer to storage.  File timestamps for
+;	creation, update, and access (incompatible with CPM3).  Access
+;	stamping controlled separately, allows for disk wrt-protect.
+;	Set/Get time bdos calls changed for compatibility with CPM3
+;	Initial link at bdos+11, compatible with dos finder routines.
+;	Console input modified to make DCIO compatible with other ops.
+;	SYSTEM files, user 0, are visible to all users (for read).
+;	Removed path restriction to SYSTEM files.  Applies to all read
+;	Paths only apply to FCBs with a default drive specification.
+;	User break on any DOS call available. DCIO enabled separately.
+;	Corrected wrt_rand_zero_fill (40) call. Corrected file system
+;	so SUBMIT/JOB files work.  File alteration now resets the
+;	$ARC bit (T3) for proper operation of archiving utilities.
+;	The CPM3 method (via set file attributes) of recording exact
+;	file length in bytes is available (using F6).  Wild cards
+;	rejected for rename, file size, set attributes.
+;
+; 2.1/2	Based on Mr. Ten-Brugges original P2DOS release, which made
+;	this development practical.  Uses CCP+ for best results.
+;
+; New features of DOS+ (over CPM2.2) are:
+;  - Console status call always checks physical input, so that it is
+;    always possible to abort a program by the sequence CTL-S CTL-C.
+;    (assuming the program is making console calls other than DCIO
+;    and that breaks are enabled in the flag byte).
+;  - DCIO calls (function 6) are now compatible with all other console
+;    calls, so that a mixture of functions can be used.  The abilities
+;    are such that direct bios calls are no longer needed.
+;  - DCIO provides the CPM3 conin_wait call (0fdh), and a "lookahead"
+;    call (0fch) so programs may examine input chars without using
+;    them.  The lookahead call also returns the console column (as
+;    viewed by DOS, not the bios) in the h (and b) registers. This may
+;    not be accurate if tabs or cursor positioning sequences etc. have
+;    been used.  If no char is ready lookahead returns 0 (which, if
+;    the status call (0feh) has returned true, is really a ready nul).
+;    The output call (any value less than 0fch in e) returns any value
+;    returned in hl by the bios.  If implemented in the bios, this
+;    should describe the current row (in h) and column (in l) of the
+;    cursor, with an offset of 020h added. Applications can now intel-
+;    ligently control the cursor for windowing, status lines, etc.
+;  - User break on "brkchr" (except DCIO calls, enabled separately).
+;    This can abort a runaway program, provided it makes DOS calls.
+;  - Error routines are more informative, including DOS call number.
+;      DOS+ ERROR ON D: disk I/O
+;			bad drive
+;			file R/O
+;			R/O
+;      Fn=XXX (FILE =FILENAME.TYP)
+;    The option 'FILE =FILENAME.TYP' is displayed only when the DOS
+;    function uses a filename. After all errors a warm boot is done,
+;    except bad sectors, which allow retry/ignore/abort options.
+;    Provisions exist (separate documentation) for applications to
+;    intercept errors, and to detect where the DOS+ call would have
+;    returned if successful.
+;  - Search path is implemented to find files on other drives. The
+;    files must be specified by their exact name.  This takes effect
+;    only after the file is not found on the current default drv/usr,
+;    thus there is no point to a $$ entry in the path string.  If the
+;    FCB specifies a drive no path is searched.
+;  - Any file stored on USER 0 with the $SYS attribute set, is visible
+;    to all other users for read (but not write or erase).  Such files
+;    can be erased from user 0, but not written into.
+;  - Automatic date and time stamp is implemented. The creation date
+;    is set when the function MAKE is executed.  The update date and
+;    time is set as the file is closed (when modified).  The access
+;    date and time is is set whenever the file is opened, UNLESS the
+;    file is marked R/O or the TACESS flags bit is reset.  To enable
+;    this feature you need to have a real time clock and the correct
+;    DOS+ driver (or reserved memory area).  You must also initialize
+;    directories for time stamps (every 4th entry = 021h,0,0....0),
+;    i.e 3,7.. (0 based).  INITDIR utility performs this operation.
+;  - File R/O error message occurs if one of the following file types
+;    is active and a write is attempted:
+;	File R/O    (T1)	(also prevents erase)
+;	System file (T2)	(erasable from base user)
+;  - Disk sizes up to   65536 * 16K = 1 048 576 K BYTE =  1 G BYTE.
+;  - File sizes up to 32 * 64 * 16K = 	  32 768K BYTE = 32 M BYTE.
+;  - CPM3 function GET TIME (105) is implemented to get the correct
+;    date and time.  Entry DE is address to put time. The date and
+;    time record has the following layout:
+;	date:	ds	2;	date = 1	(Sun 1978-Jan-01)
+;				date = 65535	(Sun 2157-Jun-05)
+;	hour:	ds	1;	hour in BCD
+;	min:	ds	1;	minute in BCD
+;    Functions only if suitable bios function call is installed.
+;  - CPM3 function SET TIME (104) is implemented to set the correct
+;    date and time.  Entry DE is address new time. The date and time
+;    layout is as above.  System seconds field is zeroed.  Functions
+;    only if suitable bios function call is installed.
+;  - BDOS function GETINFO (210) returns system info, on (e) value
+;		e = 0	Returns pointer to Serial # area (BDOS base)
+;		e = 1	Returns current setting of DMA
+;		e = 2	Returns 0, Flushes any pending console input
+;		e = 3	Returns list device status (ready/not ready)
+;		e = 4	Returns punch 	"	"	"
+;		e = 5	Returns reader	"	"	"
+;		e = other	Reserved for future. Returns 0.
+;    (operands 4 and 5 function only if suitable connector addresses
+;    have been installed at offsets 01ah and 01ch respectively. Else
+;    these functions return 0, i.e. device not ready)
+;  - BDOS function TDEC (211) writes de as unsigned decimal to the
+;    console, with leading zero suppression.
+;  - Offset 01eh can be set to a trap address after any abort.
+;
+; Possible DOS+ Incompatibilities with CPM 2.2
+;  - The IX and IY registers are used, and restored to user values
+;    on function exit.  Bios calls from DOS+ are protected.  DOS+
+;    does not use the alternate register set.  Interrupt systems
+;    that modify and do not restore IX & IY will cause failure.
+;  - SYS (T2) attribute automatically marks files non-writable.
+;  - The CTL-S pause mechanism always works.  Programs that depend
+;    on 2 char input buffering (DOS buffer and hardware) may fail.
+;  - Console output chars 0fch and 0fdh are now input on function 6.
+;    Compatibility mode inhibits this feature.
+;  - Buffered console input (function 10) treats DEL/RUBOUT as BS,
+;    and does not implement the ^R repeat line operation.  Will not
+;    end a line when full, refuses chars until <cr> entered.  Marks
+;    line end with a 0 byte.  Thus max length 1 less than original.
+;  - Version returned is 2x, where x is DOS+ revision (4 up). Values
+;    in hex. This allows discrimination against CPM2.2, and avoids
+;    confusion with CPM3.  The compatibility bit forces 2.2 value.
+;    Note that call #210 with e = 0 will always return a non-zero
+;    value, so that DOS+ can be detected in compatibility mode.
+;  - Files written with more than 65536 records will not be legible
+;    to CPM2.2 systems (but will be to CPM3 systems).
+;  - Time stamp directory entries may appear as peculiar file names
+;    on user 33 to some utilities.  CPM2 and 3 will not access them.
+;  - The date/time file stamp format is INCOMPATIBLE with CPM3.
+;    dates will be garbage data if read there (and vice-versa).
+;    This is caused by maintenance of 3 (not 2) dates with DOS+
+; NOTE: The following do not agree with CPM2.2, but DO agree with
+;    Digital Researchs CPM 2.2 documentation
+;  - Console status call returns 0ffh for ready, rather than 01
+;  - SYS files on user area 0 are visible to all users
+;
+; Added features can be enabled/disabled by the following data:
+;  - Enable PATH by putting address of PATH in offset 14H. If this
+;    value is 0 no path is used. Suggested value 046H.
+;    NOTE power-on cold-boot should clear the PATH string (0 at Path^)
+;  - Enable DOS+ time and date stamping with a suitable (non-zero)
+;    data address at offset 16H. Suggested value 040h (5 bytes used).
+;  - Enable other features with the flag byte at offset 18h:
+;    MSB 76543210 LSB
+;        ^^^^^  ^----	1 = Echo console to list.  ^P complements
+;	 |||||		    (this locn allows applications to control)
+;	 ||||^-------   1 = compatibility bit.  Causes verno call to
+;	 ||||		    return 2.2. Disables fc/fd operand on DCIO
+;	 |||^--------   1 = do file access time stamp (timeat <> 0)
+;	 |||		    (disable caters to wrt-protected disks)
+;	 ||^---------   1 = enable break on DCIO (if following bit)
+;	 |^----------   1 = enable user break, 0 = disable (see 19h)
+;	 |		    When disabled ^C will not abort either.
+;        ^-----------	0 = time address is location of time array
+;			1 = time address is location of routine
+;			 (when non-0 address in offset 16h only)
+;	(value x10x1000b for maximum CPM2 compatibility)
+;  - If user breaks enabled, the char at offset 19h will break.
+;  - CCP+ can access wheel byte, suggested location 045h. This allows
+;    path/wheel to be initialized by "lxi h,0ffh; shld 45" in bios.
+;
+;		-------------
+;
+; NOTE - All features can be controlled in the file DOS.LIB
+;
+; Change with assembler.  Allows for SLRMAC or M80.  The M80 include
+; statement must be changed to MACLIB for RMAC, with other changes.
+; This allows for the widest range of assemblers, even ASM with manual
+; macro expansion by editing.
+;
+; Following must be upper case for M80.
+; SLRMAC can use "maclib z80" and/or dispense with Z80.LIB file
+INCLUDE Z80.LIB
+;
+; SLRMAC v1.0 bug fix - mvix/mviy operands interchanged
+mvix	macro	disp,value
+	db	0ddh,036h,disp,value
+	endm
+;
+true	equ	-1
+false	equ	not true
+empty	equ	0e5h;		mark for vacant directory entries
+tmstamp	equ	021h;		mark for time-stamp directory entries
+;
+; Following must be upper case for M80.
+; Specifies base/path/ramlow/timesystem/debug
+INCLUDE DOS.LIB
+;
+; Ascii control char. definitions
+etx	equ	03h;		key to generate warm boot
+enq	equ	05h;		break line
+bel	equ	07h;		bell
+bs	equ	08h;		backspace
+tab	equ	09h;		tab
+lf	equ	0ah;		line feed
+cr	equ	0dh;		carriage return
+dle	equ	10h;		set/reset print flag
+dc3	equ	13h;		pause console output
+nak	equ	15h;		delete line
+can	equ	18h;		delete line (backspaces)
+rubout	equ	7fh;		delete last char
+;
+; FCB description. Like CPM3, we reserve bits f7 and f8 for internal
+; use.  Caller should initialize to off, and never alter them.
+f.usr	equ	0;		usage in directory. 5 bits
+f.drv	equ	f.usr;		alternate use for field in FCB
+f.name	equ	1;		8 char field
+f.ifc6	equ	6;		hi bit, sfattr interface control
+f.type	equ	9;		3 char field
+f.ro	equ	f.type;		hi bit
+f.sys	equ	10;		"
+f.arc	equ	11;		"
+f.exlo	equ	12;		5 low bits
+f.s1	equ	13
+f.exhi	equ	14;		6 low bits
+f.clean	equ	f.exhi;		hi bit
+f.rc	equ	15;		Records in last FCB extent
+f.dm	equ	16;		16 bytes/8 words
+f.next	equ	32;		next recd, FCB only
+f.rrno	equ	33;		3 bytes, FCB only
+;
+; Flag byte bit definitions
+fb.tcal	equ	80h;		Timer is routine, not data area
+fb.ubrk	equ	40h;		Implement console break
+fb.bcio	equ	20h;			also on DCIO calls
+fb.tacc	equ	10h;		Do file access time stamps
+fb.comp	equ	08h;		Compatibility bit
+fb.lflg	equ	01h;		Echo console output to lister
+;
+; bit settings via DOS.LIB
+tcal	equ	tfunct AND fb.tcal
+ubrk	equ	usrbrk AND fb.ubrk
+bcio	equ	dciobk AND fb.bcio
+tacc	equ	acctim AND fb.tacc
+;
+; A standard CPM 2.2 Bios arrangement
+; This linkage allows debugging using pre-existing bios.
+;extrn	boot;	 0 boot			none		none
+extrn	wboot;	 1 wboot		 "		 "
+extrn	const;	 2 console status	 "		A=0FFH  ready
+;							 =0 not ready
+extrn	conin;	 3 console input 	 "		A=console char
+extrn	conout;	 4 console output	C=console char	option xy posn
+extrn	list;	 5 list output		C=list char	 "
+extrn	punch;	 6 punch output		C=punch char	 "
+extrn	reader;	 7 reader input		none		A=reader char
+;extrn	home;	 8 home disk		 "		option sysadr.
+extrn	seldsk;	 9 select disk		C=drv # (0..15)	HL=^Disk table
+extrn	settrk;	10 select track		BC=track #	none
+extrn	setsec;	11 select sector	BC=sector #	 "
+extrn	setdma;	12 set DMA address	BC=DMA address	 "
+extrn	read;	13 read 128 bytes	none		A = 0 no error
+;							A <> 0 error
+extrn	write;	14 write 128 bytes;	C=0 write data	A = 0 no error
+;					C=1 wrt dir.	A <> 0 error
+;					C=2 wrt unalloc
+extrn	listst;	15 list status		none		A = 0ffh ready
+;							A = 0 not ready
+extrn	sectrn;	16 sector translate	BC = sect	HL = sector #
+;					DE = ^table
+;					(from select)
+; XX	time	BC =0 get pointer only	HL=pointer to time array
+;		BC <> 0 allows hard-	 HL+0^ date LSB days since
+;		 ware to be updated	 HL+1^ date MSB (1=1978/1/1)
+;		 if a routine call.	 HL+2^ hour (bcd)
+;		 ignored if timead	 HL+3^ minute (bcd)
+;		 is purely an address.	 HL+4^ seconds (bcd)
+;		 BC^ time to set. (no secs) 
+;					CARRY clear, NZ on exit.
+;
+; Start of BDOS module
+serial:	ds	6,0;		Serial number not implemented
+;
+; Linkage for function calls
+start:	jmp	entry;		To location 11, for DOSfinders
+;
+; Error trap vector. Programs can alter error traps here
+stbdsc:	dw	badsec;		Bad sector
+stsel:	dw	selerr;		Select error
+stro:	dw	rdonly;		Drive read only
+sfilro:	dw	filro;		File read only
+;
+; Connector so DOSfinder routines work. The jump at location
+; bdos+6 must be to bdos+11h.  The above error vector must not
+; be moved or programs that trap BDOS errors will fail.
+entry:	jmp	dos
+;
+; -------------------------
+; The following area is patchable.  DOS.LIB sets initial values
+;
+; Location of external path for open file command
+path:	dw	pathat
+;
+; Time address. 0 disables all time operations. Array or routine
+timead:	dw	timeat;		Routine addr. for time/date stamps
+;
+; Flags for specials
+flags:	db	tcal+ubrk+bcio+tacc
+brkch:	db	brkchr;		char. for user breaks
+;	"	"
+; If non-zero, address of bios routines. (a): 0ffh=ready, 0=not ready
+rdrsta:	dw	0;		rdr status routine ptr
+punsta:	dw	0;		pun status routine ptr
+;
+; This specifies control transfer after fatal errors or CTL-C exits
+; when breaks are enabled.  CAUTION: must point to a valid connector.
+; Automatically reset to ramlow if used.
+abtrap:	dw	ramlow;		destination on aborts
+;
+; -------------------------
+;
+; Entry point DOS+ function calls
+dos:	mov	a,c;		function number
+	sta	funct
+	sspd	spsave;		Save user SP
+	lxi	sp,stack;	Switch stacks
+	pushiy
+	pushix;			Save
+	push	d;		Save parameter
+	popix;			 in IX
+	lxi	h,flags
+	mov	a,m
+	ani	fb.ubrk
+	cnz	userbk;		User break enabled, check it
+	xra	a
+	sta	drvflg;		Reset drive select done flag
+	sta	rdwr;		and read/write flag
+	mov	h,a
+	mov	l,a;		lxi h,0
+	shld	fvalue;		Clear exit value (default)
+	mvi	a,maxcmd-1
+	cmp	c
+	jrc	dos1;		above command table, use last entry
+	mov	a,c;		else use specified
+dos1:	lxi	h,ctable
+	call	jinx;		execute
+;	"	"
+; DOS+ exit routine
+	lda	drvflg;		test drive select used flag
+	ora	a
+	cnz	drvfix;		restore entry drive if modified
+	popix
+	popiy
+	lspd	spsave;		restore saved on entry
+	lhld	fvalue;		Get exit code
+	mov	a,l;		Copy exit code to ba
+	mov	b,h
+	ret
+;
+; Jump indexed to (hl + 2 * a).  Max entry a = 127
+; a,f,h,l
+jinx:	add	a;		* 2, words
+	add	l
+	mov	l,a
+	adc	h
+	sub	l
+	mov	h,a;		hl := hl+a
+;	"	"
+; indirect transfer to hl^
+; a,f,h,l
+jind:	mov	a,m
+	inx	h
+	mov	h,m
+	mov	l,a;		hl := (hl)
+xpchl:	pchl;			implements "call hl"
+;
+; Function 210, Get info, e specifies details. 
+; This can perform anything that does not require input parameters.
+getinf:	mov	a,e
+	lxi	h,inftbl
+	cpi	maxinf
+	rnc
+	jr	jinx
+;
+inftbl:	dw	@serial;  0	pointer to serial dos+/serial # area
+	dw	rtndma;	  1	current dma setting
+	dw	cflush;	  2	flush console input buffers
+	dw	lsta;	  3	list device status (ready/not ready)
+	dw	psta;	  4	punch device status	"	"
+	dw	rsta;	  5	reader device status	"	"
+maxinf	equ	($-inftbl) /2
+;
+; Main Command table.  Covers the contiguous opcodes.
+; DOS+ returns values in HL, with BA a copy.  Thus 8 bit values are
+; also returned in A.  Function 0 ignores the pointer at 1, and can
+; be used to force system reloading if bios unaltered.
+ctable:	dw	wboot;		warm boot
+	dw	cin;		console input
+	dw	coute;		console output
+	dw	rin;		reader input
+	dw	pout;		punch output
+	dw	lout;		list output
+	dw	dcio;		direct console I/O
+	dw	giobyt;		get I/O byte
+	dw	siobyt;		set I/O byte
+	dw	mesg;		print string
+	dw	rdbuf;		read console buffer
+	dw	cstat;		get console status
+	dw	cmnd12;		get CPM version. num
+	dw	cmnd13;		reset disk system
+	dw	cmnd14;		select disk
+	dw	cmnd15;		open file
+	dw	cmnd16;		close file
+	dw	cmnd17;		search for first
+	dw	cmnd18;		search for next
+	dw	cmnd19;		delete file
+	dw	cmnd20;		read sequential
+	dw	cmnd21;		write sequential
+	dw	cmnd22;		make file
+	dw	cmnd23;		rename file
+	dw	cmnd24;		Get login vector
+	dw	cmnd25;		Get current disk
+	dw	cmnd26;		Set DMA address
+	dw	cmnd27;		get address allocation vector
+	dw	cmnd28;		write protect disk
+	dw	cmnd29;		Get R/O vector
+	dw	cmnd30;		Set file attributes
+	dw	cmnd31;		Get addr. disk parameter header (DPH)
+	dw	cmnd32;		Get/set user code
+	dw	cmnd33;		Read random
+	dw	cmnd34;		Write random
+	dw	cmnd35;		Compute file size
+	dw	cmnd36;		Set random recordd
+	dw	cmnd37;		reset individual drive(s)
+	dw	other;		last entry, check extensions
+maxcmd	equ	(($-ctable)/2);	Number of valid DOS commands
+;
+; Check function in auxiliary table
+other:	lxi	h,auxtbl
+;	"	"
+; Search table hl^ up for index c.  last (default) entry is 0ffh
+; execute result.
+; a,f,h,l + executed code
+tblchk:	mov	a,m;		get id byte
+	cmp	c
+	inx	h;		point to operand field
+	jrz	jind;		found, hl points to exec adr.
+	inr	a
+	jrz	jind;		last entry, use as default
+	inx	h
+	inx	h;		skip operand
+	jr	tblchk;		go check next
+;
+; Define table entry format
+dt	macro	op,adr
+	db	op
+	dw	adr
+	endm
+;
+; Auxiliary table.  1st entry found fastest. 0ffh terminator
+; This structure allows for unused opcodes.
+auxtbl:	dt	40,   cmnd40;	write random w/zero fill
+	dt	104,  settim;	set time
+	dt	105,  gettim;	get time
+	dt	210,  getinf;	return data, e specifies what
+	dt	211,  cmd211;	write de in decimal, zero suppress
+	dt	0ffh, dummy;	end marker, null operation
+;
+; ***********************
+; *			*
+; * Device I/O routines	*
+; *			*
+; ***********************
+;
+; Read reader. BDOS function 3
+rin:	call	reader
+	jr	exit;		return rdr char. to caller
+;
+; Write punch. BDOS function 4
+pout:	mov	c,e
+	jmp	punch;		Char. to punch device
+;
+; Write list. BDOS function 5
+lout:	mov	c,e
+;	"	"
+; list from console echo mechanism
+listx:	jmp	list;		Char. to list device
+;
+; list status
+lsta:	call	listst
+	jr	exit
+;
+; reader status
+rsta:	lhld	rdrsta
+	jr	biosx
+;
+; punch status
+psta:	lhld	punsta
+;	"	"
+; Execute routine hl^ if hl non zero, else return 0
+biosx:	mov	a,h
+	ora	l
+	cnz	xpchl;		non-zero, call it
+	jr	exit
+;
+; Read Char. from console and echo if in [cr, lf, tab, bs, >= blank]
+; BDOS function 1
+cin:	call	getch;		get it
+	call	tstch
+	cnc	couta;		echo cr, lf, tab, bs, >= blank
+exit:	jmp	rtnbyt
+;
+; Get I/O status byte. BDOS function 7
+giobyt:	lda	ramlow+3
+	jr	exit;		return it to caller
+;
+; Set I/O status byte. BDOS function 8
+siobyt:	mov	a,e
+	sta	ramlow+3;	Save new value in RAM
+	ret
+;
+; Test console status. BDOS function 11
+cstat:	call	qwait;		Get console status, check pause
+	jr	exit;		and return it
+;
+; Direct console input/output. BDOS function 6
+;  input E : 0ffh - get char or 0 if not ready
+;	     0feh - get console status
+;	     0fdh - console input, wait for it (CPM3 usage)
+;            0fch - get buffered char, without flushing
+;		    (so still available for console input)
+;		    (DOS+ also sets b=h=column count)
+; This now co-operates with the 1 char input buffering, and thus can
+; be used intermixed with other console functions.  Output here cannot
+; be paused with CTL-S.  Output via other functions will flush any
+; incoming CTL-S.  This status call (argument = 0feh) will not pause
+; on incoming CTL-S.  Note that a nul input can be detected by calling
+; status (argument 0feh), and if ready then calling input (arg 0ffh)
+; or input-wait (arg 0fdh) or look-ahead (arg 0fch). This allows
+; discrimination between no_char ready and nul ready.  However,
+; console output may not track columns correctly.  Compatibility bit
+; disables arguments 0fch and 0fdh (become output).
+; IF the bios co-operates, console output calls return an indicator
+; of the x/y screen position.  H describes row, L describes column.
+dcio:	mov	c,e;		Possible output char.
+	inr	e
+	jrz	dcio5;		0ffh, do input
+	inr	e
+	jrz	dcio4;		0feh, get status
+	lda	flags
+	ani	fb.comp;	compatibility bit
+	jrnz	dcio3;		inhibits extra operations over 2.2
+	inr	e
+	jrz	dcio6;		0fdh, console input, wait
+	inr	e
+dcio3:	mov	a,c
+	lhld	lastch;		assumes status called before
+	xchg
+	cnz	coraw;		<> 0fch, output char.
+	xchg
+	jmp	rtnwd;		h is column value
+dcio4:	call	csta;		Get console status
+	jr	exit;		and return it to caller
+dcio5:	call	csta;		Get console status
+	rz;			Exit if no char. available
+dcio6:	call	getch;		else get char.
+	jr	exit;		and return it to caller
+;
+; Call #211, write in decimal to console
+cmd211:	xchg
+	jr	tdzs
+;
+; output (a) in decimal to console, leading zero suppress. Recursive
+; a,f,b,c,d,e,h,l
+tadzs:	mov	l,a
+	mvi	h,0
+;	"	"
+; output (hl) in decimal to console, leading zero suppress. Recursive
+; a,f,b,c,d,e,h,l
+tdzs:	lxi	b,0100ah;	c=divisor=10, b=iter cnt=16
+	xra	a;		clear
+tdzs1:	dad	h;		(hl) := (hl)/10; rdr to (a)
+	ral;			shift off into (a)
+	cmp	c;		test
+	jrc	tdzs2;		no bit
+	sub	c;		bit = 1
+	inx	h
+tdzs2:	djnz	tdzs1;		not done
+	push	psw;		save output digit
+	mov	a,h
+	ora	l
+	cnz	tdzs;		not left digit, recursive
+	pop	psw;		last unlisted digit
+	adi	'0'
+;	"	"
+; couta, preserving bcdehl
+co:	push	b
+	push	d
+	push	h
+	call	couta
+	pop	h
+	pop	d
+	pop	b
+	ret
+;
+; cr/lf to console
+; a,f,b,c,d,e,h,l
+crlf:	mvi	a,cr
+	call	cout
+	mvi	a,lf
+	jr	cout
+;
+; Blank to console
+; a,f,b,c,d,e,h,l
+blk:	mvi	a,' '
+;	"	"
+; Console output A, no tab expansion. Preserve A. Check for pause
+; However a tab records appropriate column advance here.
+; Column confusion results if hi bit is set in char. or if
+; cursor movement sequences are used.
+; b,c,d,e,h,l
+cout:	push	psw;		Save non tab
+	call	qwait;		Check for user pause
+	pop	psw;		Get char back
+;	"	"
+; Raw console output, attempting to track output column, and
+; implementing any list echo in effect. Guard against evil bioses.
+; If the bios performs, de returns indicating the current x/y posn.
+; b,c,d,e,h,l
+coraw:	mov	c,a
+	push	psw
+	pushix
+	pushiy
+	push	b
+	call	conout;		output it
+	pop	b;		get char back to ck
+	push	h;		save bios return (x/y posn)
+	lda	flags;		Get printer echo flag
+	rrc;			test fb.lflg
+	cc	listx;		bit set, output char to printer
+	pop	d;		may be x/y posn
+	popiy
+	popix
+	pop	psw;		restore char.
+;	"	"
+; Count chars. in line
+; f,h,l
+countc:	cpi	rubout
+	rz;			non-print, no column update
+	lxi	h,column;	Pointer
+	inr	m;		advance
+	cpi	' '
+	rnc;			printing char, exit
+	dcr	m;		control, cancel column advance
+	cpi	bs
+	jrz	count3;		bs, decrement column
+	cpi	cr
+	rnz;			Not tab char, ignore for count
+	mvi	m,1;		will become 0, for cr
+count3:	inr	m
+	dcr	m
+	rz;			don't reduce past zero
+	dcr	m;		reduce, for bs
+	ret
+;
+; Backup if column > 0.  Called only from delch, thus rdbuf
+; a,f,b,c,d,e,h,l (because bios)
+bakup:	lxi	h,column
+	mov	a,m
+	ora	a
+	rz;			at lh column, absorb
+	call	bakup1;		write backspace (in c)
+	call	blk;		write space
+bakup1:	mvi	a,bs
+	jr	coraw
+;
+; Get char. from console, using look ahead buffer. Wait for it
+; a,f,b,c,d,e,h,l (because bios)
+getch:	lxi	h,bufull
+	mov	a,m;		flag
+	mvi	m,0;		Reset buffer full flag
+	inx	h;		point to lastch at bufull+1
+	ora	a
+	mov	a,m;		buffer contents (lastch)
+	mvi	m,0;		and reset it to nul
+	rnz;			lastch was valid
+;	"	"
+; conin protected against evil bioses
+; a,f,b,c,d,e,h,l (because bios)
+cinx:	lxi	h,conin
+;	"	"
+; Guard against a bios that clobbers ix/iy (e.g. Osborne 1).
+; Call (hl)^, saving and restoring ix and iy
+; a,f,b,c,d,e,h,l (because bios)
+xbios:	pushix
+	pushiy
+	call	xpchl
+	popiy
+	popix
+	ret
+;
+; Get console status to a and z flag, using look ahead buffer.
+; When char. ready lastch buffer is loaded.
+; a,f,b,c,d,e,h,l (because bios)
+csta:	lda	bufull
+	ora	a
+	mvi	a,0ffh
+	rnz;			buffer is non-empty
+	call	cstax;		Physical console status
+	ora	a
+	rz;			nothing read, return 0
+	call	cinx
+	sta	lastch;		get char and save
+	ori	0ffh;		return true
+	sta	bufull;		mark char in buffer
+	ret
+;
+; protected const
+; a,f,b,c,d,e,h,l (because bios)
+cstax:	lxi	h,const
+	jr	xbios
+;
+; Test character
+;  reset carry : cr, lf, tab, bs, OR >= space
+;    set carry : all others
+; f
+tstch:	cpi	cr
+	rz
+	cpi	lf
+	rz
+	cpi	tab
+	rz
+	cpi	bs
+	rz
+	cpi	' ';		test >= space
+	ret
+;
+; Output message.  BDOS function 9
+; a,f,d,e
+mesg:	ldax	d
+	cpi	'$'
+	rz;			End of string
+	inx	d;		point to next char.
+	call	co;		output
+	jr	mesg;		more
+;
+; Delete char.  Called only from rdbuf
+;  Entry : HL = ^ last char in buffer
+;          B  = Char. counter
+;  Exit  : hl decremented, b decremented, z flag on b
+; a,f,b,d,e,h,l
+delch:	mov	a,b
+	ora	a
+	rz;			empty, nothing to do
+	push	b
+	push	h
+	call	bakup
+	pop	h
+	push	h
+	mov	a,m
+	cpi	' '
+	cc	bakup;		control, wipe out 2 pos'ns
+	pop	h
+	pop	b
+	dcx	h
+	dcr	b;		Char counter
+	ret
+;
+; Read buffer IX^.  BDOS function 10		ENTRY below
+rdbuf0:	call	delch;		Delete last char in line
+	jrnz	rdbuf0;		more to remove
+;	"	"
+rdbuf:	pushix;			buffer start addr.	<< ENTRY here
+	pop	h;		to HL
+	mov	c,m;		Max. line length
+	inx	h;		Adv. to actual line lgh position
+	mvi	b,0;		Clear line length counter
+rdbuf1:	push	h
+	push	b
+rdbuf2:	call	getch
+	pop	b
+	pop	h
+	ani	07fh;		Mask char
+	cpi	enq
+	jrnz	rdbuf5;		Not CTL-E
+	push	h;		SAVE
+	push	b
+	call	crlf;	newln;	Move cursor to next line
+	jr	rdbuf2;		and get next char
+
+rdbuf4:	call	delch;		Delete char
+	jr	rdbuf1;		Get next char.
+
+rdbuf5:	cpi	bs
+	jrz	rdbuf4;		backspace
+	cpi	rubout
+	jrz	rdbuf4;		rubout
+	cpi	dle
+	jrnz	rdbuf6;		not CTL-P (print enable/disable)
+	lda	flags;		Complement print flag
+	xri	fb.lflg
+	sta	flags;		flip fb.lflg
+	jr	rdbuf1;		and get next char
+
+rdbuf6:	cpi	nak
+	jrz	rdbuf0;		CTL-U, delete line
+	cpi	can
+	jrz	rdbuf0;		CTL-X, delete line
+	cpi	cr
+	jrz	rdbufx;		cr, exit
+	cpi	lf
+	jrz	rdbufx;		lf, exit
+	inx	h;		incr. pointer
+	mov	m,a;		and save char.
+	inr	b;		incr. line counter
+	mov	a,c
+	cmp	b
+	jrnz	rdbuf8
+	dcx	h;		line end, refuse char
+	dcr	b
+	mvi	a,bel
+	call	co
+	jr	rdbuf1
+
+rdbuf8:	mov	a,m
+	call	outch;		Echo char.
+	cpi	etx
+	mov	a,b;		Get line count
+	jrnz	rdbuf1;		Not CTL-C
+	dcr	a;		If 1st char in line then
+	cz	abtchk;		 abort if breaks enabled
+	jr	rdbuf1;		else just another char.
+
+rdbufx:	inx	h
+	mvi	m,0;		mark line end for user
+	stx	b,+1;		save line counter
+	mvi	e,cr;		force carriage return
+;	"	"
+; Write console. BDOS function 2
+coute:	mov	a,e;		Char
+;	"	"
+; Write char A to console, expand tabs.  Preserves A
+couta:	cpi	tab
+	jnz	cout;		not tab
+couta1:	call	blk;		expand tab to spaces, 1 or more
+	lda	column
+	ani	7
+	jrnz	couta1;		Not done, repeat
+	mvi	a,tab;		return tab
+	ret
+;
+; Output char (Control char displays ^CHAR)
+outch:	call	tstch
+	jnc	co;		cr,lf,tab,bs or >= space
+	push	psw
+	mvi	a,'^'
+	call	co;		write '^'
+	pop	psw
+	push	psw
+	adi	'A'-1;		add offset
+	call	co;		output it
+	pop	psw;		restore chanr.
+	ret
+;
+; *******************************
+; *				*
+; *	 ERROR ROUTINES etc.	*
+; *				*
+; *******************************
+;
+; Check for user pause (CTL-S).  Always uses key depression.
+; Returns current console status in a and z flag
+qwait:	call	cstax;		bios
+	ora	a
+	jrz	qwait1;		No key, check buffer
+	xra	a
+	sta	bufull;		flush buffer on physical input
+qwait1:	call	csta
+	rz;			no input
+	lda	lastch;		what was it
+	cpi	dc3
+	mvi	a,0ffh;		to return status=ready
+	rnz;			not pause
+	call	getch;		flush the DC3
+	call	getch;		and get the next input
+	cpi	etx
+	jrz	abtchk;		reboot on CTL-C
+	xra	a;		set status = not ready
+	ret
+;
+; Check breaks enabled, and abort if so. Else return 0 and z flag
+; a,f
+abtchk:	lda	flags
+	ani	fb.ubrk
+	rz;			breaks disabled
+	jr	abort
+;
+; Check for user break. At entry hl points to flags
+; a,f,h,l
+userbk:	mov	a,m
+	ani	fb.bcio
+	jrnz	ubk1;		enabled for DCIO
+	mov	a,c
+	cpi	6
+	rz;			Not for DCIO call
+ubk1:	push	b
+	push	d
+	call	csta
+	pop	d
+	pop	b
+	rz;			no input, no break
+	lda	lastch;		look ahead
+	lxi	h,brkch
+	cmp	m
+	rnz
+;	"	"
+; Check operator for abort.
+; a,f,h,l
+qabort:	push	d
+	push	b
+	lxi	d,brkmsg
+	call	mesg
+	call	cflush;		purge char and input buffer
+	call	cin;		Get user response
+	push	psw
+	call	crlf
+	pop	psw
+	pop	b
+	pop	d
+	ani	05fh;		upshift any 'y'
+	cpi	'Y'
+	rz;			ignore non Y
+	jr	abort;		abort
+;
+; Bad sector error
+badsec:	lxi	d,mbadsc;	bad sector message
+	xra	a;		not file r/o
+	call	error;		display, flush input stream
+retry:	lxi	d,qretry
+	call	mesg
+	call	cin
+	ani	05fh
+	cpi	'R'
+	rz;			with z flag for "retry"
+	cpi	'A'
+	jrz	abort;		else abort
+	cpi	'I'
+	jrnz	retry
+	ora	a
+	ret;			with n/z flag for ignore
+;
+; Select error
+selerr:	lxi	d,msel;		Select error message
+	jr	abterr;		go display error & abort
+;
+; File read only error
+filro:	lxi	d,mfilro;	File R/O message
+	mvi	a,0ffh;		Set file R/O message flag
+;	"	"
+; Abort error, no option to retry
+abtro:	call	error;		display error
+	call	getch;		get operator response
+;	"	"
+; Errors and user breaks abort through here. 
+; Restore input arguments and stack for any debugger.
+abort:	lda	funct
+	mov	c,a;		restore fnct
+	pushix
+	pop	d;		restore argument
+	lspd	spsave;		callers stack
+	lhld	abtrap;		usually 0, reboot
+	push	h
+	lxi	h,ramlow+0
+	shld	abtrap;		reset for next time
+	ret
+;
+; Drive read only error
+rdonly:	lxi	d,mro;		Drive R/O messaage
+;	"	"
+abterr:	xra	a;		not file r/o
+	jr	abtro
+;
+qretry:	db	cr,lf,'A)bort I)gnore R)etry?$'
+brkmsg:	db	cr,lf,'Resume (y/N)?$'
+;
+; Display Error Message
+;	DOS+ error on D: ERROR MESSAGE
+;	FUNCTION = NN  [FILE = FILENAME.TYP]
+error:	mov	c,a;		Save file R/O message flag
+	push	b
+	push	d;		Save error message pointer
+	lda	defdrv;		get current drive
+	adi	'A';		make Ascii
+	sta	mdrive;		modify message
+	lxi	d,mberr;	"DOS+ ERROR ON D:"
+	call	mesg;		display message
+	pop	d;		Get error message pointer
+	call	mesg;		display it
+	lxi	d,mbfunc;	"FUNCTION ="
+	call	mesg;		display it
+	lda	funct;		Get function number
+	push	psw
+	call	tadzs;		display number
+	pop	psw;		restore function number
+	pop	b;		Get file R/O flag
+	cpi	15;		Test FCB used in command
+	jrc	cflush;		no
+	cpi	24
+	jrc	error1;		yes
+	cpi	30
+	jrz	error1;		yes
+	cpi	33
+	jrc	cflush;		no
+	cpi	37
+	jrc	error1;		yes
+	cpi	40
+	jrnz	cflush;		no
+error1:	pushix;			yes, display "FILE ="
+	sui	19
+	jrnz	error2;		Not delete file function
+	ora	c
+	jrz	error2;		not file r/o error
+	call	caldir;		Get FCB from directory buffer
+	xthl;			save it
+error2:	lxi	d,mfile;	" FILE ="
+	call	mesg;		Display it
+	pop	h;		^FCB
+	mvi	b,8;		1st 8 chars.
+	call	filenm
+	mvi	a,'.'
+	call	co;		write '.'
+	mvi	b,3;		last 3 chars
+	call	filenm
+;	"	"
+; Flush any incoming console chars
+; a,f,b,c,d,e,h,l (because bios)
+cflush:	call	csta
+	rz;			nothing ready
+	call	getch;		purge it
+	jr	cflush
+;
+; Display hl^ for (b) chars, suppress blanks
+filenm:	inx	h;		adv pointer
+	mov	a,m
+	ani	07fh;		remove any attributes
+	cpi	' '
+	cnz	co;		write
+	djnz	filenm;		more
+	ret
+;
+; *******************************
+; *				*
+; *	  DISK FUNCTIONS	*
+; *				*
+; *******************************
+;
+; Return Version Number
+cmnd12:	lda	flags
+	ani	fb.comp
+	mvi	a,22h
+	jrnz	rtnbyt;		return 2.2 in compatibility mode
+	mvi	a,020h+ver;	act like 2.2 compatible, not 3.0
+	jr	rtnbyt;		exit
+;
+; Reset disk system
+cmnd13:	lxi	d,ramlow+080h;	Set default DMA address
+	call	cmnd26;		SETDMA, so bios agrees
+	xra	a;		Default drive 'A'
+	sta	defdrv
+	mov	l,a
+	mov	h,a;	lxi h,0
+	shld	login;		All drives logged out
+	shld	dskro;		 "	"  read/write
+	call	seldk;		Select drive 'A'
+	lda	subflg;		return submit flag
+	jr	rtnbyt;		exit
+;
+; Search for file
+cmnd17:	call	seldrv;		from FCB
+	ldx	a,f.drv
+	sui	'?'
+	jrz	cmd17b;		'?' in drv field, all entries match
+	ldx	a,f.exhi;	Get system byte
+	cpi	'?'
+	jrz	cmd17a;		is '?'
+	mvix	f.exhi,0;	Else set it to zero
+cmd17a:	mvi	a,14;		Test 1st 15 bytes in FCB
+cmd17b:	inr	a;		allow for the zero from above
+	call	search;		do the search.  (leaves result code)
+;	"	"
+cpydir:	lhld	@dirbuf;	Copy directory buffer
+	lded	dma;		To dma addr.
+	lxi	b,128;		for 128 bytes
+	ldir
+	ret
+;
+; Seach for next occurence of file
+cmnd18:	lixd	dcopy;		last FCB used by search
+	call	seldrv;		from FCB
+	call	searcn;		Search next file match
+	jr	cpydir;		and copy directory to DMA addr.
+;
+; Delete file
+cmnd19:	call	seldrv;		from FCB
+	call	delete
+;	"	"
+; Return search result (found/not found)
+srchcd:	lda	searex;		Get exit byte 00=file found, 0FFH not
+	jr	rtnbyt;		and exit
+;
+; Rename file
+cmnd23:	call	seldrv;		From FCB
+	call	renam
+	jr	srchcd;		and exit with code
+;
+; Call 212 getinfo, subcall 0.
+; Return pointer to serial # area of executing system.
+; (offsets from here can access configuration tables)
+; In compatibility mode this non-zero value indicates DOS+
+@serial:
+	lxi	h,serial
+	jr	rtnwd
+;
+; Return login vector
+cmnd24:	lhld	login
+;	"	"
+; Return word value HL
+rtnwd:	shld	fvalue
+;	"	"
+dummy:	ret;			label for null operations
+;
+; Return current drive
+cmnd25:	lda	defdrv;		Get current drive
+;	"	"
+; Return byte value A
+rtnbyt:	sta	fvalue
+	ret
+;
+; Return pointer to ALV vector
+cmnd27:	lhld	@alv
+	jr	rtnwd;		and exit
+;
+; Return disk R/O vector
+cmnd29:	lhld	dskro
+	jr	rtnwd;		and exit
+;
+; Change status of file (attributes)
+cmnd30:	call	seldrv;		from FCB
+	call	sfattr;		Change status
+	jr	srchcd;		and exit
+;
+; Return pointer to drive table
+cmnd31:	lhld	@ixp
+	jr	rtnwd;		and exit
+;
+; Set/get user code. Return current user code
+cmnd32:	mov	a,e;		argument
+	inr	e
+	jrz	cmd32a;		get only, arg 0ffh
+	ani	01fh;		mask
+	sta	user
+cmd32a:	lda	user
+	jr	rtnbyt
+;
+; Compute file size
+cmnd35:	call	seldrv;		from FCB
+;	"	"
+; Compute file size
+filsz:	lxi	b,0;		Reset file size length
+	mov	d,c
+	call	ldrrc;		in FCB+33,34,35
+	call	nowild;		initial search, check wild cards
+	rnz;			wild card, illegal, error set
+	call	tstfct
+	rz;			Not found, exit with search result
+filsz2:	call	caldir;		Get directory entry to hl & iy
+	xchg;			copy to de
+	lxi	h,f.rc;		Offset to next record
+	call	calrrc;		Calculate random record count
+	mov	a,d;		Test LSB < (IX+33)
+	subx	f.rrno
+	mov	a,c;		Test ISB < (IX+34)
+	sbcx	f.rrno+1
+	mov	a,b;		Test MSB < (IX+35)
+	sbcx	f.rrno+2
+	cnc	ldrrc;		Write new maximum
+	call	searcn;		next file
+	call	tstfct
+	jrnz	filsz2;		and test it
+	jr	rtnbyt;		set 0, file found
+;
+; Set random record count
+cmnd36:	lxi	h,f.next;	pointer to next record
+	call	calrrc;		calculate
+;	"	"
+; Store bcd (3 bytes) in FCB IX^ random rcd field
+ldrrc:	stx	d,f.rrno
+	stx	c,f.rrno+1
+	stx	b,f.rrno+2
+	ret
+;
+; Calculate random record from f.rc or f.next (on entry hl)
+;  Entry HL = offset in FCB;  DE = FCB pointer
+;  Exit	 B,C,D = <MSB> random record <LSB>
+calrrc:	dad	d;		Point to FCB+15 or FCB+32
+	mov	a,m
+	lxi	h,f.exlo;	Offset to extent number
+	dad	d
+	mov	d,a;		Save record # to use
+	mov	a,m;		extent byte
+	ani	01fh;		Mask it
+	ralr	d;		Shift MSB in carry
+	aci	0;		add carry
+	rar;			Shift 1 time (16 bits)
+	rarr	d
+	mov	c,a;		save ISB
+	inx	h;		exhi, FCB+14
+	inx	h
+	mov	a,m;		Get exhi
+	rrc;			Shift 4 times
+	rrc
+	rrc
+	rrc
+	push	psw;		Save
+	ani	03h;		Mask MSB
+	mov	b,a;		Save
+	pop	psw;		Get LSB
+	ani	0f0h;		Mask
+	add	c;		Add with ISB
+	mov	c,a;		Save ISB
+	rnc;			No carry, return
+	inr	b;		Incr. MSB
+	ret
+;
+; Reset specified drives.  No files should be open
+cmnd37:	mov	a,e
+	cma;			Complement input vector
+	mov	e,a
+	mov	a,d
+	cma
+	mov	d,a
+	lhld	login
+	mov	a,e;		mask login vector
+	ana	l
+	mov	l,a
+	mov	a,d
+	ana	h
+	mov	h,a
+	shld	login;		Save resultant login vector
+	xchg;			use result as mask
+	lhld	dskro;		for drive R/O vector
+	mov	a,e
+	ana	l
+	mov	l,a
+	mov	a,d
+	ana	h
+	mov	h,a
+	shld	dskro;		Save resultant drive R/O vector
+	ret
+;
+; *******************************
+; *				*
+; *  Subroutines and functions	*
+; *				*
+; *******************************
+;
+; Select disk from FCB. Save 0th byte in FCB0 and set to current user.
+seldrv:	mvi	a,0ffh;		Set disk select done flag
+	sta	drvflg	
+	lda	defdrv
+	sta	drive;		Save current drive
+	mov	e,a;		and to (e)
+	ldx	a,f.drv;	Get drive from FCB
+	sta	fcb0;		save
+	cpi	'?'
+	jrz	cmnd14;		'?', select drive from (e)
+	ani	01fh;		mask drive
+	mov	a,e
+	jrz	seldr0;		0=default, select drive from (e)
+	ldx	a,f.drv;	else get drive from FCB
+	dcr	a;		normalize to 0..maxdrv
+seldr0:	call	seldk
+	lda	user;		set current user in 1st FCB byte
+	stx	a,f.usr;	(for directory searches)
+	ret
+;
+; select error occured
+slkter:	lhld	stsel;		error message address
+	pchl;			go display error
+;
+; restore entry drive. Used only on exit
+drvfix:	lda	fcb0;		Get FCB byte 0
+	stx	a,f.drv;	restore it in FCB
+	lda	drive;		Get old drive number
+	mov	e,a
+;	"	"
+; Select disk e
+cmnd14:	mov	a,e;		drive number
+;	"	"
+; select disk a
+seldk:	ani	0fh;		mask
+	mov	b,a;		to b
+	lded	login
+	ora	a
+	jrz	seldk1;		Drive 'A'
+seldk0:	rarr	d;		Rotate login vector
+	rarr	e;		until bit 0 of (e)
+	djnz	seldk0;		represents current drive
+seldk1:	lxi	h,defdrv
+	bit	0,e
+	jrz	seldk2;		Not logged in
+	cmp	m
+	rz;			Already selected, no effort needed
+seldk2:	mov	m,a;		save new current drive
+	push	d;		save logged in flag (e)
+	mov	c,a;		copy drive number
+	lxi	h,seldsk;	bios select, e bit 0 specifies reset
+	call	xbios;		bad bios guard
+	mov	a,h
+	ora	l
+	jrz	slkter;		Error, illegal drive
+	mov	e,m;		Get translation vector
+	inx	h
+	mov	d,m
+	inx	h
+	sded	@trans;		and save
+	shld	@filect;	save addr. temp0
+	lxi	d,6
+	dad	d;		ignore temp1, temp2
+	lxi	d,@dirbuf;	point to dirbuf
+	lxi	b,8;		copy 8 bytes
+	ldir
+	lhld	@ixp;		Get drive parameter addr.
+	mvi	c,15;		copy 15 bytes
+	ldir
+	pop	d;		restore drive logged in flag
+	bit	0,e
+	rnz;			drive was logged in, return
+	lhld	login
+	call	sdrvb;		Set drive bit in login vector
+	shld	login
+;	"	"
+; Init drive. Set up ALV bit buffer for blocks assigned. SUBFLG
+; indicates if drive holds any '$*.*' file on user 0.
+initdr:	lded	maxblk;		Get length ALV buffer-1 (bits)
+	mvi	a,3;		/ 8
+initd0:	srlr	d;		to get bytes
+	rarr	e
+	dcr	a
+	jrnz	initd0
+	inx	d;		+1, so all bits are cleared
+	lhld	@alv;		point to ALV buffer
+	push	h
+initd1:	mvi	m,0;		clear 8 bits
+	inx	h
+	dcx	d
+	mov	a,d
+	ora	e
+	jrnz	initd1;		more
+	pop	h;		restore ALV pointer
+	lded	ndir0;		Get 1st 2 bytes ALV buffer (directory)
+	mov	m,e
+	inx	h
+	mov	m,d;		save
+	lhld	@filect;	Clear number of files on this drive
+	xra	a
+	mov	m,a
+	inx	h
+	mov	m,a
+	sta	subflg;		Clear submit flag (Reset disk command)
+	call	setfct;		Set file count
+initd2:	mvi	a,0ffh;		update directory checksum
+	call	rddir;		read FCB'S from directory
+	call	tstfct
+	rz;			last FCB, exit
+	call	caldir;		Point to entry point FCB, get 0th byte
+	cpi	empty
+	jrz	initd2;		Empty dir entry, get next FCB
+	cpi	tmstamp
+	jrz	initd2;		Time stamp entry, get next FCB
+	ora	a
+	jrnz	initd3;		Not on user 0
+	inx	h;		point to filename
+	mov	a,m
+	sui	'$'
+	jrnz	initd3;		1st filename char <> '$'
+	dcr	a;		i.e. 0ffh
+	sta	subflg;		to SUBFLG, may be a submit file active
+initd3:	call	allocb;		Set bits from FCB in ALV buffer
+	call	setlf;		update last file count
+	jr	initd2;		and get next FCB
+;
+; Set drive bit in HL for defdrv
+; a,f,d,e,h,l
+sdrvb:	xchg;			de := hl
+	lxi	h,1
+	lda	defdrv;		Get current drive
+	ora	a
+	jrz	sdrvb1;		Drive 'A', hl is set
+sdrvb0:	dad	h;		left shift bit
+	dcr	a
+	jrnz	sdrvb0;		not positioned yet
+sdrvb1:	mov	a,d;		hl := hl OR de
+	ora	h
+	mov	h,a
+	mov	a,e
+	ora	l
+	mov	l,a
+	ret
+;
+; Calculate and set sector/track for directory entry # filcnt
+; a,f,b,c,d,e,h,l
+stdir:	lhld	filcnt;		Directory FCB counter
+	srlr	h;		 /  4
+	rarr	l;		(4 FCB'S / sector)
+	srlr	h
+	rarr	l
+	shld	recdir;		Save (used by checksum)
+	xchg;			de := hl
+	lxi	h,0;		hl := 0
+;	"	"
+; Calculate sector/track
+;  Entry : HL, DE = sector number (128 byte sector)
+;  Result set track  = HL,DE  /  maxsec
+;         set sector = HL,DE MOD maxsec
+; a,f,b,c,d,e,h,l
+calst:	lbcd	maxsec;		sectors/track
+	mvi	a,17;		init loop counter
+calst1:	ora	a;		divide by maxsec.
+	dsbc	b
+	jrnc	calst2;		hl >= bc
+	dad	b;		hl < bc, restore hl, set carry
+calst2:	cmc
+	ralr	e;		shift left result in DE
+	ralr	d
+	dcr	a
+	jrz	calst3;		divide done
+;	dadc	hl;		shift next bit (left) in hl
+	db	0EDh
+	db	6Ah
+	jr	calst1;		continue
+
+calst3:	push	h;		Save sector num.
+	lhld	nftrk
+	dad	d;		add 1st track offset
+	mov	b,h;		to BC for bios
+	mov	c,l
+	lxi	h,settrk
+	call	xbios;		bad bios guard
+	pop	b;		sector number
+	lded	@trans;		Get translation table addr.
+	lxi	h,sectrn
+	call	xbios;		bad bios guard
+	mov	b,h;		result to BC
+	mov	c,l
+	lxi	h,setsec
+	jmp	xbios;		bad bios guard
+;
+; Get disk map block number for FCB f.next entry
+;  Exit: HL = Address of FCB DM entry
+;        DE = DM entry
+;        BC = offset in DM
+; a,f,b,c,d,e,h,l
+getdm:	ldx	c,f.next;	c := next record
+	lda	nblock;		a := number of blocks
+	mov	b,a;		to b
+getdm1:	srlr	c;		shift next_record
+	djnz	getdm1;		number_of_blocks times
+	cma
+	adi	1+8
+	mov	b,a;		B := 8-number of blocks
+	lda	nextnd;		Get extent mask
+	andx	f.exlo;		mask with extent
+	rrc
+getdm2:	rlc
+	djnz	getdm2;		8-number of blocks times
+	add	c;		Add  the 2 values to get entry FCB
+;	"	"
+; Get block no. for diskmap entry (a) of FCB ix^ (b=0 on entry)
+; a,f,c,d,e,h,l
+getbk:	pushix;			FCB addr.
+	pop	h
+	mvi	c,f.dm;		Offset 16 to point to DM
+	dad	b
+	mov	c,a;		add entry FCB
+	dad	b
+	lda	maxblk+1
+	ora	a;		Test 8/16 bits FCB entry
+	mov	e,m;		Get 8 bit value
+	mov	d,a;		zero if 8 bits / entry
+	rz;			8 bits per entry only
+	dad	b;		add twice (16 bit values)
+	mov	e,m;		load 16 bit value
+	inx	h
+	mov	d,m
+	dcx	h;		restore pointer
+	ret
+;
+; Calculate dirbuf entry point.  Set hl and iy pointers
+; Return a := directory entry user code (0th byte)
+; a,f,h,l,iy
+caldir:	lhld	@dirbuf;	hl := dirbuf + secpnt
+	lda	secpnt
+	add	l
+	mov	l,a
+	adc	h
+	sub	l
+	mov	h,a
+	push	h;		Set iy pointer
+	popiy
+	mov	a,m
+	ret
+;
+; Init file count
+; h,l
+setfct:	lxi	h,-1
+	shld	filcnt
+	ret
+;
+; Test file count = -1, z flag if so
+; a,f,h,l
+tstfct:	lhld	filcnt
+	mov	a,h
+	ana	l
+	inr	a;		z if -1
+	ret
+;
+; Set last file
+; a,f,d,e,h,l
+setlf:	call	tstlf;		Test last file
+	rc;			No, exit
+	inx	d;		incr. last file
+	jr	sdem;		Save it in filect
+;
+; Test last file
+; a,f,d,e,h,l
+tstlf:	lhld	@filect;	get pointer to last file
+	lded	filcnt;		get file counter
+	mov	a,e;		DE-(HL)
+	sub	m
+	inx	h
+	mov	a,d
+	sbb	m
+	ret
+;
+; Get next FCB from drive
+; Entry : A=0 Check checksum, A=0FFH update checksum
+; a,f,b,c,d,e,h,l
+rddir:	mov	c,a;		Save checksum flag
+	lhld	filcnt
+	inx	h;		advance file counter
+	shld	filcnt
+	lded	nfiles;		get max number of files
+	ora	a;		clear cy
+	dsbc	d
+	dad	d;		leaves dsbc flags, restore hl
+	jrz	rddir1;		Not last file
+	jrnc	setfct;		last file, set file count 0FFFFH
+rddir1:	mov	a,l;		Get file count LSB
+	rrc;			*32, around the bend
+	rrc
+	rrc
+	ani	060h;		Mask
+	sta	secpnt;		Save for later use
+	rnz;			Not first FCB sector
+	push	b;		save checksum flag
+	call	stdir;		calculate sector/track directory
+	call	dmadir;		Set DMA for directory
+	call	rdrcd;		Read dir. record from drive
+	call	stdma;		Set DMA for user
+	pop	b;		checksum flag
+;	"	"
+; Update/Check directory checksum
+; Entry : C=0 Check checksum, C=0FFH update checksum
+; a,f,b,c,d,e,h,l
+chkdir:	lhld	ncheck;		number of checked records
+	lded	recdir;		get current record
+	ora	a
+	dsbc	d;		test current record
+	rz
+	rc;			>= ncheck, exit
+	lhld	@dirbuf
+	mvi	b,128;		Set up counter
+	xra	a;		Clear checksum
+chkdr0:	add	m;		Add checksum
+	inx	h
+	djnz	chkdr0;		128 times
+	lhld	@csv;		pointer to directory checksum
+	dad	d;		add current record
+	inr	c;		test checksum flag
+	jrnz	chkdr2;		0, setup checksum
+	mov	m,a;		0ffh, update checksum
+chkdr2:	cmp	m;		test checksum
+	rz;			ok or setting, exit
+;	"	"
+; Set write protect disk command
+cmnd28:	lhld	dskro;		get disk R/O vector
+	call	sdrvb;		include drive bit
+	shld	dskro
+	lded	nfiles;		Get max number of files - 1
+	inx	d
+	lhld	@filect;	point to disk parameter block
+;	"	"		and set max number of files
+; Store de in hl^
+; h,l
+sdem:	mov	m,e
+	inx	h
+	mov	m,d
+	ret
+;
+; Read sector from drive
+; a,f,b,c,d,e,h,l
+rdrcd:	lxi	h,read
+	call	xbios;		guard against bad bios
+	ora	a
+	rz
+	call	rwerr
+	jrz	rdrcd;		retry if error handler returns z
+	ret;			ignore if error handler returns nz
+;
+; Write sector to drive
+; a,f,b,c,d,e,h,l
+wrtrcd:	lxi	h,write
+	call	xbios;		guard against bad bios
+	ora	a
+	rz;			no error
+	call	rwerr
+	mvi	c,1;		retries must put to disk
+	jrz	wrtrcd;		retry if error handler returns z
+	ret;			ignore if error handler returns nz
+;
+; read/write error handler
+rwerr:	lhld	stbdsc;		Bad sector message pointer
+	pchl;			DOS+ Error on D: disk I/O
+;
+; Set DMA address command.
+; a,f,b,c,d,e,h,l
+cmnd26:	sded	dma;		Save DMA address
+	call	stdma
+;	"	"
+; return current dma setting
+rtndma:	lhld	dma;		echo back setting
+	jmp	rtnwd
+;
+; Set DMA Address for user
+; a,f,b,c,d,e,h,l
+stdma:	lbcd	dma
+	jr	dmaset;		do bios call
+;
+; Set DMA Addr. for directory
+; a,f,b,c,d,e,h,l
+dmadir:	lbcd	@dirbuf;	Get DMA Addr. for directory
+;	"	"
+; protected setdma
+dmaset:	lxi	h,setdma
+	jmp	xbios;		guard against bad bios
+;
+; Get bit from ALV buffer
+;  Entry : DE = block number
+;  EXIT  :  A = bit IN LSB (rotated, other bits meaningful)
+;           B = bitnumber in A
+; 	   HL = pointer in ALV buffer
+; a,f,b,c,d,e,h,l
+getbit:	mov	a,e;		Get bit number
+	ani	7;		mod 8
+	inr	a;		+1
+	mov	b,a;		to b
+	mov	c,a;		and c
+	srlr	d;		Get byte number
+	rarr	e;		DE = DE/8
+	srlr	d
+	rarr	e
+	srlr	d
+	rarr	e
+	lhld	@alv;		Get start addr. ALV buffer
+	dad	d;		+ byte number
+	mov	a,m;		Get 8 bits
+getbt0:	rlc;			select correct bit
+	djnz	getbt0
+	mov	b,c;		restore bit number
+	ret
+;
+; Set/reset bit in ALV buffer
+;  ENTRY : DE = block number
+;	    C = 0 reset bit, C=1 set bit
+; a,f,b,c,d,e,h,l
+setbit:	push	b
+	call	getbit;		Get bit
+	ani	0feh;		mask it (reset bit)
+	pop	d;		Get set/reset bit
+	ora	e;		set/reset bit
+;	"	"
+; position bit and save
+; a,f,b
+bitset:	rrc;			rotate bit to correct position
+	djnz	bitset
+	mov	m,a;		save 8 bits
+	ret
+;
+; Mark allocated blocks from FCB in dirbuf
+allocb:	mvi	c,1
+;	"	"
+; Fill bit buffer from FCB in dirbuf
+;  Entry : C = 0 reset bit, C=1 set bit
+fillbb:	call	caldir;		Get directory entry
+	lxi	d,f.dm;		offset to DM block
+	dad	d
+	mov	b,e;		Get block counter
+fillb0:	mov	e,m;		Get block number, 8 bits extened
+	inx	h;		advance
+	lda	maxblk+1
+	ora	a
+	mov	d,a;		0 if < 256 blocks present
+	jrz	fillb1;		< 256 blocks present
+	dcr	b;		Decr. block counter, 256 or more
+	mov	d,m;		Get correct MSB
+	inx	h;		advance
+fillb1:	mov	a,d
+	ora	e
+	jrz	fillb2;		block number = 0, Get next block
+	push	h;		Save pointer
+	push	b;		counter and set/reset bit
+ 	lhld	maxblk;		get max length ALV buffer
+	ora	a
+	dsbc	d
+	cnc	setbit;		de <= max length, insert bit
+	pop	b;		counter and set/reset bit
+	pop	h;		pointer
+fillb2:	djnz	fillb0;		repeat over all DM entries
+	ret
+;
+; Check file R/O, get DIR entry to hl & iy
+chkfro:	call	caldir;		Get DIR entry to hl & iy
+;	"	"
+; Check file iy^ for r/o
+; f
+ckfyro:	bity	7,f.sys
+	jrnz	fronly;		$SYS file, error
+;	"	"
+; For erase, allows SYS files to be erased
+rochk:	bity	7,f.ro
+	rz;			not $R/O file, ok
+;	"	"
+; File read/only error
+fronly:	lhld	sfilro;		Pointer to FILE R/O error handler
+	pchl;			Error trap
+;
+; Check drive read only
+chkro:	lhld	dskro;		Drive R/O vector
+	call	sdrvb;		Set drive bit
+	dsbc	d;		test extra bit added
+	rnz;			Yes, then drive not R/O
+	lhld	stro;		Pointer to DRIVE R/O error handler
+	pchl;			error trap
+;
+; Get free block from ALV buffer
+;  Entry : DE = old block number
+;  Exit  : DE = new block number (0 if no free block)
+;   HL counts up, DE counts down
+getfre:	mov	h,d;		hl := old block
+	mov	l,e
+getfr0:	mov	a,d
+	ora	e
+	jrz	getfr1;		down counter = 0
+	dcx	d;		decrement
+	push	h;		Save up/down counters
+	push	d
+	call	getbit;		from ALV buffer
+	rar
+	jrnc	getfr3;		0, found empty block
+	pop	d;		Get up/down counters
+	pop	h
+getfr1:	lbcd	maxblk;		get max ALV length-1 to BC
+	ora	a
+	dsbc	b;		Test HL >= length ALV -1
+	dad	b;		restore HL (Flags not changed)
+	jrnc	getfr2;		End Buffer
+	inx	h;		Incr up counter
+	push	d;		Save counters
+	push	h
+	xchg;			Up counter to DE
+	call	getbit;		from ALV buffer
+	rar
+	jrnc	getfr3;		0, found empty block
+	pop	h;		Get counters
+	pop	d
+	jr	getfr0;		and test next block
+
+getfr2:	mov	a,d
+	ora	e
+	jrnz	getfr0;		not last block, test next block
+	ret;			Exit (DE=0)
+
+getfr3:	stc
+	ral;			Sst block number used
+	call	bitset;		put bit in ALV buffer
+	pop	d;		Get correct counter
+	pop	h;		restore stack pointer
+	ret;			Exit (DE=block number)
+;
+; Search for file name, for read/directory operations
+srchrd:	mvi	a,15;		bytes to  match
+;	"	"
+; Search for file name
+;  Entry : A : number of bytes to match
+search:	sta	searnb;		Save number of bytes
+	mvi	a,0ffh;		Set exit code 0FFH (not found)
+	sta	searex
+	sixd	dcopy;		copy FCB pointer to RAM (search next)
+	call	setfct;		init. file counter
+;	"	"
+; Search next file name
+searcn:	xra	a;		check checksum directory
+	call	rddir;		Get FCB from directory
+	call	tstfct
+	jrz	nofile;		past last entry
+	lded	dcopy;		Get FCB pointer
+	ldax	d;		user byte
+	cpi	empty
+	jrz	searc1;		empty directory entry
+	push	d;		FCB pointer
+	call	tstlf
+	pop	d
+	jrnc	nofile;		last file on this drive
+searc1:	call	caldir;		hl := iy := dir entry, a := 0th byte
+	cpi	tmstamp
+	jrz	searcn;		time stamp, get next directory entry
+	xra	a
+	sta	wildcd;		no wild card detected yet
+	mov	c,a;		i.e. a zero
+	lda	searnb;		get number of bytes to match (to b)
+	mov	b,a;		save input (a) for search length
+;	"	"
+; If dir entry (hl=iy)^ has the sys attribute set, and is stored under
+; user 0, ignore the user number during the directory search by
+; advancing the indices appropriately. At entry a contains the length
+; of the directory entry to be matched, and de points to the input FCB
+; (i.e. the searchee name). IY^ is the candidate dir entry.
+	sui	15;		differentiate from erase searches
+	jrc	searc4;		not looking for name, orig. algorithm
+	bity	7,f.sys;	test system bit
+	jrz	searc4;		not (sys) file, original algorithm
+	mov	a,m
+	ora	a
+	jrnz	searc4;		not on user 0, original algorithm
+searc2:	sta	wildcd;		set/reset wild card found flag
+searc3:	inx	d
+	inx	h;		skip over the user id
+	inr	c
+	djnz	searc4;		if more bytes to match
+;	"	"
+; All bytes matched.
+	call	setlf;		update last file count (empty FCB)
+	lda	filcnt;		Get file counter
+	ani	3;		mask it
+	sta	fvalue;		and set exit code
+	xra	a;		clear exit code search
+	sta	searex
+	ret
+;
+; Check for match.
+searc4:	ldax	d;		Get byte from FCB
+	sui	'?'
+	cma;			If zero then a holds 0ffh
+	jrz	searc2;		set wild card found, matches any
+	mov	a,c;		FCB char posn
+	sui	f.s1
+	jrz	searc3;		s1 scratch, then no test
+	inr	a;		cpi f.exlo; test if extent number
+	ldax	d
+	jrz	searc7;		Special case if extent number
+	xra	m;		compare to directory entry
+	ani	07fh;		on mask
+searc6:	jrnz	searcn;		not equal on mask, get next entry
+	jr	searc3;		test next byte
+;
+; Special handling for extent number
+searc7:	push	b;		save counters
+	xra	m;		test extents
+	mov	b,a
+	lda	nextnd
+	cma;			complement extent mask
+	ani	01fh
+	ana	b;		mask extents
+	pop	b;		restore counters
+	jr	searc6;		and test result
+;
+nofile:	call	setfct;		error set file counter
+;	"	"
+rtnerr:	mvi	a,0ffh;		and set return value
+	jmp	rtnbyt
+;
+; delete file
+delete:	call	chkro;		check disk R/O
+	mvi	a,12;		count of bytes to match
+	call	search;		for file
+del0:	call	tstfct
+	rz;			not found, exit
+	call	caldir;		get entry point directory to iy, hl
+	call	rochk;		allow $SYS files to be erased.
+	mvi	m,empty;	remove file
+	mvi	c,0;		remove bits ALV buffer (recycle space)
+	call	fillbb
+	call	wrtdir;		write dir buffer to disk
+	call	searcn;		search next entry
+	jr	del0;		and test it
+;
+; Rename file
+renam:	call	schbgn;		Check disk R/O, no wild cards, etc.
+	rnz;			wild cards
+renam0:	call	tstfct;		iy points to dir entry
+	rz;			Not found, exit
+	call	chkfro;		Check file R/O, set iy^ dir entry
+	lxi	b,12*256+16;	Copy FCB+16 to Directory+0 12 times
+	call	wrfcb;		and write dir to disk
+	call	searcn;		search next file
+	jr	renam0;		and test it
+;
+; Change status file
+sfattr:	call	schbgn;		Check disk R/O, no wild cards etc.
+	rnz;			wild cards
+sfatr1:	call	tstfct;		iy points to dir entry
+	rz;			Not found, exit
+	bitx	7,f.ifc6
+	jrz	sfatr2;		No byte count update requested
+	ldx	a,f.next
+	sty	a,f.s1;		set byte count
+sfatr2:	lxi	b,12*256+0;	Copy FCB+0 to directory+0 12 times
+	call	wrfcb;		and write dir to disk
+	call	searcn;		search next file
+	jr	sfatr1;		and test it
+;
+; Set up for search on name field.  From sfattr and renam
+; Error if wild cards specified (nz flag) or r/o disk (abort)
+schbgn:	call	chkro;		Check disk R/O
+;	"	"
+; Initial search on name field.
+; nz for wild cards specified when exit errors set
+nowild:	mvi	a,12;		Count of bytes to match
+	call	search;		file. iy points to dir entry
+	lda	wildcd
+	ora	a
+	rz;			No wild cards found, ok
+	sta	searex;		attrib & rename return this
+	jr	rtnerr;		a is 0ffh
+;
+; Open file command
+cmnd15:	call	seldrv;		from FCB
+	mvix	f.exhi,0;	clear hi extent
+	call	findf;		find file (using PATH name)
+	call	tstfct
+	rz;			Not found, exit
+	call	fopen
+	ldx	a,f.next
+	inr	a
+	rnz;			Not 0ffh on entry
+	ldx	a,f.s1
+	stx	a,f.next;	else return byte count
+	ret
+;
+; Open file/extent, directory entry loaded
+fopen:	ldx	a,f.exlo;	Get extent number from FCB
+	push	psw
+	call	caldir;		Get dir entry, hl & iy
+	pushix
+	pop	d;		FCB entry to de
+	lxi	b,32;		Number of bytes to move
+	ldir;			Move directory to FCB
+	setx	7,f.clean;	Set FCB/FILE not modified
+	ldx	b,f.exlo;	Get extent number
+	ldx	c,f.rc;		Get next record number
+	pop	psw;		old extent number
+	stx	a,f.exlo;	Save it
+	cmp	b
+	jrz	fopen1;		old and new extent numbers same
+	mvi	c,0;		Set next record count 0
+	jrnc	fopen1;		old extent >= new extent
+	mvi	c,80h;		Set next record count to maximum
+fopen1:	stx	c,f.rc;		Save next record count
+	lda	flags
+	ani	fb.tacc
+	rz;			access stamping disabled
+	bitx	7,f.ro
+	mvi	e,8
+	cz	stime;		not r/o, set access time stamp
+	rc;			timer system disabled
+	rnz;			No time stamps, this disk
+	jr	wrtdir;		else time stamp updated
+;
+; write FCB to disk directory entry
+; c is offset into FCB to copy from, b is byte count to copy
+wrfcb:	call	caldir;		Get dir entry to iy, hl, a := usr code
+	xchg;			in DE
+	pushix;			Save FCB entry
+	pop	h;		to hl
+	push	b
+	mvi	b,0
+	dad	b;		add offset into FCB
+	pop	b
+	mov	c,b;		Get number of bytes to move
+	mvi	b,0;		0 extend
+	ldir;			Move
+	resy	7,f.ifc6;	Reset any interface bit
+	sty	a,f.usr;	Restore user code
+;	"	"
+; Write directory entry to drive
+wrtdir:	call	stdir;		Calculate sector/track directory
+	mvi	c,0ffh;		Update dir checksum
+	call	chkdir
+	call	dmadir;		Set DMA for directory
+	mvi	c,1;		Write directory flag
+	call	wrtrcd;		write
+	jmp	stdma;		Set DMA for user & exit
+;
+; Close file command
+cmnd16:	call	seldrv;		from FCB
+;	"	"
+; close file
+close:	bitx	7,f.clean
+	rnz;			FCB/FILE not modified, no close req'd
+	call	chkro;		test disk R/O
+	call	srchrd;		file, match 15 bytes
+	call	tstfct
+	rz;			file not present, exit
+	call	chkfro;		Check file R/O, get directory entry
+	resy	7,f.arc;	and reset any archive bit
+	lxi	b,f.dm;		Offset to DM block
+	dad	b
+	xchg;			to de
+	pushix
+	pop	h;		FCB pointer to HL
+	dad	b;		Add offset
+	lda	maxblk+1
+	ora	a
+	jrz	close0;		number of blocks < 256
+	dcr	b;		Set flag
+close0:	call	copydm;		Copy and test blocks
+	xchg;			exchange copy direction
+	call	copydm;		Copy and test blocks
+	xchg;			Exchange copy direction
+	jnz	rtnerr;		Block not the same, error
+	inx	h;		incr FCB pointer
+	inx	d;		incr DIR pointer
+	bit	0,b
+	jrz	close1;		number of blocks < 256
+	inx	h;		incr FCB pointer
+	inx	d;		incr DIR pointer
+	dcr	c;		decr counter
+close1:	dcr	c;		decr counter
+	jrnz	close0;		not ready
+	lxi	h,f.exlo-f.next; Add -20, point to extent no.
+	dad	d
+	ldx	a,f.exlo;	Get extent number FCB
+	cmp	m;		Compare with extent number DIR
+	jrc	close3;		FCB < DIRECTORY THEN JUMP
+	mov	m,a;		Save extent number in directory
+	inx	h;		Get pointer record count
+	inx	h
+	inx	h
+	ldx	a,f.rc;		Get FCB record count in case
+	mov	m,a;		entry lgh changed (+ normal, - submit)
+close3:	call	updatm;		set last update time
+	jr	wrtdir;		Write FCB on disk
+;
+; Copy and test disk map
+;  Entry : HL : pointer to 1st FCB
+;          DE : pointer to 2nd FCB
+;          B  : 000H <  256 blocks
+;               0FFH >= 256 blocks
+;  Exit  : ZERO : 1 Blocks are the same
+;                 0 Blocks are not the same
+copydm:	mov	a,m;		Get byte 1st FCB
+	bit	0,b
+	jrz	copyd0;		number of blocks < 256
+	inx	h;		adv. pointer
+	ora	m;		test byte = 0
+	dcx	h;		restore pointer
+copyd0:	ora	a;		Test block number is zero
+	jrnz	copyd1;		no, compare blocks
+	ldax	d;		Copy block from other FCB
+	mov	m,a;		 in empty location
+	bit	0,b
+	rz;			number of blocks < 256, exit
+	inx	h;		incr to MSB block numbers
+	inx	d
+	ldax	d;		Copy block from other FCB
+	mov	m,a;		 in empty location
+	jr	copyd2;		JUMP TRICK TO SAVE SPACE
+
+copyd1:	ldax	d;		Get block number 1st FCB
+	sub	m
+	rnz;			not the same
+	ora	b
+	rz;			< 256 blocks, return
+	inx	h;		incr to MSB block numbers
+	inx	d
+copyd2:	ldax	d;		Get block number 1st FCB
+	sub	m;		test if the same
+	dcx	h;		Decr. block FCB pointers
+	dcx	d
+	ret
+;
+; Find file, using path. Only default and current user entries apply
+findf:	call	srchrd;		for read file. Match 15 bytes
+	call	tstfct
+	rnz;			found, exit
+	lda	fcb0
+	ora	a
+	rnz;			drive specified, ignore path
+	lhld	path;		get PATH address
+	mov	a,h
+	ora	l
+	rz;			0, no path, exit
+findf2:	lda	drive
+	mov	b,a;		keep handy. 0..maxdrv
+	mov	a,m;		Get 1st entry PATH name
+	inx	h;		adv. pointer
+	ora	a
+	inx	h
+	jz	nofile;		last entry, not found exit
+	cpi	'$'
+	jrz	findf2;		current drive already searched
+	dcr	a;		put in 0..maxdrv range
+	ani	0fh
+	cmp	b
+	jrz	findf2;		current drive already searched
+	dcx	h
+	push	h;		Different drive, so..
+	call	seldk;		Select drive
+	pop	h;		PATH pointer
+	lda	user;		keep handy
+	mov	b,a
+	mov	a,m;		Get user number
+	inx	h;		adv. pointer
+	cpi	'$'
+	jrz	findf5;		current user, ok, search
+	xra	b
+	ani	01fh;		Mask user no. area only
+	jrnz	findf2;		Path entry not for this user, skip
+findf5:	push	h;		path pointer
+	call	srchrd;		file, match 15 bytes
+	call	tstfct
+	pop	h;		path pointer
+	jrz	findf2;		file not present, test next path entry
+	call	caldir;		Get directory entry
+	lda	defdrv;		Get now current drive
+	inr	a;		in range 1..
+	sta	fcb0;		save it in exit FCB0
+	ret
+;
+; Make file command
+cmnd22:	call	seldrv;		from FCB
+	mvix	f.exhi,0;	Clear high extent #
+	call	fdirty;		ensure archive bit reset
+;	"	"
+; Make file
+make:	call	chkro;		Check drive r/o
+	ldx	a,f.usr
+	push	psw;		Save user id for file
+	mvix	f.usr,empty;	Set 1st byte to empty file
+	mvi	a,1;		Search for 1 byte
+	call	search;		for empty DIR space. Sets result code
+	pop	psw
+	stx	a,f.usr;	Restore user id for file
+	call	tstfct
+	rz;			No empty entry found, return error
+	xra	a;		clear last record byte count
+	stx	a,f.s1
+	pushix
+	pop	h;		copy FCB pointer to HL
+	lxi	d,f.rc;		Prepare offset
+	dad	d
+	mvi	b,17;		Set loop counter
+make0:	mov	m,a;		Clear rc and dm area
+	inx	h
+	djnz	make0
+	call	caldir;		Get directory entry
+	ldx	a,f.usr;	Get first byte FCB & save in
+	mov	m,a;		 directory (write FCB needs this)
+	mvi	e,2;		Set creation date
+	call	stime
+	call	updatm;		Set last update date/time
+	mvi	e,8;		Set last access date/time
+	call	stime
+	lxi	b,32*256+0;	Copy FCB+0 to directory+0 32 times
+	call	wrfcb;		write FCB to disk
+	setx	7,f.clean;	Mark FCB/FILE not modified
+	ret
+;
+; Open next extent
+openex:	bitx	7,f.clean
+	jrnz	openx5;		FCB/FILE not modified (write)
+	call	close;		Current FCB.  Reads/loads dir entry.
+	lda	fvalue;		exit code from close
+	inr	a
+	rz;			error, exit
+	call	calnex;		Calculate next extent
+	jrc	openx3;		error
+	jrnz	openx6;		FCB present from close (wrt, dir read)
+openx1:	call	srchrd;		for file, match 15 bytes
+	call	tstfct
+	jrnz	openx6;		file found
+	lda	rdwr
+	ora	a
+	jrz	openx3;		read flag, error (no extent)
+	call	make;		new extent (is write)
+	call	tstfct
+	jrnz	openx7;		successful, exit
+openx3:	setx	7,f.clean;	Set FCB/FILE not modified
+	jmp	nofile;		Set exit code for error
+
+openx5:	call	calnex;		Calculate next extent
+	jrc	openx3;		error
+	jr	openx1;		use same routine
+;
+openx6:	call	fopen;		open file
+openx7:	xra	a;		and clear exit code
+;	"	"
+bytrtn:	jmp	rtnbyt
+;
+; Calculate next extent
+;  exit: carry  => overflow detectedd
+;        zflag  => search next extent
+;	 nzflag => next extent present in FCB (close)
+;	(A single directory/FCB entry can hold multiple extents)
+calnex:	ldx	c,f.exlo;	Get extent number
+	ldx	b,f.exhi;	Get high portion
+	bit	6,b;		Test error bit random record
+	stc
+	rnz;			Non-zero, error exit, cy set
+	inr	c;		Incr. extent number
+	mov	a,c
+	ani	01fh;		mask extent number
+	mov	c,a;		to b
+	jrnz	calnx1;		non-zero extent
+	inr	b;		Incr. high order extent
+	mov	a,b
+	ani	03fh;		mask it (c is zero)
+	mov	b,a;		Save it in c
+	stc
+	rz;			file overflow, error flag (cy) set
+;	"	"		since c is 0 following returns z flag
+;	"	"		 for "not same dir entry"
+calnx1:	lda	nextnd;		Get next extent mask
+	ana	c;		Test if same dir entry (close)
+;	"	"
+; Set FCB extent bytes from bc (high/low). Preserve flags.
+; Return bc = old values
+xchext:	ldx	a,f.exlo
+	stx	c,f.exlo;	Save extent number
+	mov	c,a
+	ldx	a,f.exhi
+	stx	b,f.exhi;	and high portion
+	mov	b,a
+	ret
+;
+; Read random record command
+cmnd33:	call	seldrv;		from FCB
+	xra	a;		set read/write flag
+	call	ldfcb;		Load random record in FCB
+	rnz;			Return error
+	jr	reads;		no error, go read sector
+;
+; Read sequential
+cmnd20:	call	seldrv;		from FCB
+;	"	"
+; Read sector
+reads:	xra	a;		set read/write flag
+	sta	rdwr;		save it
+	ldx	a,f.next;	Get record counter
+	cpi	080h
+	jrnz	reads1;		Not last rcd of this extent
+	call	openex;		Open next extent
+	lda	fvalue;		get exit code
+	ora	a
+	jrnz	eofull;		end of file
+	stx	a,f.next;	Clear record counter
+	jr	reads2
+
+reads1:	cmpx	f.rc;		illegal rcd ctr fields cause eof
+	jrnc	eofull;		signal EOF
+reads2:	call	getdm;		Get block number from DM in FCB
+	mov	a,d
+	ora	e
+	jrz	eofull;		block number = 0, end file
+	call	calsec;		Calculate sector number (128 bytes)
+	call	calst;		Calculate sector/track number
+	call	rdrcd;		Read data
+	lda	funct;		Get function number
+	cpi	20
+	rnz;			Not read sequential, return
+	inrx	f.next;		incr. next record counter
+	ret
+;
+; Signal eof or full
+eofull:	mvi	a,1;		Set EOF flag
+	jr	bytrtn;		and return to caller
+;
+; Calculate sector number from start of data area in HLDE
+;  Entry : DE = block number from FCB
+; a,f,b,d,e,h,l
+calsec:	lxi	h,0;		clear MSB sector number
+	lda	nblock;		get loop counter
+	mov	b,a;		to b
+calsc1:	slar	e;		shift L,D,E
+	ralr	d
+	ralr	l
+	djnz	calsc1;		B times
+	lda	nmask;		Get sector mask
+	andx	f.next;		and with next record
+	ora	e;		Set up LSB sector number
+	mov	e,a
+	ret
+;
+; Write random sector (with zero fill command 40 done in "writes")
+cmnd34:
+cmnd40:	call	seldrv;		from FCB
+	mvi	a,0ffh;		Set read/write flag
+	call	ldfcb;		Load FCB from random record
+	rnz;			return error
+	jr	writes;		no error, write record
+;
+; Mark file modified
+fdirty:	resx	7,f.clean;	reset FCB/FILE modified
+	ret
+;
+; Write sequential
+cmnd21:	call	seldrv;		from FCB
+;	"	"
+; Write sector
+writes:	mvi	a,0ffh;		Set read/write flag
+	sta	rdwr;		and save it
+	call	chkro;		Check disk R/O
+	pushix
+	popiy;			FCB pointer to iy
+	call	ckfyro;		Check file iy^ R/O
+	ldx	a,f.next;	Get record count
+	cpi	080h
+	jrc	writs0;		not end of this extent
+	call	openex;		open next extent
+	lda	fvalue;		error code
+	ora	a
+	jrnz	eofull;		error, directory full
+	stx	a,f.next;	Clear record counter
+writs0:	call	getdm;		Get block number from FCB
+	mov	a,d
+	ora	e
+	jrnz	writs5;		Not 0, write sector
+	push	h;		save pointer to block number
+	mov	a,c
+	ora	a
+	jrz	writs1;		1st block number in extent
+	dcr	a;		Decr pointer to block number
+	call	getbk;		Get prev. blocknumber
+writs1:	call	getfre;		Get nearest free block
+	pop	h;		Get pointer to block number
+	mov	a,d
+	ora	e
+	mvi	a,2
+	jz	rtnbyt;		blocknumber = 0, disk full error
+	call	fdirty;		reset FCB/FILE modified
+	mov	m,e;		Save blocknumber
+	lda	maxblk+1
+	ora	a
+	jrz	writs2;		blocksize < 256
+	inx	h;		adv. to MSB blocknumber
+	mov	m,d;		Save MSB blocknumber
+writs2:	mvi	c,2;		Set write new block flag
+	lda	funct;		Get function number
+	sui	40
+	jrnz	writs6;		Not writeranrcd with zero fill
+	push	d;		save blocknumber
+ 	lhld	@dirbuf;	use directory buffer for zero fill
+	mvi	b,128;		bytes to clear
+writs3:	mov	m,a;		Clear directory buffer
+	inx	h
+	djnz	writs3;		more
+	call	calsec;		Calculate sector number (128 bytes)
+	lda	nmask;		Get sector mask
+	mov	b,a;		to b
+	inr	b;		Increment to get number of writes
+	cma;			Complement sector mask
+	ana	e;		Mask sector number
+	mov	e,a;		and save it
+	mvi	c,2;		Set write new block flag
+writs4:	push	h;		Save registers
+	push	d
+	push	b
+	call	calst;		Calculate sector/track
+	call	dmadir;		Set DMA directory buffer
+	pop	b;		Get write new block flag
+	push	b;		Save it again
+	call	wrtrcd;		Write record to disk
+	pop	b;		Restore registers
+	pop	d
+	pop	h
+	mvi	c,0;		Clear write new block flag
+	inr	e;		Incr. sector number
+	djnz	writs4;		Write all blocks
+	call	stdma;		Set user DMA address
+	pop	d;		Get block number
+writs5:	mvi	c,0;		Clear write new block flag
+writs6:	call	fdirty;		Reset FCB/FILE unmodified flag
+	push	b
+	call	calsec;		Calculate sector number (128 bytes)
+	call	calst;		Calculate sector/track
+	pop	b;		write new block flag
+	call	wrtrcd;		Write record to disk
+	ldx	a,f.next;	Get record counter
+	cmpx	f.rc;		next record
+	jrc	writs7;		record counter < next record
+	inr	a;		incr. record count
+	stx	a,f.rc;		Save on next record position
+writs7:	lda	funct;		Get function number
+	cpi	21
+	rnz;			not write sequential, return
+	inrx	f.next;		incr. record count
+	ret
+;
+; Load FCB for random read/write. NZ flag for error.
+; Entry a=0 for read, 0ffh for write
+ldfcb:	sta	rdwr;		save read/write flag
+	ldx	a,f.rrno;	Get 1st byte random record
+	mov	d,a;		to d
+	res	7,d;		Rest MSB to get next record
+	ral;			Shift MSB to carry
+	ldx	a,f.rrno+1;	Load next byte
+	ral;			Shift carry
+	push	psw;		Save
+	ani	01fh;		Mask next extent
+	mov	c,a;		Save it in C
+	pop	psw;		Get byte
+	ral;			Shift 4 times
+	ral
+	ral
+	ral
+	ani	0fh;		Mask
+	mov	b,a;		Save FCB+14
+	ldx	a,f.rrno+2;	Get next byte random record
+	mvi	e,6;		Set random record too large flag
+	cpi	4
+	jrnc	ldfcb7;		error, random record too large
+	rlc;			address extent (actually div 16)
+	rlc
+	rlc
+	rlc
+	add	b;		add byte
+	mov	b,a;		Save FCB+14 in B
+	stx	d,f.next;	Set next record count
+	ldx	d,f.exhi;	Get FCB+14
+	bit	6,d
+	jrnz	ldfcb7;		error, earlier random record write
+	mov	a,c;		Get new extent number
+	cmpx	f.exlo;		Compare with FCB
+	jrnz	ldfcb1;		not equal, open next extent
+	mov	a,b;		Get new FCB+14
+	xorx	f.exhi;		Compare with FCB+14
+	ani	03fh;		Mask it
+	jrz	ldfcb5;		FCB at appropriate extent, return
+ldfcb1:	bit	7,d
+	jrnz	ldfcb2;		FCB not modified (not written)
+	push	d
+	push	b
+	call	close;		extent
+	pop	b
+	pop	d
+	mvi	e,3;		Set close error in case
+	lda	fvalue;		Get exit code
+	inr	a
+	jrz	ldfcb6;		close error, exit
+ldfcb2:	call	xchext;		Save new extent # (bc=high/low)
+	push	b
+	call	srchrd;		search file, match 15 bytes
+	pop	b;		previous value for extent fields
+	lda	fvalue;		Get error code
+	inr	a
+	jrnz	ldfcb4;		No error, exit
+	lda	rdwr;		Get read/write flag
+	inr	a
+	jrz	ldfcb3;		write, go make it
+	call	xchext;		read, restore the extent bytes
+	mvi	a,4;		Error, reading empty record
+	jr	ldfcb9;		and exit
+
+ldfcb3:	call	make;		make new FCB
+	mvi	e,5;		make error code
+	lda	fvalue;		error ?
+	inr	a
+	jrz	ldfcb6;		make error exit
+	jr	ldfcb5;		No error exit (zero set)
+
+ldfcb4:	call	fopen;		open file
+ldfcb5:	xra	a;		Set Z flag and clear error code
+	jr	ldfcb9
+;
+ldfcb6:	mvix	f.exhi,0c0h;	Set random record error
+ldfcb7:	setx	7,f.clean;	Set FCB/FILE not modified
+	mov	a,e;		error code
+ldfcb9:	sta	fvalue;		save error code
+	ora	a;		Clear/set zero flag
+	ret
+;
+; Set update time
+updatm:	mvi	e,4
+;	"	"
+; Set time and date
+;  Entry :  E = 2 : Set creation date
+;         	4 : Set last update time/date
+;		8 : Set last access time/date
+;  Exit :   cy for timer disabled
+;	    nz for no time stamp on drive
+;           z and nc for directory updated
+stime:	lhld	@dirbuf;	Get directory entry
+	lxi	b,060h;		offset entry point time/date stamp
+	dad	b;		Add offset
+	mov	a,m;		Get byte
+	sui	tmstamp
+	rnz;			No time stamp present, return
+	mov	d,a;		0, clear D
+	dad	d;		Add entry (create/update/access)
+	push	d;		save field id
+	lda	secpnt;		Get sector pointer (0, 32, 64
+	rrc;			Divide / 4
+	rrc
+	mov	e,a;		0, 8, 16
+	rrc;			divide 4 = 0, 2, 4
+	rrc
+	add	e;		Add it (A=0,10,20)
+	mov	e,a;		Save in e
+	dad	d;		point to appropriate field
+	push	h
+	call	getbtm;		point to system time array
+	pop	d;		field pointer
+	pop	b;		restore field id
+	rc;			timer system disabled
+	mov	a,c
+	cpi	2;		no carry for valid field id
+	jrz	mvdate;		2 byte field for creation
+;	"	"
+; Move 4 byte time array hl^ to de^, avoid interrupts
+; b,c,d,e,h,l
+mvtime:	lxi	b,4
+;	"	"
+; entry for 2/4 byte fields, bc = length on entry
+; b,c,d,e,h,l
+mvdate:	di
+	ldir;			store it
+	ei
+	xra	a;		z/nc for good exits
+	ret
+;
+; Get time
+gettim:	push	d;		Save address to put time
+	call	getbtm;		get system time adr.
+	pop	d;		Restore address to put time
+	mvi	a,0ffh;		If disabled return error
+	jrc	getim2
+	lxi	b,4
+	call	mvdate;		if timer enabled
+	mov	a,m;		seconds field
+getim2:	jmp	rtnbyt
+;
+; Set time
+settim:	push	d;		keep source time ptr
+	push	d
+	pop	b;		if hardware must be accessed to set
+	call	btime;		get system ptr
+	pop	d
+	rc;			timer system disabled
+	rnz;			Bios did it all
+	xchg
+	call	mvtime;		sets a := 0
+	stax	d;		set seconds field 0
+	ret
+;
+; Specification for any bios timer routine. Leaves carry clear, NZ flg
+; Input			Output (always)
+; BC =  0 get pointer 	HL=pointer to time array
+; BC <> 0 allows hard-	 HL+0^ date LSB days since 1977 Dec. 31
+;  ware to be updated	 HL+1^ date MSB (1=1978/1/1) (0=nodate)
+;  if a routine call.	 HL+2^ hour (bcd)
+;  ignored if timead	 HL+3^ minute (bcd)
+;  is purely an address. HL+4^ seconds (bcd)
+;  BC^ is time to set.
+; 			Carry and Z flags reset.
+;
+; Get time from bios system
+getbtm:	lxi	b,0;		so hardware not updated
+;	"	"
+; Execute BIOS time routine.
+; bc = 0 to get time, <> 0 to set hardware, when bc points to time
+; to set.  This is used only when hardware ports accessed.
+; flags 80h bit = 0 for timead = address of array
+;		= 1 for timead = pointer to routine
+; net result is to return hl pointer to array
+; i.e. at exit hl always points to the system array
+; The routine call allows for interrogation of hardware ports.
+; The bios routine may leave interrupts disabled, they will be
+; re-enabled when the time value has been copied.
+; carry set on exit means timer disabled.
+; Z flag set on exit if timead is a pointer only
+btime:	lhld	timead;		Get address time routine
+	mov	a,h
+	ora	l;		check disabled
+	stc
+	rz;			disabled, do nothing
+	lda	flags
+	ani	fb.tcal
+	rz;			timead is address of array only
+	pchl;			is address of routine, execute
+;
+; Error messages
+mbadsc:	db	'Disk I/O$'
+msel:	db	'No drive$'
+mfilro:	db	'File '
+mro:	db	'R/O$'
+;
+mbfunc:	db	cr,lf,'Fn: $'
+mfile:	db	' File: $'
+;
+mberr:	db	cr,lf,'DOS+ error ';	Last area checksummable
+mdrive:	db	0,': $';	modified
+;
+; RAM AREA.  Note mdrive above is a variable
+;
+dma:	dw	080h;	DMA address
+dskro:	dw	0;	Disk R/O vector
+login:	dw	0;	Login vector
+;
+; Console i/o variables.  Keep these 3 in this order (wired into code)
+bufull:	db	0;	Lastch contains unused char.
+lastch:	db	0;	Last console input char.
+column:	db	0;	Current console output column
+;
+; Copied in from Bios tables on drive selection
+@trans:	 dw	0;	^Translation vector, 0 for none
+@filect: dw	0;	^Number of files on drive
+	 ds	4;	temp1, temp2 not used
+@dirbuf: dw	0;	^directory buffer
+@ixp:	 dw	0;	^Disk parameter block
+@csv:	 dw	0;	^Check sum vector
+@alv:	 dw	0;	^Allocation vector
+;
+; Copied in from Disk Parameter table on drive selection
+maxsec:	dw	0;	Maximum number of sectors/track
+nblock:	db	0;	Number of blocks
+nmask:	db	0;	Mask number of blocks
+nextnd:	db	0;	Extent mask
+maxblk:	dw	0;	Maximum block number -1
+nfiles:	dw	0;	Maximum number of files - 1
+ndir0:	db	0,0;	First two entries ALV buffer
+ncheck:	dw	0;	Number of checksum entries
+nftrk:	dw	0;	First track number
+;
+funct:	db	0;	Function number
+fvalue:	dw	0;	Exit code
+drvflg:	db	0;	Drive select used flag
+fcb0:	db	0;	FCB byte 0 (save for exit)
+;
+rdwr:	db	0;	Read/write flag
+wildcd:	db	0;	Search question mark used
+;
+user:	db	0;	User number
+drive:	db	0;	Drive number
+defdrv:	db	0;	Default drive number
+subflg:	db	0;	Submit flag (Reset disk command)
+;
+recdir:	dw	0;	Record directory (checksum)
+filcnt:	dw	0;	File counter
+secpnt:	db	0;	Sector pointer
+;
+dcopy:	dw	0;	Copy address FCB
+searex:	db	0;	Exit code for search
+searnb:	db	0;	Search number of bytes
+;
+; 64 minimum byte stack area.  Copyright re-used for stack.
+stktop:	db	'Copyright (c) 1986 C.B. Falconer (203) 281-1438'
+	ds	64-($-stktop)
+;
+; Macro for storage allocation messages only, SLRMAC specific
+;px	macro	v, xmsg
+;	.printx	v&xmsg
+;	endm
+;
+left	equ	serial+0dfeh-$
+;	if	left ge 8000h;	negative
+;	 +++ ERROR DOS+ too big +++
+;        px	%(-left), <too many bytes used>
+;	else
+;	 px	%left, <bytes still available>
+	 if	left gt 0
+	  ds	left;	space that's left
+	 endif
+; Put stack at end of segment.  Error trappers expect spsave there.
+stack:
+spsave:	 dw	0;	Entry stack pointer save at end
+;	endif
+;
+	end
+çÎ

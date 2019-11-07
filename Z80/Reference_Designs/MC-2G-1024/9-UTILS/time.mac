@@ -1,0 +1,538 @@
+;
+; syntax:
+;	TIME<cr>		(to report current time)
+;	TIME yy/mm/dd hh:mm	(to set time)
+;	TIME ?			(for help)
+;
+; using ISO std date format and 24 hour (00 <= hh <= 23) time
+;
+ver	equ	10
+;
+bdos	equ	5
+fcb	equ	05ch
+defdma	equ	080h
+;
+; DOS+/CPM calls
+cout	equ	2
+tstr	equ	9
+dosver	equ	12
+;
+; Following for DOS+/CPM3 only
+setime	equ	104
+getime	equ	105
+getinfo	equ	210;		Only on DOS+
+;
+; getinfo sub-calls
+getbase	equ	0
+;
+; Ascii controls
+cr	equ	0dh
+lf	equ	0ah
+;
+;	-------------
+;
+begin:	lxi	h,0
+	shld	tod;		mark no time by default
+	dad	sp;		so GO can re-execute correctly
+	lxi	sp,stack
+	push	h;		save entry sp
+	xra	a
+	sta	cpm3;		set CP/M-3 flag true
+	lda	fcb+1
+	cpi	'?'
+	jz	help;		'TIME ?' entered
+	mvi	c,dosver
+	call	bdos
+	inr	h
+	dcr	h
+	jnz	badver;		MPM or something
+	cpi	24h
+	jnc	bgn2;		Dos+ 2.4 up, or CPM 3, ok
+	cpi	22h
+	jc	badver;		1.4 or CPM2.0/1, no timers
+	mvi	c,getinfo
+	mvi	e,getbase
+	call	bdos;		Check for DOS+ in compatibility mode
+	ora	h
+;	jz	badver;		If base returned, all is well
+;	"	"
+	jnz	bgn2;		If base returned, all is well
+	mvi	a,-1;		set CP/M-3 flag untrue
+	sta	cpm3
+; Running DOS+ or CPM3 if here.  Check parameters
+bgn2:	lxi	h,defdma
+	mov	a,m
+	inx	h
+	push	h
+	add	l
+	mov	l,a
+	adc	h
+	sub	l
+	mov	h,a
+	mvi	m,0;		mark line end
+	pop	h
+	call	skipbk
+	jc	show;		no chars, show time
+;	"	"
+; try for valid input time string
+	call	getn
+	jc	badnum;		get year
+	cpi	'/'
+	jnz	badnum
+	inx	h
+	push	d;		save year
+	call	getn;		get month
+	jc	badnum
+	sui	'/'
+	ora	d
+	jnz	badnum;		too large or bad terminator
+	ora	e
+	jz	badnum
+	cpi	13
+	jnc	badnum
+	push	d;		save month
+	inx	h
+	call	getn;		get day
+	sui	' '
+	ora	d
+	jnz	badnum;		too large or bad terminator
+	ora	e
+	jz	badnum
+	cpi	32
+	jnc	badnum
+	pop	b
+	mov	d,c;		d := month
+	push	d;		save month/day
+	call	skipbk;		past terminating blanks to time
+	call	getn
+	jc	badnum
+	sui	':'
+	ora	d
+	jnz	badnum
+	push	d;		save hour
+	inx	h
+	call	getn;		get minute
+	jc	badnum
+	mov	a,d
+	ora	a
+	jnz	badnum;		too big
+	pop	b
+	mov	d,c;		de is hr/min
+	xchg;			to hl
+	pop	d;		month/day
+	pop	b;		year
+	push	h;		save hr/min
+	lxi	h,-1900
+	dad	b
+	jnc	set2;		user did not enter the 19
+	mov	b,h
+	mov	c,l
+set2:	mov	a,b
+	ora	a
+	jnz	badnum;		date too large
+	call	cnvt;		to dr format in hl
+	shld	tod
+	pop	b
+	mov	a,b
+	cpi	24
+	jnc	badnum
+	call	binbcd
+	sta	tod+2;		hour
+	mov	a,c
+	cpi	60
+	jnc	badnum
+	call	binbcd
+	sta	tod+3;		minute
+
+	lda	cpm3;		see if dos+/cpm3 are running
+	inr	a
+	jnz	st3;		if so, work with BDOS
+	lxi	d,0040h;	if not; use time array in 0040h
+	lxi 	h,tod;		as the data destination
+	lxi	b,5
+	db 	0EDh, 0B0h;	ldir
+	jmp	exit
+
+st3:	lxi	d,tod
+	mvi	c,setime
+	call	bdos
+	jmp	exit
+;
+; display current time
+show:	lda	cpm3;		see if dos+/cpm3 are running
+	inr	a
+	jnz	gt3;		if so, work with BDOS
+	lxi	d,tod;		if not; use time array in 0040h
+	lxi 	h,0040h;		as the data source
+	lxi	b,5
+	db 	0EDh, 0B0h;	ldir
+	jmp	gtnxt
+gt3:	mvi	c,getime
+	lxi	d,tod
+	call	bdos
+	sta	tod+4;		save seconds value
+gtnxt:	lhld	tod
+	lxi	d,notmsg
+	mov	a,h
+	ora	l
+	jz	msgxit;		no time
+	call	date
+	call	blk
+	lhld	tod+2
+	call	time
+	mvi	a,':'
+	call	couta
+	lda	tod+4
+	call	t2hx
+	jmp	exit
+;
+; illegal numeric
+badnum:	lxi	d,syntax
+	jmp	msgxit
+;
+; Bad DOS version message and exit
+badver:	lxi	d,vermsg
+	jmp	msgxit
+;
+; help message and exit
+help:	lxi	d,hlpmsg
+;	"	"
+; message de^ and exit
+msgxit:	mvi	c,tstr
+	call	bdos
+;	"	"
+exit:	lhld	stack-2;	allows aborts from down in stack
+	sphl
+	ret
+;
+;	-------------
+;
+; skip blanks, string hl^. Exit with a=hl^ non-blank, cy for eol.
+skipbk:	mov	a,m
+	cpi	' '
+	rc;			control or 0, end of line
+	rnz;			non-blank
+	inx	h
+	jmp	skipbk
+;
+; check a for numeric char, carry if not
+qnum:	cpi	'0'
+	rc
+	cpi	'9'+1
+	cmc
+	ret
+;
+; get numeric value from string hl^ to de. Exit hl^ is terminator
+; a,f,b,c,d,e,h,l
+getn:	lxi	d,0
+	mov	a,m
+	call	qnum
+	rc;			invalid number
+getn1:	ani	0fh
+	xchg
+	mov	b,h
+	mov	c,l
+	dad	h;		2*
+	dad	h;		4*
+	dad	b;		5*
+	dad	h;		10*
+	call	index;		incorporate digit
+	xchg
+	inx	h
+	mov	a,m
+	call	qnum
+	jnc	getn1
+	cmc
+	ret
+	
+;
+; show date in hl
+; a,f,b,c,d,e,h,l
+date:	mov	a,h
+	ora	l
+	rz
+	call	day;		show day of week
+	call	drtodate
+	mov	a,c
+	call	t2dec
+	mov	a,d
+	call	date1
+	mov	a,e
+date1:	push	psw
+	mvi	a,'/'
+	call	couta
+	pop	psw
+;	"	"
+; show a as 2 dig. decimal no.
+; a,f
+t2dec:	call	binbcd
+	jmp	t2hx
+;
+; show time in hl (BCD)
+; a,f
+time:	mov	a,l
+	call	t2hx
+	mvi	a,':'
+	call	couta
+	mov	a,h
+;	"	"
+t2hx:	push	psw
+	rlc
+	rlc
+	rlc
+	rlc
+	call	t1hx
+	pop	psw
+;	"	"
+t1hx:	ani	0fh
+	adi	090h
+	daa
+	aci	040h
+	daa
+	jmp	couta
+;
+; Convert (a) in binary to BCD. No overflow check. Return z flag.
+; a,f
+binbcd:	push	b
+	lxi	b,0affh;		b := 10, c := -1
+bbcd1:	inr c !	sub b
+	jnc	bbcd1;			divide by 10
+	add	b;			correct remainder
+	mov	b,a
+	mov	a,c;			quotient
+	add a !	add a !	add a !	add a;	* 16. Cy for o'flow
+	add	b;			+ remainder. clears cy
+	pop	b
+	ret
+;
+; show day of week. hl = drdate (days since 77/12/31 = Sat.)
+; a,f,d,e
+day:	push	h
+	lxi	d,-7
+	call	divd
+	dad	h
+	dad	h
+	lxi	d,dtbl
+	dad	d
+	mvi	d,4
+day1:	mov	a,m
+	inx	h
+	call	couta
+	dcr	d
+	jnz	day1
+	call	blk
+	pop	h
+	ret
+;
+dtbl:	db	'Sat.Sun.Mon.Tue.Wed.Thu.Fri.'
+;
+; PROCEDURE drtodate(thedate : integer; VAR yr, mo, day : integer);
+; (* 1 Jan 1978 corresponds to Digital Research date = 1  *)
+; (* BUG - cannot handle negative values for dates > 2067 *)
+;
+;   VAR
+;     i, y1        : integer;
+;     dayspermonth : ARRAY[1..12] OF 1..31;
+;
+;   BEGIN (* drtodate *)
+;   FOR i := 1 TO 12 DO dayspermonth[i] := 31;
+;   dayspermonth[4] := 30; dayspermonth[6] := 30;
+;   dayspermonth[9] := 30; dayspermonth[11] := 30;
+;   IF thedate > 731 THEN BEGIN (* avoid overflows *)
+;     yr := 1980; thedate := thedate - 731; END
+;   ELSE BEGIN
+;     thedate := thedate + 730; yr := 1976; END;
+;   (* 0..365=y0; 366..730=y1; 731..1095=y2; 1096..1460=y3 *)
+;   i := thedate DIV 1461; thedate := thedate MOD 1461;
+;   y1 := (thedate-1) DIV 365; yr := yr + y1 + 4*i;
+;   IF y1 = 0 THEN (* leap year *) dayspermonth[2] := 29
+;   ELSE BEGIN
+;     thedate := thedate - 1; (* 366 -> 365 -> 1 Jan *)
+;     dayspermonth[2] := 28; END;
+;   day := thedate - 365*y1 + 1; mo := 1;
+;   WHILE day > dayspermonth[mo] DO BEGIN
+;     day := day - dayspermonth[mo];
+;     mo := succ(mo); END;
+;   END; (* drtodate *)
+;
+; Incorporate (a) in year (c), overflows to century (b)
+addyr:	add	c
+	jnc	addyr1;		<256
+	sui	100;		256..276
+	jmp	addyr2
+addyr1:	dcr	b
+addyr2:	inr	b
+	sui	100
+	jnc	addyr2
+	adi	100;		b = century, c = year MOD 100
+	mov	c,a
+	ret
+;
+; divide hl by -de, rdr to hl, quotient to a
+; a,f,d,e,h,l
+divd:	mvi	a,-1
+divd1:	inr	a
+	dad	d
+	jc	divd1
+	push	psw
+	mov	a,l
+	sub	e
+	mov	l,a
+	mov	a,h
+	sbb	d
+	mov	h,a
+	pop	psw
+	ret
+;
+; days per month, except leap year. Leading dummy 0 for month 0
+mtbl:	db	0,31,28,31,30,31,30,31,31,30,31,30,31
+;
+; Input  : hl = drdate (days since 78/1/1, 1 = 78/1/1)
+; Output : b, c, d, e = cent, year, month, day (binary)
+; a,f,b,c,d,e,h,l
+drtodate:
+	lxi	b,256*19 + 76;	731 represents 80/1/1
+	push	h
+	lxi	d,-731
+	dad	d
+	pop	h
+	jnc	drd1;		before 80/1/1
+	dad	d;		on or after 80/1/1
+	mvi	c,80;		now 0 represents 80/1/1
+	jmp	drd2
+drd1:	lxi	d,730
+	dad	d;		now 731 represents 78/1/1
+drd2:	lxi	d,-1461
+	call	divd;		get quad years since base (in c)
+	add	a
+	add	a;		4 * i.  180 max
+	call	addyr;		yr := yr + 4 * i
+	mov	a,h
+	ora	l
+	jz	drd3;		At Jan 1, leap year
+	dcx	h;		thedate := thedate - 1
+	lxi	d,-365;		so year thresholds come out right
+	call	divd;		thedate := thedate MOD 365
+	push	psw;		y1 := a := thedate DIV 365
+	call	addyr;		yr := yr+y1
+	pop	psw;		0 for leapyear
+	jnz	drd5;		not a leap year
+	inx	h;		thedate := thedate+1 (1..365)
+drd3:	mvi	a,29
+	sta	mtbl+2
+drd5:	xchg
+	lxi	h,mtbl
+	push	b
+	mvi	b,0;		mo := 0
+drd6:	inx	h;		WHILE
+	inr	b;		 day := day-dayspermo[mo := mo+1] >= 0
+	mov	a,e;			DO (* again *)
+	sub	m
+	mov	e,a
+	mov	a,d
+	sbi	0
+	mov	d,a
+	jnc	drd6
+	mov	a,e;		day := day+dayspermo[mo]
+	add	m
+	mov	e,a;		range 0..pred(dayspermo[mo])
+	adc	d
+	sub	e
+	mov	d,a
+	xchg
+	mov	d,b
+	pop	b
+	mov	e,l
+	inr	e;		make result 1 based
+	mvi	a,28
+	sta	mtbl+2;		restore month table
+	ret
+;
+; Input: b, c, d, e = cent, year, month, day (binary)
+; Output: hl = drdate (days since 78/1/1, 1=78/1/1)
+;	  hl = 0 for some invalid dates, including 1977.
+; Century = ignored, assumed 1900 base + year.
+; Operates 1978 Jan. 1 to 2155 Dec. 31 inclusive.
+; a,f,b,c,d,e,h,l
+cnvt:	lxi	h,0;		default for errors
+	mov a,c ! sui 78;	
+	rc;			< 1978 illegal, return 0
+cnvt2:	adi 2 !	mov b,a;	years since 1976 makes leaps easy
+	ani 3 !	mov c,a;	yr := year mod 4
+	mov a,b ! sub c
+	rrc ! rrc ! mov b,a;	i := year div 4
+	mov a,d ! ora a;	month
+	rz;			invalid, return 0
+	mov a,e ! ora a;	day
+	rz;			invalid, return 0
+	lxi	h,-730-1461-365;	76/1/1 & pre-corrections
+	call	index;		drdate := day + drdate
+	push	d
+	lxi	d,1461;		4 years of days
+	inr	b;		allow for zero input, pre-corrected
+cnvt3:	dad d !	dcr b
+	jnz	cnvt3;		drdate := day - 730 + (i * 1461) - 365
+	pop	d
+	mov	a,c;		yr
+	ora	a
+	mov	a,d;		month
+	jnz	cnvt4;		IF (yr = 0) AND (month < 3) THEN
+	cpi 3 !	jnc cnvt4;	  drdate := drdate-1; (2000 is leapyr)
+	dcx	h;		(leap year correction)
+cnvt4:	mov	b,c;		yr, 0..3
+	lxi	d,365;		1 year of days
+	inr	b;		allow for zero, pre-corrected
+cnvt5:	dad d !	dcr b
+	jnz	cnvt5;		drdate := drdate + 365 * (yr+1)
+	mov	b,a;		month
+	lxi	d,mtbl
+cnvt6:	ldax	d;		for i := 1 to month-1 DO
+	call	index;	          drdate := drdate + dpermo[i];
+	inx d !	dcr b
+	jnz	cnvt6
+	ret
+;
+; index hl := hl + a (max a = 127)
+; a,f,h,l
+index:	add	l
+	mov	l,a
+	rnc
+	inr	h
+	ret
+;
+; one blank to console
+; a,f
+blk:	mvi	a,' '
+;	"	"
+; console output from (a)
+; a,f
+couta:	push	b
+	push	d
+	push	h
+	mov	e,a
+	mvi	c,cout
+	call	bdos
+	pop	h
+	pop	d
+	pop	b
+	ret
+;
+syntax:	db	'Bad time specification',cr,lf,cr,lf
+hlpmsg:	db	'TIME v. '
+	db	ver / 10 + '0', '.', ver MOD 10 + '0'
+	db	' (c) 1986 C.B. Falconer',cr,lf,cr,lf
+	db	'Usage:  (ISO standard format)',cr,lf
+	db	' TIME<cr>             (to show current time)',cr,lf
+	db	' TIME yy/mm/dd hh:mm  (to set time)',cr,lf
+	db	' TIME ?               (for help)',cr,lf,cr,lf
+	db	'ex: TIME 86/11/15 17:12   (uses 24hr time)$'
+vermsg:	db	'Needs DOS+ or CPM3$'
+notmsg:	db	'No time set$'
+;
+tod:	ds	5;		time string
+cpm3	ds	1;		version flag -1 = cpm 2.2
+;
+	ds	64
+stack:
+	end
+=
