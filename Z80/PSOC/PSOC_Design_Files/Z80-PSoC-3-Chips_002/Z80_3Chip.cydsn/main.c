@@ -43,7 +43,7 @@ int main(void)
 	
 	USBUART_Start(USBFS_DEVICE, USBUART_5V_OPERATION);  // Start USBFS operation with 5-V operation.
 
-    // Only want to do a single I2C_Start()
+    // Only want to do a single I2C_Start() using nested #ifdef
 	#ifdef USING_FRONT_PANEL
 		I2C_Start();
 	#else       // Using expansion mcp23017 but not using front panel
@@ -55,11 +55,9 @@ int main(void)
 	I2CINT_n_SetDriveMode(I2CINT_n_DM_RES_UP);          // Pull-up the I2C interrupt line
 	#ifdef USING_FRONT_PANEL
         I2CINT_ISR_Start();
-//        I2CINT_ISR_Disable();
 	#else       // Using expansion mcp23017 but not using front panel
 		#ifdef USING_EXP_MCCP23017
         I2CINT_ISR_Start();
-        I2CINT_ISR_Disable();
 		#endif
 	#endif
         
@@ -70,7 +68,6 @@ int main(void)
 	CyGlobalIntEnable;          /* Enable global interrupts. */
     
     init_Z80_RTC();
-    
     init_DAC();
 	
 	// Do Power On Self Tests (POST)
@@ -82,10 +79,10 @@ int main(void)
         
     // Memory Map
     #ifdef USING_MEM_MAP_1
-	    init_mem_map_1();           // Set up the address mapper
+	    init_mem_map_1();       // Set up the address mapper
     #endif
     
-    // Load SRAM with BIOS image
+    // Load SRAM with BIOS and/or language image
 	loadSRAM();
 	
 	// Front Panel Initialization
@@ -153,10 +150,16 @@ int main(void)
 			{
 				HandleZ80IO();
 			}
-            // Work the I2C Interrupt
-            I2CINT_ISR_Enable();
-            //CyDelayUs(2);
-            I2CINT_ISR_Disable();
+            // Window for the I2C Interrupt
+            #ifdef USING_FRONT_PANEL
+                I2CINT_ISR_Enable();
+                I2CINT_ISR_Disable();
+            #else
+            	#ifdef USING_EXP_MCCP23017  // The expansion MCP23017 has its reset tied to the CPU reset so the Z80 has to be running
+                    I2CINT_ISR_Enable();
+                    I2CINT_ISR_Disable();
+        		#endif
+		    #endif
 		}
 	}
 	else                    // Z80 is not running (EXFP front panel switch pushed)
@@ -238,10 +241,16 @@ int main(void)
     				}
     			}
 			}
-            // Work the I2C Interrupt
-            I2CINT_ISR_Enable();
-            CyDelayUs(2);
-            I2CINT_ISR_Disable();
+            // Window for the I2C Interrupt
+            #ifdef USING_FRONT_PANEL
+                I2CINT_ISR_Enable();
+                I2CINT_ISR_Disable();
+            #else
+            	#ifdef USING_EXP_MCCP23017  // The expansion MCP23017 has its reset tied to the CPU reset so the Z80 has to be running
+                    I2CINT_ISR_Enable();
+                    I2CINT_ISR_Disable();
+        		#endif
+		    #endif
 		}
 	}
 }
