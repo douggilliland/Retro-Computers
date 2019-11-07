@@ -43,24 +43,13 @@ int main(void)
 	
 	USBUART_Start(USBFS_DEVICE, USBUART_5V_OPERATION);  // Start USBFS operation with 5-V operation.
 
-    // Only want to do a single I2C_Start() using nested #ifdef
-	#ifdef USING_FRONT_PANEL
+    // I2C_Start() for External MPC23017 or Front Panel present
+	#ifdef USING_MCP23017
 		I2C_Start();
-	#else       // Using expansion mcp23017 but not using front panel
-		#ifdef USING_EXP_MCCP23017
-		I2C_Start();
-		#endif
+    	I2CINT_n_SetDriveMode(I2CINT_n_DM_RES_UP);          // Pull-up the I2C interrupt line
+        I2CINT_ISR_Start();
 	#endif
     
-	I2CINT_n_SetDriveMode(I2CINT_n_DM_RES_UP);          // Pull-up the I2C interrupt line
-	#ifdef USING_FRONT_PANEL
-        I2CINT_ISR_Start();
-	#else       // Using expansion mcp23017 but not using front panel
-		#ifdef USING_EXP_MCCP23017
-        I2CINT_ISR_Start();
-		#endif
-	#endif
-        
 	#ifdef USING_SDCARD
 		SDInit();
 	#endif
@@ -151,14 +140,9 @@ int main(void)
 				HandleZ80IO();
 			}
             // Window for the I2C Interrupt
-            #ifdef USING_FRONT_PANEL
+            #ifdef USING_MCP23017
                 I2CINT_ISR_Enable();
                 I2CINT_ISR_Disable();
-            #else
-            	#ifdef USING_EXP_MCCP23017  // The expansion MCP23017 has its reset tied to the CPU reset so the Z80 has to be running
-                    I2CINT_ISR_Enable();
-                    I2CINT_ISR_Disable();
-        		#endif
 		    #endif
 		}
 	}
@@ -242,14 +226,9 @@ int main(void)
     			}
 			}
             // Window for the I2C Interrupt
-            #ifdef USING_FRONT_PANEL
+            #ifdef USING_MCP23017
                 I2CINT_ISR_Enable();
                 I2CINT_ISR_Disable();
-            #else
-            	#ifdef USING_EXP_MCCP23017  // The expansion MCP23017 has its reset tied to the CPU reset so the Z80 has to be running
-                    I2CINT_ISR_Enable();
-                    I2CINT_ISR_Disable();
-        		#endif
 		    #endif
 		}
 	}

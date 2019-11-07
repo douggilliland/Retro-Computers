@@ -149,6 +149,16 @@
     #endif
 #endif
 
+#undef USING_MCP23017   // Set if either the Front Panel or Expansion MCP23017 is used
+#ifdef USING_FRONT_PANEL
+    #define USING_MCP23017
+    #else
+    #ifdef USING_EXP_MCCP23017
+        #define USING_MCP23017
+    #endif
+#endif
+
+
 /* [] END OF FILE */
 
 #endif
