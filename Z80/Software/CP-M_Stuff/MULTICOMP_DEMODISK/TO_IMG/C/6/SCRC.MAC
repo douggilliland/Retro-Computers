@@ -1,0 +1,121 @@
+;
+; SYSLIB Module Name:  SCRC
+; Author:  Richard Conn
+; SYSLIB Version Number:  2.3
+; Module Version Number:  1.0
+; Module Entry Points:
+;	CRCCLR		CRCDONE		CRCUPD
+; Module External References:
+;	None
+;
+
+;
+;     	These subroutines will compute and check a true 16-bit
+;	Cyclic Redundancy Code for a message of arbitrary length.
+;
+;	The  use  of this scheme will guarantee detection of all
+;	single and double bit errors, all  errors  with  an  odd
+;	number  of  error bits, all burst errors of length 16 or
+;	less, 99.9969% of all 17-bit error bursts, and  99.9984%
+;	of  all  possible  longer  error bursts.  (Ref: Computer
+;	Networks, Andrew S.  Tanenbaum, Prentiss-Hall, 1981)
+;
+;	These routines are typically used as follows:
+;	  CRC$MAKE:		; ROUTINE TO ESTABLISH CRC VALUE
+;		CALL	CRCCLR	; CLEAR CRC
+;		<loop CALLing CRCUPD>	; ACQUIRE VALUES
+;		CALL	CRCDONE	; GET VALUE
+;		SHLD	CRCVAL	; SAVE VALUE
+;	  CRC$CHECK:		; ROUTINE TO CHECK CRC VALUE
+;		CALL	CRCCLR	; CLEAR CRC
+;		<loop CALLing CRCUPD>	; ACQUIRE VALUES
+;		CALL	CRCDONE	; DONE
+;		XCHG		; VALUE IN DE
+;		LHLD	CRCVAL	; FROM BEFORE
+;		CALL	COMPHD	; COMPARE HL TO DE (SYSLIB ROUTINE)
+;		JNZ	ERROR	; ERROR IF NOT SAME
+;
+
+;
+; CRCCLR - Clear the CRC accumulator
+;	 This routine must be called at the start of each byte stream.
+;
+;	 Input Parameters: None
+;
+;	 Output Parameters: None
+;
+CRCCLR::
+	PUSH	H
+	LXI	H,0	;SET CRC TO ZERO
+	SHLD	CRCVAL
+	POP	H
+	RET
+
+;
+;  BUFFER FOR CRC VALUE
+;
+CRCVAL:	DS	2
+
+;
+; CRCUPD - Update the CRC accumulator
+;	 This routine must be called once for each byte in the
+;	 byte stream for which the CRC is being calculated.
+;
+;	 Input Parameters: A = byte to be included in CRC
+;
+;	 Output Parameters: None
+;
+CRCUPD::
+	PUSH	PSW	;SAVE ALL REGS
+	PUSH	B
+	PUSH	H
+	MVI	B,8	;ROTATE 8 BITS
+	MOV	C,A	;BYTE IN C
+	LHLD	CRCVAL	;HL=OLD CRC VALUE
+UPDLOOP:
+	MOV	A,C	;ROTATE HLC AS A 24-BIT ACC LEFT 1 BIT
+	RLC
+	MOV	C,A
+	MOV	A,L
+	RAL
+	MOV	L,A
+	MOV	A,H
+	RAL
+	MOV	H,A
+	JNC	SKIPIT
+	MOV	A,H		; The generator is X^16 + X^12 + X^5 + 1
+	XRI	10H		; as recommended by CCITT.
+	MOV	H,A		; An alternate generator which is often
+	MOV	A,L		; used in synchronous transmission protocols
+	XRI	21H		; is X^16 + X^15 + X^2 + 1. This may be
+	MOV	L,A		; used by substituting XOR 80H for XOR 10H
+SKIPIT:				; and XOR 05H for XOR 21H in the adjacent code.
+	DCR	B	;COUNT DOWN 8 BITS
+	JNZ	UPDLOOP
+	SHLD	CRCVAL	;SAVE NEW CRC VALUE
+	POP	H	;RESTORE ALL
+	POP	B
+	POP	PSW
+	RET
+;
+; CRCDONE - Complete the CRC calculation
+;	This routine is called after the last byte of the byte stream
+;	has passed thru CRCUPD, and it returns the calculated
+;	CRC bytes, which must be transmitted as the final
+;	two bytes of the message (first H, then L).
+;
+;	 Input Parameters: None
+;
+;	 Output Parameters:  HL = calculated CRC bytes
+;
+CRCDONE::
+	PUSH	PSW	;SAVE A
+	XRA	A	;SEND OUT 2 ZEROES
+	CALL	CRCUPD
+	CALL	CRCUPD
+	LHLD	CRCVAL	;RETURN CRC VALUE IN HL
+	POP	PSW
+	RET
+
+	END
+

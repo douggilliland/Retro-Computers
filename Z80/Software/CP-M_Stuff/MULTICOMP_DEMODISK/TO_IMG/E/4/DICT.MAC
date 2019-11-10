@@ -1,0 +1,268 @@
+;
+;  DICT.MAC - Dictionary Support
+;
+;  FREEZE  'prune  REMEMBER  xdp  prunes  ?protected  name?  BEHEAD
+;  flink  ?chain  CHAIN  (forget)  EMPTY  FORGET  MARKER
+;
+
+;	FREEZE  ( -- )		up @ (initu) (initu2-initu) cmove
+
+	hdr	1,'FREEZE',,1
+freez:	call	docol
+	dw	up,at
+	dw	lit,initu
+	dw	lit,initu2-initu
+	dw	cmove
+	dw	exit
+
+;	'prune			variable 'prune  'prune off
+
+	hdr	x,"'PRUNE",,1
+tprun:	call	docre
+	dw	toppru		; 0=end
+
+;	REMEMBER  ( xt -- )	here 'prune dup @ , ! ,
+
+	hdr	1,'REMEMBER',,1	; add to prunes list
+remem:	call	docol
+	dw	here
+	dw	tprun
+	dw	dupp,at
+	dw	comma		; save old link
+	dw	store		; update new link
+	dw	comma		; xt
+	dw	exit
+
+;	xdp  ( adr -- adr xdp )	dup limit u< if dp else dph then
+
+	hdr	x,'XDP',,1
+xdp:	pop	de
+	push	de
+	ld	hl,limit1
+	ex	de,hl
+	call	cmpu
+	jp	nc,dph
+	jp	dpp
+
+;	prunes  ( -- )		begin 'prune @ dup while dup xdp @ u< 0=
+;				while 2@ 'prune ! execute repeat then drop
+
+	hdr	x,'PRUNES',,1
+pruns:	call	docol
+pruns1:	dw	tprun,at
+	dw	dupp
+	dw	zbran,pruns2
+	dw	dupp
+	dw	xdp,at
+	dw	uless,zequ
+	dw	zbran,pruns2
+	dw	tat
+	dw	tprun,store
+	dw	exec
+	dw	bran,pruns1
+pruns2:	dw	drop
+	dw	exit
+
+;	?protected ( h-addr -- h-addr )  (idph) @ over u> check? and
+;					abort" is protected"
+
+	hdr	x,'?PROTECTED',,1
+qprot:	call	docol
+	dw	lit,idph
+	dw	at
+	dw	over,ugrea
+	dw	chkq,andd
+	dw	pabq
+	dcs	'is protected'
+	dw	exit
+
+;	name? ( "name" -- xt nfa )	bl-word get-context wfind ?defined
+;					?protected
+
+	hdr	x,'NAME?',,1	; find name in context wordlist
+nameq:	call	docol
+	dw	blword
+	dw	getcon
+	dw	wfind,qdef
+	dw	qprot
+	dw	exit
+
+	 if	0
+
+;	BEHEAD  ( "name1" "name2" -- )	name? nip name? nip 2dup u> if swap
+;					then >r n>name get-context begin
+;					dup @ r@ - while @ n>link repeat !
+;					r> drop
+
+	hdr	1,'BEHEAD',,1	; unlink word heads
+behead:	call	docol
+	dw	nameq,nip
+	dw	nameq,nip
+	dw	tdup,ugrea
+	dw	zbran,behead1
+	dw	swap
+behead1:dw	tor
+	dw	ntnam
+	dw	getcon
+behead2:dw	dupp
+	dw	at,rat
+	dw	subb
+	dw	zbran,behead3
+	dw	at,nlnk
+	dw	bran,behead2
+behead3:dw	store
+	dw	fromr,drop
+	dw	exit
+
+	 else
+
+;	flink  ( wid addr -- lfa )	>r begin dup @ r@ - while @ n>link
+;					repeat r> drop
+
+	hdr	x,'FLINK',,1	; find link field containing addr
+flink:	call	docol
+	dw	tor
+flink1:	dw	dupp,at
+	dw	rat,subb
+	dw	zbran,flink2
+	dw	at,nlnk
+	dw	bran,flink1
+flink2:	dw	fromr,drop
+	dw	exit
+
+;	BEHEAD  ( "name1" "name2" -- )	name? nip name? nip 2dup u< if swap
+;					then n>name get-context rot flink !
+
+	hdr	1,'BEHEAD',,1	; unlink word heads
+behead:	call	docol
+	dw	nameq,nip
+	dw	nameq,nip
+	dw	tdup,uless
+	dw	zbran,behead1
+	dw	swap
+behead1:dw	ntnam
+	dw	getcon
+	dw	rot,flink
+	dw	store
+	dw	exit
+
+;	?chain  ( flag -- )		abort" invalid chain"
+
+	hdr	x,'?CHAIN',,1
+qchai:	call	docol
+        dw	pabq
+        dcs	'invalid chain'
+        dw	exit
+
+;	CHAIN   ( "name" -- )		get-current postpone addr @ 2dup =
+;					?chain @ cell- $2001 over h@ - ?chain
+;					swap 0 flink ?protected 2dup u>
+;					?chain h!
+
+	hdr	1,'CHAIN',,1
+chain:	call	docol
+	dw	getcur
+	dw	addr,at
+	dw	tdup,equal	; same wordlist
+	dw	qchai
+	dw	cellm
+	dw	lit,2001h
+	dw	over,at,subb	; not a wordlist
+	dw	qchai
+	dw	swap,zero,flink
+	dw	qprot
+	dw	tdup,ugrea	; forward reference
+	dw	qchai
+	dw	store
+	dw	exit
+
+	 endif
+
+;	(forget)  ( nfa dp -- )	dp ! >r voc-link begin @ dup cell+ @ r@
+;				u< until dup voc-link ! begin dup cell-
+;				dup @ begin dup r@ u< 0= while -alias if
+;				dup name> dp @ umin dp ! then n>name
+;				repeat swap ! @ ?dup 0= until r> dup dp
+;				cell+ ! (idph) @ u< if freeze then prunes
+
+	hdr	x,'(FORGET)',,1
+pforg:	call	docol
+	dw	dpp,store	; starting maximums
+	dw	tor
+	dw	vocl		; trim vocs > nfa
+pforg1:	dw	at
+	dw	dupp,cellp,at
+	dw	rat,uless
+	dw	zbran,pforg1
+	dw	dupp,vocl,store
+pforg2:	dw	dupp,cellm	; scan remaining vocs
+	dw	dupp
+	dw	at
+pforg3:	dw	dupp,rat	; for each word >= nfa
+	dw	uless,zequ
+	dw	zbran,pforg5
+	dw	dalias		; not an alias
+	dw	zbran,pforg4
+	dw	dupp,namef	; get its xt
+	dw	dpp,at
+	dw	umin,dpp,store	; trim dict
+pforg4:	dw	ntnam
+	dw	bran,pforg3
+pforg5:	dw	swap,store
+	dw	at
+	dw	qdup,zequ
+	dw	zbran,pforg2	; until all vocs done
+	dw	fromr
+	dw	dupp,dpp
+	dw	cellp,store
+	dw	lit,idph	; below fence?
+	dw	at,uless
+	dw	zbran,pforg6
+	dw	freez		; fix bootup values
+pforg6:	dw	pruns		; run prunes chain
+	dw	exit
+
+;	EMPTY  ( -- )		forth definitions (idp) 2@ (forget)
+
+	hdr	1,'EMPTY',,1
+empty:	call	docol
+	dw	forth,defin	; switch to a safe vocabulary
+	dw	lit,idp
+	dw	tat
+	dw	pforg
+	dw	exit
+
+;	FORGET	( "name" -- )	get-current context ! name? -alias 0=
+;				abort" is alias" swap limit over u> if
+;				drop dp @ then (forget)
+
+	hdr	1,'FORGET',,1
+forg:	call	docol
+	dw	getcur
+	dw	cont,store
+	dw	nameq
+	dw	dalias,zequ	; alias?
+	dw	pabq
+	dcs	'is alias'
+	dw	swap
+	dw	limit
+	dw	over,uless
+	dw	zbran,forg1
+	dw	drop
+	dw	dpp,at
+forg1:	dw	pforg
+	dw	exit
+
+;	MARKER  ( "name" -- )	sys? system : postpone ; sys !
+
+	hdr	1,'MARKER',,1
+marker:	call	docol
+	dw	sysq
+	dw	system
+	dw	colon
+	dw	semic
+	dw	sys,store
+	dw	exit
+
+;	end
+

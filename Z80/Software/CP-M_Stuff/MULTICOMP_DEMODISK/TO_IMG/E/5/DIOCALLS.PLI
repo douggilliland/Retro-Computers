@@ -1,0 +1,440 @@
+/**************************************************************
+* This PL/I program tests CP/M operating system entry points. * 
+* Note: The file DIOMOD.DCL contains only those declarations  *
+* for the entry points common to both the 8080 and 8086       *
+* implementations.  If you are running under CP/M 2.2 (or     *
+* newer) you also need to include the file DIO80.DCL.  If you *
+* are running under CP/M-86, you also need to include the     *
+* file DIO86.DCL.                                             *
+***************************************************************/
+diotest:
+      procedure options(main);
+
+      %include 'diomod.dcl'; /* and either 'dio80.dcl' 
+                              or 'dio86.dcl' */
+
+      declare 
+         c character(1),
+         v character(254) varying,
+         i fixed;
+
+
+/**********************************
+*                                 *
+*     Fixed Location Tests:       *
+*                                 *
+*     MEMPTR, MEMSIZ, MEMWDS,     *
+*     DFCB0, DFCB1, DBUFF         *
+*                                 *
+**********************************/
+declare 
+   memptrv pointer,
+   memsizv fixed,
+   (dfcb0v, dfcb1v, dbuffv) pointer,
+   command character(127) varying based (dbuffv),
+   1 fcb0 based(dfcb0v),
+     2 drive fixed(7),
+     2 name  character(8),
+     2 type  character(3),
+     2 extnt fixed(7),
+     2 space (19) bit(8),
+     2 cr    fixed(7),
+   memory (0:0) based(memptrv) bit(8);
+   memptrv = memptr();
+   memsizv = memsiz();
+   dfcb0v  = dfcb0();
+   dfcb1v  = dfcb1();
+   dbuffv  = dbuff();
+
+   put edit ('Command Tail: ',command) (a);
+   put edit ('First Default File:',
+             fcb0.name,'.',fcb0.type) (skip,4a);
+   put edit ('dfcb0 ',unspec(dfcb0v),
+             'dfcb1 ',unspec(dfcb1v),
+             'dbuff ',unspec(dbuffv),
+             'memptr',unspec(memptrv),
+             'memsiz',unspec(memsizv),
+              'memwds',memwds())
+            (5(skip,a(7),b4),skip,a(7),f(6));
+   put skip list('Clearing Memory');
+
+/* sample loop to clear memory */
+
+do i = 0 repeat(i+1) while (i^=memsizv-1);
+   memory (i) = '00'b4;
+end;
+
+
+/**********************************
+*                                 *
+*        REBOOT Test              *
+*                                 *
+**********************************/
+put skip list ('Reboot? (Y/N)');
+get list (c);
+if translate(c,'Y','y') = 'Y' then
+   call reboot();
+
+
+/**********************************
+*                                 *
+*       RDCON, WRCON Test         *
+*                                 *
+**********************************/
+put list('Type Input, End with "$" ');
+v = '^m^j';
+do while (substr(v,length(v)) ^= '$');
+   v = v || rdcon();
+end;
+put skip list('You Typed:');
+do i = 1 to length(v);
+   call wrcon(substr(v,i,1));
+end;
+
+
+/**********************************
+*                                 *
+*       RDRDR and WRPUN Test      *
+*                                 *
+**********************************/
+put skip list('Reader to Punch Test?(Y/N)');
+get list (c);
+if translate(c,'Y','y') = 'Y' then
+   do;
+     put skip list('Copying RDR to PUN until ctrl-z');
+     c = ' ';
+     do while (c ^= '^z');
+        c = rdrdr();
+        if c ^= '^z' then
+           call wrpun(c);
+     end;
+   end;
+
+
+/**********************************
+*                                 *
+*            WRLST Test           *
+*                                 *
+**********************************/
+put list('List Output Test?(Y/N)');
+get list(c);
+if translate(c,'Y','y') = 'Y' then
+   do i = 1 to length(v);
+      call wrlst(substr(v,i,1));
+   end;
+
+
+/**********************************
+*                                 *
+*   Direct I/O, CONOUT, CONINP    *
+*                                 *
+**********************************/
+put list ('Direct I/O, Type Line, End with Line Feed');
+c = ' ';
+do while (c ^= '^j');
+   call conout(c);
+   c = coninp();
+end;
+
+
+/**********************************
+*                                 *
+*  Direct I/O, Console Status     *
+*             RDSTAT              *
+*                                 *
+**********************************/
+put skip list('Status Test, Type Character');
+do while (^rdstat());
+end;
+/* clear the character */
+c = coninp();
+
+
+/**********************************
+*                                 *
+*       GETIO, SETIO IObyte       *
+*                                 *
+**********************************/
+declare 
+   iobyte bit(8);
+
+   iobyte = getio();
+   put edit ('IObyte is ',iobyte,', New Value: ') 
+            (skip,a,b4,a);
+   get edit (iobyte) (b4(2));
+   call setio(iobyte);
+
+
+/**********************************
+*                                 *
+*   Buffered Write,  WRSTR Test   *
+*                                 *
+**********************************/
+put list('Buffered Output Test:');
+
+/* "v" was previously filled by RDCON */
+
+call wrstr(addr(v));
+
+
+/**********************************
+*                                 *
+*     Buffered Read RDBUF Test    *
+*                                 *
+**********************************/
+declare 
+   1 inbuff static,
+     2 maxsize bit(8) initial('80'b4),
+     2 inchars character(127) varying;
+
+put skip list('Line Input, Type Line, End With Return');
+put skip;
+call rdbuf(addr(inbuff));
+put skip list('You Typed: ',inchars);
+
+
+/**********************************
+*                                 *
+*      Console BREAK Test         *
+*                                 *
+**********************************/
+put skip list('Console Break Test, Type Character');
+do while(^break());
+end;
+c = rdcon();
+
+
+/**********************************
+*                                 *
+*     Version Number VERS Test    *
+*                                 *
+**********************************/
+declare 
+   version bit(16);
+
+version = vers();
+
+if substr(version,1,8) = '00'b4 then
+   put skip list('CP/M'); 
+else
+   put skip list('MP/M');
+
+put edit(' Version ',substr(version,9,4),'.',substr(version,13,4)) 
+        (a,b4,a,b4);
+
+
+/**********************************
+*                                 *
+*     Disk System RESET Test      *
+*                                 *
+**********************************/
+put skip list('Resetting Disk System');
+call reset();
+
+
+/**********************************
+*                                 *
+*       Disk SELECT Test          *
+*                                 *
+**********************************/
+put skip list('Select Disk # ');
+get list(i);
+call select(i);
+
+/**********************************
+*                                 *
+* Note:  The OPEN, CLOSE, SEAR,   *
+*        SEARN, DELETE, RDSEQ,    *
+*        WRSEQ, MAKE, and RENAME  *
+*        functions are tested in  *
+*        the DIOCOPY program.     *
+*                                 *
+**********************************/
+
+/**********************************
+*                                 *
+*         LOGVEC and CURDSK       *
+*                                 *
+**********************************/
+put skip list ('Login Vector',logvec(),
+              'Current Disk',curdsk());
+
+/**********************************
+*                                 *
+* See DIOCOPY for SETDMA Function *
+*                                 *
+**********************************/
+
+/**********************************
+*                                 *
+*  Allocate Vector ALLVEC Test    *
+*                                 *
+*  Note: This test contains two   *
+*  different versions; one for    *
+*  8080 code, and another for     *
+*  8086 code.  Before compiling   *
+*  you must comment out the       *
+*  version you don't want to use. *
+*                                 *
+**********************************/
+
+/*  8080 version  
+    
+declare 
+   alloc (0:30) bit(8) based (allvec()),
+   allvecp pointer;
+
+allvecp = allvec();
+put edit('Alloc Vector at ',unspec(allvecp),':',
+        (alloc(i) do i=0 to 30))
+        (skip,a,b4,a,254(skip,4(b,x(1))));       */
+
+
+/*  8086 version
+
+declare
+   alloc (0:30) bit(8),
+   allvecp(2) pointer;
+
+call allvec(allvecp);
+call movgtl(31,allvecp,addr(alloc));
+put edit('Alloc Vector at offset ', unspec(allvecp(1)),
+         ', segment ',unspec(allvecp(2)),':',
+        (alloc(i) do i=0 to 30))
+        (skip,a,b4,a,b4,a,254(skip,4(b,x(1))));     */
+
+
+/**********************************
+*                                 *
+*  Note:  the following functions *
+*  apply to version 2.0 or newer. *
+*                                 *
+**********************************/
+
+/**********************************
+*                                 *
+*           WPDISK Test           *
+*                                 *
+**********************************/
+put skip list('Write Protect Disk?(Y/N)');
+get list(c);
+if translate(c,'Y','y') = 'Y' then
+   call wpdisk();
+
+/**********************************
+*                                 *
+*          ROVEC Test             *
+*                                 *
+**********************************/
+put skip list('Read/Only Vector is',rovec());
+
+/**********************************
+*                                 *
+*  Disk Parameter Block Decoding  *
+*          Using GETDPB           *
+*                                 *
+*  Note: This test contains two   *
+*  different versions; one for    *
+*  8080 code, and another for     *
+*  8086 code.  Before compiling   *
+*  you must comment out the       *
+*  version you don't want to use. *
+*                                 *
+**********************************/
+
+/*  8080 version
+
+declare 
+   dpbp pointer,
+   1 dpb based (dpbp),
+     2 spt fixed(15),
+     2 bsh fixed(7),
+     2 blm bit(8),
+     2 exm bit(8),
+     2 dsm bit(16),
+     2 drm bit(16),
+     2 al0 bit(8),
+     2 al1 bit(8),
+     2 cks bit(16),
+     2 off fixed(15);
+
+dpbp = getdpb();
+put edit('Disk Parameter Block:',
+         'spt',spt,'bsh',bsh,'blm',blm,
+         'exm',exm,'dsm',dsm,'drm',drm,
+         'al0',al0,'al1',al1,'cks',cks,
+         'off',off)
+        (skip,a,2(skip,a(4),f(6)),4(skip,a(4),b4),
+         skip,2(a(4),b,x(1)),skip,a(4),b4,
+         skip,a(4),f(6));                          */
+
+
+/*  8086 version
+
+declare 
+   dpbp(2) pointer, 
+   1 dpb,
+     2 spt fixed(15),
+     2 bsh fixed(7),
+     2 blm bit(8),
+     2 exm bit(8),
+     2 dsm bit(16),
+     2 drm bit(16),
+     2 al0 bit(8),
+     2 al1 bit(8),
+     2 cks bit(16),
+     2 off fixed(15);
+
+call getdpb(dpbp);
+call movgtl(15,dpbp,addr(dpb));
+put edit('Disk Parameter Block:',
+        'spt',spt,'bsh',bsh,'blm',blm,
+        'exm',exm,'dsm',dsm,'drm',drm,
+        'al0',al0,'al1',al1,'cks',cks,
+        'off',off)
+        (skip,a,2(skip,a(4),f(6)),
+        4(skip,a(4),b4),
+        skip,2(a(4),b,x(1)),
+        skip,a(4),b4,
+        skip,a(4),f(6));                  */
+
+            
+/**********************************
+*                                 *
+*      Test Get/Set user Code     *
+*          GETUSR, SETUSR         *
+*                                 *
+**********************************/
+put skip list ('User is',getusr(),', New User:');
+get list(i);
+call setusr(i);
+
+/**********************************
+*                                 *
+*         FILSIZ, SETREC,         *
+*     RDRAN, WRRAN, WRRANZ are    *
+*        tested in DIORAND        *
+*                                 *
+**********************************/
+
+/**********************************
+*                                 *
+*     Test Drive Reset RESDRV     *
+*      (version 2.2 or newer)     *
+*                                 *
+**********************************/
+declare 
+   drvect bit(16);
+
+put list('Drive Reset Vector:');
+get list(drvect);
+call resdrv(drvect);
+
+/**********************************
+*                                 *
+*                                 *
+**********************************/
+
+end diotest;
+
+

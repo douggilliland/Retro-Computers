@@ -1,0 +1,210 @@
+	TITLE	BBCDIST.Z80 (C) R.T.RUSSELL 1982
+;
+;BBC BASIC (Z80) - CP/M VERSION 2.30 & 3.00
+;(C) COPYRIGHT R.T.RUSSELL, 1982.
+;ALL RIGHTS RESERVED.
+;
+;THIS PROGRAM ALLOWS THE USER TO ADAPT BBC BASIC TO THE
+;PARTICULAR CHARACTERISTICS OF HIS SYSTEM HARDWARE ETC.
+;
+;THE PROGRAM RESIDES AT 100H FOR EASE OF LOADING.
+;*** IT MUST NOT EXCEED 256 BYTES IN TOTAL LENGTH ***
+;
+;PLEASE NOTE THAT A Z80 PROCESSOR AND CP/M VERSION 2.2
+;OR LATER ARE REQUIRED.
+;
+;R.T.RUSSELL, 11-03-1984, 03-05-1989
+;ALTERNATE REGISTERS SAVED FOR BDOS CALL, 04-06-2000
+;
+CPM	EQU	5
+COLD	EQU	200H
+;
+	GLOBAL	CLRSCN
+	GLOBAL	PUTCSR
+	GLOBAL	GETCSR
+	GLOBAL	PUTIME
+	GLOBAL	GETIME
+	GLOBAL	GETKEY
+	GLOBAL	BYE
+;
+	ASEG
+	ORG	100H
+;
+;JUMP TABLE - BASIC makes calls to hardware-dependent
+;features via this table:
+;
+	JP	INIT
+CLRSCN:	JP	CLS		;CLEAR SCREEN
+PUTCSR:	JP	PCSR		;SET CURSOR POSN.
+GETCSR:	JP	GCSR		;READ CURSOR POSN.
+PUTIME:	JP	PTIME		;SET ELAPSED TIME
+GETIME:	JP	GTIME		;READ ELAPSED TIME
+GETKEY:	JP	INKEY		;READ KEY (TIME LIMIT)
+BYE:	JP	REBOOT		;RETURN TO CP/M
+;
+;THE CODE WHICH FOLLOWS IS A SKELETON VERSION SUITABLE
+;FOR ANY CP/M SYSTEM.  IT HAS BEEN CONFIGURED FOR A BASIC
+;ADM3a TERMINAL.
+;
+;BDOS   - Save the IX and IY and alternate registers
+;         before performing a CP/M function call.
+;
+BDOS:	PUSH	IX
+	PUSH	IY
+        EXX
+        PUSH    BC
+        PUSH    DE
+        PUSH    HL
+        EXX
+        EX      AF,AF'
+        PUSH    AF
+        EX      AF,AF'
+	CALL	CPM
+        EX      AF,AF'
+        POP     AF
+        EX      AF,AF'
+        EXX
+        POP     HL
+        POP     DE
+        POP     BC
+        EXX
+	POP	IY
+	POP	IX
+	RET
+;
+;INIT	- Perform hardware initialisation (if any).
+;
+INIT:	LD	A,2
+	INC	A
+	LD	DE,NOTZ80
+	JP	PE,FAIL
+	LD	C,12
+	CALL	BDOS
+	OR	A
+	LD	DE,NOTV2
+	JP	NZ,COLD
+FAIL:	LD	C,9
+	CALL	BDOS
+	RST	0
+;
+NOTZ80:	DEFB	'Wrong processor$'
+NOTV2:	DEFB	'Wrong CP/M version$'
+;
+;REBOOT	- Switch off interrupts and return to CP/M
+;
+REBOOT:	RST	0
+;
+;GTIME	- Read elapsed-time clock.
+;  	  Outputs: DEHL = elapsed time (centiseconds)
+; 	  Destroys: A,D,E,H,L,F
+;
+GTIME:	LD	DE,0
+	LD	HL,0
+	RET
+;
+;PTIME	- Load elapsed-time clock.
+;   	  Inputs: DEHL = time to load (centiseconds)
+; 	  Destroys: A,D,E,H,L,F
+;
+PTIME:	RET
+;
+;CLS	- Clear screen.
+;	  (Alter characters to suit your VDU)
+; 	  Destroys: A,D,E,H,L,F
+;
+CLS:	PUSH	BC
+	LD	C,2
+	LD	E,1AH
+	CALL	BDOS
+	;REPEAT PREVIOUS 3 INSTRUCTIONS TO SEND ANOTHER CHAR
+	POP	BC
+	RET
+;
+;INKEY	- Sample keyboard with specified wait.
+;	  This version uses a simple software timing loop.
+;	  Modify to use hardware/interrupt timer if available.
+;   	  Inputs: HL = Time to wait (centiseconds)
+;  	  Outputs: Carry reset indicates time-out.
+;                  If carry set, A = character typed.
+; 	  Destroys: A,D,E,H,L,F
+;
+INKEY:	PUSH	BC
+	PUSH	HL
+	LD	C,6
+	LD	E,0FFH
+	CALL	BDOS		;CONSOLE INPUT
+	POP	HL
+	POP	BC
+	OR	A
+	SCF
+	RET	NZ		;KEY PRESSED
+	OR	H
+	OR	L
+	RET	Z		;TIME-OUT
+	PUSH	BC
+	LD	A,-1
+	LD	BC,1250		;DELAY CONSTANT
+WAIT:	DEC	BC
+	CP	B
+	JP	NZ,WAIT		;WAIT FOR APPROX 10ms
+	POP	BC
+	DEC	HL
+	JR	INKEY
+;
+;PCSR	- Move cursor to specified position.
+;   	  Inputs: DE = horizontal position (LHS=0)
+;                 HL = vertical position (TOP=0)
+; 	  Destroys: A,D,E,H,L,F
+;
+PCSR:	PUSH	DE		;SAVE X & Y FOR LATER
+	PUSH	HL
+	LD	C,2		;SEND ESC=
+	LD	E,1BH
+	CALL	BDOS
+	LD	C,2
+	LD	E,'='
+	CALL	BDOS
+	POP	HL		;GET Y BACK
+	LD	A,L		;ADD OFFSET
+	ADD	A,' '
+	LD	C,2		;AND SEND IT
+	LD	E,A
+	CALL	BDOS
+	POP	DE		;GET X BACK
+	LD	A,E		;ADD OFFSET
+	ADD	A,' '
+	LD	C,2		;AND SEND IT
+	LD	E,A
+	CALL	BDOS
+	RET
+;
+;GCSR	- Return cursor coordinates.
+;   	  Outputs:  DE = X coordinate (POS)
+;                   HL = Y coordinate (VPOS)
+;  	  Destroys: A,D,E,H,L,F
+;
+GCSR:	LD	DE,0
+	LD	HL,0
+	RET
+;
+	IF	$ GT 1F4H
+	ERROR	'INSUFFICIENT SPACE'
+	ENDIF
+;
+	ORG	1F4H
+;
+	DEFB	80		;WIDTH
+	DEFB	'E' AND 1FH	;CURSOR UP
+	DEFB	'X' AND 1FH	;CURSOR DOWN
+	DEFB	'A' AND 1FH	;START OF LINE
+	DEFB	'F' AND 1FH	;END OF LINE
+	DEFB	'T' AND 1FH	;DELETE TO END OF LINE
+	DEFB	7FH		;BACKSPACE & DELETE
+	DEFB	'U' AND 1FH	;CANCEL LINE
+	DEFB	'S' AND 1FH	;CURSOR LEFT
+	DEFB	'D' AND 1FH	;CURSOR RIGHT
+	DEFB	'G' AND 1FH	;DELETE CHARACTER
+	DEFB	'V' AND 1FH	;INSERT CHARACTER
+;
+FIN:	END
+

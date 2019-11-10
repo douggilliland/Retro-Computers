@@ -1,0 +1,245 @@
+;
+;  PROGRAM:  SYSTEST4
+;  AUTHOR:  Richard Conn
+;  PURPOSE:  To allow the user to input a list of text elements and then sort
+;		that list in alphabetical order
+;  NOTE:  This program demonstrates the use of SYSLIB and its Sort Routines
+;
+
+;
+;  External Routines
+;
+	ext	ssbinit	; Initialize Sort Specification Block (SSB)
+	ext	sort	; SORT Routine
+	ext	crlf	; New Line
+	ext	cin	; Char In
+	ext	caps	; Capitalize char
+	ext	print	; Print string
+	ext	bbline	; Input Line Editor
+	ext	cout	; Print Char
+	ext	codend	; End of code/beginning of scratch buffer
+
+;
+;  Equates
+;
+cr	equ	0dh
+lf	equ	0ah
+
+;
+;  Start of Program
+;
+	jmp	go
+done:
+	ret		; placed here for testing purposes
+
+;
+;  First we have to use the routine CODEND to determine where the first
+;  free byte in the scratch data area which follows the program is.
+;
+go:
+	call	print
+	db	'SYSTEST4 -- Sort Demonstration',cr,lf,0
+go1:
+	call	codend	; get address of end of code
+	shld	start	; save address of first byte of first record
+	xchg		; ... in DE
+;
+;  I will use BC to contain a count of the number of records entered
+;  and DE to point to the next location in memory to store the next record.
+;
+	lxi	b,0	; set record count
+
+;
+;  Prompt user for input and get a line of text from him.
+;
+loop:
+	call	print
+	db	cr,lf,'Entry (<CR>=Done)? ',0
+	xra	a	; do not capitalize input line
+	call	bbline	; get line from user
+	ora	a	; A=char count=0 if done (just <CR> typed)
+	jz	sort1	; do sort if done
+	inx	b	; incr record count
+	push	b	; save record count
+	mvi	b,40	; copy user input into next record (pted to by DE)
+
+;
+;  This loop copies the user's string, which was input by BBLINE and pointed
+;  to by HL, into the next record position, which is pointed to by DE.
+;
+lp1:
+	mov	a,m	; get byte
+	ora	a	; done if zero
+	jz	lp2
+	stax	d	; put byte
+	inx	h	; pt to next
+	inx	d
+	dcr	b	; count down
+	jmp	lp1
+
+;
+;  This loop fills the rest of the record with spaces.  This is not
+;  a very good program in the sense that it does not do any error checking
+;  to see if the user typed more than 40 chars, but it is OK for this demo.
+;
+lp2:
+	mvi	a,' '	; store <SP>
+	stax	d	; put byte
+	inx	d	; pt to next
+	dcr	b	; count down
+	jnz	lp2
+
+;
+;  Now we get our record count back and continue the program.
+;
+	pop	b	; get rec count
+	jmp	loop	; continue until done
+
+;
+;  The user has typed an empty line, and the number of records is in BC.
+;
+sort1:
+
+;
+;  Set up record count field of SSB
+;
+	mov	h,b	; save record count
+	mov	l,c
+	shld	recnt	; save record count field of Sort Specification Block
+
+;
+;  Test for no records and abort if so
+;
+	mov	a,h	; any records?
+	ora	l
+	jnz	sort2
+	call	print
+	db	cr,lf,'No Records -- Aborting Sort',0
+	ret		; Return to OS
+
+;
+;  Set up record size field of SSB
+;
+sort2:
+	lxi	h,40	; 40 bytes/record
+	shld	recsiz	; save record size field of Sort Spec Block (SSB)
+
+;
+;  Set up compare routine address field of SSB
+;
+	lxi	h,comp	; address of compare routine
+	shld	cmpadr	; save compare address in proper field of SSB
+
+;
+;  I shall now use SSBINIT to set up the ORDER buffer and check to see that
+;  it does not overflow the TPA.  SSBINIT will also set FIRSTP to the byte
+;  after the order buffer, but I will discard this and reset FIRSTP to point
+;  to the first byte of my first record.
+;
+	xchg		; HL pts to next available entry
+	lxi	d,ssb	; Pt to SSB
+	call	ssbinit	; initialize the SSB FIRSTP and ORDER buffers
+	lhld	start	; set start address field of SSB since ORDER buffer
+	shld	firstp	;   is located AFTER the FIRSTP buffer
+
+;
+;  Set the flag to tell SORT to use pointers to do the sort.
+;
+	mvi	a,0ffh	; non-zero
+	sta	sflag	; set flag in SSB
+
+;
+;  The Sort Specification Block (SSB) is now properly loaded, so let's sort!
+;
+	call	print
+	db	cr,lf,'Starting Sort --',cr,lf,0
+	lxi	d,ssb	; pt to ssb
+	call	sort	; sort it
+
+;
+;  Buffer is now sorted -- print out results
+;
+	call	print
+	db	cr,lf,'Buffer After Sort --',cr,lf,0
+	call	prbuf
+
+;
+;  Prompt the user to continue
+;
+	call	print
+	db	cr,lf,'Do you wish to run this test again (Y/N)? ',0
+	call	cin
+	call	caps
+	call	cout
+	call	crlf	; new line
+	cpi	'N'
+	jnz	go	; rerun if not No
+	jmp	done
+
+;
+;  Print the contents of the buffer containing all loaded records
+;
+prbuf:
+	lhld	recnt	; get record count
+	xchg		; ... in DE
+	lhld	firstp	; pt to address of first record
+prloop:
+	call	crlf	; new line
+	mvi	b,40	; print 40 chars
+prl1:
+	mov	a,m	; get char
+	inx	h	; pt to next
+	call	cout	; print char
+	dcr	b	; count down chars
+	jnz	prl1
+	dcx	d	; count recs
+	mov	a,d
+	ora	e
+	jnz	prloop
+	ret
+
+;
+;  Compare Routine for SORT
+;  This is a simple byte-for-byte comparison routine, which exists as
+;  soon as two bytes which are not equal are encountered.
+;
+;  This routine returns with the Zero Flag Set (Z) if the two records
+;  pointed to by HL and DE are equal (each byte the same).  It returns
+;  with the Carry Flag Set (C) if the record pointed to by DE is less
+;  than the record pointed to by HL in ASCII sorting sequence.
+;
+comp:
+	push	h	; save regs
+	push	d
+	push	b
+	mvi	b,40	; 40 bytes max
+cmpl:
+	ldax	d	; get byte
+	cmp	m	; compare
+	jz	cmpok	; continue or fall thru with proper flags set
+cmpd:
+	pop	b	; restore regs -- flag set
+	pop	d
+	pop	h
+	ret
+cmpok:
+	inx	h	; pt to next
+	inx	d
+	dcr	b	; count down
+	jnz	cmpl	; continue
+	jmp	cmpd	; done
+
+;
+; Buffers
+;
+start:	ds	2	; address of 1st record
+ssb:			; this is the Sort Specification Block
+firstp:	ds	2	; Pointer to the first byte of first record
+recnt:	ds	2	; Number of records
+recsiz:	ds	2	; Size of record
+cmpadr:	ds	2	; Address of comparison routine
+order:	ds	2	; Address of pointer table (if used)
+sflag:	ds	2	; Flag telling SORT to use pointers (0=no)
+
+	end
+

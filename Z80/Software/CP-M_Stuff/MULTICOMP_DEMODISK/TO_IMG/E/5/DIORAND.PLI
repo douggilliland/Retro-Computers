@@ -1,0 +1,151 @@
+/******************************************************/
+/* This program tests random access functions.        */
+/******************************************************/
+diorand:
+    procedure options(main);
+
+    %include 'diomod.dcl'; 
+
+    declare 
+       1 database,
+       %include 'fcb.dcl'; 
+
+    declare
+       lower character(26) static initial
+       ('abcdefghijklmnopqrstuvwxyz'),
+       upper character(26) static initial
+       ('ABCDEFGHIJKLMNOPQRSTUVWXYZ');
+
+    declare /* simple variables */
+       i        fixed,
+       fn       character(20),
+       c        character(1),
+       code     fixed(7),
+       mode     fixed(2),
+       zerofill bit(1),
+       version  bit(16);
+
+    declare /* overlays on default buffer */
+       bitbuf(128) bit(8) based(dbuff()),
+       buffer character(127) varying based(dbuff());
+
+    put skip list('Random Access Test');
+
+/* check version number for 2.0 */
+
+    version = vers();
+    if substr(version,9,8) < '20'b4 then
+       do;
+         put skip list('You Need Version 2');
+         stop;
+       end;
+    put skip list('Zero Record Fill?');
+    get list(c);
+    zerofill = (c = 'Y' ! c = 'y') &
+               substr(version,9,8) >= '22'b4;
+
+/* read and process file name */
+
+    put skip list('Data Base Name: ');
+    get list(fn);
+    fn = translate(fn,upper,lower);
+
+/* process optional drive prefix */
+
+    i = index(fn,':');
+    if i = 0 then
+       drive = 0;
+    else
+       if i = 2 then
+          do; /* convert character to drive code */
+            drive = index(upper,substr(fn,1,1));
+            if drive = 0 ! drive > 16 then
+               do;
+                 put skip list('Bad Drive Name');
+                 stop;
+               end;
+            fn = substr(fn,i+1);
+          end;
+
+/* get file name and optional type */
+
+    i = index(fn,'.');
+    if i = 0 then
+       do; /* no file type specified, use .DAT */
+         fname = fn;
+         ftype = 'DAT';
+       end;
+    else
+       do;
+         fname = substr(fn,1,i-1);
+         ftype = substr(fn,i+1);
+       end;
+
+/* clear the extent field */
+    fext = 0;
+
+    if open(addr(database)) = -1 then
+       do;
+         put skip list('Creating New Database');
+         if make(addr(database)) = -1 then
+            do;
+              put skip list('No Directory Space');
+              stop;
+            end;
+       end;
+    else
+       do;
+         call filsiz(addr(database));
+         put skip list('File Size:',rrec,' Records');
+       end;
+
+/* main processing loop */
+
+    do while('1'b);
+       call setrec(addr(database));
+       put skip list('Current Record',rrec);
+       put skip list('Read(0),Write(1),Quit(2)? ');
+       get list(mode);
+       if mode < 2 then
+          do;
+            put skip list('Record Number? ');
+            get list(rrec);
+            rovf = 0;
+          end;
+          if mode = 0 then
+             do;
+               code = rdran(addr(database));
+               if code = 0 then
+                  do;
+                    if bitbuf(1) = '00'b4 then
+                       put skip list('Zero Record');
+                    else
+                       put skip list(buffer);
+                  end;
+               else
+                  put skip list('Return Code',code);
+             end;
+          else
+             if mode = 1 then
+                do;
+                  put skip list('Data: ');
+                  get list(buffer);
+                  if zerofill then
+                     code = wrranz(addr(database));
+                  else
+                     code = wrran (addr(database));
+                  if code ^= 0 then
+                     put skip list('Return Code',code);
+                end;
+             else
+                if mode = 2 then
+                   do;
+                     if close(addr(database)) = -1 then
+                        put skip list('Read/Only');
+                     stop;
+                   end;
+    end;
+
+	end diorand;
+
+

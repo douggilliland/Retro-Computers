@@ -1,0 +1,323 @@
+/************************************************************
+* Direct MP/M Operating System Call Test Program (Cont'd)   *
+* See comments at the beginning of the MPMCALLA.PLI program.*
+************************************************************/
+
+part2: 
+
+procedure; /* external MP/M I/O entry points */
+
+%replace
+   true   by '1'b,
+   false  by '0'b;
+
+%include 'mpmdio.dcl';
+
+declare
+   sysin file,
+   oldpriority fixed(7),
+   v character(254) varying,
+   i fixed;
+
+declare
+   pdadr pointer,
+   1 pd based (pdadr),
+     2 link pointer,
+     2 status fixed(7),
+     2 priority fixed(7),
+     2 stkptr pointer,
+     2 name character(8),
+     2 console fixed(7),
+     2 memseg fixed(7),
+     2 b fixed(15),
+     2 thread pointer,
+     2 dmadr pointer,
+     2 slct bit(8);
+/*   2 dcnt fixed(15),
+     2 searchl fixed(7),
+     2 searcha pointer,
+     2 drvact bit(16),
+     2 registers (20) fixed(7),
+     2 scratch fixed(15);
+*/
+
+pdadr = rpdadr();   /* get current running pd adr */
+oldpriority = pd.priority;
+
+declare 
+   upper character(27) static initial
+         ('ABCDEFGHIJKLMNOPQRSTUVWXYZ '),
+   lower character(27) static initial
+         ('abcdefghijklmnopqrstuvwxyz ');
+
+
+/**********************************
+*                                 *
+* Local procedures used during    *
+*  testing.                       *
+*                                 *
+**********************************/
+
+clresptest:
+
+procedure (stringadr) returns (pointer);
+declare 
+   stringadr pointer,
+   string based (stringadr) character(27);
+
+put edit ('->STRING proc passed: ',string)
+         (skip,a,a(27));
+return (addr (lower));
+end clresptest;
+
+
+/**********************************
+*                                 *
+* Delay Test:                     *
+*                                 *
+**********************************/
+
+put skip(2) list ('Delay Test:');
+put skip list ('->a dot will be printed each second');
+put list ('for ten seconds ');
+do i = 1 to 10;
+   call delay (60);
+   put edit ('.') (a);
+end;
+
+/**********************************
+*                                 *
+* Disptach Test:                  *
+*                                 *
+**********************************/
+
+put skip(2) list ('Dispatch Test:');
+call dsptch();
+put skip list ('->dispatch successful.');
+
+/**********************************
+*                                 *
+* Console Tests:                  *
+*   ATTCON, DETCON already tested *
+*   SETCON not tested             *
+*   ASNCON tested in send CLI cmd *
+*   GETCON                        *
+*                                 *
+**********************************/
+
+put skip(2) list ('Console Test:');
+put edit ('->current console is #',getcon())
+         (skip,a,f(2));
+
+/**********************************
+*                                 *
+* Send CLI Command Test:          *
+*   This example shows how to run *
+*   a program in another memory   *
+*   segment and then get the con- *
+*   sole back to the main program.*
+*   E.G. as in a menu-driven      *
+*   application.                  *
+*                                 *
+**********************************/
+declare
+   1 clicmd,
+     2 dslct bit(8),  /* default disk / user code */
+     2 console fixed(7),  /* console number */
+     2 line character(128);
+
+declare
+   1 apb static,
+     2 console fixed(7),
+     2 name character(8) initial ('cli     '),
+     2 match bit(8) initial ('00'b4);
+
+put skip(2) list ('Send CLI Command Test:');
+on endfile (sysin)
+   goto clresptst;
+
+pdadr = rpdadr();   /* get current running pd adr */
+oldpriority = pd.priority;
+clicmd.dslct = pd.slct;
+clicmd.console = pd.console;
+apb.console = pd.console;
+do while (true);
+   put skip list ('  Enter CLI Command: ');
+   get edit (clicmd.line) (a);
+   if ~asncon (addr (apb)) then
+      do;
+        put skip list ('*** Failed to assign Cli the console ***');
+      end;
+   else
+      do;
+        call setpri (197);
+        call sclicd (addr (clicmd));
+        call attcon();
+        call setpri (oldpriority);
+      end;
+   end;
+
+/**********************************
+*                                 *
+* Call Resident System Proc Test: *
+*                                 *
+**********************************/
+declare
+   1 cpb,
+     2 nameadr pointer,
+     2 paramadr pointer;
+
+declare
+   aparam pointer;
+
+declare
+   procname character(8) static initial ('STRING  ');
+
+declare
+   1 stringqcb static,
+     2 link fixed(15),
+     2 name character(8) initial ('STRING  '),
+     2 msglen fixed(15) initial (2),
+     2 nmbmsgs fixed(15) initial (1),
+     2 dqph pointer,
+     2 nqph pointer,
+     2 msgin pointer,
+     2 msgout pointer,
+     2 msgcnt fixed(15),
+     2 buffer pointer;
+
+declare
+   1 stringuqcb,
+     2 pointer pointer,
+     2 msgadr pointer;
+
+declare
+   stringprocadr entry (fixed) variable returns(pointer);
+
+declare
+   rtnstringadr pointer,
+   rtnstring based (rtnstringadr) character(27);
+
+clresptst:
+
+get edit (v) (a);  /* clear input buffer */
+put skip(2) list ('Call Resident System Process Test:');
+call makque (addr (stringqcb));
+stringuqcb.pointer = addr (stringqcb);
+stringuqcb.msgadr = addr (stringprocadr);
+stringprocadr = clresptest;
+call wrque (addr (stringuqcb));
+cpb.nameadr = addr (procname);
+cpb.paramadr = addr (aparam);
+aparam = addr (upper);
+unspec (rtnstringadr) = clresp (addr (cpb));
+
+put edit ('->STRING proc returned:',rtnstring)
+         (skip,a,a(27));
+
+if ~delque (addr (stringqcb)) then
+    do;
+      put skip list ('*** Unable to delete stringqcb ***');
+      call term ('0000'b4);
+    end;
+put skip list ('->Call clresp test complete.');
+
+/**********************************
+*                                 *
+* Parse Filename Test:            *
+*                                 *
+**********************************/
+declare
+   done bit(1);
+
+declare
+   line character(80);
+
+declare
+   1 pfcb,
+     2 flname pointer,
+     2 fcb pointer;
+
+declare
+   delimptr pointer,
+   delim based (delimptr) character(1);
+
+declare
+   oldptr pointer,
+   old based (oldptr) character(10);
+
+declare
+   1 afcb,
+     2 name,
+       3 drive fixed(7),
+       3 fname character(8),
+       3 ftype character(3);
+
+put skip(2) list ('Parse Filename Test:');
+on endfile (sysin)
+   goto gettodtest;
+
+put skip list ('  Enter string of filenames to be parsed,');
+put list ('separated by commas:');
+do while (true);
+   put skip list ('->');
+   get edit (line) (a);
+   line = substr (line,1,index (line,' ')-1) || ascii (13);
+   pfcb.flname = addr (line);
+   pfcb.fcb = addr (afcb);
+   oldptr = addr (line);
+   done = false;
+   pfcb.flname = parse (addr (pfcb));
+   do while (~done & (unspec (pfcb.flname) ~= 'ffff'b4));
+      oldptr = pfcb.flname;
+      put edit ('  ',ascii (afcb.drive+64),': ',
+                afcb.fname,' ',afcb.ftype)
+               (skip,a,a,a,a(8),a,a(3));
+      if unspec (pfcb.flname) = '0000'b4 then
+         do;
+           done = true;
+         end;
+      else
+         do;
+           delimptr = pfcb.flname;
+           if delim = ',' then
+              do;
+                unspec (i) = unspec (pfcb.flname);
+                i = i + 1;
+                unspec (pfcb.flname) = unspec (i);
+              end;
+              pfcb.flname = parse (addr (pfcb));
+         end;
+   end;
+   if ~done then
+       do;
+         put skip list ('  *** Bad Entry ***  ->');
+         put edit (old) (a(10));
+       end;
+end;
+
+/**********************************
+*                                 *
+* Time and Date Test:             *
+*                                 *
+**********************************/
+declare
+   1 tod,
+     2 date fixed(15),
+     2 time,
+       3 hour bit(8),
+       3 min bit(8),
+       3 sec bit(8);
+
+gettodtest:
+
+get edit (v) (a);  /* clear input buffer */
+put skip(2) list ('Time and Date Test:');
+call gettod (addr (tod));
+put edit ('-> ',tod.date,'  ',tod.hour,':',tod.min,':',tod.sec)
+         (skip,a,f(5),a,b4(2),a,b4(2),a,b4(2));
+
+
+end part2;
+
+

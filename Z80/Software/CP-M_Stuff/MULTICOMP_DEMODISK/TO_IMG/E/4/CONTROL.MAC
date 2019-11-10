@@ -1,0 +1,548 @@
+;
+;  CONTROL.MAC - Control Structures
+;
+;  (of)  branch  ?branch  (loop)  (+loop)  UNLOOP  (leave)  (?do)  (do)
+;  BEGIN  >MARK  <RESOLVE  THEN  IF  AHEAD  ELSE  UNTIL  AGAIN  WHILE
+;  REPEAT  DO  ?DO  I  J  LEAVE  LOOP  +LOOP  CASE  ENDCASE  OF  ENDOF
+;  [ELSE]  [IF]  [THEN]
+;
+
+;	(of)  ( n1 n2 -- )
+
+	hdr	x,'(OF)'
+pof:	pop	hl
+	pop	de
+	call	ssub		; equal?
+	ld	a,l
+	or	h
+	jp	z,zbran1
+	push	de
+;	jp	bran
+
+;	branch  ( -- )
+
+	hdr	x,'BRANCH'
+bran:	ld	h,b
+	ld	l,c
+	ld	c,(hl)
+	inc	hl
+	ld	b,(hl)
+	jp	next
+
+;	?branch  ( flag -- )
+
+	hdr	x,'?BRANCH'
+zbran:	pop	hl
+	ld	a,l
+	or	h
+	jp	z,bran
+zbran1:	inc	bc
+	inc	bc
+	jp	next
+
+;	(loop)  ( -- )
+
+	hdr	x,'(LOOP)'
+xloop:	ld	hl,(rpp)
+	inc	(hl)
+	jp	nz,bran
+	inc	hl
+	inc	(hl)
+	jp	nz,bran
+xloop1:	inc	bc		; skip over branch
+	inc	bc
+;	jp	unloo
+
+;	UNLOOP  ( -- )
+
+	hdr	1,'UNLOOP'	; ANS
+unloo:	ld	hl,(rpp)	; discard loop parameters
+	ld	de,cw*2
+	add	hl,de
+	ld	(rpp),hl
+	jp	next
+
+;	(+loop)  ( n -- )
+
+	hdr	x,'(+LOOP)'
+xploo:	ld	hl,(rpp)
+	ld	e,(hl)
+	inc	hl
+	ld	d,(hl)
+	pop	hl
+	ld	a,h
+	or	a
+	jp	m,xploo2
+	add	hl,de
+	jp	c,xloop1
+xploo1:	ex	de,hl
+	ld	hl,(rpp)
+	ld	(hl),e
+	inc	hl
+	ld	(hl),d
+	jp	bran
+
+xploo2:	add	hl,de
+	jp	c,xploo1
+	jp	xloop1
+
+;	(leave)  ( -- )
+
+	hdr	x,'(LEAVE)'
+pleav:	ld	a,(bc)
+	ld	l,a
+	inc	bc
+	ld	a,(bc)
+	ld	h,a
+	ld	c,(hl)
+	inc	hl
+	ld	b,(hl)
+	jp	unloo
+
+;	(?do)  ( n1 n2 -- )	2dup = if 2drop r> @ >r exit then (xdo1)
+
+	hdr	x,'(?DO)'
+xqdo:	call	docol
+	dw	tdup,equal
+	dw	zbran,xdo1
+	dw	tdrop
+	dw	fromr,at,tor
+	dw	exit
+
+;	(do)  ( n1 n2 -- )		over - r> cell+ -rot 2>r >r
+
+	hdr	x,'(DO)'
+xdo:	call	docol
+xdo1:	dw	over,subb
+	dw	fromr,cellp
+	dw	drot
+	dw	ttor
+	dw	tor
+	dw	exit
+
+;	bal  ( -- addr )
+
+	hdr	x,'BAL',,1
+bal:	call	docre
+bal1:	ds	2
+
+;	+BAL  ( -- )			1 bal +!
+
+	hdr	1,'+BAL',,1
+pbal:	ld	de,1
+pbal1:	ld	hl,bal1
+	jp	pstor1
+
+;	-BAL  ( -- )			-1 bal +!
+
+	hdr	1,'-BAL',,1
+dbal:	ld	de,-1
+	jp	pbal1
+
+;	?BAL  ( flag -- )		checking @ 0<> and
+;					abort" definition unbalanced"
+
+	hdr	1,'?BAL',,1
+qbal:	call	docol
+	dw	check,at
+	dw	zneq,andd
+	dw	pabq
+	dcs	'definition unbalanced'
+	dw	exit
+
+;	BEGIN  ( -- dest )		?comp here +bal ;immediate
+
+	hdr	1,'BEGIN',1,1
+begin:	call	docol
+	dw	qcomp
+	dw	here
+	dw	pbal
+	dw	exit
+
+;	>MARK  ( -- orig )		postpone begin 0 ,
+
+	hdr	1,'>MARK',,1
+fmark:	call	docol
+	dw	begin
+	dw	zero
+	dw	comma
+	dw	exit
+
+;	<RESOLVE  ( dest -- )		?comp dup @ 0= ?bal , -bal
+
+	hdr	1,'<RESOLVE',,1
+bresol:	call	docol
+	dw	qcomp
+	dw	dupp,at
+	dw	zequ,qbal
+	dw	comma
+	dw	dbal
+	dw	exit
+
+;	THEN  ( orig -- )		?comp dup @ ?bal here swap ! -bal
+;					;immediate
+
+	hdr	1,'THEN',1,1
+then:	call	docol
+	dw	qcomp
+	dw	dupp,at,qbal
+	dw	here
+	dw	swap,store
+	dw	dbal
+	dw	exit
+
+;	IF  ( -- orig )			postpone ?branch >mark
+;					;immediate
+
+	hdr	1,'IF',1,1
+iff:	call	docol
+	dw	comp,zbran
+	dw	fmark
+	dw	exit
+
+;	AHEAD  ( -- orig )		postpone branch >mark
+;					;immediate
+
+	hdr	1,'AHEAD',1,1
+ahead:	call	docol
+	dw	comp,bran
+	dw	fmark
+	dw	exit
+
+;	ELSE  ( orig1 -- orig2 )	postpone ahead swap postpone then
+;					;immediate
+
+	hdr	1,'ELSE',1,1
+elsee:	call	docol
+	dw	ahead
+	dw	swap
+	dw	then
+	dw	exit
+
+;	UNTIL  ( dest -- )		postpone ?branch <resolve
+;					;immediate
+
+	hdr	1,'UNTIL',1,1
+until:	ld	hl,zbran
+until1:	push	hl
+	call	docol
+	dw	comxt
+	dw	bresol
+	dw	exit
+
+;	AGAIN  ( dest -- )		postpone branch <resolve
+;					;immediate
+
+	hdr	1,'AGAIN',1,1
+again:	ld	hl,bran
+	jp	until1
+
+;	WHILE  ( dest -- orig dest )	postpone if swap ;immediate
+
+	hdr	1,'WHILE',1,1
+whilee:	call	docol
+	dw	iff
+	dw	swap
+	dw	exit
+
+;	REPEAT	( orig dest -- )	postpone again postpone then
+;					;immediate
+
+	hdr	1,'REPEAT',1,1
+repeatt:call	docol
+	dw	again
+	dw	then
+	dw	exit
+
+;	lv  ( -- addr )			0 value lv
+
+	hdr	x,'LV',,1
+lvv:	call	doval
+	dw	0
+
+;	DO  ( -- orig dest )		postpone (do) lv >mark dup to lv
+;					postpone begin ;immediate
+
+	hdr	1,'DO',1,1
+do:	ld	hl,xdo
+do1:	push	hl
+	call	docol
+	dw	comxt
+	dw	lvv
+	dw	fmark
+	dw	dupp
+	dw	pto,lvv
+	dw	begin
+	dw	exit
+
+;	?DO  ( -- orig dest )		postpone (?do) lv >mark dup to lv
+;					postpone begin ;immediate
+
+	hdr	1,'?DO',1,1
+qdo:	ld	hl,xqdo
+	jp	do1
+
+;	I  ( -- x )
+
+	hdr	1,'I'
+ido:	ld	hl,(rpp)
+ido1:	ld	e,(hl)
+	inc	hl
+	ld	d,(hl)
+ido2:	inc	hl
+	ld	a,(hl)
+	inc	hl
+	ld	h,(hl)
+	ld	l,a
+	add	hl,de
+	jp	hpush
+
+	 if	0
+
+;	I'  ( -- x )
+
+	hdr	1,"I'"
+idot:	ld	hl,(rpp)
+	inc	hl
+	ld	de,0
+	jp	ido2
+
+	 endif
+
+;	J  ( -- x )
+
+	hdr	1,'J'
+jdo:	ld	hl,(rpp)
+	ld	de,cw*2
+	add	hl,de
+	jp	ido1
+
+;	LEAVE  ( -- )			postpone (leave) lv dup @ ?bal ,
+;					;immediate
+
+	hdr	1,'LEAVE',1,1
+leavee:	call	docol
+	dw	comp,pleav
+	dw	lvv
+	dw	dupp,at,qbal
+	dw	comma
+	dw	exit
+
+;	LOOP  ( addr1 addr2 -- )	postpone (loop) <resolve
+;					postpone then to lv ;immediate
+
+	hdr	1,'LOOP',1,1
+loopp:	ld	hl,xloop
+loopp1:	push	hl
+	call	docol
+	dw	comxt
+	dw	bresol
+	dw	then
+	dw	pto,lvv
+	dw	exit
+
+;	+LOOP  ( addr1 addr2 -- )	postpone (+loop) <resolve
+;					postpone then to lv ;immediate
+
+	hdr	1,'+LOOP',1,1
+ploop:	ld	hl,xploo
+	jp	loopp1
+
+	 if	cfs
+
+;	CS-PICK				pick +bal
+
+	hdr	1,'CS-PICK',,1
+cspic:	call	docol
+	dw	pick
+	dw	pbal
+	dw	exit
+
+;	CS-ROLL				aka roll cs-roll
+
+	hdr	1,'CS-ROLL',,,roll
+csrol	equ	roll
+
+;	CS-DROP				drop -bal
+
+	hdr	1,'CS-DROP',,1
+csdro:	pop	hl
+	jp	dbal
+
+;	cf0				control flow stack base
+
+	hdr	x,'CF0',,1
+cfz:	call	docre
+cfz1:	ds	2
+
+;	#cs  ( -- cells )		sp@ cf0 @ - negate 2/ 1- 0 max
+
+	hdr	x,'#CS',,1
+ncs:	call	docol
+	dw	spat
+	dw	cfz,at
+	dw	subb
+	dw	negat
+	dw	twodiv
+	dw	onem
+	dw	zero,max
+	dw	exit
+
+;	CS-PUSH				#cs -roll
+
+	hdr	1,'CS-PUSH',,1
+cspush:	call	docol
+	dw	ncs
+	dw	droll
+	dw	exit
+
+;	CS-POP				#cs roll
+
+	hdr	1,'CS-POP',,1
+cspop:	call	docol
+	dw	ncs
+	dw	roll
+	dw	exit
+
+;	CS-MARK				0 +bal
+
+	hdr	1,'CS-MARK',,1
+csm:	ld	hl,0
+	push	hl
+	jp	pbal
+
+;	CS-TEST				dup 0<>
+
+	hdr	1,'CS-TEST',,1
+cstes:	pop	hl
+	push	hl
+	jp	zneq1
+
+;	COND				aka cs-mark cond immediate
+
+	hdr	1,'COND',1,,csm
+cond	equ	csm
+
+;	THENS				begin cs-test while postpone then
+;					repeat cs-drop ;immediate
+
+	hdr	1,'THENS',1,1
+thens:	call	docol
+thens1:	dw	cstes
+	dw	zbran,thens2
+	dw	then
+	dw	bran,thens1
+thens2:	dw	csdro
+	dw	exit
+
+	 else
+
+;	COND				0 +bal ;immediate
+
+	hdr	1,'COND',1,1
+cond:	ld	hl,0
+	push	hl
+	jp	pbal
+
+;	THENS				begin ?dup while postpone then
+;					repeat -bal ;immediate
+
+	hdr	1,'THENS',1,1
+thens:	call	docol
+thens1:	dw	qdup
+	dw	zbran,thens2
+	dw	then
+	dw	bran,thens1
+thens2:	dw	dbal
+	dw	exit
+
+	 endif
+
+;	CASE  ( -- sys )		?comp postpone cond ;immediate
+
+	hdr	1,'CASE',1,1
+casee:	call	docol
+	dw	qcomp
+	dw	cond
+	dw	exit
+
+;	ENDCASE  ( sys -- )		postpone drop postpone thens
+;					;immediate
+
+	hdr	1,'ENDCASE',1,1
+endc:	call	docol
+	dw	comp,drop
+	dw	thens
+	dw	exit
+
+;	OF  ( -- addr )			postpone (of) >mark ;immediate
+
+	hdr	1,'OF',1,1
+of:	call	docol
+	dw	comp,pof
+	dw	fmark
+	dw	exit
+
+;	ENDOF  ( addr1 -- addr2 )	aka else endof
+
+	hdr	1,'ENDOF',1,,elsee
+endof	equ	elsee
+
+;	[ELSE]	( -- )		1 begin token 2dup upper dup if 2dup
+;				s" [IF]" compare if 2dup s" [ELSE]"
+;				compare if s" [THEN]" compare 0= else
+;				2drop dup 1 = then else 2drop 1 then +
+;				else 2drop refill and then ?dup 0= until
+;				;immediate
+
+	hdr	1,'[ELSE]',1,1
+pels:	call	docol
+	dw	one
+pels1:	dw	token
+	 if	ucase
+	dw	tdup,upper
+	 endif
+	dw	dupp
+	dw	zbran,pels6
+	dw	tdup
+	dw	psqot
+	dcs	'[IF]'
+	dw	cmpp
+	dw	zbran,pels4
+	dw	tdup
+	dw	psqot
+	dcs	'[ELSE]'
+	dw	cmpp
+	dw	zbran,pels2
+	dw	psqot
+	dcs	'[THEN]'
+	dw	cmpp,zequ
+	dw	bran,pels3
+pels2:	dw	tdrop
+	dw	dupp,one,equal
+pels3:	dw	bran,pels5
+pels4:	dw	tdrop,one
+pels5:	dw	plus
+	dw	bran,pels7
+pels6:	dw	tdrop
+	dw	refil,andd
+pels7:	dw	qdup,zequ
+	dw	zbran,pels1
+	dw	exit
+
+;	[IF]  ( flag -- )	0= if [compile] [else] then ;immediate
+
+	hdr	1,'[IF]',1,1	; ANS
+pif:	pop	hl
+	ld	a,l
+	or	h
+	jp	z,pels
+	jp	next
+
+;	[THEN]	( -- )		aka noop [then] immediate
+
+	hdr	1,'[THEN]',1,,noop
+pthen	equ	next
+
+;	end
+

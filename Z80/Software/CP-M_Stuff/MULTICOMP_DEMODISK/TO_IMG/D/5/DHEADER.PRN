@@ -1,0 +1,145 @@
+CROMEMCO CDOS Z80 ASSEMBLER version 02.15		     PAGE 0001
+
+
+                   0001   ;*************************************************
+                   0002   ;* DOCTOR.Z80   12/7/80  Ver 1.40  J.M. Holland  *
+                   0003   ;* Copyright (c) 1980 (Formerly HOSPITAL.Z80 )   *
+                   0004   ;* This program requires an 8080 & CP/M and is a *
+                   0005   ;* collection of programs  that  will  extract   *
+                   0006   ;* data  from  bad  disks, reconstruct damaged   *
+                   0007   ;* directories,  and  purge  out  bad  sectors   *
+                   0008   ;*************************************************
+                   0009   ;
+                   0010   ;	Converted to 8080 code 3/81 by MQH.
+                   0011   ;
+                   0012 	;	This version includes code to work on a
+			n Intertec
+                   0013 	; SuperBrain computer. S.B. CP/M differs from o
+			ther versions
+                   0014 	; of CP/M in that it allows 256 sectors per ext
+			ent. Since
+                   0015 	; the record count field of a FCB (FCB+15) is o
+			nly one byte
+                   0016 	; long, the people at Intertec use the low orde
+			r bit of the
+                   0017 	; extent number field (FCB+12) to indicate that
+			 the extent
+                   0018 	; actually contains 128 sectors more than the r
+			ecord count.
+                   0019 	; Thus even numbered extents contain less than 
+			129 sectors
+                   0020 	; and odd numbered extents contain more than 12
+			8 sectors.
+                   0021 	; Note that all but the last extent of a file w
+			ill have odd
+                   0022 	; extent numbers. The last extent of a file may
+			 have either a
+                   0023 	; even or a odd extent number.
+                   0024 	; Logic to handle this bizzare arrangement is e
+			nabled when the
+                   0025 	; byte SBSW is non-zero. INSTALL.COM should set
+			 this byte to 
+                   0026 	; true for S.B., zero for all other systems.
+      (0000)       0027 BOOT:	EQU 0000H    ;CP/M Warm boot entry
+      (0005)       0028 ENTRY:	EQU 0005H    ;CP/M entry for BDOS and BIOS
+      (000D)       0029 CR:	EQU 0DH	     ;Carriage return 
+      (000A)       0030 LF:	EQU 0AH	     ;Linefeed
+                   0031 	;The following are relative offsets for 
+                   0032 	;finding the primitive BDOS hooks and are 
+                   0033 	;relative to value found at BOOT+1.
+      (0015)       0034 HOME:	EQU 21
+      (0018)       0035 SELDSK: EQU 24		;C Reg=Disk number (0=A,15=P)
+      (001B)       0036 SETTRK:	EQU 27		;C Reg=Track number
+      (001E)       0037 SETSEC:	EQU 30		;C Reg=Sector number
+      (0021)       0038 SETDMA: EQU 33		;BC Pair=DMA Start Address
+      (0024)       0039 READ:	EQU 36		;Selected sector to DMA
+      (0027)       0040 WRITE:	EQU 39		;Write DMA area to sector
+      (0040)       0041 KBUFLEN:EQU 64		;Sets keybuff limit
+      (0003)       0042 TRYMAX:	EQU 3		;Attempts to read +1
+                   0043 	;///////////////////////////////////////////
+0000               0044 	ORG 0100H
+CROMEMCO CDOS Z80 ASSEMBLER version 02.15		     PAGE 0002
+
+
+0100  C35513       0045 	JP START	;Jump over strings and subrs
+                   0046 	;
+                   0047 	;///// PERSONALITY INFORMATION FOLLOWS /////
+                   0048 	;This information must be entered for each
+                   0049 	;system. The INSTALL.COM program writes
+                   0050 	;these values. (The word BLOCK = GROUP).
+                   0051 	;
+0103  00           0052 SKEWTAB:DB 00				;Bias of 1.
+0104  01020B0C     0053 	DB 01,02,11,12,21,22,31,32
+      15161F20 
+010C  090A1314     0054 	DB 09,10,19,20,29,30,07,08
+      1D1E0708 
+0114  11121B1C     0055 	DB 17,18,27,28,05,06,15,16
+      05060F10 
+011C  191A0304     0056 	DB 25,26,03,04,13,14,23,24
+      0D0E1718 
+0124  (01DF)       0057 	DS 479	    ;Room for larger tables.
+0303  8000         0058 SECTSIZ:DB 80H,00   ;Virtual Sector size in bytes.
+0305  1000         0059 BLOKSIZ:DB 16,00    ;Block size in sectors.
+0307  2000         0060 TRAKSIZ:DB 32,00    ;Track size in sectors.
+0309  0200         0061 DIRSIZ:	DB 02,00    ;Directory size in blocks.
+030B  0800         0062 EXTSIZ:	DB 08,00    ;Extent size in blocks.
+                   0063 		    ;*Note: For single byte block
+                   0064 		    ;numbering this is the number of
+                   0065 		    ;bytes used in FCB group area.
+                   0066 		    ;For double byte numbering it is
+                   0067 		    ;the number of 2 byte words used.
+030D  0200         0068 SYSSIZ:	DB 02,00    ;Number of system tracks.
+030F  4D00         0069 TRAKMAX:DB 77,00    ;Number of tracks + 1.
+0311  E5           0070 DIRNULL:DB 0E5H	    ;Directory dummy character.
+0312  0400         0071 CHUNK:	DB 04,00    ;Transfer buffer size in blocks
+0314  0100         0072 LOSECT: DB 01,00    ;Number of 1st sector on track
+0316  0000         0073 DUBFLAG:DB 00,00    ;*0=single byte block entries.
+                   0074 		    ;*1=double byte block entries.
+0318  00           0075 SBSW:   DB 0        ; Nonzero if InterTec Superbrain
+                   0076 	;//////////////////////////////////////////
+                   0077 	;  These strings are modified by INSTALL
+0319  0D0A4469     0078 DIRMSG: DB CR,LF,'Directory is in group '
+      72656374 
+      6F727920 
+      69732069 
+      6E206772 
+      6F757020 
+0331  3020616E     0079 	DB '0 and 1   ';*Ten character string put
+      64203120 
+      2020 
+033B  0D0A24       0080 	DB CR,LF,'$'   ; in by install
+033E  0D0A5379     0081 SYSMSG: DB CR,LF,'System is on track '
+      7374656D 
+      20697320 
+      6F6E2074 
+      7261636B 
+      20 
+0353  3020616E     0082 	DB '0 and 1   ';*Ten character string put
+      64203120 
+      2020 
+035D  0D0A         0083 	DB CR,LF       ; in by install
+CROMEMCO CDOS Z80 ASSEMBLER version 02.15		     PAGE 0003
+
+
+035F  44697265     0084 	DB 'Directory is on track '
+      63746F72 
+      79206973 
+      206F6E20 
+      74726163 
+      6B20 
+0375  32202020     0085 	DB '2         ';*Ten character string put
+      20202020 
+      2020 
+037F  0D0A24       0086 	DB CR,LF,'$'   ; in by install.
+                   0087 	;
+                   0088 	;
+                   0089 	;//////////////////////////////////////////
+                   0090 	;The following values are calculated 
+                   0091 	;by the program at the time of running.
+                   0092 	;
+0382  2100         0093 SECTMAX:DB 33,00    ;Highest Sector on a track + 1.
+0384  0000         0094 BLOKMAX:DB 00,00    ;Highest Block on disk +1.
+0386  0000         0095 BLOKBYT:DB 00,00    ;Number of bytes in a block.
+0388  0000         0096 DIRTOP:	DB 00,00    ;Calculated top of directory
+                   0097 	;
+

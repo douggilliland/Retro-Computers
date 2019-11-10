@@ -1,0 +1,38 @@
+% routine to calculate multiplicative factors %
+FUNCTION PRIME (N,A,B)
+  WHEN N=2 OR N=3, TRUE EXIT,
+  WHEN INTEGER(N)=FALSE OR INTEGER(N/2), FALSE EXIT,
+  A:3 B:N^(1/2)  % B=SQR(N) %
+  LOOP
+    WHEN INTEGER(N/A), FALSE EXIT
+    WHEN A>B, TRUE EXIT,
+    A:A+2,
+  ENDLOOP
+ENDFUN $
+%						%
+%		now the main function		%
+%						%
+FUNCTION FACTORS(N,J,ANS,B,D),
+  WHEN INTEGER(N)=FALSE, FALSE EXIT,
+  WHEN PRIME(N), ANS:LIST(1,N) EXIT,
+  J:N, ANS:LIST(), B:2,
+  LOOP
+    D:N/B
+    BLOCK
+      WHEN INTEGER(D)=FALSE OR PRIME(B)=FALSE, EXIT
+      WHEN INTEGER(D/B), N:D
+        LOOP
+          ANS:ADJOIN(B,ANS)
+          WHEN INTEGER(N/B)=FALSE, EXIT,
+          N:N/B,
+        ENDLOOP EXIT,
+    ANS:ADJOIN(B,ANS),
+    ENDBLOCK
+    B:B+1
+    WHEN B>J/2, ANS EXIT
+  ENDLOOP
+ENDFUN $
+))),
+    UNPARSE(2, TRUE, LIST(REST(FIRST(LEX2)))),
+    PRINTLINE('$),
+    LEX2:REST

@@ -1,0 +1,155 @@
+/*********************************************************
+* This PL/I program demonstrates direct operating system *
+* calls by performing a file-to-file copy.               *
+*********************************************************/
+diocopy:
+    procedure options(main);
+
+    %replace
+       bufwds by 64,   /* words per buffer */
+       quest  by 63,   /* ASCII '?' */
+       true   by '1'b,
+       false  by '0'b;
+
+    %include 'diomod.dcl';
+
+    declare 
+       1 destfile,
+       %include 'fcb.dcl';
+
+    declare 
+       dfcb0p ptr,
+       1 sourcefile based(dfcb0p),
+       %include 'fcb.dcl';
+
+    declare 
+       1 dfcb1file based(dfcb1()),
+       %include 'fcb.dcl';
+
+    declare 
+       1 renfile,
+       %include 'fcb.dcl';
+
+    declare 
+       answer char(1),
+       extcnt fixed(7);
+
+/* buffer management */
+
+    declare 
+       eofile bit(1),
+       i      fixed(15),
+       m      fixed(15),
+       nbuffs fixed(15),
+       memory (0:0) bit(16) based(memptr());
+
+/* compute number of buffs, 64 words each */
+
+    nbuffs = divide(memwds(),bufwds,15);
+    if nbuffs = 0 then
+       do;
+         put skip list('No Buffer Space');
+         call reboot();
+       end;
+
+/* initialize fcb's */
+
+    dfcb0p = dfcb0();
+    destfile = dfcb1file;
+
+/* copy fcb to rename file, count extents */
+
+    renfile = destfile;
+
+/* search all extents by inserting '?' */
+
+    renfile.fext = quest;
+    if sear(addr(renfile)) ^= -1 then
+       do;
+         extcnt = 1;
+         do while(searn() ^= -1);
+            extcnt = extcnt + 1;
+         end;
+         put edit ('OK to Delete ',extcnt,' Extent(s)?(Y/N)')
+                  (skip,a,f(3),a);
+         get list(answer);
+         if ^ (answer = 'Y' ! answer = 'y') then
+            call reboot();
+       end;
+
+/* destination file will be deleted later */
+
+    destfile.ftype = '$$$';
+
+/* delete any existing x.$$$ file */
+
+    call delete(addr(destfile));
+
+/* open the source file, if possible */
+
+    if open(addr(sourcefile)) = -1 then
+       do;
+         put skip list('No Source File');
+         call reboot();
+       end;
+
+/* source file opened, create $$$ file */
+
+    destfile.fext = 0;
+    destfile.crec = 0;
+    if make(addr(destfile)) = -1 then
+       do;
+         put skip list('No Directory Space');
+         call reboot();
+       end;
+
+/* $$$ temp file created, now copy from source */
+
+    eofile = false;
+    do while (^eofile);
+       m = 0;
+       /* fill buffers */
+       do i = 0 repeat (i+1) while (i<nbuffs);
+          call setdma(addr(memory(m)));
+          m = m + bufwds;
+          if rdseq(addr(sourcefile)) ^= 0 then
+             do;
+               eofile = true;
+               /* truncate buffer */
+               nbuffs = i;
+             end;
+       end;
+       m = 0;
+       /* write buffers */
+       do i = 0 to nbuffs-1;
+          call setdma(addr(memory(m)));
+          m = m + bufwds;
+          if wrseq(addr(destfile)) ^= 0 then
+             do;
+               put skip list('Disk Full');
+               call reboot();
+             end;
+       end;
+    end;
+
+/* close destination file and rename */
+
+    if close(addr(destfile)) = -1 then
+       do;
+         put skip list('Disk R/O');
+         call reboot();
+       end;
+
+/* destination file closed, erase old file */
+
+    call delete(addr(renfile));
+
+/* now rename $$$ file to old file name */
+
+    destfile.name2 = renfile.name1;
+    call rename(addr(destfile));
+    call reboot();
+
+end diocopy;
+
+

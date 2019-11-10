@@ -1,0 +1,1676 @@
+title	Assembler/Dissasembler segment for DDTZ.
+; MUST be integral # of pages. MUST be first segment linked.
+;
+; 88/04/25 Modified to use 64180 op codes.  DDT Version 27.
+; 2.7	DO NOT mix with earlier main system. LXI X and LXI Y
+;	now assemble. Most undocumented ops disassemble	   cbf.
+; 87/07/11 Minor change so that MOV disassembles correctly when
+; 2.6	run on 8080 (or under v20-80 under MSDOS). 	   cbf.
+; 86/02/12 Corrected to allow assembly of push/pop inx/dcx x/y
+;	still accepts faulty operands ldax h, ldax sp, etc.
+;	but any correction will cause DDTY (z80 false) to swell
+;	by another 256 bytes.  This IS a crude assembler.  cbf.
+;
+	cseg
+	entry	disassem;	a=aflag
+	entry	assemble;	pcnt just called
+	entry	keep;		code file
+	entry	begin, .bdos;	for overlay checks
+;
+; Main system routines useable by assembler/disassembler
+	extrn	dblblk, blank, couta, crlf
+	extrn	qbrk, csta, nextch, skipblks
+	extrn	t4hx, t2hx, tstr;	a,f
+	extrn	qdelim;		flags
+	extrn	getline;	a,f,b,c,d,e
+	extrn	pcnt;		a,f,d,e,h,l. Get params & count
+	extrn	nextparm;	d,e,h,l
+	extrn	rdhex, rdhexc;	a:=exit ch, de := value
+	extrn	chkop;		all. de^ to op, exit hl^ past op
+	extrn	err;		abort exit to DDT
+	extrn	foperate, dos;	without disturbing regs. arg a
+	extrn	index, indexwd;	a,f,h,l
+	extrn	casexfr;	a,f,h,l + routine
+	extrn	sdem, ldem;	hl^ =:= de; hl:=hl+2
+	extrn	delesshl;	a,f. comparator, unsigned
+;
+	extrn	codesize, pages;	To set relocation data
+;
+; external data areas used
+	extrn	disasmp, dendptr, aflag;	for trace display
+	extrn	storeptr, exitstk, buff;[16] 	scratch vars.
+;
+; read only data from main system
+	extrn	opkind, zopkind;	set by chkop
+	extrn	z80flg;			set if running on Z80
+	extrn	unloaded;		memory not yet loaded
+;
+true	equ	-1
+false	equ	not true
+z80	equ	true;		false strips z80 code
+tfcb	equ	05ch
+defdma	equ	080h
+;
+; Transfers around system on startup.  Overwritten later
+; The next module should be the main program.
+begin:	jmp	ddtbgn;		overlayed by serial no.
+;
+; Following for loader information. overlayed by serial no.
+	dw	codesize + (ddtbgn-begin)
+	db	pages + (ddtbgn-begin)/256
+;				place connecter at bdos equiv locn
+.bdos:	jmp	$-$;		becomes bdos connector
+;
+assemble:
+	dcr	a;		main system has just called pcnt
+	jnz	err;		need exactly 1 param
+	call	nextparm
+	shld	disasmp
+;	"	"
+; Master assembly loop
+assm:	lxi	h,buff+4
+	xra	a
+	mov	m,a;	no index register
+	inx	h
+	mov	m,a;	mark code buffer empty
+	call	crlf
+	lhld	disasmp
+	xchg
+	call	typepc
+	call	blank
+	call	getline
+	call	skipblks
+	rz;			empty line, exit
+	cpi	'.'
+	rz;			exit
+	call	asmln
+	cnc	savecd;		and advance disasmp
+	jnc	assm;		no error
+	call	crlf
+	mvi	a,'?'
+	call	couta
+	jmp	assm
+;
+	if	z80
+; Set flags on z80flg
+qz80:	 lda	z80flg
+	 ora	a
+	 ret
+	endif
+;
+subttl	'Disassembler'
+;
+disassem:
+	sta	aflag
+	ora	a
+	jz	dsasm;	0 means do to dendptr
+	lxi	h,0ffffh
+	shld	dendptr;	else set default end
+	inr	a
+	jnz	dsasm;	>= 1 means show n lines
+	inr	a;		-1 means 1 opcode, no header
+	sta	aflag;		set lines to 1
+	lhld	disasmp
+	xchg
+	push	d
+	call	chkop;		set up pointers, opkind
+	pop	d
+	dcx	h
+	shld	dendptr;	point to last byte of opcode
+	inx	h;		de := disasmp, hl^ next opcode
+	jmp	dsasm2
+;
+; main disassembly loop
+dsasm:	call	qbrk
+	lxi	h,aflag
+	mov	a,m
+	ora	a
+	jz	dsasm1;	using dendptr
+	dcr	m
+	rz;			lines done
+dsasm1:	lhld	dendptr
+	xchg
+	lhld	disasmp
+	call	delesshl
+	xchg
+	rc;			past end marker
+	call	craddr
+	mvi	c,-10;		field size to use
+	call	showcd;		hl^ next opcode, de^ this opcode
+;	"	"		opkind/z80flg set
+dsasm2:	shld	disasmp;	de := this, disasmp := next
+	lxi	h,dsasm
+	push	h;		set return on stack
+	lxi	h,opcd1
+	ldax	d
+	mvi	b,ni1
+	mvi	c,'H';		default index reg. id
+	call	stbl
+	jz	t4chb;		all one byte no operand opcodes
+	mvi	b,ni2
+	call	stbl
+	jz	immops;		all immediate to a opcodes
+	mvi	b,ni3
+	call	stbl
+	jz	wdops;		all immediate word opnd opcodes
+	if	z80
+	 call	qz80
+	 ldax	d;		was jz dsasm3 ! ldax d; 87/7/11
+	 jz	dsasm3
+	 mvi	b,ni4
+	 call	stbl
+	 jz	t4chb;		one byte z80 only opcodes
+	endif
+dsasm3:	ani	0c0h
+	lxi	h,mmov+1
+	cpi	040h
+	jz	movops
+	cpi	080h
+	jz	aritop
+dsasm4:	ldax	d
+	ani	0c7h;	entry for indexed inrdcr
+	sui	4
+	jz	inrops
+	dcr	a
+	jz	dcrops
+	dcr	a
+	jz	mviops
+	ldax	d
+	ani	0c0h
+	jz	dsasm6
+	ldax	d
+	ani	7
+	sui	2
+	jz	jmpcc
+	sui	2
+	jz	callcc
+	sui	3
+	jz	rstop
+	ldax	d
+	ani	8
+	jnz	prefix;	leaving cb,d9,dd,ed,fd
+dsasm5:	ldax	d
+	ani	0c5h;	entry for push/pop x/y
+	jmp	wdrgs;		pop, push
+;
+dsasm6:	ldax	d
+	ani	7
+	if	z80
+	 jz	jrops;		exaf removed earlier
+	else
+	 jz	bad
+	endif
+dsasm7:	ldax	d
+	ani	0fh;	entry for inx/dcx x/y
+	dcr	a
+	jz	lxiops
+	inr	a
+;	"	"
+; one byte opcodes operating on word registers
+; a,f,b,h,l
+wdrgs:	lxi	h,mstax
+	mvi	b,nwdr;		stax, ldax, inx, dcx, dad, pop, push
+	call	stbl
+wdrgs2:	call	t4chb;		entry from dadc/dsbc
+	ldax	d
+	ani	0ah
+	jnz	wdrgid;	not pop/push
+	ldax	d
+	ani	030h
+	cpi	030h
+	lxi	h,mpsw+1
+	mvi	a,3
+	jz	tchars
+;	"	"
+; show word register id
+; a,f
+wdrgid:	call	toreg
+	ani	6
+	cpi	4
+	jz	txrgid
+	cpi	6
+	jnz	tregid
+	push	h
+	lxi	h,msp+1
+	mvi	a,2
+	call	tchars
+	pop	h
+	ret
+;
+; All above exits return to dsasm via stacked return address
+; In general, de points to next byte to disassemble, c holds
+; an index register specifier (H, X, or Y).  When operands
+; are listed de is normally destroyed.  The z80 only opcodes
+; are enable/disabled by the main system Z80FLG variable.  The
+; system depends on classification of operators by the main
+; system CHKOP procedure, which also returns the opcode length.
+;
+; lxi R opn
+lxiops:	lxi	h,mlxi+1
+	call	t4chb
+	call	wdrgid
+	call	comma
+	jmp	wdopnd
+;
+	if	z80
+; relative jump z80 ops
+jrops:	 call	qz80
+	 jz	bad
+	 ldax	d
+	 lxi	h,mdjnz
+	 mvi	b,njrs
+	 call	stbl;		must succeed
+	 call	t4chb
+	 inx d
+	ldax	d
+	 mov	l,a;		convert rel to absolute
+	 rlc
+	 sbb	a
+	 mov	h,a
+	 inx	d
+	 dad	d
+	 jmp	t4hx
+	endif
+;
+; restart opcode
+rstop:	lxi	h,mrst+1
+;	"	"
+; display mnemnonic and middle 3 bits of (a) as digit 0..7
+; a,f,h,l
+num:	call	t4chb
+	call	toreg
+	adi	'0'
+	jmp	couta
+;
+; conditional calls
+callcc:	mvi	a,'C'
+	jmp	jmpcc1
+;
+; conditional jumps
+jmpcc:	mvi	a,'J'
+jmpcc1:	call	couta
+	call	toreg
+	mov	l,a
+	add	a
+	add	a
+	add	l; *5
+	lxi	h,mcrtn+2
+	call	index
+	mvi	a,2
+	call	tchars
+	call	dblblk
+	jmp	wdopnd
+;
+; inr/dcr ops
+; a,f,h,l (de on index)
+inrops:	lxi	h,minr+1
+	jmp	dcrop1
+dcrops:	lxi	h,mdcr+1
+dcrop1:	call	t4chb
+	if	z80
+	 mov	a,c
+	 cpi	'H'
+	 jnz	ixdisp
+	endif
+;	"	"
+lftrid:	call	toreg
+	jmp	tregid
+;
+; arithmetic immediate ops
+; a,f,b,h,l
+aritop:	call	aritmn
+;	"	"
+; operations on single register. hl point to mnemonic
+; a,f
+bregop:	call	t4chb
+;	"	"
+; show from reg id
+; a,f
+fromrg:	ldax	d
+	ani	7
+	jmp	tregid
+;
+; get pointer to arithmetic op mnemnonic
+; a,f,b,h,l
+aritmn:	lxi	h,madd+1
+;	"	"
+; index to mnemonic via hl^ on toreg field
+mnmix:	ldax	d
+	ani	038h;	index by 5*toreg field
+	rrc
+	mov	b,a
+	rrc
+	rrc;		div 8 and mul 5
+	add	b
+	jmp	index
+;
+; immediate to a opcodes
+; a,f,d,e
+immops:	call	t4chb
+	jmp	bopnd
+;
+; immediate 1 byte operators, with reg. id
+mviops:	lxi	h,mmvi+1
+;	"	"
+; Mnemnonic, register, immediate byte value
+rgiops:	call	t4chb
+	call	lftrid
+;	"	"
+; show immediate as 2nd operand
+; a,f,d,e
+imopnd:	call	comma
+;	"	"
+; list byte operand
+; a,f,d,e
+bopnd:	inx	d
+	ldax	d
+	jmp	t2hx
+;
+; word ops.  hl is opmnem pointer, output 1 word operand
+; a,f,d,e,h,l
+wdops:	call	t4chb
+;	"	"
+; show word operand
+; a,f,d,e,h,l
+wdopnd:	inx	d
+	xchg
+	call	ldem
+	xchg
+	jmp	t4hx
+;
+; move ops
+; a,f,h,l
+movops:	call	t4chb
+	call	lftrid
+;	"	"
+; Show source register id.
+; a,f
+source:	call	comma
+	ldax	d
+	ani	7
+;	"	"
+; convert a into regid listing
+; a,f
+tregid:	push	h
+	lxi	h,mreg
+	call	index
+	mov	a,m
+	pop	h
+	jmp	couta
+;
+; extract middle bits (to reg id)
+; a,f
+toreg:	ldax	d
+	ani	38h
+	rrc
+	rrc
+	rrc
+	ret
+;
+; write 4 chars from hl^ with trailing blank
+; a,f,h,l
+t4chb:	call	t4char
+	jmp	blank
+;
+; show code bytes at de^ up with at least one trailing blank.
+; Set up opkind, hl := endptr
+; -c specifies minimum field to use.
+; a,f,b,c,d,e
+showcd:	push	b
+	push	d
+	call	chkop
+	pop	d
+	pop	b
+;	"	"
+; display code at de^ thru hl-1^, min field -c bytes
+; at least one trailing blank
+; a,f,b,c
+dspcd:	push	d
+	xchg
+dspcd1:	mov	a,m
+	call	t2hx
+	inx	h
+	inr	c
+	inr	c
+	mov	a,l
+	cmp	e
+	jnz	dspcd1
+dspcd2:	call	blank
+	inr	c
+	jm	dspcd2
+	xchg
+	pop	d
+	ret
+;
+; crlf, show address de.
+; a,f,h,l
+craddr:	call	crlf
+;	"	"
+; show address de.
+; a,f
+typepc:	xchg
+	call	t4hx
+	xchg
+	jmp	dblblk
+;
+; output 4 chars from hl^ up
+; a,f,h,l
+t4char:	mvi	a,4
+;	"	"
+; output a chars from hl^ up
+; a,f,h,l
+tchars:	push	b
+	mov	b,a
+tchrs1:	mov	a,m
+	call	couta
+	inx	h
+	dcr	b
+	jnz	tchrs1
+	pop	b
+	ret
+;
+comma:	mvi	a,','
+	jmp	couta
+;
+; search opcode table hl^ for a, max b entries.
+; Z flag if found, when hl point to mnemnonic entry
+; f,b,h,l
+stbl:	cmp	m
+	inx	h
+	rz
+	inx	h
+	inx	h
+	inx	h
+	inx	h
+	dcr	b
+	jnz	stbl
+	dcr	b;		remove z flag, not found
+	ret
+;
+; show index register id
+; a,f
+txrgid:	mov	a,c
+	jmp	couta
+;
+; prefixed z80 ops
+prefix:	if	z80
+	 call	qz80;		(not d9 if z80 running)
+	 jz	bad
+	 lhld	disasmp;	check for length 1
+	 dcx	h
+	 call	delesshl;	if so
+	 jz	bad;		invalid z80 opcode
+	 ldax	d
+	 cpi 0cbh
+	jz	bitpic
+	 cpi 0edh
+	jz	xtend
+;	 "	"
+; index register operations, prefix 0ddh/0fdh
+	 ani	020h
+	 rlc
+	rlc
+	rlc
+	 adi	'X'
+	 mov	c,a;		save index identifier
+	 inx	d;		point to specifier
+	 lda	zopkind
+	 dcr	a;		type 0 never valid
+	 lxi	h,ixcase
+	 jmp	casexfr
+;
+; ** CAUTION ** locked to main table in DDTZ. Notes from main
+ixcase:	 dw	dadx;		1 (No 0th value used)	9 19 29 39
+	 dw	slixd;		2  lhld shld	22 2a
+	 dw	dsasm7;		3  inxdcxx	23 2b
+	 dw	dsasm4;		4  inrdcrx	34 35
+	 dw	mvix;		5  mvi m	36
+	 dw	movrx;		6  mov rr,m	46 43 56 53 66 63 (76) 7e
+	 dw	movxr;		7  mov m,e	73
+	 dw	movxr;		8  mov h,h, mov m,h	64 74 (64180)
+	 dw	movxr;		9  mov m,r   70 71 72 (73 74) 75 (76) 77
+	 dw	arithx;		10 arith m	86 83 96 9e a6 ae b6 be
+	 dw	lxiops;		11 lxi h	21
+	 dw	bitx;		12 set/res etc	cb
+	 dw	xtix;		13 xthl		e3
+	 dw	dsasm5;		14 popushx	e1 e5
+	 dw	xtix;		15 pchl		e9
+	 dw	xtix;		16 sphl		f9
+	 dw	bad;		17 extension	ed
+	 dw	undoc;		18 mov rr,e	43 4b 53 5b 63 6b 73 7b
+	 dw	undoc;		19 mov (retn,reti)	45 4d
+	 dw	bad;		20 x/y prefixes		dd fd
+	 dw	bad;		21 exaf,nop		0 8
+	 dw	bad;		22 jr/djnz	(0 8) 10 18 20 28 30 38
+	 dw	bad;		23 jmp		0c3
+	 dw	bad;		24 call		0cd
+	 dw	bad;		25 lda sta	32 3a
+	 dw	bad;		26 ret		0c9
+	 dw	bad;		27 rst		c7 cf d7 df e7 ef f7 ff
+	 dw	mvixy;		28 mvi		6 e 16 1e 26 2e (36) 3e
+	 dw	bad;		29 aritopi	c6 ce d6 de e6 ee f6 fe
+	 dw	bad;		30 j(ccd)	c2 ca d2 da e2 ea f2 fa
+	 dw	bad;		31 c(ccd)	c4 cc d4 dc e4 ec f4 fc
+	 dw	bad;		32 r(ccd)	c0 c8 d0 d8 e0 e8 f0 f8
+	 dw	bad;		33 lxi		1 11 (21) 31
+	 dw	bad;		34 in/out	d3 db
+	 dw	undoc;		35 the rest, all 1 byte
+;
+; undocumented, except the MVI xh/xl/yh/yl,value opcodes. C is 'X' or 'Y'
+undoc:	 call movx
+	rnc
+	 jmp	bad
+;
+aritx:	 sui 80h
+	cmc
+	rc;	Not original 80..bf
+	 ldax d
+	ani	7
+	 call hlm
+	rc;		reject m
+	 stc
+	rnz;		reject other than h/l
+	 lxi	h,xtraops+1
+	 mov a,c
+	cpi	'X'
+	 jz	aritx1
+	 lxi	h,ytraops+1
+aritx1:	 call	mnmix
+	 jmp	bregop
+;
+xinrdcr: lxi	h,xidrops+1
+	 mov a,c
+	cpi	'X'
+	 jz	xidr1
+	 lxi	h,yidrops+1
+xidr1:	 ldax d
+	ani	1
+	mov	b,a
+	 add a
+	add	a
+	add	b;	*5
+	 call	index
+	 jmp	inps1;		mnem, leftreg output
+;
+; One register must be h or l, and none may be m
+movx:	 ldax d
+	ani	0f6h
+	 cpi 024h
+	jz	xinrdcr
+	 ldax d
+	ani	0c0h
+	 sui 040h
+	rc
+	 jnz	aritx
+	 ldax d
+	call	toreg
+	 call hlm
+	rc;		reject m
+	 jz	movx2;		have hl, other must be non h/l
+	 ldax d
+	ani	7
+	 call hlm
+	rc;		reject m
+	 stc
+	rnz;		no h/l found
+	 jmp	movx3
+movx2:	 ldax d
+	ani	7
+	 call hlm
+	rc;		reject m
+	 stc
+	rz;		both h/l found
+;	"	"
+; Regs ok, now act like a mov, with appropriate mnemnonic
+movx3:	 lxi	h,movxops+1
+	 mov a,c
+	cpi	'X'
+	 jz	movx4
+	 lxi	h,movxops+6
+movx4:	 jmp	movops
+;
+; check a for h,l,or m.  Carry for m, zero for h or l
+; a,f
+hlm:	cpi	6
+	stc
+	rz;	m
+	cpi	4
+	rz;		h
+	cpi	5
+	stc
+	cmc;	z flag for l
+	ret
+;
+; Undocumented mvi xh/xl/yh/yl,value opcodes (MVIX h/l)
+mvixy:	 ldax	d;		c has 'X' or 'Y', de points to 2nd op byte
+	 ani	0f7h
+	 cpi 026h
+	jnz	bad
+	 lxi	h,mvixops+1
+	 mov a,c
+	cpi	'X'
+	 jz	mvixy1
+	 lxi	h,mvixops+6;	else MVIY
+mvixy1:	 jmp	rgiops
+;
+mvix:	 lxi	h,mmvi+1
+	 call	t4chb
+	 call	ixdisp
+	 jmp	imopnd
+;
+bitx:	 inx	d;		past the 0cbh
+	 inx	d;		past the displacement
+	 ldax	d
+	 dcx	d
+	 ani	7
+	 cpi 6
+	jz	bitpic
+	 dcx d
+	dcx	d
+	 jmp	bad
+;
+slixd:	 ldax	d
+	 ani	8
+	 lxi	h,msixd+1
+	 jz	slixd1
+	 lxi	h,mlixd+1
+slixd1:	 mvi	a,2
+	 call	tchars
+	 mov	a,c
+	 call	couta
+	 mvi	a,'D'
+	 call	couta
+	 call	blank
+	 jmp	wdopnd
+;
+xtix:	 ldax	d
+	 lxi	h,mxtix
+	 mvi	b,nxtixs
+	 call	stbl
+;	 "	"
+mnx:	 mvi	a,3
+	 call	tchars
+	 jmp	txrgid
+;
+movrx:	 lxi	h,mmov+1
+	 call	t4chb
+	 call	lftrid
+	 call	comma
+	 jmp	ixdisp
+;
+movxr:	 lxi	h,mmov+1
+	 call	t4chb
+	 call	ixdisp
+	 dcx	d
+	 jmp	source
+;
+; arithmetic indexed immediate ops
+arithx:	 call	aritmn
+	 call	t4chb
+;	 "	"
+; show indexed operand
+; a,f,d,e
+ixdisp:	 mvi	a,'['
+	 call	couta
+	 call	txrgid
+	 inx d
+	ldax	d
+	 ora a
+	jp	ixdp1
+	 mvi	a,'-'
+	 call	couta
+	 ldax d
+	cma
+	inr	a
+	 jmp	ixdp2
+ixdp1:	 mvi	a,'+'
+	 call	couta
+	 ldax	d
+ixdp2:	 call	t2hx
+	 mvi	a,']'
+	 jmp	couta
+;
+dadx:	 lxi	h,mdad+1
+	 call	mnx
+	 call	blank
+	 jmp	wdrgid
+;
+; Prefix 0cbh, bitpicking
+bitpic:	 inx	d
+	 ldax	d
+	 cpi 040h
+	jc	sftops
+	 ani	0c0h
+	 lxi	h,mbp
+	 mvi	b,nbps
+	 call	stbl;		must work
+	 mov	a,c
+	 call	num
+	 call	comma
+	 jmp	sftop2
+;
+; shift operations
+sftops:	 ldax d
+	ani	038h
+	 lxi	h,msft
+	 mvi	b,nsfts
+	 call	stbl;		must work
+;	 "	"
+; operations on single register. hl points to mnemonic
+sftop1:	 call	t4chb
+;	 "	"
+; show from reg id
+sftop2:	 mov	a,c
+	 cpi 'H'
+	jz	fromrg
+	 dcx d
+	dcx	d
+
+	 jmp	ixdisp
+;
+; extension ops prefix 0edh
+xtend:	 inx d
+	ldax	d
+	 lxi	h,mtstip+1
+	 cpi 064h
+	jz	immops
+	 lxi	h,mtsiop+1
+	 cpi 074h
+	jz	immops
+	 ani 0c7h
+	jz	in0s;	00, 08, 10, 18, 20, 28, 30, 38
+	 dcr a
+	jz	out0s;	01, 09, 11, 19, 21, 29, 31, 39
+	 lxi	h,mtstp+1;	TST
+	 sui 3
+	jz	inps1;	04, 0c, 14, 1c, 24, 2c, 34, 3c
+	 sui 03ch
+	jz	inps;	040
+	 dcr a
+	jz	outps;	041
+	 dcr a
+	jz	dadc;	042
+	 dcr a
+	jz	xxlds;	043
+	 ldax d
+	ani	0cfh
+	 lxi	h,mmlt+1
+	 sui 04ch
+	jz	wdrgs2;	04c,05c,06c,07c
+	 ldax	d
+	 lxi	h,mxtop
+	 mvi	b,nxtops
+	 call	stbl
+	 jz	t4chb
+	 dcx	d
+	endif
+;	 "	"
+; Unidentifiable op codes
+bad:	lxi	h,badop+1
+	mvi	a,3
+	call	tchars
+	lhld	disasmp;	the next opcode marks end
+	mvi	c,0;		use minimum field
+	jmp	dspcd;		display de..hl-1
+;
+	if	z80
+inps:	 lxi	h,minp+1
+inps1:	 call	t4chb
+	 jmp	lftrid
+;
+outps:	 lxi	h,moutp+1
+	 jmp	inps1
+;
+in0s:	 lxi	h,min0p+1
+	 jmp	rgiops
+;
+out0s:	 lxi	h,mout0p+1
+	 call	t4chb
+	 inx d
+	ldax	d
+	dcx	d
+	 call	t2hx
+	 call	comma
+	 jmp	lftrid
+;
+; word add/subtract/mlt with carry
+dadc:	 ldax d
+	ani	08
+	 lxi	h,mdadc+1
+	 jnz	wdrgs2
+	 lxi	h,mdsbc+1
+	 jmp	wdrgs2
+;
+xxlds:	 ldax	d
+	 lxi	h,mlsxd
+	 mvi	b,nlsxds
+	 call	stbl;		must work
+	 jmp	wdops
+	endif
+;
+subttl	'Symbol Tables'
+;
+; The order of sections is wired into the assembler code
+opcd1:	db	000h,'NOP ', 007h,'RLC ', 00fh,'RRC ', 017h,'RAL '
+	db	01fh,'RAR ', 027h,'DAA ', 02fh,'CMA ', 037h,'STC '
+	db	03fh,'CMC ', 076h,'HLT ', 0c9h,'RET ', 0e3h,'XTHL'
+	db	0e9h,'PCHL', 0ebh,'XCHG', 0f3h,'DI  ', 0f9h,'SPHL'
+	db	0fbh,'EI  '
+;
+mcrtn:	db	0c0h,'RNZ ', 0c8h,'RZ  ', 0d0h,'RNC ', 0d8h,'RC  '
+	db	0e0h,'RPO ', 0e8h,'RPE ', 0f0h,'RP  ', 0f8h,'RM  '
+ncrtns	equ	($-mcrtn)/5
+ni1	equ	($-opcd1)/5
+;
+opcd2:	db	0c6h,'ADI ', 0ceh,'ACI ', 0d3h,'OUT ', 0d6h,'SUI '
+	db	0dbh,'IN  ', 0deh,'SBI ', 0e6h,'ANI ', 0eeh,'XRI '
+	db	0f6h,'ORI ', 0feh,'CPI '
+ni2	equ	($-opcd2)/5
+;
+opcd3:	db	022h,'SHLD', 02ah,'LHLD', 032h,'STA ', 03ah,'LDA '
+	db	0c3h,'JMP ', 0cdh,'CALL'
+ni3	equ	($-opcd3)/5
+;
+	if	z80
+opcd4:	 db	008h,'EXAF', 0d9h,'EXX '
+ni4	 equ	($-opcd4)/5
+	endif
+;
+madd:	db	080h,'ADD ', 088h,'ADC ', 090h,'SUB ', 098h,'SBB '
+	db	0a0h,'ANA ', 0a8h,'XRA ', 0b0h,'ORA ', 0b8h,'CMP '
+nadds	equ	($-madd)/5
+;
+minr:	db	004h,'INR '
+mdcr:	db	005h,'DCR '
+nrops	equ	($-minr)/5
+;
+mmvi:	db	006h,'MVI '
+mmov:	db	040h,'MOV '
+mrst:	db	0c7h,'RST '
+;
+	if	z80
+mdjnz:	 db	010h,'DJNZ', 018h,'JR  ', 020h,'JRNZ', 028h,'JRZ '
+	 db	030h,'JRNC', 038h,'JRC '
+njrs	 equ	($-mdjnz)/5
+	endif
+;
+mlxi:	db	001h,'LXI '
+;
+mstax:	db	002h,'STAX', 00ah,'LDAX'
+mdad:	db	009h,'DAD '
+nwdrxx	equ	($-mstax)/5
+	db	003h,'INX ', 00bh,'DCX ', 0c1h,'POP ', 0c5h,'PUSH'
+nwdr	equ	($-mstax)/5
+nwdrxy	equ	nwdr-nwdrxx
+;
+	if	z80
+; additional to allow input parsing. not used in disassembly
+mdadxy:	 db	009h,'DADY', 009h,'DADX'
+ndadxys	 equ	($-mdadxy)/5
+;
+; used in disassembly
+msft:	 db	000h,'RLCR', 008h,'RRCR', 010h,'RALR', 018h,'RARR'
+	 db	020h,'SLAR', 028h,'SRAR', 030h,'SLLR', 038h,'SRLR'
+nsfts	 equ	($-msft)/5
+;
+mbp:	 db	040h,'BIT ', 080h,'RES ', 0c0h,'SET '
+nbps	 equ	($-mbp)/5
+;
+; additional to allow input parsing, not used in disassembly
+mxtiy:	 db	0e3h,'XTIY', 0e9h,'PCIY', 0f9h,'SPIY'
+nxtiys	 equ	($-mxtiy)/5
+;
+; used in disassembly
+mxtix:	 db	0e3h,'XTIX', 0e9h,'PCIX', 0f9h,'SPIX'
+nxtixs	 equ	($-mxtix)/5
+;
+; additional to allow input parsing, not used in disassembly
+msiyd:	 db	022h,'SIYD', 02ah,'LIYD'
+nslyds	 equ	($-msiyd)/5
+;
+; used in disassembly
+msixd:	 db	022h,'SIXD'
+mlixd:	 db	02ah,'LIXD'
+nslxds	 equ	($-msixd)/5
+;
+mlsxd:	 db	043h,'SBCD', 04bh,'LBCD', 053h,'SDED', 05bh,'LDED'
+	 db	063h,'shld', 06bh,'lhld', 073h,'SSPD', 07bh,'LSPD'
+nlsxds	 equ	($-mlsxd)/5
+;
+mdsbc:	 db	042h,'DSBC'
+mdadc:	 db	04ah,'DADC'
+mmlt:	 db	04ch,'MLT '
+ndadcs	 equ	($-mdsbc)/5
+;
+min0p:	 db	000h,'IN0 '
+mout0p:	 db	001h,'OUT0'
+mtstp:	 db	004h,'TST '
+minp:	 db	040h,'INP '
+moutp:	 db	041h,'OUTP'
+mtstip:	 db	064h,'TSTI'
+mtsiop:	 db	074h,'TSIO'
+niops	 equ	($-min0p)/5
+;
+mxtop:	 db	044h,'NEG ', 045h,'RETN', 046h,'IM0 ', 047h,'LDIA'
+	 db	04dh,'RETI', 04fh,'LDRA', 056h,'IM1 ', 057h,'LDAI'
+	 db	05eh,'IM2 ', 05fh,'LDAR', 067h,'RRD ', 06fh,'RLD '
+	 db	076h,'SLP '
+	 db	083h,'OTIM', 08bh,'OTDM', 093h,'OIMR', 09bh,'ODMR'
+	 db	0a0h,'LDI ', 0a1h,'CCI ', 0a2h,'INI ', 0a3h,'OTI '
+	 db	0a8h,'LDD ', 0a9h,'CCD ', 0aah,'IND ', 0abh,'OTD '
+	 db	0b0h,'LDIR', 0b1h,'CCIR', 0b2h,'INIR', 0b3h,'OTIR'
+	 db	0b8h,'LDDR', 0b9h,'CCDR', 0bah,'INDR', 0bbh,'OTDR'
+nxtops	 equ	($-mxtop)/5
+
+mvixops: db	026h,'MVIX', 026h,'MVIY';	undocumented codes
+movxops: db	040h,'MOVX', 040h,'MOVY'
+xtraops: db	080h,'ADXR', 088h,'ACXR', 090h,'SUXR', 098h,'SBXR'
+	 db	0a0h,'NDXR', 0a8h,'XRXR', 0b0h,'ORXR', 0b8h,'CPXR'
+ytraops: db	080h,'ADYR', 088h,'ACYR', 090h,'SUYR', 098h,'SBYR'
+	 db	0a0h,'NDYR', 0a8h,'XRYR', 0b0h,'ORYR', 0b8h,'CPYR'
+xidrops: db	024h,'INRX', 025h,'DCRX'
+yidrops: db	024h,'INRY', 025h,'DCRY'
+nxyxops	 equ	($-mvixops)/5
+	endif
+badop:	db	0ffh,'??= '
+;
+mreg:	db	'BCDEHLMA'
+	if	z80
+	 db	'[XY'
+	endif
+nregs	equ	$-mreg
+;
+mpsw:	db	031h,'PSW ';	added 1 bit in value
+msp:	db	030h,'SP  ', 020h,'H   ';	<<dyn. altered
+	db	010h,'D   ', 000h,'B   '
+	if	z80
+	 db	020h,'X   ', 020h,'Y   '
+	endif
+	db	0ffh;		table end marker
+ixrid	equ	msp+6
+;
+subttl	'Assembler'
+;
+; assemble line, 1st char in a.  Write results to buffer
+; Carry for error.  Code must agree with table order.
+asmln:	if	z80
+	 lxi	h,ixrid;	preserve a, is 1st char.
+	 mvi	m,'H';		reset XY id
+	endif
+	call	getmnc
+	lxi	h,opcd1
+	call	search;		returns hl^=opcode, a=index
+	jc	asmln2;		not found, check jmp/call ccode
+	mov	b,m;		master opcode
+	sui	ni1+1
+	jc	wrtcdb;	1 byte no argument  (nop, xthl)
+	sui	ni2
+	jc	bytimm;	immediate 1 byte arg (adi 5)
+	sui	ni3
+	jc	wdimm;	immediate word arg (lhld 5)
+	if	z80
+	 sui ni4
+	jc	chkz80;	1 byte no arg, Z80 only (exaf)
+	endif
+	sui	nadds
+	jc	sfromr;	1 byte, 1 reg argument (add a)
+	sui	nrops
+	jc	inrdcrg;inr/dcr
+		     jz mviop;	mvi
+	dcr	a
+	jz	movop;	mov
+	dcr	a
+	jz	rstn;	rst
+	if	z80
+	 sui njrs+1
+	jc	jrop
+	else
+	 dcr	a
+	endif
+	jz	lxiop;		lxi
+	if	not z80
+	 sui nwdr+1
+	jc	dblrg;	ldax/stax dad push/pop inx/dcx
+	else;				z80
+	 sui nwdrxx+1
+	jc	dblrg;	ldax/stax dad
+	 sui nwdrxy
+	jc	dblxrg;	push/pop inx/dcx
+	 sui ndadxys
+	jc	xydad
+	 sui nsfts
+	jc	sfts;		ralr etc
+	 sui nbps
+	jc	bps;		bit/set/res
+	 sui nxtiys
+	jc	yop
+	 sui nxtixs
+	jc	xop
+	 sui nslyds
+	jc	yopwd
+	 sui nslxds
+	jc	xopwd
+	 sui nlsxds
+	jc	lsxds;		lbcd etc
+	 sui ndadcs
+	jc	dadcs;		dadc/dsbc
+	 sui niops
+	jc	iops;		inp/outp
+	 sui nxtops
+	jc	xtops;		all extended z80 ops
+	 sui nxyxops
+	rc;		All undocumented ops
+	endif
+asmln2:	lxi	h,buff
+	mov	a,m
+	cpi	'J'
+	mvi	b,0c2h
+	jz	cjmps;		jnz etc
+	cpi	'C'
+	stc
+	rnz;	not jmp/call.  Error
+	mvi	b,0c4h;		cnz etc
+cjmps:	mvi	m,'R'
+	lxi	h,opcd1;	modify mnemonic and re-search
+	call	search
+	rc
+	mov	a,m
+	ora	b
+	mov	b,a
+	jmp	wdimm;		jcc/ccc
+;
+; fill buffer with next input, blank padded.
+; a,f,b,h,l
+getmn:	call	nextch
+;	"	"
+; Entry with first character in (a)
+; a,f,b,h,l
+getmnc:	cpi	' '
+	jz	getmn;		skip initial blanks
+	lxi	h,buff
+	mvi	b,4
+getmn1:	call	qdelim
+	jz	getmn2;		short, blank fill (or empty line)
+	mov	m,a
+	inx	h
+	dcr	b
+	cnz	nextch
+	jnz	getmn1;		else end or input line end
+	call	nextch;		jams at cr
+	call	qdelim
+	stc
+	rnz;			error, no delimiter
+getmn2:	ora	a
+	inr	b;		(a) is delimiting char.
+getmn3:	dcr	b
+	rz;			buffer full
+	mvi	m,' '
+	inx	h
+	jmp	getmn3
+;
+; get word register identifier
+; a,f,h,l
+getwrg:	push	b
+	call	getmn
+	pop	b
+	rc
+	lxi	h,mpsw
+;	"	"
+; search for buff^ in hl^.  Slow simple minded serial search.
+; Return hl pointing to entry if found, with a=index of
+; entry (1 based).  Return a=0 and carry if not found.
+; a,f,h,l
+search:	push	d
+	push	b
+	lxi	b,0100h;	b := 1; c := 0
+	dcx	h
+srch1:	inx	h
+	dcr	b
+	jnz	srch1;		advance pointer to next item
+	lxi	d,buff
+	inr	c;		count table entries searched
+	mvi	b,4;		size of mnemnonic entry
+	mov	a,m;		0ffh opcode marks table end
+	inr	a
+	stc
+	jz	srch4;		end of table, exit w/carry
+srch3:	ldax	d
+	inx	d
+	inx	h
+	cmp	m
+	jnz	srch1;	not this one
+	dcr	b
+	jnz	srch3;	not complete mnemnonic yet
+	dcx	h
+	dcx	h
+	dcx	h
+	dcx	h;	back up to opcode
+	mov	a,c;		get mnem id
+srch4:	pop	b
+	pop	d
+	ret
+;
+	if	z80
+; extended z80 op
+xtops:	 mvi	a,0edh
+	 call	wrtcd
+;	 "	"
+; write code byte hl^ if on Z80 only, else carry for error
+; a,f
+chkz80:	 call qz80
+	stc
+	 rz
+	endif
+;	"	"
+; write code byte b into buffer. Clear carry
+; a,f
+wrtcdb:	mov	a,b
+;	"	"
+; write code byte (a) into buffer. Clear carry
+; f
+wrtcd:	push	h
+	push	b
+	lxi	h,buff+5
+	inr	m
+	mov	c,m;		1 up
+	mvi	b,0
+	dad	b;		must clear carry
+	mov	m,a
+	pop	b
+	pop	h
+	ret
+;
+; Save one lines stored code and advance disasmp
+; Make one line of input indivisible.
+; b,d,e,h,l
+savecd:	push	psw
+	lhld	disasmp
+	lxi	d,buff+4
+	if	z80
+	 ldax	d
+	 ora a
+	jz	savcd1;	no index prefix to put
+	 mov m,a
+	inx	h
+	endif
+savcd1:	inx	d
+	ldax	d
+	mov	b,a;	count
+	inx	d
+	dcr	b
+	jm	savcd3;		was zero
+savcd2:	ldax	d
+	inx	d;	code
+	mov	m,a
+	inx	h
+	dcr	b
+	jp	savcd2;	more to move
+	shld	disasmp;	point to unfilled byte
+savcd3:	pop	psw
+	ret
+;
+; return a byte register id identifier in A
+; a,f,h,l
+getbrg:	call	skipblks
+	push	b
+	lxi	h,mreg
+	lxi	b,nregs;	b=0; c=nregs
+gbr1:	cmp	m
+	jz	gbr3;	found
+	inr	b
+	inx	h
+	dcr	c
+	jnz	gbr1
+	stc;			not found
+gbr3:	mov	a,b
+	pop	b
+	ret
+;
+; get word size argument to hl
+; a,f,d,e,h,l
+getwd:	call	rdhex
+	xchg
+	call	qdelim
+	rz
+	stc
+	ret
+;
+; get byte size argument to hl
+; a,f,d,e,h,l
+getbyt:	call	getwd
+	rc
+	inr	h
+	dcr	h
+	rz;		in range
+	stc
+	ret
+;
+	if	z80
+jrop:	 call	chkz80
+	rc
+	 call	getwd
+	rc
+	 xchg
+	 lhld	disasmp
+	 inx h
+	inx	h
+	 mov a,e
+	sub	l
+	mov	l,a
+	 mov a,d
+	sbb	h
+	mov	h,a
+	 lxi d,080h
+	dad	d;	negative carries
+	 mov a,h
+	ora	a
+	stc
+	 rnz;			overrange
+	 mov a,l
+	xri	080h
+	mov	b,a
+	 jmp	putbyt
+	endif
+;
+lxiop:	call	getwrg
+	rc
+	if	z80
+	 cpi 6
+	jc	lxiop1;	Not lxi x or lxi y
+	 sui	6
+	 rrc
+	rrc
+	rrc
+	 adi	0ddh;		form indexing prefix
+	 sta	buff+4;		and set x/y prefix
+	 mvi	b,021h;		opcode
+	 jmp	wdimm
+lxiop1:
+	endif
+	mov	a,m
+	cpi	031h
+	stc
+	rz;			no psw
+	ora	b
+	mov	b,a
+;	"	"
+; put opcode b and word immediate argument
+wdimm:	call	wrtcdb
+;	"	"
+; put word immediate argument
+putwd:	call	getwd
+	rc
+	mov	a,l
+	call	wrtcd
+	mov	b,h
+	jmp	 putbyt
+;
+; opcode, regid ',' immediate opnd
+mviop:	call	getbrg
+	rc
+	if	z80
+	 cpi	8
+	 jc	mviop1
+	 call	ixitlf
+	rc
+	 jmp	mviop2
+	endif
+mviop1:	add	a
+	add	a
+	add	a
+	ora	b
+	mov	b,a
+mviop2:	call	skipblks
+	cpi	','
+	stc
+	rnz
+;	"	"
+; put opcode b and byte immediate argument
+bytimm:	call	wrtcdb
+	call	getbyt
+	rc
+	mov	b,l
+	jmp	putbyt
+;
+	if	z80
+out0ps:	 call getbyt
+	rc;	port to l
+	 cpi ','
+	stc
+	rnz;	not comma terminator
+	 push	h
+	 call	getbrg;		register
+	 pop	h
+	 rc;			bad
+	 cpi 8
+	cmc
+	rc;	bad, xy not allowed
+	 add a
+	add	a
+	add	a
+	 ora b
+	call	wrtcd;	opcode with reg
+	 mov	b,l
+	 jmp	putbyt;		port
+
+iops:	 mvi	a,0edh
+	 call	wrtcd
+	 mov	a,b
+	 ora a
+	jz	mviop;	in0 reg,port
+	 dcr a
+	jz	out0ps;	out0 port,reg
+	 ani 0efh
+	cpi	063h;	orig 64h or 74h
+	 jz	bytimm;		tsio port or tsti value
+	endif
+;	"	"
+inrdcrg:
+	call	getbrg
+	rc
+	if	not z80
+	 jmp	leftrg
+	else
+	 cpi	8
+	 jc	leftrg
+	 call	ixitlf
+	 jmp	putbyt
+;
+ixitlf:	 call ixit
+	rc;	index left operand
+	 add a
+	add	a
+	add	a
+	 ora	b
+	 call	wrtcd
+	 mov	b,c
+	 ret
+	endif
+;
+; opcode with to/from regs embedded
+movop:	call	getbrg
+	rc
+	if	z80
+	 cpi	8
+	 jc	movop1;		not "["
+	 call	ixitlf
+	rc
+	 jmp	movop2
+	endif
+movop1:	add	a
+	add	a
+	add	a
+	ora	b
+	mov	b,a
+movop2:	call	skipblks
+	cpi	','
+	stc
+	rnz
+;	"	"
+; set source register in b and write
+sfromr:	call	getbrg
+	rc;	get register id 0..7
+	if	not z80
+	 jmp	orbout
+	else
+	 cpi	8
+	 jc	orbout;		not '['
+	 call	ixit
+	rc
+	 ora b
+	call	wrtcd;	opcode
+	 mov	b,c
+	 jmp	putbyt;		and displacement
+	endif
+;
+rstn:	call	getbyt
+	rc
+	mov	a,l
+	cpi	8
+	cmc
+	rc
+;	"	"
+leftrg:	add	a
+	add	a
+	add	a
+;	"	"
+; insert field a in b (or vice versa) and output. Check for eol
+orbout:	ora	b
+	mov	b,a
+;	"	"
+; Check for eol, and write byte b
+putbyt:	call	skipblks
+	stc
+	rnz;			need eol
+	jmp	wrtcdb
+;
+	if	z80
+; convert into index/displacement.  Just parsed '[' or X or Y
+; Carry set on entry, 8 <= a <= nregs
+; Returns c=displacement, a=reg id code (=6), sets ix prefix
+; NO code is output.
+; a,f,b,d,e,h,l
+ixit:	 stc
+	rnz;		eliminate X and Y
+	 call	qz80
+	 stc
+	rz;		indexing on z80 only
+	 lda	buff+4
+	 ora a
+	stc
+	rnz;	left op already indexed
+	 call getbrg
+	rc
+	 cpi 9
+	rc;		not x/y
+	 mvi	a,0ddh
+	 jz	ixit1;		X
+	 mvi	a,0fdh;		Y
+ixit1:	 sta	buff+4;		identify index used (prefix)
+	 call	skipblks
+	 cpi '+'
+	jz	ixit3;	with carry clear
+	 cpi '-'
+	stc
+	rnz;	if not +/-
+	 call	getbyt
+	rc
+	 push	psw
+	 mov a,l
+	cma
+	inr	a
+	mov	l,a
+	 pop	psw
+	 jmp	ixit4
+ixit3:	 cnc	getbyt
+	rc
+ixit4:	 sui ']'
+	stc
+	rnz;	if no closing ']' found
+	 mov	c,l;		the displacement
+	 ori	6;		convert to M register address
+	 ret
+;
+dadcs:	 mvi	a,0edh
+	 call	wrtcd
+	endif
+;	"	"
+dblrg:	call	getwrg
+	rc
+	if	z80
+	 cpi 6
+	cmc
+	rc;	eliminate x/y
+	endif
+dbl1:	ora	b
+	mvi	a,030h
+	jm	dbl2;		pop/push
+	mvi	a,031h
+dbl2:	cmp	m
+	stc
+	rz;	select one of sp/psw
+	mov	a,m
+	jmp	orbout
+;
+	if	z80
+dblxrg:	 call getwrg
+	rc
+	 cpi 6
+	jc	dbl1;	not x or y argument
+	 sui 6;			before must keep a +ve
+	 rrc
+	rrc
+	rrc;	bit to 020h posn
+	 adi	0ddh
+	 sta	buff+4;		set x/y prefix
+	 xra	a
+	 jmp	dbl1;		rest as before
+;
+lsxds:	 mvi	a,0edh
+	 call	wrtcd
+	 jmp	wdimm
+;
+sfts:	 mvi	a,0cbh
+	 call	wrtcd
+sfts1:	 call	qz80
+	 stc
+	rz
+	 call	getbrg
+	rc;	get register id 0..7
+	 cpi	8
+	 jc	orbout
+	 call	ixit
+	rc
+	 ora b
+	mov	b,a
+	 mov	a,c
+	 call	wrtcd;		displacement
+	 jmp	putbyt;		opcode and check eol
+;
+bps:	 mvi	a,0cbh
+	 call	wrtcd
+	 call	skipblks
+	 cpi '0'
+	rc
+	 cpi '9'+1
+	cmc
+	rc
+	 ani	07h
+	 ral
+	ral
+	ral
+	 ora b
+
+	mov	b,a
+	 call	nextch
+	 call	qdelim
+	 stc
+	 rnz
+	 jmp	sfts1
+;
+xydad:	 inr	a
+	 mvi	a,0fdh
+	 jnz	xydad1
+	 mvi	a,0ddh
+xydad1:	 sta	buff+4
+	 lda	buff+3;		xy reg id
+	 sta	ixrid;		alter index reg id
+	 jmp	dblrg
+;
+yop:	 mvi	a,0fdh
+	 jmp	xop1
+xop:	 mvi	a,0ddh
+xop1:	 sta	buff+4
+	 jmp	wrtcdb
+;
+yopwd:	 mvi	a,0fdh
+	 jmp	xopwd1
+xopwd:	 mvi	a,0ddh
+xopwd1:	 sta	buff+4
+	 jmp	wdimm
+	endif
+;
+subttl	File writing
+;
+ask:	lxi	h,tfcb+1
+	mvi	a,8
+	call	tchars
+	mvi	a,'.'
+	call	couta
+	mvi	a,3
+	call	tchars
+	lxi	d,m2
+	call	tstr
+	call	getline
+	call	skipblks
+	sui	'Y'
+	ret
+;
+keep:	lxi	h,0100h
+	shld	storeptr
+	lhld	unloaded
+	dcx	h
+	jz	keep1
+	cpi	2
+	jnz	err
+	call	nextparm
+	shld	storeptr
+	call	nextparm
+keep1:	inx	h
+	shld	dendptr
+	call	rsdma
+	call	crlf
+	lda	tfcb+1
+	cpi	' '
+	lxi	d,m1
+	jz	tstr
+	mvi	a,17
+	call	foperate
+	inr	a
+	cnz	ask
+	rnz
+	sta	tfcb+32
+	sta	tfcb+12
+	mvi	a,19;		purge
+	call	foperate
+	mvi	a,22;		make
+	call	foperate;	make/write
+	inr	a
+	jz	err
+keep3:	lhld	storeptr
+	xchg
+	lhld	dendptr
+	call	delesshl
+	jnc	done
+	lxi	h,0080h
+	dad	d
+	shld	storeptr
+	mvi	a,26
+	call	dos;		set dma
+	mvi	a,21;		write
+	call	foperate
+	ora	a
+	jz	keep3
+	call	rsdma
+	jmp	err
+;
+done:	call	rsdma
+	mvi	a,16;		fclose
+	jmp	foperate;	and exit to system
+;
+rsdma:	lxi	d,defdma
+	mvi	a,26
+	jmp	dos
+;
+m1:	db	'File?$'
+m2:	db	' exists, purge (y/n)?$'
+;
+	if	($-begin) AND 0ffh;	align it
+.align	 equ	($-begin) AND 0ffh
+	 ds	256-.align,0
+	endif
+;
+; transfer around segment on startup
+ddtbgn:	ds	0
+	end
+

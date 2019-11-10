@@ -1,0 +1,276 @@
+title	'CCPLUS/DDT INSTALLER - load and lock in CCPLUS'
+; ***************************************
+; * Copyright (C) 1986	86/01/06	*
+; *					*
+; * by	C.B. Falconer	(203) 281-1438	*
+; *	680 Hartford Tpk.		*
+; *	Hamden, Conn. 06517		*
+; *					*
+; * All rights reserved			*
+; ***************************************
+;
+; Modified from RELOCCP (RSX12 package) for quick CCPLUS installation
+;	****	SEE CCPLOCK.MAC for instructions	****
+;
+; 86/1/26 Revised to handle the non-std Osborne I system.
+;
+; Relocate a program, by pages, to reside below BDOS. The program to
+; be relocated is at 0200h up, assembled as if it begins at location
+; 0. Following the program code proper is a relocation bit map. Each
+; byte specifies relocation for 8 bytes of the program, with the ms
+; bit of the relocation byte corresponding to the lower of the 8
+; object bytes.
+;	The 0 based image at location 0200h is:
+;		jmp somewhere;	the entry point.
+;		dw  codesize;	to be moved/relocated
+;		db  pages;	of memory required, total
+;
+; The bit image is formed by comparing the code image with another
+; assembled for org 100.  See "makeprl" and "vect" below for details.
+;
+; The first execution of this system forms the relocation bit vector
+; from the two images, and self-modifies to become a loader on the
+; next execution.
+;
+	aseg;			For M80
+;
+true	equ	-1
+false	equ	not true
+;
+; Set this true to create a loader for non-standard systems, such
+; as the Osborne I, which do not supply the necessary 12 stack bytes.
+; The system then can no longer "ret" to CCP, which is not needed
+; for a CCP or equivalent loader anyhow.
+badccp	equ	true
+;
+; cp/m values
+cout	equ	2
+tstr	equ	9
+reboot	equ	0
+bdos	equ	5
+@bdos	equ	bdos+1
+;
+	org	0100h
+;
+	if	badccp;		RET to CCP not available.
+	 lxi	sp,@prgimg
+	endif
+	lxi	h,@prgimg+3
+	mov	c,m
+	inx	h
+	mov	b,m;	get size
+	inx	h
+	mov	a,m;		pages
+	lxi	h,@prgimg
+	mov	d,h
+	mov	e,l;	save pointer to start
+	dad	b;		^ to 1st relocation byte
+;	"	"
+; (a) is pages, (bc) is size, (de) is start, (hl) is reloc bits
+;	"	"
+; The following location, after forming the relocation bits,
+; is automatically patched to be "jmp relocup".
+patch:	jmp	makeprl;	on 1st execution only
+;	"	"		fall through as noted above
+; do relocation, move and execute
+; (a) is pages, (bc) is size, (de) is start, (hl) is reloc bits
+relocup:
+	push	h
+	lxi	h,reboot
+	shld	patch+1;	prevent re-execution
+	lhld	@bdos;		form origin for relocated
+	cma;				code on page boundary
+	add	h;		Truncate bdos ptr downward
+	adi	1;		can allow for extra space
+	pop	h;		^ relocation bits
+;	"	"
+; relocate the image (de)^, length (bc), in place, by (a) pages,
+; using the bit vector at (hl).  At completion the image is ready to
+; be moved into place at location (a) [entry] * 256.
+; h,l
+reloc:	push	b;		save	length
+	push	d;			& pointer to image
+	push	psw;			& relocation amount
+	call	vlength;	form bit vector length
+reloc1:	pop	psw
+	push	b;		save byte counter
+	push	psw;		relocation amount
+	mvi	c,8
+	mov	b,m;		get reloc bits
+	xchg
+reloc2:	mov	a,b
+	add	a
+	mov	b,a
+	jnc	reloc3;		dont relocate this
+	pop	psw;		relocation amount
+	push	psw
+	add	m
+	mov	m,a
+reloc3:	inx	h;		next obj byte
+	dcr	c
+	jnz	reloc2;	more bits to scan
+	xchg
+	inx	h;		next reloc bit vector
+	pop	psw
+	pop	b
+	push	psw
+	dcx	b
+	mov	a,b
+	ora	c
+	jnz	reloc1;		more
+	pop	h;		h := pushed a
+	mov	l,b;		0, form origin
+	pop	d;		^image
+	pop	b;		restore length
+;	"	"		relocation done
+	push	h;		save as execution point, move exit
+;	"	"
+; move (bc) bytes from (de)^ to (hl)^.  (bc) <> 0 on entry.
+; a,f,b,c,d,e,h,l
+move:	ldax	d
+	mov	m,a;	move relocated code
+	inx	d
+	inx	h
+	dcx	b
+	mov	a,b
+	ora	c
+	jnz	move
+	ret;			execute relocated code
+;
+; form length of relocation bit vector = ((bc)+7) DIV 8)
+; a,f,b,c
+vlength:
+	push	h;		round size up to multiple of 8
+	lxi	h,7
+	dad	b
+	mov	c,l
+	mov	b,h
+	pop	h
+;	"	"
+; shift (bc) right 3 places, 0s in
+; a,f,b,c
+bcrz3:	call	bcrz
+;	"	"
+; shift (bc) right 2 places, 0s in
+; a,f,b,c
+bcrz2:	call	bcrz
+;	"	"
+; shift (bc) right, inserting zero bit
+; a,f,b,c
+bcrz:	ora	a;		clear any cy
+	mov	a,b
+	rar
+	mov	b,a
+	mov	a,c
+	rar
+	mov	c,a
+	ret
+;
+; make relocatable code file from double image at 0200h up
+; A 2nd image is located immediately above the zero based
+; image, assembled for origin at 0100h.
+makeprl:
+	push	h
+	lxi	h,relocup
+	shld	patch+1;	next execution moves
+	pop	h
+;	"	"
+; make bit vector. At entry:
+; 	(bc) = bytes to examine
+;	(de) = ^0 based image
+;	(hl) = ^0100h based image, and to start of bit
+;		vector storage area.
+; At exit (hl) points to free byte above computed relocation vector.
+; a,f,b,c,d,e,h,l
+vect:	call	vlength;	form bit vector length
+	push	b;		save vector byte counter
+	push	h;		save vector storage ptr.
+vect1:	lxi	b,8;		bit count and zero reloc byte
+vect2:	ldax	d
+	sub	m
+	adi	1;		carry if difference was 1
+	mov	a,b
+	adc	a;		2*a+cy
+	mov	b,a
+	inx	d
+	inx	h
+	dcr	c
+	jnz	vect2;	same vector byte
+	pop	b;		^vector storage
+	stax	b;		save vector byte
+	inx	b
+	xthl;			save ^1 based,
+	dcx	h;		get & decrement ctr
+	mov	a,h
+	ora	l
+	xthl;			restack counter
+	push	b;		and vector pointer
+	jnz	vect1;		more bytes to generate
+	pop	h;		point to next free byte
+	pop	b;		purge stack
+;	"	"
+	push	h
+	lxi	d,pgmsg
+	mvi	c,tstr
+	call	bdos
+	pop	h
+	dcx	h;	^last used byte
+	push	h
+	mov	a,h
+	call	tadzs;		signal pages to save
+	pop	h
+	mov	a,l
+	ora	a
+	jm	reboot;		last 1/2 page used
+	mov	a,h
+	dcr	a
+	push	psw
+	mvi	a,'('
+	call	couta;		signal usage for "SAVE nn+"
+	pop	psw;		available in CCPLUS
+	call	tadzs
+	mvi	a,'+'
+	call	couta
+	mvi	a,')'
+	call	couta
+	jmp	reboot
+;
+; output (a) in dec. to console, no leading zeroes
+; a,f,b,c,d,e,h,l
+tadzs:	mov	l,a
+	mvi	h,0
+;	"	"
+; output (hl) in dec. to console. Suppress leading zeros.
+; a,f,b,c,d,e,h,l
+tdzs:	lxi	b,0f00ah;	c=divisor=1 , b=iter cnt=-16
+	xra	a;		clear
+tdzs1:	dad	h;		m := (hl)/10; rdr to (a)
+	ral;			shift off into (a)
+	cmp	c;		test
+	jc	tdzs2;		no bit
+	sub	c;		bit = 1
+	inx	h
+tdzs2:	inr	b
+	jm	tdzs1;	not done
+	push	psw;		save output digit
+	mov	a,h
+	ora	l
+	cnz	tdzs;		not left digit, recursive
+	pop	psw;		last unlisted digit
+	adi	'0'
+;	 "	"
+; output (a) to console
+; a,f,b,c,d,e,h,l
+couta:	mov	e,a;		output (a) to console
+	mvi	c,cout
+	jmp	bdos;		and exit
+;
+pgmsg:	if	NOT badccp
+	 db	'Now '
+	endif
+	db	'SAVE $'
+;
+; Where the zero based program image belongs.
+@prgimg	equ	($+0ffh) AND 0ff00h
+;
+	end

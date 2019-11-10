@@ -1,0 +1,291 @@
+;
+;  STRING.MAC - String Functions
+;
+;  CMOVE  CMOVE>  BLANK  COUNT  PLACE  affix  SCAN  SKIP
+;  -TRAILING  /STRING  COMPARE  SEARCH  +STRING
+;
+
+;	CMOVE  ( c-addr1 c-addr2 u -- )
+
+	hdr	1,'CMOVE'
+cmove:	ld	l,c
+	ld	h,b
+	pop	bc
+	pop	de
+	ex	(sp),hl
+cmove1:	call	bmovd
+	pop	bc
+	jp	next
+
+;	CMOVE>  ( c-addr1 c-addr2 u -- )
+
+	hdr	1,'CMOVE>'
+cmovu:	ld	l,c
+	ld	h,b
+	pop	bc
+	pop	de
+	ex	(sp),hl
+cmovu1:	call	bmovu
+	pop	bc
+	jp	next
+
+;	BLANK  ( c-addr u -- )	bl fill
+
+	hdr	1,'BLANK'
+blank:	ld	e,' '
+	jp	fill1
+
+;	COUNT  ( c-addr1 -- c-addr2 u )  dup 1+ swap c@
+
+	hdr	1,'COUNT'
+count:	pop	de
+count1:	ld	a,(de)
+	inc	de
+	push	de
+	jp	apush
+
+;	PLACE  ( c-addr1 u c-addr2 -- )  2dup 2>r 1+ swap move 2r> c!
+
+	hdr	1,'PLACE'
+place:	call	docol
+	dw	tdup
+	dw	ttor
+	dw	onep,swap
+	dw	move
+	dw	tfrom
+	dw	cstor
+	dw	exit
+
+;	affix  ( c-addr char -- c-addr )  over count + c!
+
+	hdr	x,'AFFIX'	; affix trailing char to counted string
+affix:	call	docol
+	dw	over
+	dw	count
+	dw	plus
+	dw	cstor
+	dw	exit
+
+;	SCAN  ( c-addr1 u1 char -- c-addr2 u2 )
+
+	hdr	1,'SCAN'
+scan:	pop	de
+	ld	l,c
+	ld	h,b
+	pop	bc
+	ex	(sp),hl
+scan1:	ld	a,c
+	or	b
+	jp	z,scan2
+	ld	a,e
+	cp	(hl)
+	jp	z,scan2
+	inc	hl
+	dec	bc
+	jp	scan1
+
+scan2:	ex	(sp),hl
+scan3:	push	bc
+	ld	c,l
+	ld	b,h
+	jp	next
+
+;	SKIP  ( c-addr1 u1 char -- c-addr2 u2 )
+
+	hdr	1,'SKIP'
+skip:	pop	de
+	ld	l,c
+	ld	h,b
+	pop	bc
+	ex	(sp),hl
+skip1:	ld	a,c
+	or	b
+	jp	z,scan2
+	ld	a,e
+	cp	(hl)
+	jp	nz,scan2
+	inc	hl
+	dec	bc
+	jp	skip1
+
+;	-TRAILING  ( c-addr u1 -- c-addr u2 )
+
+	hdr	1,'-TRAILING'
+dtrai:	pop	de
+	pop	hl
+	push	hl
+	add	hl,de
+	ex	de,hl
+dtrai1:	dec	de
+	ld	a,l
+	or	h
+	jp	z,hpush
+	ld	a,(de)
+	cp	' '
+	jp	nz,hpush
+	dec	hl
+	jp	dtrai1
+
+;	/STRING  ( c-addr1 u1 n -- c-addr2 u2 )		rot over + -rot -
+
+	hdr	1,'/STRING'	; ANS
+sstr:	pop	de
+	pop	hl
+	call	ssub
+	ex	(sp),hl
+	add	hl,de
+	ex	(sp),hl
+	jp	hpush
+
+;	CAPS  ( -- )		enable caps COMPARE/SEARCH
+
+	hdr	1,'CAPS'
+caps:	ld	a,1
+	ignore1
+
+;	-caps  ( -- )		disable caps COMPARE/SEARCH
+
+	hdr	x,'-CAPS'
+dcaps:	xor	a
+	ld	(scaps),a
+	jp	next
+
+	cseg
+
+;	string match  HL = a1  BC = a2  DE = len  Z if match
+
+cmpnc:	ld	a,e	; case insensitive
+	or	d
+	ret	z
+	push	bc
+	ld	a,(bc)
+	call	upc
+	ld	c,a
+	ld	a,(hl)
+	call	upc
+	cp	c
+	pop	bc
+	ret	nz
+	inc	hl
+	inc	bc
+	dec	de
+	jp	cmpnc
+
+cmpss:	ld	a,(scaps)
+	or	a
+	jp	nz,cmpnc
+
+;	string match  HL = a1  BC = a2  DE = len  Z if match
+
+cmpsb:	ld	a,e	; case sensitive
+	or	d
+	ret	z
+	ld	a,(bc)
+	cp	(hl)
+	ret	nz
+	inc	hl
+	inc	bc
+	dec	de
+	jp	cmpsb
+
+;	COMPARE  ( c-addr1 u1 c-addr2 u2 -- -1 | 0 | 1 )
+
+	hdr	1,'COMPARE'	; ANS
+cmpp:	pop	de
+	pop	hl
+	ex	(sp),hl
+	ld	a,d
+	cp	h
+	jp	nz,cmpp1
+	ld	a,e
+	cp	l
+cmpp1:	jp	c,cmpp2
+	ex	de,hl
+cmpp2:	ld	l,c
+	ld	h,b
+	pop	bc
+	ex	(sp),hl
+	push	af
+	call	cmpss
+	jp	z,cmpp4
+	pop	bc
+cmpp3:	pop	bc
+	ld	a,0
+	ld	(scaps),a
+	jp	c,one
+	jp	z,false
+	jp	true
+
+cmpp4:	pop	af
+	jp	cmpp3
+
+;	SEARCH  ( c-addr1 u1 c-addr2 u2 -- c-addr3 u3 -1 | c-addr1 u1 0 )
+
+	hdr	1,'SEARCH'	; ANS
+sear:	call	docol
+	dw	$+2
+	pop	hl
+	ld	(slen2),hl
+	ld	a,l
+	or	h
+	pop	bc
+	pop	hl
+	ld	(slen1),hl
+	ex	de,hl
+	pop	hl
+	ld	(sadr1),hl
+	jp	z,sear2
+	dec	hl
+	inc	de
+sear1:	inc	hl
+	dec	de
+	ld	a,e
+	or	d
+	jp	z,sear4
+;	ld	a,(bc)
+;	cp	(hl)
+;	jp	nz,sear1
+	push	de
+	push	bc
+	push	hl
+	ex	de,hl
+	ld	hl,(slen2)
+	ex	de,hl
+	call	cmpss
+	pop	hl
+	pop	bc
+	pop	de
+	jp	nz,sear1
+
+sear2:	ld	bc,-1
+sear3:	push	hl
+	push	de
+	push	bc
+	xor	a
+	ld	(scaps),a
+	jp	exit
+
+sear4:	ld	bc,0
+	ld	hl,(slen1)
+	ex	de,hl
+	ld	hl,(sadr1)
+	jp	sear3
+
+sadr1:	ds	2
+slen1:	ds	2
+slen2:	ds	2
+
+;	+STRING  ( c-addr1 u1 c-addr2 u2 -- c-addr2 u3)
+;					2swap swap 2over + 2 pick cmove +
+
+	hdr	1,'+STRING'
+pstr:	call	docol
+	dw	tswap,swap
+	dw	tover,plus
+	dw	two,pick
+	dw	cmove,plus
+	dw	exit
+
+;	end
+
+

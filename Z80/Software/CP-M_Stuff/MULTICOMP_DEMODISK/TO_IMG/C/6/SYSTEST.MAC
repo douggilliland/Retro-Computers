@@ -1,0 +1,130 @@
+;
+;  PROGRAM:  SYSTEST
+;  AUTHOR:  Richard Conn
+;  PURPOSE:  This program dumps the disk file specified by the user
+;		in hexadecimal and ASCII
+;  NOTE:  This test demonstrates the use of the SYSLIB Byte-Oriented
+;		File Input routines
+;
+
+;  External CP/M Buffers
+fcb	equ	5ch	; address of FCB filled in by CP/M's CCP (or ZCPR2)
+
+;  External References for SYSLIB routines used
+	ext	fi1$open	; Open File for Byte-Oriented Input
+	ext	fi1$close	; Close File
+	ext	f1$get		; Get Byte from File
+	ext	cout		; Character Output
+	ext	pa2hc		; Print A as 2 Hex Chars
+	ext	phldc		; Print HL as up to 5 decimal digits
+	ext	print		; String Print
+	ext	crlf		; New Line
+
+;
+;  Start of Routine -- Print Banner
+;
+	call	print
+	db	'SYSTEST - Sample DUMP Program to Illustrate SYSLIB '
+	db	'Byte-Oriented File Input'
+	db	0
+	call	crlf	; new line
+
+;
+;  Set Offset Counter
+;
+	lxi	h,0	; Init to zero
+	shld	counter
+
+;
+;  Open File for Input
+;
+	lxi	d,fcb	; pt to FCB filled in by Operating System
+	call	fi1$open	; try to open it
+	jz	loop	; continue if OK
+	call	print	; not ok, so file must not have been found
+	db	'File Not Found',0
+	ret		; return to Operating System
+
+;
+;  Main Loop
+;
+loop:
+	lhld	counter	; get counter value
+	call	phldc	; print as decimal number
+	lxi	d,16	; add 16 to counter for next print
+	dad	d
+	shld	counter	; save count away
+	call	print
+	db	': ',0
+	mvi	b,0	; set byte count to zero
+	lxi	h,buffer	; point to first byte of buffer
+readlp:
+	call	f1$get	; get next byte
+	jnz	readdn	; done if past EOF
+	mov	m,a	; store byte into buffer
+	inx	h	; point to next byte in buffer
+	inr	b	; increment byte count
+	mov	a,b	; check for done
+	cpi	16	; read in 16 bytes?
+	jnz	readlp
+	call	bufprint	; print contents of buffer
+	call	crlf	; new line
+	jmp	loop	; continue until End of File
+
+;
+;  Done with Read -- Print current Buffer and Exit
+;  B = Number of bytes to print
+;
+readdn:
+	call	bufprint	; print buffer
+	call	crlf		; new line
+	call	fi1$close	; close file
+	ret
+
+;
+;  Buffer print routine; print the contents of the buffer for B bytes
+;
+bufprint:
+	lxi	h,buffer	; point to first byte of buffer
+	push	b	; save character count
+bufploop:
+	mov	a,b	; check count first (in case it is zero)
+	ora	a	; done?
+	jz	ascprint	; print as ASCII chars if done
+	dcr	b	; count down
+	mov	a,m	; get byte from buffer
+	inx	h	; point to next byte in buffer
+	call	pa2hc	; print byte as 2 Hex chars
+	mvi	a,' '	; print a space
+	call	cout
+	jmp	bufploop
+;  Now print buffer as ASCII characters
+ascprint:
+	lxi	h,buffer	; point to first character
+	pop	b	; get character count
+	call	print	; print a separator
+	db	'! ',0
+ascploop:
+	mov	a,b	; check for empty buffer
+	ora	a	; done if zero
+	rz		; return to caller if so
+	dcr	b	; count down
+	mov	a,m	; get byte to output
+	ani	7fh	; mask out most significant bit
+	mov	c,a	; save character in C
+	cpi	' '	; test for printable character
+	jnc	ascp	; print character if printable
+	mvi	c,'.'	; print dot if not printable character
+ascp:
+	mov	a,c	; get char to print
+	call	cout	; print it
+	inx	h	; point to next character
+	jmp	ascploop	; continue until count is exhausted
+
+counter:
+	ds	2	; Offset Counter
+buffer:
+	ds	16	; 16-byte buffer for input bytes
+
+	end
+

@@ -1,0 +1,141 @@
+;
+;  SYSLIB Module Name:  SZGPIN
+;  Author:  Richard Conn
+;  SYSLIB Version Number:  2.2
+;  Module Version Number:  1.0
+;  Module Entry Points:
+;	ZGPINS
+;  Module External References:
+;	ZINIMC		ZINIEXT		ZINIDMA		ZINICI
+;	ZFNINIT		MOVEB
+;
+
+;
+;	This SYSLIB subroutine is used to properly initialize all of
+; the ZCPR2-specific routines based on the ZCPR2 Utility Standard
+; General-Purpose Installation Format.
+;
+
+;
+;	The following equates define the relative addresses of
+; the Installation Format Variables.
+;
+base	equ	100H	; beginning of variable area
+epavail	equ	base+3	; external path available flag
+epadr	equ	base+4	; address of external path
+
+intpath	equ	base+6	; address of beginning of 8-elt internal path
+
+mcavail	equ	base+17H	; multiple command line buffer available flag
+mcadr	equ	base+18H	; address of multiple command line buffer
+
+cindic	equ	base+48H	; current user/disk indicator
+
+dmadr	equ	base+49H	; default DMA address
+
+ndradr	equ	base+4BH	; address of memory-resident dir name buffer
+ndnames	equ	base+4DH	; max number of directory names
+dnfile	equ	base+4EH	; name of named directory file
+
+;
+;  Requirements Flags
+;
+epreqd	equ	base+59h	; external path
+mcreqd	equ	base+5Ah	; multiple commands
+cdreqd	equ	base+5Eh	; current indic and dma
+ndreqd	equ	base+5Fh	; named directories?
+
+;
+;  Internal Buffers for the Init
+;
+dnfcb:
+	ds	12	; disk name fcb (12 BYTES)
+
+;
+;  EXTERNALS
+;
+	EXT	MOVEB	; COPY ROUTINE
+	EXT	ZINIMC	; MULTIPLE COMMAND LINE BUFFER INIT
+	EXT	ZINIEXT	; EXTERNAL PATH INIT
+	EXT	ZINIDMA	; DMA ADDRESS
+	EXT	ZINICI	; CURRENT USER/DISK FLAG
+	EXT	ZFNINIT	; NAMES.DIR AND MAX DIR COUNT INIT
+
+;
+;  Beginning of init routine
+;
+ZGPINS::
+	PUSH	H	; SAVE REGS
+	PUSH	D
+	PUSH	B
+	PUSH	PSW
+
+;
+;  INIT NAMES.DIR FILE NAME AND MAX NUMBER OF ENTRIES
+;
+	LDA	NDREQD		; NAMED DIRECTORY DATA REQUIRED?
+	ORA	A		; 0=NO
+	JZ	ZINI1
+	LXI	H,DNFILE	; SET UP DISK NAME FCB
+	LXI	D,DNFCB+1	; FN AND FT COPIED
+	MVI	B,11		; 11 BYTES
+	CALL	MOVEB
+	XRA	A		; ZERO FIRST BYTE
+	DCX	D		; PT TO FIRST BYTE OF DNFCB
+	STAX	D		; STORE LEADING ZERO
+	LDA	NDNAMES		; GET NUMBER OF NAMES ALLOWED
+	MOV	C,A		; ... IN C
+	LHLD	NDRADR		; ADDRESS OF MEMORY-RESIDENT BUFFER
+	MVI	A,0FFH		; SET EVERYTHING
+	CALL	ZFNINIT		; DO INIT --
+				;   HL=ADDRESS OF MEMORY-RESIDENT BUFFER
+				;   DE=ADDRESS OF NAMES.DIR FCB
+				;   C =NUMBER OF NAMES ALLOWED
+;
+;  INIT CURRENT USER/DISK INDICATOR AND DMA ADDRESS
+;
+ZINI1:
+	LDA	CDREQD		; CURRENT INDICATOR/DMA REQUIRED?
+	ORA	A		; 0=NO
+	JZ	ZINI2
+	LDA	CINDIC		; GET INDICATOR
+	CALL	ZINICI
+	LHLD	DMADR		; GET DMA ADDRESS
+	CALL	ZINIDMA
+
+;
+;  INIT EXTERNAL PATH ADDRESS
+;
+ZINI2:
+	LDA	EPREQD		; EXTERNAL PATH REQUIRED?
+	ORA	A		; 0=NO
+	JZ	ZINI3
+	LHLD	EPADR		; PREP TO DECLARE EXTERNAL PATH
+	LDA	EPADR		; GET FLAG
+	ORA	A		; NZ = EXTERNAL PATH OK
+	JNZ	ZINI2A		; DO INIT
+	LXI	H,INTPATH	; PT TO INTERNAL PATH OTHERWISE
+ZINI2A:
+	CALL	ZINIEXT		; INIT EXTERNAL PATH
+
+;
+;  INIT MULTIPLE COMMAND LINE BUFFER PTRS
+;
+ZINI3:
+	LDA	MCREQD		; MULTIPLE COMMANDS REQUIRED?
+	ORA	A		; 0=NO
+	JZ	ZINI4
+	LDA	MCAVAIL		; GET FLAG
+	LHLD	MCADR		; GET ADDRESS
+	ORA	A		; SET FLAGS (0=NO)
+	CNZ	ZINIMC		; INIT MC LINE BUFFER IF DESIRED
+
+ZINI4:
+	POP	PSW		; RESTORE REGS
+	POP	B
+	POP	D
+	POP	H
+	RET
+
+	END
+

@@ -1,0 +1,515 @@
+/*
+*******************************************************
+*    Direct MP/M Operating System Call Test Program   *
+*******************************************************
+
+The programs MPMCALLA.PLI and MPMCALLB.PLI demonstrate direct MP/M 
+Operating System calls from PLI.  The following instructions describe
+the steps to assemble, compile, link and execute these programs.
+
+   1)  Compile the PLI programs with the commands:
+
+       A>pli mpmcalla $pl
+       A>pli mpmcallb $pl
+
+   2)  Assemble the mpmdio.asm module with the command:
+
+       A>rmac mpmdio
+
+   3)  Link the mpmcalla, mpmcallb, and mpmdio modules:
+
+       A>link mpmcalla,mpmcallb,mpmdio
+
+   4)  Gensys your MP/M system as follows:
+
+       Top .... = ff
+       Number of con..  = 1
+       Add system call ...  ? n
+       Bank switched mem... ? n
+        :0
+        :a0
+        :ff
+
+   5)  Run the program:
+
+       A>mpmcalla
+
+
+*/
+
+
+mpmtest:  /* external MP/M I/O entry points */
+
+procedure options(main);
+
+declare
+   part2 entry;
+
+%replace
+   true   by '1'b,
+   false  by '0'b;
+
+%include 'mpmdio.dcl';
+
+declare
+   vers entry returns(bit(16));
+
+declare
+   sysin file,
+   version bit(16),
+   oldpriority fixed(7),
+   v character(254) var,
+   i fixed;
+
+declare
+   pdadr pointer,
+      1 pd based (pdadr),
+        2 link pointer,
+	2 status fixed(7),
+	2 priority fixed(7),
+	2 stkptr pointer,
+	2 name character(8),
+	2 console fixed(7),
+	2 memseg fixed(7),
+	2 b fixed(15),
+	2 thread pointer,
+	2 dmadr pointer,
+	2 slct bit(8);
+/*	2 dcnt fixed(15),
+	2 searchl fixed(7),
+	2 searcha pointer,
+	2 drvact bit(16),
+	2 registers (20) fixed(7),
+	2 scratch fixed(15);
+	*/
+
+declare
+      1 localpd static,
+	2 link pointer,
+	2 status fixed(7),
+	2 priority fixed(7),
+	2 stkptr pointer,
+	2 name character(8) initial ('LocalPD '),
+	2 console fixed(7),
+	2 memseg fixed(7),
+	2 b fixed(15),
+	2 thread pointer,
+	2 dmadr pointer,
+	2 slct fixed(7),
+	2 dcnt fixed(15),
+	2 searchl fixed(7),
+	2 searcha pointer,
+	2 drvact bit(16),
+	2 registers (20) fixed(7),
+	2 scratch fixed(15);
+
+declare
+   localstk (0:255) entry (fixed) variable;
+
+declare
+   sysdatpgadr pointer,
+      1 sysdatpg based (sysdatpgadr),
+        2 memtop bit(8),
+	2 nmbcns fixed(7),
+	2 brkptrst fixed (7),
+	2 syscallstks bit(8),
+	2 bankswitched bit(8);
+/*	2 z80cpu bit(8),
+	2 bankedbdos bit(8),
+	2 basebankedbdos pointer;
+	*/
+
+declare
+   upper character(27) static initial
+         ('ABCDEFGHIJKLMNOPQRSTUVWXYZ '),
+   lower character(27) static initial
+         ('abcdefghijklmnopqrstuvwxyz ');
+
+
+/**********************************
+*                                 *
+* Local procedures used during    *
+*  testing.                       *
+*                                 *
+**********************************/
+
+flagtest:
+procedure;
+declare
+   boolean bit(1);
+
+call attcon();
+boolean = flgwt (30);
+put skip list ('-> flagtest wait on #30 complete.');
+call detcon();
+boolean = flgset (31);
+call term ('ffff'b4);
+end flagtest;
+
+queuetest:
+procedure;
+declare
+   1 qcbB static,
+     2 link fixed(15),
+     2 name character(8) initial ('QueueB  '),
+     2 msglen fixed(15) initial (10),
+     2 nmbmsgs fixed(15) initial (2),
+     2 dqph pointer,
+     2 nqph pointer,
+     2 msgin pointer,
+     2 msgout pointer,
+     2 msgcnt fixed(15),
+     2 buffer (2),
+       3 lnk pointer,
+       3 character(10);
+
+declare
+   1 uqcbA static,
+     2 pointer pointer,
+     2 msgadr pointer,
+     2 name character(8) initial ('QueueA  ');
+
+declare
+   1 uqcbB,
+     2 pointer pointer,
+     2 msgadr pointer;
+
+declare
+   msgA character(10),
+   msgB character(10);
+
+uqcbA.msgadr = addr (msgA);
+uqcbB.pointer = addr (qcbB);
+uqcbB.msgadr = addr (msgB);
+call makque (addr (qcbB));
+do while (~opnque (addr (uqcbA)));
+   call delay (1); /* until qcbA created */
+end;
+do while (true);
+   call rdque (addr (uqcbA));
+   msgB = translate (msgA,upper,lower);
+   call wrque (addr (uqcbB));
+end;
+end queuetest;
+
+
+/**************************************************
+***************************************************
+********                                   ********
+********      M a i n   P r o g r a m      ********
+********                                   ********
+***************************************************
+**************************************************/
+
+
+/**********************************
+*                                 *
+* Verify Operation Under MP/M     *
+*   Without Banked Memory.        *
+*                                 *
+**********************************/
+
+version = vers();
+if substr (version,1,8) = '00'b4 then
+do;
+  put skip list ('Tests cannot run under CP/M.');
+  call term('0000'b4);
+end;
+sysdatpgadr = sysdat ();
+if sysdatpg.bankswitched = 'FF'b4 then
+do;
+  put skip list ('Tests cannot run under MP/M');
+  put list ('with bank switched memory.');
+  call term('0000'b4);
+end;
+if sysdatpg.syscallstks = 'FF'b4 then
+do;
+  put skip list ('Tests cannot run under MP/M');
+  put list ('with system call user stacks.');
+  call term('0000'b4);
+end;
+pdadr = rpdadr();   /* get current running pd adr */
+oldpriority = pd.priority;
+
+/**********************************
+*                                 *
+* Memory Management Tests:        *
+*       AMEMRQ, RMEMRQ, MEMFR     *
+*                                 *
+**********************************/
+declare
+   1 memdscr,
+     2 base fixed (7),     /* base page */
+     2 size fixed (7),     /* # of pages */
+     2 attrib fixed (7),   /* attributes */
+     2 bank fixed (7);     /* bank byte */
+
+on endfile (sysin)
+   goto rmemrqtst;
+put skip list ('Memory Management Tests:');
+do while (true);
+   put skip(2) list ('    Absolute Request');
+   put skip list ('        Base (xx in hex) = ');
+   i = pd.memseg;  /* save old memseg index */
+   get edit (unspec (memdscr.base)) (b4(2));
+   if amemrq (addr (memdscr)) then
+      do;
+        put skip list ('    Absolute Request satisfied.');
+        put edit ('      Base = ',unspec (memdscr.base),'H')
+                 (skip,a,b4,a);
+        put edit ('      Size = ',unspec (memdscr.size),'H')
+                 (skip,a,b4,a);
+        put edit ('      Attr = ',unspec (memdscr.attrib),'H')
+                 (skip,a,b4,a);
+        put edit ('      Bank = ',unspec (memdscr.bank),'H')
+                 (skip,a,b4,a);
+        call memfr (addr (memdscr));
+        pd.memseg = i;  /* restore former memseg index */
+      end;
+   else
+      do;
+        put skip list ('    Absolute Request failed.');
+      end;
+end;
+
+rmemrqtst:
+
+get edit (v) (a);  /* clear input buffer */
+
+on endfile (sysin)
+   goto polltst;
+do while (true);
+   put skip(2) list ('    Relocatable Request');
+   put skip list ('        Size (xxh) = ');
+   i = pd.memseg;  /* save old memseg index */
+   get edit (unspec (memdscr.size)) (b4(2));
+   if rmemrq (addr (memdscr)) then
+      do;
+        put skip list ('    Relocatable Request satisfied.');
+        put edit ('      Base = ',unspec (memdscr.base),'H')
+                 (skip,a,b4,a);
+        put edit ('      Size = ',unspec (memdscr.size),'H')
+                 (skip,a,b4,a);
+        put edit ('      Attr = ',unspec (memdscr.attrib),'H')
+                 (skip,a,b4,a);
+        put edit ('      Bank = ',unspec (memdscr.bank),'H')
+                 (skip,a,b4,a);
+        call memfr (addr (memdscr));
+        pd.memseg = i;  /* restore former memseg index */
+      end;
+   else
+     do;
+       put skip list ('    Relocatable Request failed.');
+     end;
+end;
+
+/**********************************
+*                                 *
+* Poll Tests:                     *
+*  The poll call cannot be tested *
+*  unless the poll device table   *
+*  in the XIOS is known.          *
+*                                 *
+**********************************/
+
+polltst:
+
+get edit (v) (a);  /* clear input buffer */
+
+/*  The following code is "commented out"
+
+call poll (devicenumber);
+put edit ('Device ',devicenumber,'is ready.')
+         (skip,a,f,a);
+
+End of comment-deleted code  */
+
+put skip(2) list ('Poll call not tested.');
+
+/**********************************
+*                                 *
+* Flag Tests:                     *
+*       FLGWT, FLGSET             *
+*                                 *
+*    Note: this test assumes that *
+*    flags 30 & 31 are unused.    *
+*                                 *
+**********************************/
+declare
+   flagover bit(1),
+   flagunder bit(1);
+
+unspec (localpd.link) = '0000'b4;
+localpd.priority = 100;
+localpd.stkptr = addr (localstk(255));
+localpd.console = pd.console;
+localpd.memseg = pd.memseg;
+localstk(255) = flagtest;
+call crproc (addr (localpd));
+put skip(2) list ('Flag Tests:');
+call setpri (101);
+call detcon();
+flagover = ~flgset (30);
+call attcon();
+call setpri (oldpriority);
+flagunder = ~flgwt (31);
+if flagover then
+   put skip list ('-> flag over-run.');
+if flagunder then
+   put skip list ('-> flag under-run.');
+put skip list ('-> flag tests successful.');
+
+/**********************************
+*                                 *
+* Queue Management Tests:         *
+*    MAKQUE,OPNQUE,DELQUE         *
+*    RDQUE,CRDQUE,WRQUE,CWRQUE    *
+*                                 *
+**********************************/
+declare
+   1 qcbA static,
+     2 link fixed(15),
+     2 name character(8) initial ('QueueA  '),
+     2 msglen fixed(15) initial (10),
+     2 nmbmsgs fixed(15) initial (2),
+     2 dqph pointer,
+     2 nqph pointer,
+     2 msgin pointer,
+     2 msgout pointer,
+     2 msgcnt fixed(15),
+     2 buffer (2),
+       3 lnk pointer,
+       3 character(10);
+
+declare
+   1 uqcbA,
+     2 pointer pointer,
+     2 msgadr pointer;
+
+declare
+   1 uqcbB static,
+     2 pointer pointer,
+     2 msgadr pointer,
+     2 name character(8) initial ('QueueB  ');
+
+declare
+   msgA character(10),
+   msgB character(10);
+
+put skip(2) list ('Queue Tests:');
+on endfile (sysin)
+   goto abtsprtest;
+
+uqcbA.pointer = addr (qcbA);
+uqcbA.msgadr = addr (msgA);
+uqcbB.msgadr = addr (msgB);
+call makque (addr (qcbA));
+
+put skip(2) list ('  Testing Conditional Write Queue');
+do i = 1 to 10 while (cwrque (addr (uqcbA)));
+   put edit ('    Message #',i) (skip,a,f(2));
+end;
+put skip list ('  Queue is full.');
+
+put skip(2) list ('  Testing Conditional Read Queue');
+do i = 1 to 10 while (crdque (addr (uqcbA)));
+   put edit ('    Message #',i) (skip,a,f(2));
+end;
+put skip list ('  Queue is empty.');
+
+unspec (localpd.link) = '0000'b4;
+localpd.priority = 100;
+localpd.stkptr = addr (localstk(255));
+localpd.console = pd.console;
+localpd.memseg = pd.memseg;
+localstk(255) = queuetest;
+call crproc (addr (localpd));
+
+do while (~opnque (addr (uqcbB)));
+   call delay (1); /* until qcbB created */
+end;
+put skip list ('  Enter character(10) message:');
+do while (true);
+   put skip list ('->');
+   get edit (msgA) (a);
+   call wrque (addr (uqcbA));
+   call rdque (addr (uqcbB));
+   put edit ('<-',msgB) (skip,a,a(10));
+end;
+
+/**********************************
+*                                 *
+* Abort Specified Process Test:   *
+*                                 *
+**********************************/
+declare
+   1 abtpb static,
+     2 pda bit(16) initial ('0000'b4),
+     2 termcode bit(16) initial ('ffff'b4),
+     2 name character(8) initial ('LocalPD '),
+     2 console fixed(7);
+
+abtsprtest:
+
+get edit (v) (a);  /* clear input buffer */
+
+put skip(2) list ('Abort Specified Process Test:');
+put skip list ('  Aborting LocalPD.');
+abtpb.console = pd.console;
+if abtspr (addr (abtpb)) then
+   do;
+     put skip list ('->Abort successful');
+   end;
+else
+   do;
+     put skip list ('->Abort Failed');
+     goto error;
+   end;
+if ~delque (addr (qcbA)) then
+   do;
+     put skip list ('*** Unable to delete QueueA ***');
+     call term('0000'b4);
+   end;
+if ~delque (uqcbB.pointer) then
+   do;
+     put skip list ('*** Unable to delete QueueB ***');
+     call term('0000'b4);
+   end;
+
+
+/***************************************
+****************************************
+****                                ****
+****    Call external procedure     ****
+****    "part2" for other tests     ****
+****                                ****
+***********************************
+**********************************/
+
+call part2();
+
+
+/**********************************
+*                                 *
+* Termination Test:               *
+*                                 *
+**********************************/
+
+put skip(2) list ('Termination Test:');
+call term ('0000'b4);
+
+/**********************************
+*                                 *
+* Unrecoverable Error:            *
+*                                 *
+**********************************/
+
+error:
+
+put skip list ('*** Unrecoverable Error ***');
+call disabl();
+do while (true);
+   end;
+
+end mpmtest;
+

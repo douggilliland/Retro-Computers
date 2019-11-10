@@ -1,0 +1,19 @@
+BEGIN
+COMMENT THIS PROGRAM TESTS THE FUNCTIONING OF THE CONCATENATE OPERATOR
+        AND THE STRING FUNCTION;
+STRING A,B,C;
+STRING(20) FUNCTION EQUAL(A,B);
+    STRING A,B;
+    BEGIN
+      EQUAL:=IF A=B THEN "TRUE" ELSE "FALSE";
+    END;
+WHILE 1=1 DO
+   BEGIN
+     WRITE("INPUT TWO STRINGS WHICH YOU WANT TO COMPARE");
+     WRITE("FOR EQUALITY");
+     READ (A,B);
+     WRITE(EQUAL(A,B));
+   END;
+END
+EOF
+

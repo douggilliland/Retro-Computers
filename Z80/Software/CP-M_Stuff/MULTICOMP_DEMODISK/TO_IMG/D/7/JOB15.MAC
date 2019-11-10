@@ -1,0 +1,1177 @@
+	title	'JOB 1.5 (86/10/15)'
+; An improved submit facility for CP/m systems.
+;    evolved from public domain supersub by Ron Fowler
+; 
+; copyright (c) 1983,1984,1986
+; By C.B. Falconer,
+;    680 Hartford Tpk, Hamden, CT 06517. (203) 281-1438
+; released to the public domain 
+;
+; JOB allows parameters to be terminated by commas, thus a pair
+; (i.e. ",,") can specify a null parameter.  In addition, parameters
+; can be "quoted strings", to allow any input whatsoever.  In a quoted
+; string a quote must be represented by two quotes.  JOB also accepts
+; empty input lines (e.g. PIP exit command).
+;
+; JOB creates the $$$.SUB file on drive A, (user 0 as of JOB15) and
+; thus can be executed with any setting of the default drive.  In
+; addition JOB searches both the default and A drives for the .JOB
+; file when no drive is specified in the command line, and (ver 1.4)
+; if no .JOB file has yet been found searches default and system disks
+; for a component of JOBS.LBR file.
+;
+; Thus a set of small .JOB files can be packed into JOBS.LBR and
+; executed directly.  When many .JOB files are used this can
+; significantly reduce disk storage
+;
+; An initial line in the .JOB file beginning with ";;" (double
+; semi-colon) signifies that the line specifies a default set of
+; parameters ($0 thru $9). These are only used when the execution
+; command line does not supply parameters.
+;
+; JOB does not arbitrarily upshift anything, however an unmodified CCP
+; will probably upshift all input lines.  CCPLUS can be set to avoid
+; this upshifting.
+;
+; JOB will accept most files created for SUBMIT, unless supplied
+; parameters include commas and quotes.  Since the reverse is not true
+; JOB expects its' input files to be of type .JOB.
+;
+; JOB15 up is organized to co-operate with CCP+ and execute jobs thru
+; changes in user number.  To perform correctly, a minor patch to BDOS
+; is required, listed below.
+;
+; A test file to demonstrate JOB appears below (note null line):
+
+;;testingjob parm1, "parm2",, parm4 parm5, ," parm ""7"", "
+; null defaults for parm3, parm6, parm8, parm9
+;$1;
+
+;$2;
+;$3,$4,$5,$6;
+;$7;
+;$8;
+;$9;
+;$0; <<end of test file>>
+
+; try A>JOB TESTJOB
+;        where testjob is the above file from the ";;"
+; This simply shows a set of comment commands on the console.
+;
+; Revision history
+; ================
+;
+; 1.5	86/10/15 (cbf) Forced $$$.SUB file on user 0. After all, CPM
+;	is a single user system.  Cooperates with CCP+ v21 up.
+;	A patch for cpm2.2 for submit jobs to execute while changing
+;	user numbers.  This co-operates with CCP+ v2.1 and JOB v1.5.
+;
+;	All values are shown for an unrelocated BDOS.  marked bytes
+;	may be different by a constant
+;
+;	Location
+;	(from start
+;	of BDOS)	Was	Becomes	Comment
+;	06DE		3e	7e	mvi a,0e5 --> mov a,m
+;	06DF		e5	fe
+;	06E0		be	e5	cmp m 	  --> cpi 0e5
+;	06E1		ca
+;	06E2		d2		  jz ...   unchanged
+;	06E3		06 *
+;	06E4		3a	18	lda usrno --> jr $+3
+;	06E5		41	01
+;	06E6		03 *		(code byte skipped)
+;	06E7		be	b7	cmp m     --> ora a
+;		
+;	The WAS items marked by '*' will vary with the location of
+;	the CPM system, and should not be altered.  The patch uses
+;	the Z80 JR instruction, so for Z80 systems only.  This has
+;	been carefully designed to be position independant.
+;
+;	When completed, the original CCP will no longer execute
+;	SUBMIT jobs when the user number is non-zero. It would never
+;	allow a submit job to change users, which can now be done
+;	when using CCP+ and JOB15.  (earlier versions of JOB will
+;	work if the job is started on user 0 only.)
+;
+;	This causes BDOS to return 0ffh for call 13 (reset disks)
+;	whenever a '$*.*' file exists on user 0.  This flag is
+;	used by CCP+, ZCPR, and the original CCP to decide whether
+;	to bother searching for the $$$.SUB file.  The original
+;	code only returned 0ffh when the file existed on the current
+;	user.
+;
+; 1.4	84/06/23 (cbf) Added library file search 
+;
+ver		equ	15;	update with each revision
+;
+cr		equ	0dh
+lf		equ	0ah
+tab		equ	9
+eol		equ	'$'
+parmchar	equ	'$'
+slash		equ	'/'
+comma		equ	','
+quote		equ	'"'
+semi		equ	';'
+blank		equ	' '
+linesep		equ	'|'
+escape		equ	'^';	to control chars
+eofmark		equ	01ah;	sub=cntrl-z
+maxparms	equ	9
+;
+putchar		equ	2;	cp/m functions
+putstring	equ	9
+getstring	equ	10
+fopen		equ	15
+fclose		equ	16
+fpurge		equ	19
+rdseq		equ	20
+wrtseq		equ	21
+newfile		equ	22
+gsuser		equ	32;	get/set user
+rdran		equ	33
+;
+reboot		equ	0;	cp/m connector locations
+bdos		equ	00005h
+tfcb		equ	05ch
+tfcb.nam	equ	tfcb+1
+tfcb.ext	equ	tfcb+9
+cmdline		equ	080h
+defdma		equ	cmdline
+cmd.lgh		equ	cmdline
+cmd.chars	equ	cmdline+1
+;
+;
+	aseg
+	org	0100h
+;
+begin:	lxi	h,0
+	dad	sp
+	shld	stksave	
+	lxi	sp,stack
+	mvi	a,gsuser
+	mvi	e,0ffh
+	call	dos
+	sta	defusr;		save input user
+	call	job
+	db	'JOB V'
+	db	ver / 10 + '0', '.', ver MOD 10 + '0',cr,lf,eol
+;
+job:	pop	d
+	lda	tfcb.nam
+	cpi	blank
+	jz	help
+	mvi	a,putstring
+	call	dos;		sign-on
+	call	init
+	call	getcmnd
+	call	chkinf;		for blank or .job extension
+	lxi	h,0
+	shld	linenum	
+	call	openinf;	zero flag for interactive mode
+	cnz	freadjob;	put 1st line in buffer
+	jnz	jobempty;	read failed
+	call	default;	set default params
+	call	inputlns
+
+	xra	a;		REMOVE this for use with original
+	mov	e,a;		CCP or ZCPR.
+	mvi	a,gsuser
+	call	dos;		jam to user 0 for subf operations
+
+	call	opnsubf
+	call	wrtsubf
+	lda	defusr
+	mov	e,a
+	mvi	a,gsuser
+	call	dos;		restore entry user
+	jmp	reboot
+;
+; Check that any extension is ".JOB", or insert such
+; if the supplied extension is blank.
+; a,f,b,d,e,h,l
+chkinf:	lxi	h,tfcb.ext
+	mov	a,m
+	cpi	blank
+	jz	chkinf2
+	lxi	d,job.xt
+	mvi	b,3
+	call	qmatch
+	rz	
+;	"	"
+nofile:	call	errexit;	leaves forever
+	db	'.'
+job.xt:	db	'JOB file not found',eol
+;
+chkinf2:
+	xchg	
+	lxi	h,job.xt
+	mvi	b,3
+chkinf3:
+	mov	a,m;		move "JOB" into place
+	stax	d
+	inx	h
+	inx	d
+	dcr	b
+	jnz	chkinf3
+	ret
+;
+getcmnd:
+	lxi	h,cmd.chars
+	call	skipblks
+	sta	mode	
+	rc	
+	cpi	slash
+	jnz	getcmnd3;	normal operation
+	inx	h
+getcmnd1:
+	shld	cursor	
+	mov	a,m
+	sta	onelnflg	
+	cpi	blank
+	rnz	
+	inx	h
+	jmp	getcmnd1
+getcmnd3:
+	call	skipblks
+getcmnd4:
+	cnc	setparm
+	jnc	getcmnd3
+	dcx	h;		back to eol mark for null param
+	push	h
+	lhld	parmindx
+	mov	a,m
+	ora	a
+	pop	h
+	jz	getcmnd4;	setup a null parameter
+	ret
+;
+; skipblanks in hl^, return 1st non blank. cy for eol, eof
+; a,f,h,l
+skipblks:
+	mov	a,m
+	inx	h
+	ora	a
+	stc
+	rz	
+	cpi	cr
+	stc
+	rz	
+	cpi	eofmark
+	stc
+	rz	
+	cpi	blank
+	jz	skipblks
+	cpi	tab
+	jz	skipblks
+	dcx	h
+	ora	a
+	ret
+;
+; return carry if eol encountered
+setparm:
+	call	setdelim
+	push	h;		save input index
+	lhld	freeptr
+	xchg	
+	lhld	parmindx
+	mov	a,m
+	ora	a
+	jnz	manyparm
+	mov	m,e
+	inx	h
+	mov	m,d
+	inx	h
+	shld	parmindx	
+	pop	h
+;	"	"
+; save parameter
+; (hl)^ is start of parameter string,
+; (de)^ to location to save parameter
+savparm:
+	push	d
+	inx	d
+	mvi	b,0
+savparm1:
+	lda	delim
+	cpi	quote
+	jnz	savparm2;	not a quoted string
+	mov	a,m
+	inx	h
+	ora	a
+	jz	parmerr;	no terminal quote
+	cpi	quote
+	jnz	savparm4;	not terminal quote, go save char
+	cmp	m;		is it a double quote?
+	jnz	savparm5;	no, string is terminated
+	inx	h
+	jmp	savparm4;	yes, store a quote
+savparm2:
+	mov	a,m
+	inx	h
+	call	chkdelim
+	jz	savparm5
+savparm4:
+	stax	d
+	inx	d
+	inr	b
+	jmp	savparm1
+savparm5:
+	xchg	
+	shld	freeptr	
+	pop	h
+	mov	m,b
+	xchg;			pointer to terminal char
+	cpi	quote
+	jnz	savparm6;	not a quoted string
+	mov	a,m
+	cpi	comma
+	jnz	savparm6
+	inx	h;		skip terminating comma on
+	mov	a,m;		  a quoted string
+savparm6:
+	ora	a
+	stc
+	rz	
+	cmc
+	ret
+;
+; setup delimiter for parameters. Advance past any initial '"'
+; a,f,h,l
+setdelim:
+	mvi	a,' '
+	sta	delim	
+	mov	a,m
+	cpi	quote
+	rnz;			not a quoted string
+	sta	delim	
+	inx	h;		advance past the initial quote
+	ret
+;
+; Set up default parameters
+; The first line is in defdma.  If the mode is not interactive, and
+; the line begins with ";;", then replace each null parameter with
+; the value in this first line, starting with 0.  Note that the 0th
+; parameter is the jobfile name, and cannot be null.  The replacement
+; parameters may be null. Such an initial line will be treated as a
+; comment when executed by CCP, displaying the defaults.
+default:
+	lda	mode
+	cpi	slash
+	rz;			interactive mode
+	lda	defdma
+	cpi	semi
+	rnz;			not initial ";;"
+	lda	defdma+1
+	cpi	semi
+	rnz;			not initial ";;"
+	lxi	h,defdma+1;	before first possible character
+	mvi	b,0;		parameter number
+; WHILE NOT eoln DO BEGIN
+;   delimit_parameter;
+;   IF non-null THEN
+;     IF parameter (b) is null THEN BEGIN
+;       expand_parm_storage
+;       insert_default; END;
+;     delimit next parameter; END;
+default1:
+	inx	h;		bypass previous delimiter
+	call	skipblks
+	rc;			no more
+	call	setdelim
+	call	scan;		to parm end
+; now (c) is parameter lgh, (de) is start, (b) is id
+; watch out for doubled quotes, counted as singles
+; (hl)^ is terminating char, not part of parm
+	push	h
+	push	d
+	mov	a,c
+	ora	a
+	jz	default8;	default param is null
+	mov	a,b;		parameter id
+	call	findparm
+	ora	a
+	jnz	default8;	cmdline input is non-null
+; now store the default parameter and
+; update the index to it.  The previous
+; storage for a null parameter is discarded.
+	lhld	freeptr
+	xchg	
+	mov	m,e
+	inx	h
+	mov	m,d
+	pop	h;		^ param start
+	push	h
+	push	b
+	call	savparm
+	pop	b
+default8:
+	pop	d
+	pop	h
+	mov	a,m
+	call	chklnend
+	rz;			done
+	inr	b;		next parameter id
+	jmp	default1;	go try for next
+;
+; scan to parameter end. (hl)^ is start
+; return (de)^ to start, (c) = length
+; (hl)^ to delimiting character
+; a,f,c,d,e,h,l
+scan:	mov	d,h
+	mov	e,l;		save starting point
+	mvi	c,0;		length, default 0
+	lda	delim
+	cpi	quote
+	jz	scan2;		looking for terminal quote
+scan1:	mov	a,l
+	ora	a
+	jz	parmerr;	no end found
+	mov	a,m
+	call	chkdelim
+	jz	scan9
+	inx	h
+	inr	c;		count length
+	jmp	scan1
+scan2:	mov	a,l
+	ora	a
+	jz	parmerr
+	mov	a,m
+	cpi	cr
+	jz	parmerr
+	cpi	quote
+	jz	scan4;		go check for double
+scan3:	inr	c;		count chars
+	inx	h
+	jmp	scan2
+scan4:	inx	h
+	cmp	m
+	jz	scan3;		double quote, keep 1 only
+	mov	a,m
+	call	chkdelim
+	jnz	parmerr
+scan9:	ret;			m points to terminating char.
+;
+; check (a) for possible delimiter, zero flag if so
+; a,f
+chkdelim:
+	cpi	blank
+	rz	
+	cpi	tab
+	rz	
+	cpi	comma
+	rz	
+;	"	"
+; check (a) for line ending char, zero flag if so
+; a,f
+chklnend:
+	cpi	cr
+	rz	
+	cpi	eofmark
+	rz	
+	ora	a
+	ret
+;
+; open input file. z flag for interactive mode
+openinf:
+	lda	mode
+	cpi	slash
+	rz;			interactive mode
+	lxi	d,tfcb
+	call	openf
+	rnz;			success
+	lxi	h,lbrfcb
+	call	trylb;		look in JOBS.LBR if not found
+	jz	nofile;		failed
+	ret
+;
+; Try to find component (de)^ in library file (hl)^
+; z flag for failure
+; If successful set up (de)^ [TFCB] for component access
+; Note that the component size is needed in case the item
+; ends on a record boundary without any eof mark.
+; ** This routine needs cleanup to return component size
+;    in (bc), and use only the input pointers (and defdma)
+;    for access.  This will decouple it from this program. 
+; a,f,b,c
+trylb:	xchg	
+	mvi	m,0;		mark default again
+	call	openf;		automatically tries system disk
+	xchg	
+	rz;			failed
+	xchg	
+	mvi	a,rdseq
+	call	dos
+	jnz	trylb9;		else first directory rcd read
+	call	chksz;		set (a) = entry count
+	jz	trylb9;		not a valid library
+	mov	b,a;		entry count
+	push	h;		save component id pointer
+trylb1:	dcr	b
+	jz	trylb8;		no more entries, not found
+	mov	a,b;		Now check (max - b)th entry
+	ani	3;		for the one we want
+	mvi	a,rdseq
+	cz	dos;		get next directory chunk
+	mov	a,b
+	cma
+	inr	a
+	ani	3
+	add	a
+	add	a
+	add	a
+	add	a
+	add	a;		* 32 bytes per entry
+	adi	defdma;		point to this entry
+	pop	h
+	push	h;		get component pointer
+	push	d
+	push	b;		THIS needs cleanup to use only the
+	xchg	
+	mov	l,a;		entry parameters for TFCB etc.
+	mvi	h,0;		and return a record count in (bc)
+	mvi	b,12;		Does this entry match
+	call	qmatch;		the one we want?
+	pop	b
+	pop	d
+	jnz	trylb1;		no, try next entry
+	mov	a,m;		yes, set up file access etc.
+	sta	lb.rrn;		m points to loc'n entry
+	inx	h
+	mov	a,m
+	sta	lb.rrn+1;		record pointer
+	inx	h
+	mov	a,m
+	inx	h
+	mov	h,m
+	mov	l,a;		record count
+	shld	maxrecs;	to force an eof when reading
+	xra	a
+	sta	lb.rrn+2; 	now do a random read to set ptrs
+	push	d
+	mvi	a,rdran
+	lxi	d,lbrfcb
+	call	dos
+	lxi	h,tfcb
+	mvi	b,36
+trylb7:	ldax	d;		Move the complete opened fcb
+	mov	m,a;			to tfcb
+	inx	h
+	inx	d
+	dcr	b
+	jnz	trylb7;		More
+	pop	d
+	pop	h
+	ori	1
+	ret;			signal success
+trylb8:	pop	h
+trylb9:	xchg;			Not found, restore
+	mov	a,m
+	inr	m
+	ora	a;		If was default disk then
+	jz	trylb;		go try system disk
+	xra	a;		else signal failure
+	ret
+;
+; check size of library directory (de)^. 1st record in defdma
+; Return (a) = count of entries (0 if not a library)
+; a,f
+chksz:	push	b
+	push	d
+	push	h
+	lxi	h,defdma
+	mov	a,m
+	ora	a
+	jnz	chksz2
+	mvi	b,11
+chksz1:	inx	h
+	mov	a,m
+	cpi	' '
+	jnz	chksz2;		invalid director
+	dcr	b
+	jnz	chksz1
+	inx	h
+	mov	a,m
+	inx	h
+	ora	m
+	inx	h
+	inx	h
+	ora	m
+	jnz	chksz2
+	dcx	h
+	mov	a,m;		get directory size
+	add	a
+	add	a;		in directory entries
+	jmp	chksz3;		0 causes error signal
+chksz2:	xra	a;		signal none
+chksz3:	pop	h
+	pop	d
+	pop	b
+	ret
+;
+; Open file (de)^.  Check default and system disks
+; z flag for failure
+; a,f
+openf:	push	h
+	lxi	h,32
+	dad	d
+	mvi	m,0;		set record pointer to zero
+	pop	h
+	mvi	a,fopen
+	call	dos
+	inr	a
+	rnz;			success
+	ldax	d
+	ora	a
+	jz	openf1;		was default, try system
+	xra	a
+	ret;			with z flag for failure
+openf1:	mvi	a,1;		try system disk
+	stax	d
+	jmp	openf
+;
+inputlns:
+	lhld	linenum;	set up for line
+	inx	h
+	shld	linenum	
+	lhld	lineptr
+	xchg	
+	lhld	freeptr
+	shld	lineptr	
+	mov	m,e
+	inx	h
+	mov	m,d
+	inx	h
+	push	h
+	inx	h
+	mvi	c,0
+inputl3:
+	call	nextch;		store a line
+	jc	inputl5
+	db	0,0,0;		was call upshift
+	cpi	eofmark
+	jz	inputl5
+	cpi	lf
+	jz	inputl3
+	cpi	cr
+	jz	inputl4
+	mov	m,a
+	inx	h
+	call	memcheck
+	inr	c
+	jm	toolong
+	jmp	inputl3
+inputl4:
+	shld	freeptr	
+	pop	h
+	mov	m,c
+	jmp	inputlns;	next line
+inputl5:
+	shld	freeptr	
+	pop	h
+	mov	m,c
+	ret
+;
+nextch:	push	h
+	push	d
+	push	b
+	lda	mode
+	cpi	slash
+	jnz	nextch1;	get from file
+	call	getch;		get from terminal
+	jmp	nextch3
+nextch1:
+	lda	inptr
+	ora	a
+	cm	freadjob
+	jnc	nextch2;	success, (a) is zero
+	mvi	a,eofmark
+	jmp	nextch3
+nextch2:
+	mov	e,a
+	mvi	d,0
+	inr	a
+	sta	inptr	
+	lxi	h,cmd.lgh
+	dad	d
+	mov	a,m
+nextch3:
+	pop	b
+	pop	d
+	pop	h
+	ora	a
+	ret
+;
+freadjob:
+	mvi	a,0
+	sta	inptr	
+	lhld	maxrecs
+	mov	a,h
+	ora	l
+	dcx	h
+	shld	maxrecs	
+	mvi	a,1;		to signal eof if no read
+	mvi	a,rdseq
+	lxi	d,tfcb
+	cnz	dos;		records left
+	ora	a
+	stc
+	rnz;			eof
+	cmc
+	ret
+;
+getch:	lda	onelnflg
+	ora	a
+	jnz	getch2;		one line only
+	lda	buf.size
+	ora	a
+	cm	userline
+	jc	getch3
+	dcr	a
+	sta	buf.size	
+	jp	getch2
+getch1:	mvi	a,cr
+	ret
+getch2:	lhld	cursor
+	mov	a,m
+	inx	h
+	shld	cursor	
+	cpi	linesep
+	jz	getch1
+	ora	a
+	rnz	
+getch3:	mvi	a,eofmark
+	ret
+;
+userline:
+	lxi	d,prompter
+	mvi	a,putstring
+	call	dos
+	lxi	d,buf.max
+	mvi	a,getstring
+	call	dos
+	lda	buf.size
+	lxi	h,buf.data
+	shld	cursor	
+	ora	a
+	stc
+	rz	
+	cmc
+	ret
+;
+memcheck:
+	lda	bdos+2
+	dcr	a
+	cmp	h
+	rnc	
+	call	errexit
+	db	'Memory full',eol
+;
+opnsubf:
+	mvi	a,fopen
+	call	xsubf
+	inr	a
+	jz	opnsubf1
+	lda	sub.size
+	sta	sub.rnum;		prepare to append
+	ret
+opnsubf1:
+	sta	sub.rnum;		assumes (a)=0
+	mvi	a,newfile
+	call	xsubf
+	inr	a
+	rnz	
+	call	errexit
+	db	'Directory full',eol
+;
+wrtsubf:
+	lhld	lineptr
+	mov	a,h
+	ora	l
+	jz	jobempty
+	mov	e,m
+	inx	h
+	mov	d,m
+	inx	h
+	xchg	
+	shld	lineptr	
+	xchg	
+	mov	a,m
+	ora	a
+	jz	wrtsubf3;	empty line
+wrtsubf1:
+	call	wrtln
+	lhld	linenum
+	dcx	h
+	shld	linenum	
+	lhld	lineptr
+	mov	a,h
+	ora	l
+	jz	wrtsubf4;	no more
+	mov	e,m
+	inx	h
+	mov	d,m
+	inx	h
+	xchg	
+	shld	lineptr	
+	xchg	
+	jmp	wrtsubf1
+wrtsubf3:
+	lhld	linenum
+	dcx	h
+	shld	linenum	
+	jmp	wrtsubf
+wrtsubf4:
+	mvi	a,fclose
+;	"	"
+; subfile operation (a)
+; a,f,d,e
+xsubf:	lxi	d,subfcb
+;	"	"
+; Bdos call, function (a), return in (a), preserve registers
+; Set flags on (a)
+; a,f
+dos:	push	h
+	push	d
+	push	b
+	mov	c,a
+	call	bdos
+	ora	a
+	pop	b
+	pop	d
+	pop	h
+	ret
+;
+; Copy the line, making any parameter substitutions
+wrtln:	mov	a,m
+	inx	h
+	sta	chrsleft	
+	shld	@nextch	
+	lxi	h,cmd.chars
+	shld	putptr	
+	xra	a
+	sta	cmd.lgh	
+	mov	b,l
+wrtln1:	mov	m,a
+	inx	h
+	inr	b
+	jnz	wrtln1
+wrtln2:	call	getchar
+	jc	putsubf
+	cpi	escape
+	jnz	wrtln3
+	call	getchar
+	jc	cntrlch
+	cpi	escape
+	jz	wrtln3;		doubled to use escape char.
+	call	upshift
+	sui	'@'
+	jc	cntrlch
+	cpi	blank
+	jnc	cntrlch
+wrtln3:	cpi	parmchar
+	jnz	wrtln4
+	lda	mode
+	cpi	slash
+	mvi	a,parmchar;	In case interactive, use it
+	jz	wrtln4;		'$' not special in interactive mode
+	call	chknxtch
+	jc	parmerr
+	cpi	parmchar
+	jnz	wrtln5;		Go expand a parameter
+	call	getchar
+wrtln4:	call	putoutch
+	jmp	wrtln2
+wrtln5:	call	getchar;	a parameter identifier
+	call	qnum
+	jc	parmerr;	not numeric, no good
+	sui	'0';		one digit only allowed
+	call	findparm
+	jc	parmerr
+	mov	b,a;		length
+	inr	b;		may be zero
+wrtln6:	dcr	b
+	jz	wrtln2;		end of substitution
+	mov	a,m
+	inx	h
+	push	h
+	call	putoutch
+	pop	h
+	jmp	wrtln6
+;
+putsubf:
+	mvi	a,wrtseq
+	call	xsubf
+	ora	a
+	rz	
+	call	errexit
+	db	'Disk full',eol
+;
+getchar:
+	lxi	h,chrsleft
+	mov	a,m
+	dcr	a
+	stc
+	rm	
+	mov	m,a
+	lhld	@nextch
+	mov	a,m
+	inx	h
+	shld	@nextch	
+	cmc
+	ret
+;
+putoutch:
+	lxi	h,cmd.lgh
+	inr	m
+	jm	toolong
+	lhld	putptr
+	mov	m,a
+	inx	h
+	shld	putptr	
+	ret
+;
+chknxtch:
+	lda	chrsleft
+	ora	a
+	stc
+	rz	
+	mov	a,m
+	cmc
+	ret
+;
+; find parameter (a). Returns (a)=length,
+; (hl)^ to start of parameter,
+; (de)^ to pointer to lgh field (index table)
+; a,f,d,e,h,l
+findparm:
+	cpi	maxparms+1
+	jnc	manyparm
+	mov	l,a
+	mvi	h,000h
+	dad	h
+	lxi	d,parmxpnd
+	dad	d
+	mov	e,m
+	inx	h
+	mov	d,m
+	dcx	h
+	xchg	
+	mov	a,m
+	inx	h
+	ret
+;
+qmatch:	ldax	d
+	cmp	m
+	rnz	
+	inx	h
+	inx	d
+	dcr	b
+	jnz	qmatch
+	ret
+;
+; carry if (a) is not a numeric character
+; f
+qnum:	cpi	'0'
+	rc	
+	cpi	'9'+1
+	cmc
+	ret
+;
+; write (hl) as decimal number, suppress leading zeroes
+tdzs:	push	psw
+	push	h
+	push	b
+	lxi	b,0f00ah;	c=divisor=10; b=iter.cnt=-16
+	xra	a;		clear
+tdzs1:	dad	h
+	ral;			shift off into (a)
+	cmp	c
+	jc	tdzs2;		no bit
+	sub	c
+	inx	h;		bit=1
+tdzs2:	inr	b
+	jm	tdzs1;		not done
+	pop	b
+	push	psw;		save output digit
+	mov	a,h
+	ora	l
+	cnz	tdzs;		recursive
+	pop	psw
+	pop	h
+	adi	'0'
+	call	cout
+	pop	psw
+	ret
+;
+; crlf to console
+; a,f
+crlf:	mvi	a,cr
+	call	cout
+	mvi	a,lf
+;	"	"
+; (a) to console
+; a,f
+cout:	push	d
+	mov	e,a
+	mvi	a,putchar
+	call	dos
+	pop	d
+	ret
+;
+; Upshift (a)
+; a,f
+upshift:
+	cpi	'a'
+	rc	
+	cpi	'z'+1
+	rnc	
+	ani	05fh
+	ret
+;
+parmerr:
+	call	errexit
+	db	'Parameter',eol
+;
+manyparm:
+	call	errexit
+	db	'Too many parameters:',eol
+;
+toolong:
+	call	errexit
+	db	'Line too long:',eol
+;
+jobempty:
+	call	errexit
+	db	'Job file empty',eol
+;
+cntrlch:
+	call	errexit
+	db	'Control character',eol
+;
+; Message (tos)^ and exit
+errexit:
+	pop	d
+	mvi	a,putstring
+	call	dos
+	lxi	d,errmsg
+	mvi	a,putstring
+	call	dos
+	lhld	linenum
+	call	tdzs
+	call	crlf
+	mvi	a,fpurge
+	call	xsubf
+	jmp	reboot
+;
+errmsg:	db	' error on line number: ',eol
+prompter:
+	db	cr,lf,'*',eol
+;
+init:	lxi	h,clrbegin
+	lxi	b,buf.max-clrbegin
+init1:	mvi	m,000h;	clear
+	inx	h
+	dcx	b
+	mov	a,b
+	ora	c
+	jnz	init1
+	lxi	h,parmxpnd
+	shld	parmindx	
+	lxi	h,-1;		mark end of parameter pointers
+	shld	lastparm	
+	shld	maxrecs;	allow 65535 recs on non lbr file
+	lxi	h,storage
+	shld	freeptr	
+	mvi	a,080h
+	sta	inptr	
+	sta	buf.size	
+	sta	buf.max	
+	ret
+;
+help:	lxi	d,helpmsg
+	mvi	a,putstring
+	call	dos
+	lhld	stksave
+	sphl	
+	ret
+;
+helpmsg:
+	db	cr,lf,'How to use JOB:',cr,lf,lf
+	db	'JOB<CR>            : '
+	db	'print this message',cr,lf
+	db	'JOB /<CR>          : '
+	db	'interactive mode',cr,lf
+	db	'JOB /<cmd lines>   : '
+	db	'use SUMMARY mode',cr,lf
+	db	'JOB <FILE> <PARMS> : as standard '
+	db	'SUBMIT.COM, but JOB will search',cr,lf
+	db	'for A:file.JOB after the default '
+	db	'disk if no drive was specified,',cr,lf
+	db	'and then as a component of "JOBS.LBR" '
+	db	'if not already found.',cr,lf
+	db	'The SUB file is created on "A:", '
+	db	' thus JOB may be used while any',cr,lf
+	db	'drive is the default.  Parameters '
+	db	'may be delimited by commas and',cr,lf
+	db	'may be "quoted strings". An initial '
+	db	'line beginning with ";;" can',cr,lf
+	db	'be used to specify default params '
+	db	'(0..9) at execution time.',cr,lf,lf
+	db	'In "/" (interactive) mode,  JOB '
+	db	'will prompt you a line at a time',cr,lf
+	db	'for the "SUBMIT" job input. '
+	db	'Logical lines may be combined on the',cr,lf
+	db	'same input line by separating them '
+	db	'with "|".  Example:',cr,lf
+	db	'  A>JOB /STAT|DIR',cr,lf
+	db	'specifies two commands on the'
+	db	' same input line.',cr,lf,lf
+	db	'Submitted jobs may nest...JOB '
+	db	'inserts ahead of an existing job.',cr,lf,lf
+	db	'To insert a control character '
+	db	'into the output, prefix it with',cr,lf
+	db	'a "^" ("^^" for real "^").',cr,lf,eol
+;
+lbrfcb:	db	0,'JOBS    LBR',0,0,0,0
+	ds	16
+lb.rno:	ds	1
+lb.rrn:	ds	3;
+;
+subfcb:	db	1,'$$$     SUB';	LAST initialized storage
+;
+clrbegin:	ds	3;	This area cleared at initialization
+sub.size:	ds	17
+sub.rnum:	ds	1
+		ds	3;	for  random records
+;
+delim:		ds	1;	delimiter for parameter input
+freeptr:	ds	2
+parmindx:	ds	2
+linenum:	ds	2
+lineptr:	ds	2
+chrsleft:	ds	1
+@nextch:	ds	2
+putptr:		ds	2
+inptr:		ds	1
+cursor:		ds	2
+onelnflg:	ds	1
+mode:		ds	1
+maxrecs:	ds	2;	to simulate eof on .lbr file
+parmxpnd:	ds	2*(maxparms+1);	a list of pointers to
+;					  lgh, char string
+lastparm:	ds	2;	-1 marks end of parmxpnd array
+; End of area cleared at initialization time
+;
+defusr:		ds	1;	user at initialization time
+buf.max:	ds	1
+buf.size:	ds	1
+buf.data:	ds	128
+stksave:	ds	2
+		ds	200;	stack space
+stack:
+storage:	ds	0;	actually the rest
+;
+	end
+V

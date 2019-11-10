@@ -1,0 +1,2235 @@
+title	DDTZ main section, Ver. 2.7
+subttl	History, entries, externals
+;
+;	CPM/DOS+ 8080/Z80/64180 debugger, by C.B. Falconer.
+;	CAUTION - Code is extremely tight - study before changing.
+;
+; 2.7	88/5/25.   Handling 64180 opcodes.   Now issued only with the
+;	DDTZM command set (MSDOS debug compatible). Added support for
+;	undocumented z80 opcodes. Dis/assm changes.		cbf.
+; 2.6m  87/7/11. Dissassembler section, so MOV disassembles correctly
+;	under 8080 (or V20-80 under MSDOS).			cbf.
+; 2.5m	86/3/16.  Command structure altered to match MSDOS DEBUG,  to
+;	avoid silly errors when switching between systems.   Ver. no.
+;	shows "M" for this variant. MATCHDEBUG equate controls.  Adds
+;	Quit command, removes Untrace.   Others shifted, see tbl/doc.
+;
+; 2.5   86/2/17. Correct exit from load of HEX files.  4 bytes moved,
+;	but affects the relocation vector.  cbf
+;
+; 2.4   86/2/12.   Correct assembler section for inx/dcx/push/pop xy.
+;	No changest to this segment,  except version no.   No changes
+;	to 8080 only assembler/disassembler (DDTY).	cbf
+;
+; 2.3	86/1/10. Reworked from DDTY 2.2.5 to handle Z80 ops.  Z80
+;	registers are displayed, cannot be set.  Tracing works on Z80
+;	opcodes. Added based dump/substitute commands, @ to set base,
+;	char value parameters, made h command default for anything
+;	not recognizable.  Standard relocater system. k command added
+;	Assy time switch cuts assemble/disassemble to 8080 code set.
+;
+; v5 - 2 Apr. 84. Upshift & strip hi order bit, hex file reads.
+;      "h" shows decimal for difference.
+;      "#" prefix causes decimal parameter input.
+;
+; Used for assembly/disassembly only
+	extrn	assemble, disassem, keep
+	extrn	.bdos;		initialize use only
+	extrn	begin;		for overwrite checks only
+;
+; Routines useable by assembler/disassembler
+	entry	dblblk, blank, couta, csta
+	entry	crlf, qbrk, nextch, skipblks
+	entry	t4hx, t2hx, tstr;	a,f
+	entry	getline;	a,f,b,c,d,e
+	entry	pcnt, pcnta;	a,f,d,e,h,l. a=count, de^list
+	entry	nextparm;	d,e,h,l; hl := de^; de:=de+2
+	entry	rdhex, rdhexc;	a:=exitch, de := value
+	entry	qdelim;		flags
+	entry	chkop;		all. hl^ past op. de to op at entry
+	entry	based;		a,f,h,l.  hl := hl+base
+	entry	ldbased,tbased; a,f. getvalue/type_adr using hl+base
+	entry	index,indexwd;	a,f,h,l
+	entry	casexfr;	a,f,h,l + routine
+	entry	sdem, ldem;	hl^ =:= de; hl:=hl+2
+	entry	delesshl;	a,f. comparator, unsigned
+	entry	t4hxbc,t4hxblk;	a,f (with trailing blank)
+	entry	err;		abort return to command level
+	entry	dos, foperate;	save regs. operate on tfcb
+;
+; Data area for assembler/disassembler
+	entry	dendptr;	disassembly end for lcmd only
+	entry	disasmp;	where to dis/assemble from
+	entry	aflag;		-1, 0, or deflines.
+;
+; scratch space available for assembler/disassembler
+	entry	storeptr;	wd
+	entry	exitstk;	wd
+	entry	buff;		16 bytes
+	entry	tfcb, defdma;	cpm standard
+;
+; Read/only data areas, set by chkop
+	entry	opkind, zopkind
+	entry	z80flg;		set if running on Z80
+	entry	unloaded;	memory not used
+;
+; Values for relocater system
+	entry	codesize, pages
+;
+subttl	equates, configuration
+	cseg
+;
+true		equ	-1
+false		equ	not true
+matchdebug	equ	true;	false matches DDT command structure
+;				true matches DEBUG command structure
+;
+ver		equ	27
+if matchdebug
+ debugver	equ	'M';	Signify MSDOS match
+else; matchddt
+ debugver	equ	' ';	lower case for debuggery/patches
+endif; matchddt
+;
+; Customization parameters
+traplvl		equ	7;	rst level for steps etc
+deflines	equ	12;	default for l command
+deflgh		equ	192;	default bytes for dcommand
+;
+cbufsiz		equ	40;	characters in cons in buffer
+stksize		equ	44;	DDTs own stack. Even number only
+;
+; CPM parameters
+reboot		equ	0
+bdos		equ	reboot + 5
+tfcb		equ	reboot + 05ch
+defdma		equ	reboot + 080h
+tpa		equ	reboot + 0100h
+;
+; Ascii chars
+tab		equ	9
+lf		equ	0ah
+cr		equ	0dh
+rub		equ	07fh
+;
+; z80 opcodes used if Z80 cpu only. Always guarded.
+exaf	macro
+	db	08h
+	endm
+exx	macro
+	db	0d9h
+	endm
+pushix	macro
+	db	0ddh,0e5h
+	endm
+popix	macro
+	db	0ddh,0e1h
+	endm
+pushiy	macro
+	db	0fdh,0e5h
+	endm
+popiy	macro
+	db	0fdh,0e1h
+	endm
+ldai	macro
+	db	0edh,057h
+	endm
+ldia	macro
+	db	0edh,047h
+	endm
+ldar	macro
+	db	0edh,05fh
+	endm
+;
+subttl	Main loop
+;
+; If the act of loading a program overwrites any of the above area
+; then DDT is cut back to begin here and dis/assem commands removed
+ddtbgn:
+.bdosexu:	jmp	init;	altered, alt ^bdos when cut-back
+;
+; setup for return from executed program
+; h,l
+setrtn:	lxi	h,return
+	shld	spsave
+	lxi	h,progrtn
+	shld	return
+	ret
+;
+; program exit via return
+progrtn:
+	lxi	sp,stack
+	call	setrtn
+;	"	"
+cmdloop:
+	lxi	sp,stack
+	call	zerotctr
+	call	chkused
+	jc	cmdloop1
+	lxi	h,.bdosexu;	In case lower portion overwritten
+	shld	bdos+1
+cmdloop1:
+	call	qbrk;		flush any input
+	call	crlf
+	mvi	a,'-'
+	call	couta
+	call	newln
+	jz	cmdloop
+	lxi	h,cmdloop;	set return on stack
+	push	h
+	cpi	' '
+	jc	err
+	sui	'@'
+	jc	cmdloop2
+	cpi	maxcmd
+	lxi	h,cmdtable
+	jc	casexfr
+cmdloop2:
+	adi	'@';		restore input char
+	call	pcnta;		try for a number conversion
+	jmp	hcmda
+;
+subttl	command table
+;
+cmdtable:
+	dw	setbase;	@)set up offset
+	dw	acmd;		a)ssemble first
+	dw	progrtn;	b)egin (* i.e. initialize stack & return *)
+	dw	ccmnd;		c)ompare first,last,against
+	dw	dcmd;		d)ump first,last,base
+if matchdebug; not DDT commands
+	dw	scmd;	*	e)nter_mem 1st_address		err
+	dw	fcmd;		f)ill first,last,value
+	dw	gcmd;		g)oto address, trap1, trap2
+	dw	hcmd;		h)exarith valu1, valu2
+	dw	err;	*
+	dw	err
+	dw	err;	*
+	dw	rcmd;	*	l)oad_from_file [offset]
+	dw	mcmd;		m)ove first,last,destination
+	dw	icmd;	*	n)ame init tfcbs_cmdline
+	dw	err
+	dw	err
+	dw	reboot;	*	q)uit to DOS
+	dw	xcmd;	*	r)egister examine/change
+	dw	wcmnd;	*	s)earch first,last,value
+	dw	tcmd;		t)race_execution [count]
+	dw	lcmd;	*	u)nassemble first,last
+	dw	err
+	dw	kcmd;	*	w)rite [1st,last]
+	dw	rdexit;	*	x)amine memory usage
+else;	match DDT commands, not DEBUG
+	dw	err;	*
+	dw	fcmd;		f)ill first,last,value
+	dw	gcmd;		g)oto address, trap1, trap2
+	dw	hcmd;		h)exarith valu1, valu2
+	dw	icmd;	*	i)nit tfcb_cmdln
+	dw	err
+	dw	kcmd;	*	k)eep_in_file [1st,last}
+	dw	lcmd;	*	l)istcode first,last
+	dw	mcmd;		m)ove first,last,destination
+	dw	err;	*
+	dw	err
+	dw	err
+	dw	rdexit;	*	q)uery (* memory used for application *)
+	dw	rcmd;	*	r)ead_from_file [offset]
+	dw	scmd;	*	s)ubstitute_in_mem 1st adr.
+	dw	tcmd;		t)race_execution [count]
+	dw	ucmd;	*	u)ntrace_execution [count] (* quiet *)
+	dw	err
+	dw	wcmnd;	*	w)here first,last,value
+	dw	xcmd;	*	x)amine_change [register]
+endif;	DDT, not DEBUG structure
+	dw	ycmd;		bc := p1; de := p2; execute (p3)
+	dw	zcmd;		Show Z80 registers
+maxcmd	equ	($-cmdtable)/2
+;
+subttl	Command executors etc.
+;
+; set base on @ command
+setbase:
+	call	pcnt
+	lhld	baseval
+	cnz	nextparm;	does not disturb flags
+	shld	baseval
+	rnz
+;	"	"
+; crlf and t4hx
+t4hxc:	call	crlf
+	jmp	t4hx
+;
+; execute arbitrary user routine as command
+; y bcvalue, devalue, routineaddress
+ycmd:	call	get3p
+	pchl;			call user routine
+;
+; open file, using tfcb
+; a,f
+fopen:	xra	a
+	sta	charcntr
+	sta	tfcb+32;	set back to first record
+	sta	tfcb+12
+	mvi	a,0fh
+;	"	"
+; operate on file tfcb, function (a)
+; a,f
+foperate:
+	push	d
+	lxi	d,tfcb
+	call	dos
+	pop	d
+	ret
+;
+acmd:	call	ckpcnt;		aborts if not available
+	jmp	assemble
+;
+; c(ompare) start_addr, end_addr, against_addr
+ccmnd:	call	get3p;		bc:=start, de := end; hl := against
+ccmnd1:	ldax	b
+	cmp	m
+	jz	ccmnd5;		no difference
+	call	crlfbk
+	call	t4hxbc;		compare address
+	ldax	b
+	call	t2hx;		compare contents
+	call	blank
+	call	t4hxblk;	against address
+	mov	a,m
+	call	t2hx;		against contents
+ccmnd5:	inx	b
+	inx	h
+	call	delessbc
+	jnc	ccmnd1
+	ret
+;
+kcmd:	call	ckpcnt;		aborts if not available
+	jmp	keep
+;
+lcmd:	call	ckpcnt;		aborts if not available
+	call	nextparm;	does not disturb flags
+	jz	dadef
+	dcr	a
+	jc	lcmd0;		1st parm skipped, continue
+	shld	disasmp
+	jz	dadef;		1 parm only
+lcmd0:	call	nextparm
+	shld	dendptr
+	ani	07fh
+	dcr	a
+	jz	disassm
+;	"	"
+; command error exit
+err:	call	crlf
+	mvi	a,'?'
+	call	couta
+	jmp	cmdloop
+;
+; dissassemble for default line count
+dadef:	mvi	a,deflines
+;	"	"
+; connector to dissassem. (a) is kind coding
+disassm:
+	jmp	disassem
+;
+; Dump parm1 thru parm2, relative to base
+; (parm1 defaults to prev dump end, parm2 to parm1+0c0h)
+; (optional) parm3 sets base
+dcmd:	lhld	baseval
+	shld	base
+	call	pcnt
+	jz	dcmd2
+	call	nextparm
+	jc	dcmd1
+	shld	dumptr
+dcmd1:	ani	7fh
+	dcr	a
+	jz	dcmd2
+	call	nextparm
+	shld	dumplast
+	dcr	a
+	jz	dcmd3
+	call	nextparm
+	shld	base
+	jmp	dcmd4
+dcmd2:	lhld	dumptr
+	mov	a,l
+	ani	0f0h
+	mov	l,a
+	lxi	d,deflgh-1
+	dad	d
+	jnc	dcmd3
+	lxi	h,65535;	prevent wrap-around
+dcmd3:	shld	dumplast
+dcmd4:	call	crlfbk
+	lhld	dumptr
+	push	h
+	call	tbased;		show with possible offset
+dcmd5:	mov	a,l
+	ani	0fh
+	jz	dcmd6
+	call	blks43
+	dcr	l
+	jmp	dcmd5
+dcmd6:	pop	h
+	push	h
+dcmd7:	call	blank
+	call	ldbased
+	call	t2hx
+	inx	h
+	mov	a,l
+	ani	7
+	cz	blank
+	call	dumpdone
+	jc	dcmd8
+	mov	a,l
+	ani	0fh
+	jnz	dcmd7
+dcmd8:	shld	dumptr
+	mov	a,l
+	ani	0fh
+	jz	dcmda
+dcmd9:	call	blks43
+	inr	l
+	mov	a,l
+	ani	0fh
+	jnz	dcmd9
+	call	blank
+dcmda:	pop	h
+dcmdb:	call	ldbased
+	call	ascii
+	inx	h
+	xchg
+	lhld	dumptr
+	call	delesshl
+	xchg
+	jnz	dcmdb
+	call	dumpdone
+	jnc	dcmd4
+	ret
+;
+; crlf and check for break
+; a,f
+crlfbk:	call	crlf
+;	"	"
+; get console status. If ready, abort command, else z flag
+; a,f (if not broken, else never returns)
+qbrk:	call	csta
+	rz
+	mvi	c,1
+	call	.bdosexu;	flush the char
+	jmp	cmdloop
+;
+; load a := (hl + base)^.  Z flag if base zero
+; a,f
+ldbased:
+	push	h
+	call	based
+	mov	a,m
+	pop	h
+	ret
+;
+; Show hl as possible offset from base.
+; a,f
+tbased:	call	t4hx
+	push	h
+	call	based
+	jz	tbx
+	mvi	a,':'
+	call	couta
+	call	t4hx
+tbx:	pop	h
+	ret
+;
+; hl := hl + base.  Z flag if base is zero
+; a,f,h,l
+based:	push	d
+	xchg
+	lhld	base
+	mov	a,l
+	ora	h
+	dad	d
+	pop	d
+	ret
+;
+; get 3 paramaters from command line to bc,de,hl resp.
+; a,f,b,c,d,e,h,l
+get3p:	call	pcnt
+	cpi	3
+	jnz	err
+;	"	"
+; load regs with 3 parms, no count check
+ld3p:	call	nextparm
+	push	h
+	call	nextparm
+	push	h
+	call	nextparm
+	pop	d
+	pop	b
+	ret
+;
+; set carry for (de) less than (bc), z flag if equal
+; a,f
+delessbc:
+	mov	a,d
+	sub	b
+	rnz
+	mov	a,e
+	sub	c
+	ret
+;
+; fill parm1 thru parm2 with parm3
+fcmd:	call	get3p
+	mov	a,h
+	ora	a
+	jnz	err
+fcmd1:	call	delessbc
+	jc	cmdloop
+	mov	a,l
+	stax	b
+	inx	b
+	jmp	fcmd1
+;
+; goto [parm1],[trap1[,trap2]]
+gcmd:	call	crlf
+	call	pcnt
+	call	ld3p
+	push	h
+	push	b
+	pop	h
+	pop	b;	xchg bc,hl
+;	"	"
+; execute, z flag no setups, carry no pc change
+; hl = pc, de = trap1, bc = trap2 on entry
+; (a) = trapcount + 1
+run:	di
+	jz	run2
+	jc	run1
+	shld	pcsave
+run1:	ani	7fh
+	dcr	a
+	jz	run2
+	push	b
+	call	setatrp
+	pop	d
+	dcr	a
+	cnz	setatrp
+run2:	lxi	sp,stack
+	pop	d
+	pop	b
+	pop	psw
+	pop	h
+	sphl
+	lhld	pcsave
+	push	h
+	lhld	hlsave
+	ei
+	ret
+;
+; set a	 trap at (de)
+; b,h,l
+setatrp:
+	push	psw
+	lxi	h,trp1set
+	mov	a,m
+	inr	m
+	ora	a
+	jz	setatrp2
+	inx	h
+	mov	a,m
+	inx	h
+	mov	b,m
+	inx	h
+	cmp	e
+	jnz	setatrp2
+	mov	a,b
+	cmp	d
+	jnz	setatrp2
+	mov	a,m
+	stax	d
+setatrp2:
+	inx	h
+	mov	m,e
+	inx	h
+	mov	m,d
+	inx	h
+	ldax	d
+	mov	m,a
+	mvi	a,0c7h + 8*traplvl;	(rst traplvl)
+	stax	d
+	pop	psw
+	ret
+;
+; H parm1 parm2   hex sub/difference
+hcmd:	call	pcnt
+;	"	"
+; Entry after other command line items used
+hcmda:	call	nextparm
+	dcr	a
+	jz	thxdecr
+	dcr	a
+	jnz	err
+	push	h
+	call	nextparm
+	pop	d
+	push	h
+	call	crlf
+	dad	d
+	call	t4hxblk
+	pop	h
+	mov	a,e
+	sub	l
+	mov	l,a
+	mov	a,d
+	sbb	h
+	mov	h,a
+	jmp	thexdec;	show in hex and decimal
+;
+; output (hl) in hex and decimal after cr/lf
+; a,f,b,c,d,e,h,l
+thxdecr:
+	call	crlf
+;	"	"
+; output (hl) in hex and decimal to console
+; a,f,b,c,d,e,h,l
+thexdec:
+	call	t4hxblk
+	push	h
+	call	tdzs
+	pop	h
+	call	blank
+	mov	a,l
+	jmp	ascii
+;
+; istring - setup tfcb
+; move char string into defdma, set length, etc.
+; parse initial file name into tfcb
+icmd:	lda	consbuf+1;	line length
+	lxi	d,consbuf+3;	ignoring "i" character
+	lxi	h,defdma
+	mov	b,a
+	inr	b
+icmd1:	mov	m,a
+	inx	h
+	mvi	m,0;		set a terminator
+	dcr	b
+	ldax	d
+	inx	d
+	jnz	icmd1
+	xra	a
+	sta	tfcb+32
+	lxi	h,tfcb
+	call	pfnm
+	mvi	m,0;		set first extent
+	lxi	h,tfcb+16
+	call	pfnm
+	mvi	m,0
+	ret
+;
+; parse filename into fcb hl^.  Only drive/name/ext fields
+; Return a = terminator character, hl points to fcb+12
+; a,f,c,h,l
+pfnm:	call	skipblks
+	mvi	m,0
+	inx	h
+	mvi	c,8;		hl+c=fcb+9
+	jz	pfnm1;		eol, blank fill
+	mov	m,a
+	inx	h
+	dcr	c
+	call	nextch;
+	jz	pfnm1;		eol, blank files. hl+c=fcb+9
+	cpi	':'
+	jz	pfnm2
+pfnm1:	call	ldflda;		not a drive spec
+	jmp	pfnm3
+pfnm2:	dcx	h
+	inr	c
+	mov	a,m
+	sui	'@'
+	dcx	h
+	mov	m,a
+	inx	h;	hl=fcb+1, c=8
+	call	ldfld;		exit hl=fcb+9
+pfnm3:	cpi	'.'
+	mvi	c,3
+	jnz	ldflda;		blank fill extent
+;	"	"
+; load field hl^ for c chars.
+; Return a = terminator char, hl points past field
+; a,f,c,h,l
+ldfld:	call	nextch;		jams at eol
+;	"	"
+; Entry with initial char. in a
+; a,f,c,h,l
+ldflda:	mvi	m,' ';		default
+	call	qfndelim
+	jc	ldfld2;		control char
+	jz	ldfld2;		other delimiter
+	cpi	'*'
+	mov	m,a
+	jz	ldfld4
+	inx	h
+	dcr	c
+	jnz	ldfld
+ldfld1:	call	nextch;		skip to delimiter
+	call	qfndelim
+	jnz	ldfld1
+	ret
+ldfld2:	inx	h
+	dcr	c;	early delimiter found
+	jnz	ldflda;		with the ".", blank or control
+	ret
+ldfld4:	mvi	m,'?'
+	inx	h
+	dcr	c
+	jnz	ldfld4
+	jmp	ldfld1
+;
+; move memory parm1 thru parm2 to parm3 (up)]
+mcmd:	call	get3p
+mcmd1:	call	delessbc
+	rc
+	ldax	b
+	inx	b
+	mov	m,a
+	inx	h
+	jmp	mcmd1
+;
+; Check for hex file, tfcb
+; a,f,h,l
+qhexfile:
+	lxi	h,tfcb+9
+	mov	a,m
+	ani	7fh
+	cpi	'H'
+	rnz
+	inx	h
+	mov	a,m
+	ani	7fh
+	cpi	'E'
+	rnz
+	inx	h
+	mov	a,m
+	ani	7fh
+	cpi	'X'
+	ret
+;
+; check for program loaded above (hl)^.  carry if so
+; a,f,d,e
+cmpload:
+	xchg
+	lhld	unloaded
+	mov	a,l
+	sub	e
+	mov	a,h
+	sbb	d
+	xchg
+	ret
+;
+chkldmax:
+	call	cmpload
+	rnc
+	shld	unloaded
+	ret
+;
+; check for program loaded above disassembler section
+; a,f,d,e
+chkused:
+	push	h
+	lxi	h,begin
+	call	cmpload
+	pop	h
+	ret
+;
+; read from file tfcb into defdma
+; a,f
+fread:	mvi	a,20
+	call	foperate;	fread
+	ora	a
+	ret
+;
+; r(ead) from file tfcb with bias parm1
+rcmd:	call	pcnt
+	jz	rcmd1
+	dcr	a
+	jnz	err
+	call	nextparm
+rcmd1:	push	h
+;	"	"
+loadit:	lxi	d,defdma
+	mvi	a,26
+	call	dos;		set to std dma
+	call	fopen
+	inr	a
+	jz	err
+	call	qhexfile
+	jz	loadit5;	read from hex file
+	pop	h
+	lxi	d,tpa
+	dad	d
+loadit1:
+	push	h
+	call	fread;		read from file tfcb
+	pop	h
+	jnz	rdexit
+	lxi	d,.bdosexu-128
+	call	delesshl
+	jc	err;		too big
+	lxi	d,defdma
+	mvi	c,128
+loadit2:
+	ldax	d
+	inx	d
+	mov	m,a
+	inx	h
+	dcr	c
+	jnz	loadit2
+	call	chkldmax
+	jmp	loadit1
+loadit3:
+	call	rdhexbyt;	record type
+loadit4:
+	call	rdhexbyt;	data
+	mov	m,a
+	inx	h
+	dcr	e
+	jnz	loadit4
+	call	rdhexbyt
+	push	psw
+	call	chkldmax
+	pop	psw
+	jnz	err
+loadit5:
+	call	charead;	load from hex file
+	jc	err
+	sui	':'
+	jnz	loadit5
+	mov	d,a
+	pop	h
+	push	h;	get bias value
+	call	rdhexbyt;	record length
+	mov	e,a
+	call	rdhexbyt
+	push	psw
+	call	rdhexbyt
+; no load check to allow load above cp/m
+	pop	b
+	mov	c,a;		form address
+	dad	b;		plus bias
+	mov	a,e
+	ora	a
+	jnz	loadit3
+	mov	a,b
+	ora	c
+	pop	b
+	jz	rdexit;		dont update pc on zero exu point
+	mov	a,b
+	ora	c
+	jnz	rdexit;		or on non-zero bias
+	shld	pcsave
+;	"	"
+rdexit:	lxi	h,rdxmsg
+	mov	a,m
+rdexit1:
+	call	couta
+	inx	h
+	mov	a,m
+	ora	a
+	jnz	rdexit1
+rdexit2:
+	call	crlf
+	lhld	unloaded
+	push	h
+	call	t4hxblk
+	lhld	pcsave
+	call	t4hxblk
+	pop	h
+	dcx	h
+	mov	l,h
+	mvi	h,0
+;	"	"
+; output (hl) in decimal to console.
+;  suppress leading zeros.
+; a,f,b,c,d,e,h,l
+tdzs:	lxi	b,0f00ah;	c=divisor=10, b=iter cnt=-16
+	xra	a;		clear
+tdzs1:	dad	h;		(hl) := (hl)/10; rdr to (a)
+	ral;			shift off into (a)
+	cmp	c;		test
+	jc	tdzs2;		no bit
+	sub	c;		bit = 1
+	inx	h
+tdzs2:	inr	b
+	jm	tdzs1;		not done
+	push	psw;		save output digit
+	mov	a,h
+	ora	l
+	cnz	tdzs;		not left digit, recursive
+	pop	psw;		last unlisted digit
+	adi	'0'
+	jmp	couta
+;
+rdxmsg:	db	cr,lf,'Next  PC  Save',0
+;
+; read hex byte to (a), update cksum (d)
+; a,f,d
+rdhexbyt:
+	push	b
+	push	d
+	call	getch
+	rlc
+	rlc
+	rlc
+	rlc
+	ani	0f0h
+	push	psw
+	call	getch
+	pop	b
+	ora	b
+	mov	b,a
+	pop	d
+	add	d
+	mov	d,a
+	mov	a,b
+	pop	b
+	ret
+;
+; substitute memory at parm up
+scmd:	lhld	baseval
+	shld	base
+	call	pcnt
+	jz	err
+	call	nextparm
+	dcr	a
+	jz	scmd1
+	dcr	a
+	jnz	err
+	push	h
+	call	nextparm
+	shld	base
+	pop	h
+scmd1:	call	crlf
+	push	h
+	call	tbased
+	call	blank
+	pop	h
+	call	ldbased
+	call	t2hx
+	call	blank
+	call	newln
+	jz	scmd2
+	cpi	'.'
+	rz
+	push	h
+	call	pcnta
+	dcr	a
+	jnz	err
+	call	nextparm
+	mov	a,h
+	ora	a
+	jnz	err
+	mov	a,l
+	pop	h
+	push	h
+	push	psw
+	call	based
+	pop	psw
+	mov	m,a
+	pop	h
+scmd2:	inx	h
+	jmp	scmd1
+;
+ucmd:	xra	a
+	jmp	track
+;
+tcmd:	mvi	a,-1
+;	"	"
+; track machine execution. show on (a)
+track:	sta	showtrc
+	call	pcnt
+	jz	track1
+	dcr	a
+	jnz	err
+	call	nextparm
+	mov	a,l
+	ora	h
+	jz	err
+	dcx	h
+track1:	shld	tracectr
+;	"	"
+showrun:
+	call	showcpu
+	jmp	run
+;
+; w(here) first_address, last_address, search_value
+wcmnd:	call	get3p;		(bc):=first, (de):=last, (hl):=value
+wcmnd1:	call	delessbc
+	rc;			done, exit
+	ldax	b
+	cmp	l
+	inx	b
+	jnz	wcmnd1;		not here
+	ldax	b
+	cmp	h
+	jnz	wcmnd1;		2nd byte does not match
+	call	crlf
+	dcx	b
+	call	t4hxbc;		list address
+	inx	b
+	call	qbrk
+	jmp	wcmnd1;		and continue
+;
+subttl	Register display
+;
+; display register, all or 1 only and modify
+xcmd:	call	skipblks
+	jnz	xcmd1
+	call	showcpu
+	call	qz80
+	jnz	zshow
+	ret
+xcmd1:	lxi	b,11;		selected registers - modify
+	lxi	h,regnames
+xcmd2:	cmp	m
+	jz	xcmd3;		valid reg, index in (c)
+	inx	h
+	inr	b
+	dcr	c
+	jnz	xcmd2
+	jmp	err
+xcmd3:	call	skipblks
+	jnz	err
+	push	b
+	call	crlf
+	call	dumpreg
+	call	blank
+	call	getline
+	call	pcnt
+	pop	b
+	rz
+	dcr	a
+	jnz	err
+	call	nextparm
+	mov	a,b
+	cpi	05
+	jnc	xcmd4
+	mov	a,h;		flag revisions
+	ora	a
+	jnz	err
+	mov	a,l
+	cpi	02
+	jnc	err
+	call	getflgs
+	mov	h,a
+	mov	b,c
+	mvi	a,0feh
+	call	lrotate
+	ana	h
+	mov	b,c
+	mov	h,a
+	mov	a,l
+	call	lrotate
+	ora	h
+	stax	d
+	ret
+xcmd4:	jnz	xcmd5
+	mov	a,h;		(a) revisions
+	ora	a
+	jnz	err
+	mov	a,l
+	lxi	h,asave
+	mov	m,a
+	ret
+xcmd5:	push	h;		bc, de, hl, sp, pc revisions
+	call	regkept
+	pop	d
+	mov	m,e
+	inx	h
+	mov	m,d
+	ret
+;
+; Show z80 registers command
+zcmd:	call	qz80
+	jz	err
+;	"	"
+; show all z80 only registers.  No alteration allowed
+zshow:	call	crlf
+	mvi	c,9
+	lxi	h,rreg
+	lxi	d,zregnm
+zshow1:	ldax	d
+	call	couta
+	mvi	a,'='
+	call	couta
+	mov	a,m
+	call	t2hx
+	mov	a,c
+	cpi	6
+	jnc	zshow2
+	dcx	h
+	mov	a,m
+	call	t2hx
+zshow2:	call	blank
+	dcx	h
+	inx	d
+	dcr	c
+	jnz	zshow1
+	ret
+;
+zregnm:	db	'riafbdhxy'
+;		 987654321
+;
+; a,f,c,d,e
+getflgs:
+	push	h
+	lxi	h,flgbits
+	mov	e,b
+	mvi	d,0
+	dad	d
+	mov	c,m
+	lxi	h,flgsave
+	mov	a,m
+	xchg
+	pop	h
+	ret
+;
+; a,f,c,d,e
+showflg:
+	call	getflgs
+showflg1:
+	rar
+	dcr	c
+	jnz	showflg1
+	ral
+	ani	1
+	jmp	hexdig
+;
+; hl := pointer to register storage for id (a)
+; a,f,d,e,h,l
+regkept:
+	lxi	h,reglocns-6
+	call	index
+	mov	e,m
+	mvi	d,-1
+	lxi	h,pcsave+2
+	dad	d
+	ret
+;
+; get stored value to hl for reg id (a)
+; a,f,d,e,h,l
+regvalue:
+	call	regkept
+	mov	e,m
+	inx	h
+	mov	d,m
+	xchg
+	ret
+;
+; dump reg content, (a) is id name char, b is id
+; a,f,d,e,h,l
+dumpreg:
+	mov	a,m
+	call	couta
+	mov	a,b
+	cpi	05
+	jc	showflg
+;	"	"
+; show reg value 8 bit or 16bit, on z flag set/reset. a=b is regid
+; a,f,d,e,h,l
+showreg:
+	push	psw
+	mvi	a,'='
+	call	couta
+	pop	psw
+	jnz	showreg1
+	lxi	h,asave
+	mov	a,m
+	jmp	t2hx
+showreg1:
+	push	psw
+	call	regvalue
+	call	t4hx
+	pop	psw
+	sui	8
+	rc;			bc or de > 0..1
+	sui	2
+	rnc;			pc
+	mvi	a,'>';		show mem for hl^ and sp^
+	call	couta
+	mov	e,m
+	inx	h
+	mov	d,m
+	xchg
+;	"	"
+; output (hl) as 4 hex chars to console
+; a,f
+t4hx:	mov	a,h
+	call	t2hx
+	mov	a,l
+;	"	"
+; output (a) as 2 hex chars to console
+; a,f
+t2hx:	push	psw
+	rar
+	rar
+	rar
+	rar
+	call	hexdig
+	pop	psw
+;	"	"
+; output (a) lsbits as hex char to console
+; a,f
+hexdig:	ani	0fh
+	adi	090h
+	daa
+	aci	040h
+	daa
+;	"	"
+; display (a) as ascii char, use '.' for all controls
+; a,f
+ascii:	cpi	rub
+	jnc	ascii1
+	cpi	' '
+	jnc	couta
+ascii1:	mvi	a,'.'
+	jmp	couta
+;
+showcpu:
+	lxi	h,regnames
+	mvi	b,00
+	call	crlf
+showcpu1:
+	push	b
+	push	h
+	call	dumpreg;	id b, name hl^
+	pop	h
+	pop	b
+	inr	b
+	inx	h
+	mov	a,b
+	cpi	05
+	cnc	blank
+	mov	a,b
+	cpi	11
+	jc	showcpu1
+;	"	"
+showcd:	call	setraps;	to get length, etc
+	push	psw
+	push	d
+	push	b;	save for possible run
+	call	chkused
+	jnc	showcd1
+	lhld	pcsave
+	shld	disasmp
+	mvi	a,-1
+	call	disassm
+	jmp	showcd3
+showcd1:
+	dcx	h
+	shld	dumplast
+	lhld	pcsave
+showcd2:
+	mov	a,m
+	call	t2hx
+	call	blank
+	inx	h
+	call	dumpdone
+	jnc	showcd2
+showcd3:
+	pop	b
+	pop	d
+	pop	psw
+	ret
+;
+; left rotate (a) (b)-1 places
+lrotate:
+	dcr	b
+	rz
+	rlc
+	jmp	lrotate
+;
+; read next char from file.  carry for eof or error
+; a,f
+charead:
+	push	h
+	push	d
+	push	b
+	lda	charcntr
+	ani	7fh
+	jnz	charead1
+	call	fread
+	stc
+	jnz	charead2
+	sta	charcntr
+charead1:
+	mvi	d,0
+	mov	e,a
+	lxi	h,defdma
+	dad	d
+	mov	a,m
+	ani	07fh;		strip any high order bit
+	call	upshift
+	cpi	1ah
+	stc
+	jz	charead2
+	lxi	h,charcntr
+	inr	m
+	ora	a
+charead2:
+	pop	b
+	pop	d
+	pop	h
+	ret
+;
+subttl	console i/o stuff
+;
+; line in to buffer. lnptr := first char
+; a,f
+getline:
+	push	h
+	mvi	a,10
+	lxi	d,consbuf
+	call	dos;		get console line
+	lxi	h,consbuf+2
+	shld	lnptr
+	pop	h
+	ret
+;
+; output 3 blanks, 4th if a = 8 n entry
+; a,f
+blks43:	cpi	8
+	cz	blank
+;	"	"
+; output 3 blanks
+; a,f
+trplbk:	call	blank
+;	"	"
+; output 2 blanks
+; a,f
+dblblk:	call	blank
+	jmp	blank
+;
+; t4hx with trailing blank
+t4hxblk:
+	call	t4hx
+;	"	"
+; output blank to console
+; a,f
+blank:	mvi	a,' ';		blank
+;	"	"
+; output (a) to console
+; a,f
+couta:	push	d
+	mov	e,a
+	mvi	a,02
+	call	dos;		put console char
+	pop	d
+	ret
+;
+; upshift (a) if lower case
+; a,f
+upshift:
+	cpi	'z'+1
+	rnc
+	cpi	'a'
+	rc
+	ani	5fh
+	ret
+;
+; getline and first char
+newln:	call	getline
+;	"	"
+; (a) := next char from console buffer, upshifted
+; At line end a stream of <cr>s will be returned.
+; compared to cr on exit.
+; a,f
+nextch:	call	nxtch
+	call	upshift
+	cpi	cr
+	ret
+;
+; (a) := next char from console buffer, NOT upshifted
+; At line end a stream of <cr>s will be returned.
+; Compared to cr on exit
+; a,f
+nxtch:	push	h
+	lxi	h,consbuf+1
+	mov	a,m
+	ora	a
+	mvi	a,cr
+	jz	nxtch1
+	dcr	m
+	lhld	lnptr
+	mov	a,m
+	inx	h
+	shld	lnptr
+nxtch1:	pop	h
+	cpi	cr
+	ret
+;
+; Skip input blanks.  z flag for eol.  Return non-blk char.
+; a,f
+skipblks:
+	call	nextch
+	rz
+	cpi	' '
+	jz	skipblks
+	ret
+;
+; cr & lf to console
+; a,f
+crlf:	mvi	a,cr
+	call	couta
+	mvi	a,lf
+	jmp	couta
+;
+; get console status.  nz if char ready
+; a,f
+csta:	mvi	a,11
+	call	dos
+	ani	1
+	ret
+;
+; output $ terminated string de^
+; a,f
+tstr:	mvi	a,9
+;	"	"
+; call dos function a, preserve registers
+dos:	push	b
+	push	d
+	push	h
+	mov	c,a
+	call	.bdosexu
+	pop	h
+	pop	d
+	pop	b
+	ret
+;
+; output (bc) as 4 hex characters with trailing blank
+; a,f
+t4hxbc:	push	h
+	mov	h,b
+	mov	l,c
+	call	t4hxblk
+	pop	h
+	ret
+;
+dumpdone:
+	mov	a,h
+	ora	l
+	stc
+	rz;			prevent wrap arounds
+	xchg;			dumpdone
+	lhld	dumplast
+	xchg
+;	"	"
+; zero flag if (hl) = (de), carry if (hl) > (de)
+; a,f
+delesshl:
+	mov	a,d
+	sub	h
+	rnz
+	mov	a,e
+	sub	l
+	ret
+;
+; next char and check for delimiter
+nxtchq:	call	nextch
+;	"	"
+qdelim:	cpi	','
+	rz
+	cpi	']'
+	rz
+;	"	"
+; filename delimiters, z if so, carry for control
+qfndelim:
+	cpi	cr
+	rz
+	cpi	tab
+	rz
+	cpi	'.'
+	rz
+	cpi	' '
+	ret
+;
+; get character, and check for hex
+getch:	call	charead
+;	"	"
+; check (a) is hex char, convert to binary.
+; divert to "err" if not.  carry for decimal digit range
+; a,f
+chkhex:	sui	'0'
+	cpi	10
+	rc
+	adi	0f9h
+	cpi	16
+	jnc	err
+	cpi	10
+	rnc
+	jmp	err
+;
+; get next parameter from (de)^ to (hl)
+; de := de+2, hl
+nextparm:
+	xchg
+	call	ldem
+	xchg
+	ret
+;
+; read next hex value, get next char
+; a,f,d,e
+rdhex:	call	nextch
+;	"	"
+; read next hex value from command line to (de);
+; initial character in (a)
+; a,f,d,e
+rdhexc:	cpi	' '
+	jz	rdhex;		deblank
+	xchg
+	lxi	h,0000
+	cpi	'#'
+	jz	rdec;		get a decimal parameter
+	cpi	''''
+	jz	rdchar
+	cpi	'"'
+	jz	rdchar
+rdhex1:	call	chkhex
+	dad	h
+	dad	h
+	dad	h
+	dad	h
+	ora	l
+	mov	l,a
+	call	nxtchq
+	jnz	rdhex1
+rdhex2:	xchg
+	ret
+;
+; read a char parameter to hl, terminated by (a) on input.
+; 2 chars max. Exchange with de
+; a,f,d,e (net via rdhex entry)
+rdchar:	push	d
+	mov	d,a
+	call	nxtch
+	jz	err
+	mov	l,a
+	call	nxtch
+	jz	err
+	cmp	d
+	jz	rdc1
+	mov	h,a
+	call	nxtch
+	cmp	d
+	jnz	err
+rdc1:	call	nxtch;		get delimiter
+	call	qdelim
+	jnz	err
+	pop	d
+	xchg
+	ret
+;
+; read a decimal parameter to (hl), xchange with (de)
+; a,f,d,e (net via rdhex entry)
+rdec:	call	nxtchq
+	jz	rdhex2
+	call	chkhex
+	jnc	err;		non numeric character
+	push	d
+	mov	d,h
+	mov	e,l
+	dad	h
+	dad	h;	4*
+	dad	d;		5*
+	pop	d
+	dad	h;		10*
+	call	index;		+ (a)
+	jmp	rdec
+;
+; store (de) in (hl)^, increment params
+; f, hl := hl+2
+storede:
+	push	h
+	lxi	h,params
+	inr	m
+	pop	h
+;	"	"
+; store de in hl^, advance hl
+; h,l
+sdem:	mov	m,e
+	inx	h
+	mov	m,d
+	inx	h
+	ret
+;
+subttl	parameter input
+;
+ckpcnt:	call	chkused
+	jnc	err;		command not available now
+;	"	"		else go do pcnt and return
+; count parameters available and parse them
+; (a) returns count of parameters. z flag set on it
+; de points to first parameter storage point
+; If the first parameter is skipped return cy and 8 bit in (a)
+; Set hl to 0
+; a,f,d,e,h,l
+pcnt:	call	skipblks
+;	"	"
+; pcnt with first character in (a)
+; a,f,d,e,h,l
+pcnta:	lxi	h,params
+	mvi	m,0
+	inx	h
+	cpi	cr
+	jz	pcnt3
+	cpi	','
+	jnz	pcnt1
+	mvi	a,80h
+	sta	params
+	lxi	d,0
+pcnt1:	cnz	rdhexc
+	call	storede
+	cpi	cr
+	jz	pcnt3
+	call	rdhex
+	call	storede
+	cpi	cr
+	jz	pcnt3
+	call	rdhex
+	call	storede
+	cpi	cr
+	jnz	err
+pcnt3:	lxi	d,params
+	ldax	d
+	cpi	81h
+	jz	err
+	lxi	h,0
+	inx	d
+	ora	a
+	rlc
+	rrc;	sign to carry
+	ret
+;
+subttl	Trapping
+;
+; clear any traps
+; If (bc) a trap point then pcsave := (bc)
+; a,f,d,e,h,l
+clrtrps:
+	lxi	h,trp1set
+	mov	a,m;		count of traps set
+	mvi	m,00
+	inr	a
+clrtrps1:
+	dcr	a
+	rz;			all cleared
+	push	psw
+	inx	h
+	mov	e,m;	clear traps
+	inx	h
+	mov	d,m;	trap location
+	call	delessbc
+	jnz	clrtrps2;	not trapped on this one
+	push	h
+	mov	h,b
+	mov	l,c
+	shld	pcsave
+	pop	h
+clrtrps2:
+	inx	h
+	mov	a,m;		original code (saved)
+	stax	d
+	pop	psw
+	jmp	clrtrps1
+;
+regnames:
+	db	'CZMEIABDHSP'
+;
+reglocns:
+	db	boffset, doffset, hoffset, soffset, poffset
+;
+flgbits:
+	db	1,7,8,3,5
+;
+zerotctr:
+	lxi	h,0
+	shld	tracectr
+	ret
+;
+; trap entry via RST
+trapit:	di
+	shld	hlsave;		Save all 8080 regs.
+	pop	h
+	shld	pcsave
+	push	psw
+	lxi	h,0002
+	dad	sp
+	pop	psw
+	lxi	sp,spsave+2
+	push	h
+	push	psw
+	push	b
+	push	d;	8080 regs saved.
+	call	savz80;		save auxiliary registers
+	lhld	pcsave
+	mov	b,h
+	mov	c,l;	save trap point
+	dcx	b;		point before trapping instruction
+	call	clrtrps
+	ei
+	lhld	tracectr
+	mov	a,h
+	ora	l
+	jz	trapit5
+	dcx	h
+	shld	tracectr
+	call	csta
+	jnz	trapit5;	interrupted
+	lda	showtrc
+	ora	a
+	jnz	showrun
+	call	setraps
+	jmp	run
+trapit5:
+	call	zerotctr
+	mvi	a,'*'
+	call	couta
+	lhld	pcsave
+	call	t4hx
+	call	showcpu
+	jmp	cmdloop
+;
+; save auxiliary z80 registers.  Main set is free
+; interrupts are disabled
+savz80:	call	qz80
+	rz;			cant execute instructions
+	exaf
+	push	psw
+	exaf
+	pop	h
+	shld	afprime
+	lxi	h,0
+	dad	sp;		save stack, use sp as index
+	lxi	sp,afprime
+	exx
+	push	b
+	push	d
+	push	h
+	pushix
+	pushiy
+	exx
+	sphl;			restore stack
+	ldai
+	mov	l,a
+	ldar
+	mov	h,a
+	shld	ireg
+	ret
+;
+; index word (hl) := (hl) + 2 * (a)  [max a =127]
+; a,f,h,l
+indexwd:
+	add	a
+;	"	"
+; index (hl) := (hl) + (a)
+; a,f,h,l
+index:	add	l
+	mov	l,a
+	rnc
+	inr	h
+	ret
+;
+; transfer to case (a) on table (hl)^
+; a,f,h,l (and routine)
+casexfr:
+	call	indexwd
+	mov	a,m
+	inx	h
+	mov	h,m
+	mov	l,a
+	pchl
+;
+subttl	Trap setting, code analysis
+;
+; at entry hl points to op to decode
+; at exit, de = primary trap, bc = secondary trap
+; and hl points past the instruction, for tracing etc.
+; z flag set to release control (xfr to system),
+; else (a) = 2 for 1 trap, 3 for 2 traps, carry set
+; a,f,b,c,d,e,h,l
+setraps:
+	lhld	pcsave
+	lxi	d, progrtn
+	call	delesshl
+	rz;			release control on outer block ret
+	mov	b,m
+	xchg
+	lxi	h,reboot
+	call	delesshl
+	rz;			release control on reboot
+	mvi	a,0c7h+8*traplvl;	(rst traplvl)
+	cmp	b
+	rz;			release control on trap instr.
+;	"	"
+; Entry here, with op pointer in de, avoids release control exits
+; a,f,b,c,d,e,h,l
+chkop:	ldax	d
+	mov	b,a
+	inx	d
+	push	d;		stack a possible word operand ptr
+	call	optype;		(or next adr=trap pt for 1 byte ops)
+	sta	opkind;		preserve for disassembler use
+	push	d
+	ret;			to xfr address from table.
+;
+; Return a := opcode classification for opcode (b)
+; de = action address, h=xtended length, l=prefixed length (added)
+; a,f,d,e,h,l
+optype:	mvi	d,-1
+	lxi	h,opmsktbl-4
+optype1:
+	inr	d
+	inx	h
+	inx	h
+	inx	h
+	inx	h
+	mov	a,m
+	ana	b
+	inx	h
+	cmp	m
+	inx	h
+	mov	a,d
+	jnz	optype1
+	mov	e,m
+	inx	h
+	mov	d,m;	de := action point
+	inx	h
+	push	psw
+	mov	a,m
+	inx	h
+	mov	l,m
+	mov	h,a
+	pop	psw
+	ret
+;
+op	macro	mask,val,action,lghxtd,lghidx
+	db	mask,val
+	dw	action
+	db	lghxtd,lghidx
+	endm
+
+;op	macro	mask,p2,p3,p4,p5
+;	db	mask,p2
+;	dw	p3
+;	db	p4,p5
+;	endm
+
+;
+; Table allows recognition of Z80 opcode lengths.
+; * marks items whose order in table is important.
+; Early entries found first.
+opmsktbl:
+;  mask  val  exec. xtnd index  (SEE op macro ABOVE)
+ op 0ffh,076h,opmovetc,1,0;	0 *mov m,m hlt	76 (eliminate in all)
+ op 0cfh,009h,opmovetc,2,1;	1  dad		9 19 29 39
+ op 0f7h,022h,oplxietc,1,3;	2  lhld shld	22 2a
+ op 0f7h,023h,opmovetc,1,1;	3  inc/dec hl	23 2b
+ op 0feh,034h,opmovetc,1,2;     4  inr/dcr m	34 35
+ op 0ffh,036h,opmvietc,1,3;	5 *mvi m	36
+ op 0c7h,046h,opmovetc,1,2;	6 *mov rr,m   46 4e 56 5e 66 6e (76) 7e
+ op 0ffh,073h,opmovetc,3,2;     7 *mov m,e      73
+ op 0efh,064h,opmovetc,2,2;	8 *mov h,h, mov m,h   64 74 (for 64180)
+ op 0f8h,070h,opmovetc,1,2;     9 *mov m,r  70 71 72 (73 74) 75 (76) 77
+ op 0c7h,086h,opmovetc,1,2;     10 arith m	86 8e 96 9e a6 ae b6 be
+ op 0ffh,021h,oplxietc,2,3;	11*lxi h	21
+ op 0ffh,0cbh,opbitpic,1,3;	12 set/res/bit/shifts	0cb
+ op 0ffh,0e3h,opmovetc,1,1;	13 xthl		e3
+ op 0fbh,0e1h,opmovetc,1,1;	14 pop/push hl	e1 e5
+xyjmp	equ	($-opmsktbl)/6
+ op 0ffh,0e9h,oppchl,  1,1;	15 pchl		0e9
+ op 0ffh,0f9h,opmovetc,1,1;	16 sphl		0f9
+; The above portion order is wired into the disassembler section
+
+ op 0ffh,0edh,opextend,1,0;	17 extension	ed
+ op 0c7h,043h,opmovetc,3,1;	18 mov rr,e	43 4b 53 5b 63 6b 73 7b
+reti	equ	($-opmsktbl)/6
+ op 0f7h,045h,opmovetc,1,1;	19 mov (retn, reti)	45,4d
+ op 0dfh,0ddh,opxyregs,1,0;	20 x/y prefixes		dd fd
+
+ op 0f7h,000h,opmovetc,2,0;	21*exaf,nop	0 8
+ op 0c7h,000h,opjr,    2,0;	22*jr/djnz  (0 8) 10 18 20 28 30 38
+ op 0ffh,0c3h,opcaljmp,1,0;	23 jmp		0c3
+ op 0ffh,0cdh,opcaljmp,1,0;	24 call		0cd
+ op 0f7h,032h,oplxietc,1,0;	25 lda sta	32 3a
+ op 0ffh,0c9h,opreturn,1,0;	26 ret		0c9
+ op 0c7h,0c7h,oprstnn, 1,0;	27 rst		c7 cf d7 df e7 ef f7 ff
+ op 0c7h,006h,opmvietc,1,2;	28*mvi		6 e 16 1e 26 2e (36) 3e
+ op 0c7h,0c6h,opmvietc,1,0;	29 aritopi	c6 ce d6 de e6 ee f6 fe
+ op 0c7h,0c2h,opcjccd, 1,0;	30 j(ccd)	c2 ca d2 da e2 ea f2 fa
+ op 0c7h,0c4h,opcjccd, 1,0;	31 c(ccd)	c4 cc d4 dc e4 ec f4 fc
+ op 0c7h,0c0h,oprccode,1,0;	32 r(ccd)	c0 c8 d0 d8 e0 e8 f0 f8
+ op 0cfh,001h,oplxietc,2,0;	33*lxi 		1 11 (21) 31
+ op 0f7h,0d3h,opmvietc,1,0;	34 in/out	d3 db
+ op 000h,000h,opmovetc,1,1;	35 the rest, all 1 byte
+;
+; ---- Cases for SETRAPS execution -----
+;
+; Check for z80 operating, and set opflg for this op if so
+; z flag if not z80 in operation
+; a,f
+qz80:	lda	z80flg
+	ora	a
+	ret
+;
+; 0cbh - bit pickers
+opbitpic:
+	call	qz80
+	jz	opmovetc
+	pop	h
+	inx	h
+	jmp	opxtnd2
+;
+; 0ddh & 0fdh - x/y index reg ops
+opxyregs:
+	call	qz80
+	jz	opmovetc
+	pop	h
+	push	h
+	mov	b,m
+	call	optype
+	sta	zopkind;	save for disassembler
+	cpi	xyjmp
+	mov	a,l;		opcode length
+	jnz	opxtnd1
+	pop	h
+	dcx	h
+	mov	a,m;		which index
+	inx	h
+	inx	h
+	push	h;		advance, length 2
+	cpi	0ddh
+	lhld	ixreg
+	jz	oppchl1
+	lhld	iyreg
+	jmp	oppchl1
+;
+; 0edh - extension
+opextend:
+	call	qz80
+	jz	opmovetc;	1 byte nop on 8080
+	pop	h
+	push	h
+	mov	b,m
+	call	optype
+	sta	zopkind;	save for disassembler
+	cpi	reti
+	jz	opreti
+	mov	a,h;		size
+opxtnd1:
+	pop	h
+	call	index;		point past instruction
+opxtnd2:
+	push	h
+	jmp	opmovetc
+;
+opreti:	pop	h
+	inx	h
+	push	h
+	jmp	opreturn
+;
+opjr:	call	qz80
+	jz	opmovetc
+	pop	h
+	mov	a,m
+	inx	h
+	push	h
+	mov	e,a
+	ral;			sign to carry
+	sbb	a;		extend sign
+	mov	d,a
+	dad	d
+	xchg
+	jmp	setrapx2
+;
+; jmp/call
+opcaljmp:
+	call	operand
+	jnz	setrapx1
+;	"	"
+; ret
+opreturn:
+	call	stacktop
+	jmp	setrapx1
+;
+; rst n
+oprstnn:
+	mov	a,b
+	ani	38h
+	mov	e,a
+	mvi	d,0
+	jmp	setrapx1
+;
+; pchl
+oppchl:	lhld	hlsave
+oppchl1:
+	xchg
+	call	qsyscall
+	jnz	setrapx1
+	jmp	opreturn
+;
+; j(ccd)/c(ccd)
+opcjccd:
+	call	operand
+	jnz	setrapx2
+;	"	"
+; mov etc (one byte, no xfrs)
+opmovetc:
+	pop	d
+	push	d
+	jmp	setrapx1
+;
+; r(ccd)
+oprccode:
+	call	stacktop
+;	"	"
+; set two traps.  bc is following op, de is destination
+setrapx2:
+	pop	b
+	push	b
+	mvi	a,02
+	jmp	setrapx
+;
+; lxi, lhld, shld, lda, sta
+oplxietc:
+	pop	d
+	inx	d
+	push	d
+;	"	"
+; mvi, in, out, aritopi (ex cpi)
+opmvietc:
+	pop	d
+	inx	d
+	push	d
+;	"	"
+; To set one trap only
+setrapx1:
+	mvi	a,01
+;	"	"
+; To set (a) traps
+setrapx:
+	inr	a
+	stc
+	pop	h;		set hl to next op code (for lgh)
+	ret
+;
+;	----	Subroutines for SETRAPS	----
+;
+; load de := wd operand pointed at by TOS of caller.
+; z flag if system entry point
+; a,f,b,c,d,e,h,l
+operand:
+	pop	b
+	pop	h
+	call	ldem
+	push	h
+	push	b
+;	"	"
+; z flag if (de)=system transfer point
+; a,f,h,l
+qsyscall:
+	lhld	bdos+1
+	call	delesshl
+	rz
+	lda	reboot+2
+	cmp	d
+	rz;			a direct bios call
+	lhld	.bdosexu+1;	catches lxi h,bdos; push h; ret
+	jmp	delesshl
+;
+; Set de to value on top of run-time stack
+; d,e,h,l
+stacktop:
+	lhld	spsave
+;	"	"
+; load de from hl^, advance hl
+; d,e,h,l
+ldem:	mov	e,m
+	inx	h
+	mov	d,m
+	inx	h
+	ret
+;
+subttl	-----	Initialization - used once only	-----
+;
+; Initialization
+init:	lhld	bdos+1
+	shld	.bdosexu+1
+	mvi	c,6
+	lxi	d,.bdos
+init1:	dcx	h
+	dcx	d
+	mov	a,m
+	stax	d
+	dcr	c
+	jnz	init1;		copy serial etc - look like bdos
+	lxi	h,.bdosexu
+	shld	.bdos+1
+	lxi	h,.bdos
+	shld	bdos+1
+	lxi	d,signon
+	call	tstr
+	mvi	a,0c3h;		(jmp)
+	sta	8*traplvl
+	lxi	h,trapit
+	shld	8*traplvl+1
+	lxi	h,firstoclear
+	mvi	c,lastoclear-firstoclear
+init2:	mvi	m,0;		We are using the CCP stack
+	inx	h
+	dcr	c
+	jnz	init2;		clear it all out
+	mvi	a,cbufsiz
+	sta	consbuf
+	lxi	h,tpa
+	shld	disasmp
+	shld	dumptr
+	shld	unloaded
+	shld	pcsave;		must be at or before operand locn
+xmk	equ	$-ddtbgn;	for overlay error checking
+	lxi	sp,pcsave
+	lxi	h,0
+	mvi	c,(pcsave - stack)/2
+init3:	push	h
+	dcr	c
+	jnz	init3;		clear 8080 reg. images
+	lxi	d,progrtn
+	push	d;		default return for loading
+	push	h;		default bias for loading
+	lxi	d,c8080
+	stc
+	sbb	a
+	jpe	init6;		z80 clears overflow
+	sta	z80flg
+	lxi	d,cz80
+init6:	call	tstr
+	lda	tfcb+1
+	cpi	' '
+	jnz	loadit
+	jmp	progrtn;	MUST be last instruction
+;
+; This definition re-uses the init area as execute time stack
+return	equ	$-2;		rejammed to "progrtn"
+;
+;
+subttl	----	Initialized storage	-----
+;
+consbuf:	db	cbufsiz
+; signon is stored in console buffer area, overwritten
+signon:		db	'DDTZ v'
+		db	ver/10 + '0', '.', ver MOD 10 +'0',debugver
+		db	' by CB Falconer. CPU=$'
+c8080:		db	'8080$'
+cz80:		db	'Z80$'
+cbufused	equ	$-consbuf
+firstoclear:
+;
+; Macro for storage allocation errors only, SLRMAC specific
+px	macro	v, xmsg
+	.printx	/v xmsg/
+	endm
+;
+; Code storage space for this segment
+codesize	equ	$-ddtbgn;	for loader/relocater
+;
+subttl	----	Uninitialized storage	-----
+;
+		org	signon;		Re-use signon space
+		ds	1;		returned length
+		ds	cbufsiz;	actual storage
+;
+	if	($-consbuf) LT cbufused
+xtra	 set	cbufused - ($-consbuf)
+	 +++ ERROR signon too long for overlay +++
+	px	 %xtra, < excess bytes>
+	endif
+;
+; Following are uninitialized variables (also last of above buffer)
+z80flg:		ds	1;	Is a Z80 running?
+;
+; Storage for auxiliary Z80 registers
+iyreg:		ds	2
+ixreg:		ds	2
+hlprime:	ds	2
+deprime:	ds	2
+bcprime:	ds	2
+afprime:	ds	2
+ireg:		ds	1
+rreg:		ds	1;	saved, but never restored.
+;
+base:		ds	2;	base for offset displays
+baseval:	ds	2;	recorded base, set by @
+;
+unloaded:	ds	2;	Marks memory not loaded
+tracectr:	ds	2;	Counter for steps to execute
+showtrc:	ds	1;	Flag to trace each step
+trp1set:	ds	1;	count of traps set
+		ds	2;	location of first trap
+		ds	1;	saved opcode at 1st trap
+		ds	3;	second trap, as 1st trap
+lastoclear:
+;
+; Storage and code for this segment
+pages		equ	(($-ddtbgn)+255) / 256;	for loader
+;
+; Following storage overlays the initialization code.
+		org	init;		reuse this space
+;
+; dis/assembler communication variables
+disasmp:	ds	2
+dendptr:	ds	2
+aflag:		ds	1;	reserve for decoupling dis/assem
+opkind:		ds	1;	set by chkop
+zopkind:	ds	1;	set on z80 only code
+;
+; Dump control
+dumptr:		ds	2;	Next to dump for D command
+dumplast:	ds	2;	last to dump
+;
+; input processing
+lnptr:		ds	2;	pointer to unused char in consbuf
+params:		ds	7;	1st is count, then input params
+charcntr:	ds	1;	for hex input
+;
+		ds	stksize;	DDT run time stack
+stack:
+desave:		ds	2;		on TOS when control xfr
+bcsave:		ds	2
+flgsave:	ds	1
+asave:		ds	1
+spsave:		ds	2
+hlsave:		ds	2
+pcsave:		ds	2
+;
+	if	($-ddtbgn) GT xmk
+xtra	 set	($-ddtbgn) - xmk
+	 +++ ERROR too much stack space for overlay +++
+	 px	%xtra, < excess bytes>
+	endif
+;
+poffset		equ	pcsave-$;	offsets for display/modify
+soffset		equ	spsave-$
+hoffset		equ	hlsave-$
+doffset		equ	desave-$
+boffset		equ	bcsave-$
+;
+; Working variables for dis/assembler section.
+storeptr:	ds	2
+exitstk:	ds	2
+buff:		ds	16
+;
+usrstack	equ	return-$
+	px	%usrstack, < bytes in user stack>
+;
+	org	lastoclear;	for slrmac bug
+;
+	end
+

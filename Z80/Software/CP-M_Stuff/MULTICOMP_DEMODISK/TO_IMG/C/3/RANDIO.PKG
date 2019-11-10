@@ -1,0 +1,439 @@
+With IO,Jlib80,Util,Opcode;
+Package Body Randio Is
+
+    -- Copyright 1984  RR Software, Inc., P.O. Box 1512, Madison WI 53701
+    -- Permission is hereby given to distribute Object Code produced from
+    -- these libraries.  All Other rights reserved.
+
+    Pragma Debug(Off); Pragma Arithcheck(Off); Pragma Rangecheck(Off);
+@   Pragma Debug(On);  Pragma Arithcheck(On);  Pragma Rangecheck(On);
+
+    Use Opcode;
+
+    --
+    -- JANUS/Ada Random I/O Package.
+    -- Modeled on Ada Direct_IO.
+    --
+    -- How to use this Package
+    --
+    --  This Package is designed as an Ada Generic Package.  However, since
+    --  Generics are not yet available in JANUS/Ada, the method for using
+    --  this package is a bit awkward.  The Type Sector must imported from
+    --  some other Package, by changing the With Clause, and the Subtype
+    --  declaration.  Note that the name 'Sector' is used in only one place,
+    --  and thus can easily be changed to any other type.  Then both the
+    --  Specification and Body of RandIO must be recompiled.
+    --
+    --  The following classes of types must not be used as the type Sector
+    --  (cannot be output or input):
+    --     Limited Private Types
+    --     Access Types
+    --     Composite Types containing either of the above.
+    --  Any other type may be output or input.
+    --
+    --  Io.IOResult can be tested for errors in this version.
+    --
+    --  Records are numbered from 1, as per the 1983 Ada Standard.
+
+    -- Subtype Element_Type Is Private;
+
+    -- Type File_Type Is Limited Private;
+
+    -- Many routines below have two forms, one which is compatible with
+    -- current JANUS/Ada I/O, and the second which is compatible with the
+    -- 1983 Ada standard.  We recommend using the Ada forms wherever
+    -- possible, as the JANUS/Ada forms will be phased out.
+
+    -- Notes for CP/M-80 version:
+    -- You must be using CP/M 2.2 or greater.
+    -- Maximum # of records in a file = 32767.
+    -- Maximum file size = 8 MegaBytes.
+    -- Maximum record size = 4095.
+    -- If the record size is greater than 256 bytes, less than 32000 records
+    -- can be accessed.  Max Records = 65536 / ((Rec_Size + 127)/128).
+
+    -- Storage Method:
+    --  If the record size is greater than 128, as many 128 byte blocks as
+    -- necessary are allocated to hold each record.
+    --  Otherwise, as many records as possible are packed in a single 128
+    -- byte record.
+    -- This allocation scheme means that certain record sizes are very
+    -- ineffiently stored, 65 and 129 bytes, for example.  These sizes should
+    -- be avoided if possible.
+    -- Also, this allocation scheme means that Randio files cannot be
+    -- transfered to MS-DOS. (Sequential files can be transfered without
+    -- modification).
+
+    -- Type File_Mode Is (IN_File,INOUT_File,OUT_File);
+    -- Type Count Is New Natural;
+    -- Subtype Positive_Count Is Count Range 1 .. Count'Last;
+
+    -- Type File_Block;
+    -- Type File_Type Is Access File_Block;
+    -- Type File_Block Is Record
+    --	Fyle : File;
+    --	Index : Positive_Count;
+    -- End Record;
+
+    Temp : File_Type;
+
+    qqaddr : Integer;	-- Temporaries used below
+    result : Integer;
+    fmask : Jlib80.file_ptr;
+
+    REC_SIZE : Constant := Element_Type'Size / 8;
+    REC_PER_BLOCK : Constant := 128 / REC_SIZE;
+    BLOCK_PER_REC : Constant := (REC_SIZE + 127) / 128;
+
+    Type Sector Is Array (0..127) Of Byte;
+
+    Type Read_Rec Is Record
+	Case b:Boolean Is
+	    When True =>
+		buff : Array(1..BLOCK_PER_REC) Of Sector;
+	    When False =>
+		item : Array(0..REC_PER_BLOCK) Of element_type;
+	End Case;
+    End Record;
+
+    buffer : Read_Rec;
+    blk_num : Integer;
+
+    Procedure Open (Fyle : In Out File_Type; Name : In String;
+	Mode : In IO.File_Mode) Is
+	-- Opens a file for I/O.  JANUS/Ada version.
+    Begin
+	Temp := New File_Block;
+	Io.Open(Temp.Fyle,name,Mode);
+	If IO.IOresult /= 0 Then -- an error occured
+	    Dispose(Temp);
+	    Fyle := Null;
+	Else
+	    Fmask := Util.FConvert(Temp.Fyle);
+	    Temp.Index := 1;
+	    Fyle := Temp;
+	End If;
+    End Open;
+
+    Function Convert_Mode (Mode : In File_Mode) Return Io.File_Mode Is
+    Begin
+	If Mode = IN_File Then
+	    Return IO.Read_Only;
+	Elsif Mode = INOUT_File Then
+	    Return IO.Read_Write;
+	Else
+	    Return IO.Write_Only;
+	End If;
+    End Convert_Mode;
+
+    Procedure Open (Fyle : In Out File_Type; Mode : In File_Mode;
+	Name : In String) Is
+	-- Opens a file for I/O.  Ada 83 version.
+    Begin
+	Temp := New File_Block;
+	Io.Open(Temp.Fyle,name,Convert_Mode(Mode));
+	If IO.IOresult /= 0 Then -- an error occured
+	    Dispose(Temp);
+	    Fyle := Null;
+	Else
+	    Fmask := Util.FConvert(Temp.Fyle);
+	    Temp.Index := 1;
+	    Fyle := Temp;
+	End If;
+    End Open;
+
+    Procedure Create (Fyle : In Out File_Type; Name : In String;
+	Mode : In IO.File_Mode) Is
+	-- Creates a new file for I/O.  JANUS/Ada version.
+    Begin
+	Temp := New File_Block;
+	Io.Create(Temp.Fyle,name,Mode);
+	If IO.IOresult /= 0 Then -- an error occured
+	    Dispose(Temp);
+	    Fyle := Null;
+	Else
+	    Fmask := Util.FConvert(Temp.Fyle);
+	    Temp.Index := 1;
+	    Fyle := Temp;
+	End If;
+    End Create;
+
+    Procedure Create (Fyle : In Out File_Type; Mode : In File_Mode;
+	Name : In String) Is
+	-- Creates a new file for I/O.  Ada 83 version.
+    Begin
+	Temp := New File_Block;
+	Io.Create(Temp.Fyle,name,Convert_Mode(Mode));
+	If IO.IOresult /= 0 Then -- an error occured
+	    Dispose(Temp);
+	    Fyle := Null;
+	Else
+	    Fmask := Util.FConvert(Temp.Fyle);
+	    Temp.Index := 1;
+	    Fyle := Temp;
+	End If;
+    End Create;
+
+    Procedure Close (Fyle : In Out File_Type) Is
+	-- Closes a file.
+    Begin
+	If Fyle = Null Then
+	    Put("** File Not Open"); Util.Err_Exit;
+	End If;
+	fmask := Util.FConvert(fyle.fyle);
+	fmask.fmode := Byte(1);	-- Set mode to read_only
+	IO.Close(fyle.fyle);	-- Close the file, without dumping the
+				-- (unused) buffer
+	Dispose(Fyle);
+    End Close;
+
+    -- Procedure Delete (Fyle : In Out File_Type);
+	-- Deletes a file.  Ada 83 version.  ** Not implemented **
+
+    -- Procedure Delete (Name : In String);
+	-- Deletes a file.  Janus/Ada version.  Use the one in I/O.
+
+    -- Procedure Reset (File : In Out File_Type; Mode : In File_Mode);
+	-- Resets a file.  Ada 83 only.  ** Not implemented **
+
+    Function Mode (Fyle : In File_Type) Return Io.File_Mode Is
+	-- Returns the current mode of Fyle. Janus/Ada version.
+    Begin
+	If Fyle = Null Then
+	    Put("** File Not Open"); Util.Err_Exit;
+	End If;
+	Return IO.Mode(Fyle.Fyle);
+    End Mode;
+
+    -- Function Mode (Fyle : In File_Type) Return File_Mode;
+	-- Returns the current mode of Fyle. Ada 83 version.
+	-- ** Not implemented because overloading on return types
+	-- is disallowed in Janus/Ada.
+
+    Function Name (Fyle : In File_Type) Return String Is
+	-- Returns the name of Fyle.
+    Begin
+	If Fyle = Null Then
+	    Put("** File Not Open"); Util.Err_Exit;
+	End If;
+	Return IO.Name(Fyle.Fyle);
+    End Name;
+
+    Function Is_Open (Fyle : In File_Type) Return Boolean Is
+	-- Return True if the file is Open.
+    Begin
+	If Fyle = Null Then
+	    Return False;
+	Else
+	    Return IO.Is_Open(Fyle.Fyle);
+	End If;
+    End Is_Open;
+
+    Procedure Read (Fyle : In File_Type; Item : Out Element_Type; Rec : In
+	positive_count) Is
+	-- Read the record at record number positive count.  IOresult is
+	-- set to 255 if it does not exist.
+    Begin
+	If Fyle = Null Then
+	    Put("** File Not Open"); Util.Err_Exit;
+	End If;
+	Fyle.Index := Rec;
+        Read(Fyle,Item);
+    End Read;
+
+    Procedure Read (Fyle : In File_Type; Item : Out Element_Type) Is
+	-- Read the record following the last one read or written.
+	-- IOresult is set to 255 if it does not exist.
+    Begin
+	If Fyle = Null Then
+	    Put("** File Not Open"); Util.Err_Exit;
+	End If;
+@	Put("Read Block - "); Put(Fyle.index); New_Line;
+	fmask := Util.FConvert(Fyle.Fyle);
+	If REC_PER_BLOCK > 1 Then -- Calculate Block number
+	    blk_num := Integer(Fyle.Index) / REC_PER_BLOCK;
+	    fmask.fcb.random_rec1 := Integer(Fyle.index) / REC_PER_BLOCK;
+	Else
+	    fmask.fcb.random_rec1 := Integer(Fyle.index) * BLOCK_PER_REC;
+	End If;
+
+	If BLOCK_PER_REC > 1 Then -- Need Loop
+	    For i In 1..BLOCK_PER_REC Loop
+		qqaddr := Buffer.buff(i)'address; -- Get the sector address
+		Asm LHLD,qqaddr'address;
+		Asm XCHG;
+		Asm MVIC,26;			-- Set address of Buffer
+		Asm CALL,5,0;			-- Call CP/M
+
+		qqaddr := fmask.fcb'address;	-- Fyle FCB address
+		Asm LHLD,qqaddr'address;
+		Asm XCHG;
+		Asm MVIC,33;			-- Read Random Sector Opcode
+		Asm CALL,5,0;			-- Call CP/M
+		Asm MOVLA,MVIH,0;
+		Asm SHLD,result'address;
+
+		Exit When Result /= 0; -- Give up if some error occurred
+	    End Loop;
+	Else -- Just read a single block.
+	    qqaddr := Buffer.buff(1)'address;	-- Get the sector address
+	    Asm LHLD,qqaddr'address;
+	    Asm XCHG;
+	    Asm MVIC,26;			-- Set address of Buffer
+	    Asm CALL,5,0;			-- Call CP/M
+
+	    qqaddr := fmask.fcb'address;	-- Fyle FCB address
+	    Asm LHLD,qqaddr'address;
+	    Asm XCHG;
+	    Asm MVIC,33;			-- Read Random Sector Opcode
+	    Asm CALL,5,0;			-- Call CP/M
+	    Asm MOVLA,MVIH,0;
+	    Asm SHLD,result'address;
+	End If;
+
+	Fyle.index := Fyle.index + 1;
+	If result /= 0 Then
+	    IO.IOresult := 255;
+	Else
+	    IO.IOresult := 0;
+	End If;
+
+	-- Get the item to return
+	If REC_PER_BLOCK > 1 Then
+	    Item := Buffer.item(blk_num);
+	Else
+	    Item := Buffer.item(0);
+	End If;
+
+    End Read;
+
+    Procedure Write (Fyle : In File_Type; Item : In Element_Type; Rec : In
+	positive_count) Is
+	-- Write the record at record number positive count.  IOresult is
+	-- set to 255 if an error occurs.  (The disk is probably full).
+    Begin
+	If Fyle = Null Then
+	    Put("** File Not Open"); Util.Err_Exit;
+	End If;
+	Fyle.Index := Rec;
+	Write(Fyle,Item);
+    End Write;
+
+    Procedure Write (Fyle : In File_Type; Item : In Element_Type) Is
+	-- Write the record following the last one read or written.
+	-- IOresult is set the same as above.
+	junk : Element_type;
+    Begin
+	If Fyle = Null Then
+	    Put("** File Not Open"); Util.Err_Exit;
+	End If;
+@	Put("Write Block - "); Put(Fyle.Index); New_Line;
+	fmask := Util.FConvert(Fyle.Fyle);
+	If REC_PER_BLOCK > 1 Then -- Calculate Block number
+	    -- Must read the block so that the other records in it are not
+	    -- killed.
+	    Read(fyle,junk); -- Buffer contains the current record, now
+	    Fyle.index := Fyle.index - 1;
+	    blk_num := Integer(Fyle.Index) / REC_PER_BLOCK;
+	    fmask.fcb.random_rec1 := Integer(Fyle.index) / REC_PER_BLOCK;
+	    Buffer.item(blk_num) := Item; -- Set the item to write.
+	Else
+	    fmask.fcb.random_rec1 := Integer(Fyle.index) * BLOCK_PER_REC;
+	    Buffer.item(0) := Item; -- Set the item to write.
+	End If;
+
+	If BLOCK_PER_REC > 1 Then -- Need Loop
+	    For i In 1..BLOCK_PER_REC Loop
+		qqaddr := Buffer.buff(i)'address; -- Get the sector address
+		Asm LHLD,qqaddr'address;
+		Asm XCHG;
+		Asm MVIC,26;			-- Set address of Buffer
+		Asm CALL,5,0;			-- Call CP/M
+
+		qqaddr := fmask.fcb'address;	-- Fyle FCB address
+		Asm LHLD,qqaddr'address;
+		Asm XCHG;
+		Asm MVIC,34;			-- Write Random Sector Opcode
+		Asm CALL,5,0;			-- Call CP/M
+		Asm MOVLA,MVIH,0;
+		Asm SHLD,result'address;
+
+		Exit When Result /= 0; -- Give up if some error occurred
+	    End Loop;
+	Else -- Just write a single block.
+	    qqaddr := Buffer.buff(1)'address;	-- Get the sector address
+	    Asm LHLD,qqaddr'address;
+	    Asm XCHG;
+	    Asm MVIC,26;			-- Set address of Buffer
+	    Asm CALL,5,0;			-- Call CP/M
+
+	    qqaddr := fmask.fcb'address;	-- Fyle FCB address
+	    Asm LHLD,qqaddr'address;
+	    Asm XCHG;
+	    Asm MVIC,34;			-- Write Random Sector Opcode
+	    Asm CALL,5,0;			-- Call CP/M
+	    Asm MOVLA,MVIH,0;
+	    Asm SHLD,result'address;
+	End If;
+
+	Fyle.index := Fyle.index + 1;
+	If result /= 0 Then
+	    IO.IOresult := 255;
+	Else
+	    IO.IOresult := 0;
+	End If;
+    End Write;
+
+    Procedure Set_Index (Fyle : In File_Type; Rec : In Positive_Count) Is
+	-- Set the next record to be read or written, if a number is not
+	-- specified.
+    Begin
+	If Fyle = Null Then
+	    Put("** File Not Open"); Util.Err_Exit;
+	End If;
+	Fyle.Index := Rec;
+    End Set_Index;
+
+    Function Index (Fyle : In File_Type) Return Positive_Count Is
+	-- Returns the number of the next record to be read or written.
+    Begin
+	If Fyle = Null Then
+	    Put("** File Not Open"); Util.Err_Exit;
+	End If;
+	Return Fyle.Index;
+    End Index;
+
+    Function Size (Fyle : In File_Type) Return Count Is
+	-- Returns the current size of the file, in records.
+    Begin
+	If Fyle = Null Then
+	    Put("** File Not Open"); Util.Err_Exit;
+	End If;
+	fmask := Util.FConvert(Fyle.Fyle);
+
+	qqaddr := fmask.fcb'address;	-- Fyle FCB address
+	Asm LHLD,qqaddr'address;
+	Asm XCHG;
+	Asm MVIC,35;			-- Random File Size
+	Asm CALL,5,0;			-- Call CP/M
+	Asm MOVLA,MVIH,0;
+	Asm SHLD,result'address;
+
+	If REC_PER_BLOCK > 1 Then
+	    Return Count(Fmask.FCB.Random_rec1-1) * REC_PER_BLOCK;
+	Else
+	    Return Count((Fmask.FCB.Random_rec1-1) / BLOCK_PER_REC);
+	End If;
+
+    End Size;
+
+    Function End_of_File (Fyle : In File_Type) Return Boolean Is
+	-- Returns True if the current index points past the end
+	-- of the file.
+    Begin
+	blk_num := Integer(Size(Fyle));
+	Return Fyle.index > Count(blk_num);
+    End End_of_File;
+	
+End RandIO;
+

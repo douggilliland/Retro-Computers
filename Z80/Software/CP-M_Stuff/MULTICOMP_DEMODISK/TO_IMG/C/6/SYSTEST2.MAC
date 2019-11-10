@@ -1,0 +1,152 @@
+;
+;  PROGRAM:  SYSTEST2
+;  AUTHOR:  Richard Conn
+;  PURPOSE:  To demonstrate the SYSLIB routines for directory manipulation.
+;  NOTE:  This program loads the disk directory and selects and prints files
+;		which are non-system in the user area given by the user; it
+;		may be used to test and compare DIRF and DIRFS
+;
+
+;
+;  Externals
+;
+	ext	bbline	; Input Line Editor
+	ext	eval10	; String to Binary Conversion
+	ext	dirf	; Fast Directory Load/Select/Alphabetize/Pack
+	ext	dirfs	; DIRF with File Sizing
+	ext	print	; Print String
+	ext	cin	; Char in
+	ext	caps	; Capitalize
+	ext	cout	; Char out
+	ext	crlf	; New Line
+	ext	retud	; Return User and Disk
+	ext	codend	; End of Code/Beginning of Buffer
+
+;
+;  CP/M Equates
+;
+fcb	equ	5ch	; address of FCB loaded by CP/M
+cr	equ	0dh
+lf	equ	0ah
+
+;
+;  I would normally look at the FCB to see if any file was specified and
+;  make it wild (all ?'s) if so, but I won't do this so we can get right
+;  to the problem at hand.  Hence, if the user simply types SYSTEST2 as
+;  his command, the FCB will be all spaces and no file will match it.
+;
+	lxi	h,fcb+1	; clear FCB to ? chars
+	mvi	b,11	; 11 bytes
+	mvi	a,'?'	; wild card
+fill:
+	mov	m,a	; copy into FCB
+	inx	h
+	dcr	b
+	jnz	fill
+;
+;  Main Loop
+;
+test:
+	call	print
+	db	cr,lf,'SYSTEST2 - Demo of Directory Routines in SYSLIB',cr,lf
+	db	'Use DIRF (Y), DIRFS (N), or Quit (Q)? ',0
+	call	cin	; get and save response
+	call	caps
+	call	cout
+	cpi	'Q'
+	rz
+	sta	routine
+	call	print
+	db	cr,lf,'User Number? ',0
+	call	bbline	; get line from user
+	call	crlf	; new line
+	call	eval10	; get user number in A
+	mov	c,a	; save user number
+	call	codend	; get buffer address in HL
+	lxi	d,fcb	; pt to fcb in DE
+	mov	a,c	; user number in A
+	ori	10000000b	; Mask in MSB so only Non-System files selected
+	mov	c,a	; result in C
+	lda	routine	; get routine selection
+	cpi	'Y'	; use DIRF?
+	mov	a,c	; restore flag
+	jnz	usefs
+	call	dirf	; load dir/select files/alphabetize/pack
+	jmp	usef
+usefs:
+	call	dirfs
+usef:
+
+;
+;  We now have a set of fixed-length records in memory, the first one being
+;  pointed to by HL.  The number of records is in BC, and the length of each
+;  record is 16 bytes.  These are the first 16 bytes of the FCBs of all files
+;  which matched the files we were looking for.
+;
+;  I will now print out these file names horizontally across the screen.
+;
+	mvi	d,0	; set 4 count (new line every 4 entries)
+	mov	a,b	; any file names?
+	ora	c	; zero if so
+	jnz	loop	; continue if any names
+	call	print
+	db	cr,lf,'No Files Match Ambiguous File Name',0
+	jmp	test	; return to OS
+
+;
+;  This is the main loop to print the matching file names.
+;
+loop:
+	push	d	; save 4-count in D
+	call	prfile	; print file name (HL, BC not affected)
+	lxi	d,16	; point to next file name by adding 16 to HL
+	dad	d
+	pop	d	; get 4-count in D
+	inr	d	; add 1 to 4-count
+	mov	a,d	; check to see if it is a 4 multiple
+	ani	3	; zero if so
+	cz	crlf	; ... and new line
+	dcx	b	; count down
+	mov	a,b
+	ora	c
+	jnz	loop
+	jmp	test	; return to Operating System when done
+
+;
+;  Print file name whose FCB is pointed to by HL.  Do not affect HL or BC.
+;
+prfile:
+	push	b	; save regs
+	push	h
+	inx	h	; pt to first char of file name
+	mvi	b,8	; print 8 bytes
+	call	prch	; my routine to do this (not in SYSLIB)
+	mvi	a,'.'	; print dot
+	call	cout
+	mvi	b,3	; print 3 bytes
+	call	prch
+	call	print
+	db	'  !  ',0	; print name separator
+	pop	h	; restore regs
+	pop	b
+	ret
+
+;
+;  Print B chars pointed to by HL
+;
+prch:
+	mov	a,m	; get char
+	inx	h	; pt to next
+	call	cout	; print char
+	dcr	b	; count down
+	jnz	prch
+	ret
+
+;
+;  Buffer
+;
+routine:
+	ds	1	; routine select flag
+
+	end
+
