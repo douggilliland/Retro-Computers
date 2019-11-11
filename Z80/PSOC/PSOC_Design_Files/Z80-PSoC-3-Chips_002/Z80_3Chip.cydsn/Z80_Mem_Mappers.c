@@ -49,7 +49,7 @@ void swap_out_ROM_space(void)
 }
 #endif
 
-#ifdef USING_MEM_MAP_4       // Memory mapper for Multiboot code
+#ifdef USING_MMU4       // Memory mapper for Multiboot code
 
 /////////////////////////////////////////////////////////////////////////////////
 // Memory Mapper version 4 has four banks of 16KB each with 64 total banks (1M SRAM) or 32 banks (512KB SRAM)

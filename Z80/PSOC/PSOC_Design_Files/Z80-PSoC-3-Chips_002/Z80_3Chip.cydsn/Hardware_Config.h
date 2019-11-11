@@ -161,19 +161,21 @@
     #define USING_6850
     #define M6850_C              0x80       // Control/Status register
     #define M6850_D              0x81       // Data
+    #define M6850_B              0x7B       // Baud Rate Select
     #define USING_6850_2
     #define M6850_2_C            0x86       // Control/Status register - 2nd 6850 part (faked)
     #define M6850_2_D            0x87       // Data
+    #define M6850_2_B            0x7C       // Baud Rate Select
     #ifdef USING_FRONT_PANEL
         #define FR_PNL_IO_LO        0x18    // decimal 24
         #define FR_PNL_IO_LO_MID    0x19    // decimal 25
         #define FR_PNL_IO_HI_MID    0x1A    // decimal 26
         #define FR_PNL_IO_HI        0x1B    // decimal 27
     #endif
-    #define USING_MEM_MAP_4
-    #ifdef USING_MEM_MAP_4
-        #define MMU4_REG_SEL        0xF8    // Selects which register is used
-        #define MMU4_REG_WR         0xFD    // Writes to the register
+    #define USING_MMU4
+    #ifdef USING_MMU4
+        #define MMUSELECT           0xF8    // Selects which register is used
+        #define MMUFRAME            0xFD    // Writes to the register
     #endif
     #define USING_SDCARD
     #ifdef USING_SDCARD

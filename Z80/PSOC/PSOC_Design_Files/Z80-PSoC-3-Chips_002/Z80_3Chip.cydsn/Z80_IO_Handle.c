@@ -181,6 +181,11 @@ void HandleZ80IO(void)
 			return;
 		}
 		break;
+    case M6850_B:   // Baud rate register - do nothing in this configuration
+        {
+            ackIO();
+        }
+        break;
 #endif
 #ifdef USING_6850_2
 	case M6850_2_D:
@@ -207,6 +212,11 @@ void HandleZ80IO(void)
 			return;
 		}
 		break;
+    case M6850_2_B: // Baud rate register - do nothing in this configuration
+        {
+            ackIO();
+        }
+        break;
 #endif
 #ifdef USING_FRONT_PANEL
 	case FR_PNL_IO_LO:
@@ -266,18 +276,20 @@ void HandleZ80IO(void)
 			return;
 		}
 #endif
-#ifdef USING_MEM_MAP_4
-	case MMU4_REG_SEL:
+#ifdef USING_MMU4
+	case MMUSELECT:
 		if (ioCrtlRegVal == REGULAR_WRITE_CYCLE)      // regular write cycle
 		{
 			wrMMU4SelectReg();
 			return;
 		}
-    case MMU4_REG_WR:
+        break;
+    case MMUFRAME:
         {
             wrMMU4Bank();
             return;
         }
+        break;
 #endif
 #ifdef USING_EXP_MCCP23017
 	case PIOA_D:
@@ -320,6 +332,7 @@ void HandleZ80IO(void)
 		break;
 #endif
 	default:    // Handle other cases
+                // If I ackIO() then it would makes cases which are not handled
 		break;
 	}
 }
