@@ -55,6 +55,9 @@ extern unsigned char gs7chip_basic_eeprom[];
 #ifdef GRANT_FPGA_CPM
 extern const unsigned char gs_fpga_basic_eeprom[];
 #endif
+#ifdef MULTIBOOT_CPM
+extern const unsigned char multi_boot_eprom[];
+#endif
 
 ////////////////////////////////////////////////////////////////////////////
 // SetExtSRAMAddr(addr) - Set the address registers for the SRAM
@@ -173,6 +176,9 @@ void loadSRAM(void)
 #endif
 #ifdef GRANT_FPGA_CPM
 		dataVal = gs_fpga_basic_eeprom[charCount];
+#endif
+#ifdef MULTIBOOT_CPM
+		dataVal = multi_boot_eprom[charCount];
 #endif
 		WriteExtSRAM(SRAMAddr,dataVal);
 		SRAMAddr++;
