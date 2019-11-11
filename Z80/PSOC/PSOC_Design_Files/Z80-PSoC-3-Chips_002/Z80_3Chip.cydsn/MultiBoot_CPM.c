@@ -10,6 +10,9 @@
 * ========================================
 */
 
+// Based on image file from:
+//  https://retrobrewcomputers.org/doku.php?id=builderpages:rhkoolstar:mc-2g-1024
+
 // HEX file conversion to C array by
 //  http://srecord.sourceforge.net/ */
 
@@ -202,5 +205,4 @@ const unsigned long eprom_length      = 0x00000800;
     
 #endif
     
-
 /* [] END OF FILE */

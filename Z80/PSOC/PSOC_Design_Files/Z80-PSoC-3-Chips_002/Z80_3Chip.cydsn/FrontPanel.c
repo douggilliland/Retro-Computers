@@ -15,7 +15,7 @@
 
 //////////////////////////////////////////////////////////////////////////////
 // Front Panel Handler
-// Starts at CPU address = 0
+// Starts reading memory at CPU address = 0
 //////////////////////////////////////////////////////////////////////////////
 
 // Global variables
@@ -23,10 +23,14 @@ uint8 FPData;       // Data that is on the Front Panel (bottom 8 LEDs)
 uint16 FPAddr;      // Address that is on the Front Panel (middle 16 lEDs)
 uint8 FPCtrl;       // Control that is on the Front Panel (top 8 LEDs)
 uint32 FPLong;      // Long value of the Front Panel
-uint32 LEDsVal;         // Front Panel LEDs - copy here
+uint32 LEDsVal;     // Front Panel LEDs - copy here
 
 //////////////////////////////////////////////////////////////////////////////
-// init_FrontPanel() - Switches are on Port A, LEDs are on Port B
+// init_FrontPanel() - Initialize the Front Panel Hardware
+// Implemented as 4 of MCP23017 parts
+//  http://ww1.microchip.com/downloads/en/DeviceDoc/20001952C.pdf
+// Switches are on Port A, LEDs are on Port B
+// Switches can be interrupt driven or polled
 
 void init_FrontPanel(void)
 {
@@ -58,7 +62,8 @@ void init_FrontPanel(void)
 }
 
 //////////////////////////////////////////////////////////////////////////////
-// FrontPanelZ80Read() - Read the Front Panel switches to the Z80
+// FrontPanelZ80Read() - Read the Front Panel switches from the Z80 I/O space
+// Reads as 4 Z80 I/O space read addresses
 
 void FrontPanelZ80Read(uint8 portSelect)
 {
@@ -86,7 +91,8 @@ void FrontPanelZ80Read(uint8 portSelect)
 }
 
 //////////////////////////////////////////////////////////////////////////////
-// FrontPanelZ80Read() - Write to the Front Panel LEDs from the Z80
+// FrontPanelZ80Write() - Write to the Front Panel LEDs from the Z80
+// Implemented as four Z80 I/O space write addresses
 
 void FrontPanelZ80Write(uint8 portSelect)
 {
@@ -111,10 +117,10 @@ void FrontPanelZ80Write(uint8 portSelect)
 }
 
 //////////////////////////////////////////////////////////////////////////////////////
-// runFrontPanel()
+// runFrontPanel() - Front Panel monitor program
 // Returns when run button is pressed on front panel
-// Return value 0 = Z80 is left in reset
-//              1 = Z80 is out of reset
+// Return value 0 = Z80 is in reset
+//              1 = Z80 is to taken out of reset
 
 uint8 runFrontPanel(void)
 {
@@ -124,15 +130,16 @@ uint8 runFrontPanel(void)
 	
 	//    I2C_Start();
 	init_FrontPanel();
-	// Bounce LEDs
+	// Quickly bounce LEDs from the least significant to most significant bit
 	for (LEDsVal = 1; LEDsVal != 0; LEDsVal <<= 1)
 	{
 		writeFrontPanelLEDs(LEDsVal);
 		CyDelay(50);
 	}
+    // Read the first location of the SRAM and display it on the LEDs
 	LEDsVal |= ReadExtSRAM(0);
-	writeFrontPanelLEDs(LEDsVal);       // clears LEDs
-	for(;;)                     // Loop forever
+	writeFrontPanelLEDs(LEDsVal);   // clears address LEDs
+	for(;;)                         // Exit loop on particular button presses
 	{
 		switchesVal = waitFrontPanelSwitchesPressed();
 		if ((switchesVal & 0xff000000) != 0)    // Control switch on top row was pressed
@@ -211,13 +218,12 @@ uint8 runFrontPanel(void)
 }
 
 //////////////////////////////////////////////////////////////////////////////////////
-// readFrontPanelSwitchesRegistered
-//  Handler for the Pushbuttons and LEDs
-//  Toggles the LED
-//  Reads all four MCP23017 Port A's to make a 32-bit result
+// readFrontPanelSwitchesRegistered() - Debounced read of front panel pushbuttons
+//  Reads all four MCP23017 Port A's to produce a 32-bit result
 //  Looks for the switch to be pressed for 3 samples in a row
+//  10 mSec delay between samples
 // Returns: 0 if there was no key pressed
-//          1 if there was a key pressed
+//          switch value if there was a key pressed
 
 uint32 readFrontPanelSwitchesRegistered(void)
 {
@@ -281,6 +287,7 @@ uint32 waitFrontPanelSwitchesPressed(void)
 //////////////////////////////////////////////////////////////////////////////////////
 // readFrontPanelSwitchesStatic() - Reads the current value of the actual switches
 //  Reads all four MCP23017 Port A's to make a 32-bit result
+// Registered routine calls this routine for the samples
 
 uint32 readFrontPanelSwitchesStatic(void)
 {
@@ -297,6 +304,7 @@ uint32 readFrontPanelSwitchesStatic(void)
 
 //////////////////////////////////////////////////////////////////////////////////////
 // writeFrontPanelLEDs(uint32) - Write a 32-bit value to the Front Panel LEDs
+// Takes an unsigned long 32-bit value
 
 void writeFrontPanelLEDs(uint32 ledsVal)
 {
@@ -310,7 +318,7 @@ void writeFrontPanelLEDs(uint32 ledsVal)
 // I2C Low Level Hardware access functions
 
 //////////////////////////////////////////////////////////////////////////////////////
-//
+// uint8 readRegister_MCP23017(uint8 chipAddr, uint8 ctrlAdr) - Read MCP23017 register
 //////////////////////////////////////////////////////////////////////////////////////
 
 uint8 readRegister_MCP23017(uint8 chipAddr, uint8 ctrlAdr)
@@ -330,7 +338,8 @@ uint8 readRegister_MCP23017(uint8 chipAddr, uint8 ctrlAdr)
 }
 
 //////////////////////////////////////////////////////////////////////////////////////
-//
+//void writeRegister_MCP23017(uint8 chipAddr, uint8 ctrlAdr, uint8 ctrlVal) - Write
+// to an MCP23017 register
 //////////////////////////////////////////////////////////////////////////////////////
 
 void writeRegister_MCP23017(uint8 chipAddr, uint8 ctrlAdr, uint8 ctrlVal)

@@ -11,40 +11,22 @@
 */
 
 ////////////////////////////////////////////////////////////////////////////
-// External SRAM is controlled by ExtSRAMCtl register
-//  d0 = SRAM_R1_W0
-//  d1 = DRV_RAM
-//      0 = Don't drive the SRAM address/controls
-//      1 = Drive the SRAM address/controls
-//  d2 = SRAMCSn
-//      0 = Chip Select enabled
-//      1 = Chip Select disabled (default at power up)
-//  d3 = CPU_RESETn
-//      0 = Reset the Z80 (default at power up)
-//      1 = Remove reset from the Z80
-////////////////////////////////////////////////////////////////////////////
+// Controls test and loading of the SRAM image from EPROM space of the PSoC.
 
 #include <project.h>
 #include <Z80_PSoC_3Chips.h>
 
-#define SRAMRW_MASK     0x01
-#define SRAM_WRITE      0x00
-#define SRAM_READ       0x01
-#define DRVRAM_MASK     0x02
-#define DRV_RAM_NO      0x00
-#define DRV_RAM_YES     0x02
-#define SRAMCS_MASK     0x04
-#define SRAM_ACT        0x00
-#define SRAM_UNACT      0x04
-#define CPU_RST_MASK    0x08
-#define CPU_RST_ON      0x00
-#define CPU_RST_OFF     0x08
+////////////////////////////////////////////////////////////////////////////
+// Bits in the SRAM direct control register 
 
 #define DRVRAM_BIT      0x01    // 1 = Drive SRAM bus from PSoC
 #define SRAMCS_BIT      0x02    // 1 = Drive SRAMCS
 #define SRAMRD_BIT      0x04    // 1 = SRAM read
 #define SRAMWR_BIT      0x08    // 1 = SRAM write
 #define CPURESET_BIT    0x10    // 1 = Z80 held in reset
+
+////////////////////////////////////////////////////////////////////////////
+// externs for the EPROM images
 
 #ifdef GRANT_9_CHIP_Z80
 extern unsigned char monitor_basic_eprom[];
@@ -64,9 +46,9 @@ extern const unsigned char multi_boot_eprom[];
 
 void SetExtSRAMAddr(uint32 addr)
 {
-	AdrLowOut_Write(addr & 0xff);        // bottom 8-bits of the address A0..A7
-	AdrMidOut_Write((addr>>8) & 0x7);
-	AdrHighOut_Write((addr>>11) & 0xFF);
+	AdrLowOut_Write(addr & 0xff);           // bottom 8-bits of the address A0..A7
+	AdrMidOut_Write((addr>>8) & 0x7);       // middle 3-bits of the address A8..A10
+	AdrHighOut_Write((addr>>11) & 0xFF);    // Upper bits of the address A11..A18
 }
 
 ////////////////////////////////////////////////////////////////////////////
@@ -77,10 +59,10 @@ uint8 ReadExtSRAM(uint32 addr)
 {
 	uint8 rdVal;
 	SetExtSRAMAddr(addr);
-	ExtSRAMCtl_Control = (CPURESET_BIT | DRVRAM_BIT | SRAMRD_BIT);               // Set R/W* to Read
-	ExtSRAMCtl_Control = (CPURESET_BIT | DRVRAM_BIT | SRAMRD_BIT | SRAMCS_BIT);  // Assert SRAMCS
+	ExtSRAMCtl_Write(CPURESET_BIT | DRVRAM_BIT | SRAMRD_BIT);               // Set R/W* to Read
+	ExtSRAMCtl_Write(CPURESET_BIT | DRVRAM_BIT | SRAMRD_BIT | SRAMCS_BIT);  // Assert SRAMCS
 	rdVal = Z80_Data_Out_Status;
-	ExtSRAMCtl_Control = (CPURESET_BIT | DRVRAM_BIT);                            // Remove SRAMCS
+	ExtSRAMCtl_Write(CPURESET_BIT | DRVRAM_BIT);                        // Remove SRAMCS
 	return(rdVal);
 }
 
@@ -91,10 +73,10 @@ uint8 ReadExtSRAM(uint32 addr)
 void WriteExtSRAM(uint32 addr, uint8 data)
 {
 	SetExtSRAMAddr(addr);
-	ExtSRAMCtl_Control = (CPURESET_BIT | DRVRAM_BIT | SRAMWR_BIT);               // Set R/W* to Write
-	Z80_Data_In_Control = data;                                                // Provide value to SRAM data bus
-	ExtSRAMCtl_Control = (CPURESET_BIT | DRVRAM_BIT | SRAMWR_BIT | SRAMCS_BIT);  // Assert SRAMCSn
-	ExtSRAMCtl_Control = (CPURESET_BIT | DRVRAM_BIT);                            // De-assert SRAMCSn, Set to read
+	ExtSRAMCtl_Write(CPURESET_BIT | DRVRAM_BIT | SRAMWR_BIT);               // Set R/W* to Write
+	Z80_Data_In_Write(data);                                                // Provide value to SRAM data bus
+	ExtSRAMCtl_Write(CPURESET_BIT | DRVRAM_BIT | SRAMWR_BIT | SRAMCS_BIT);  // Assert SRAMCSn
+	ExtSRAMCtl_Write(CPURESET_BIT | DRVRAM_BIT);                            // De-assert SRAMCSn, Set to read
 }
 
 ////////////////////////////////////////////////////////////////////////////
@@ -159,14 +141,16 @@ uint32 TestSRAM(void)
 
 ////////////////////////////////////////////////////////////////////////////
 // void loadSRAM(void) - Load the SRAM on the card with the ROM code
-// Initial code build is monitor plus BASIC code
+// Supports all builds
+// Create the C array using srec_cat and put into a .c file
+//  Hex files:      srec_cat.exe HexFile.hex -I -o cmon32.c -C-Array
+//  Object files:   srec_cat.exe ObjFile.o -binary -o CCode.c -C-Array
 
 void loadSRAM(void)
 {
-	uint32 charCount;
-	uint32 SRAMAddr = MONITOR_START;
-	volatile uint8 dataVal;
-	for (charCount = 0; charCount < MONITOR_LENGTH; charCount++)
+	uint32 SRAMAddr = MONITOR_START;    // Should all start at 0x0000 for Z80
+    uint8 dataVal;
+	for (uint32 charCount = 0; charCount < MONITOR_LENGTH; charCount++)
 	{
 #ifdef GRANT_9_CHIP_Z80
 		dataVal = monitor_basic_eprom[charCount];
@@ -184,7 +168,5 @@ void loadSRAM(void)
 		SRAMAddr++;
 	}
 }
-
-
 
 /* [] END OF FILE */

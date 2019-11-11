@@ -15,20 +15,40 @@
 
 #include <project.h>
 
+////////////////////////////////////////////////////////////////////////////
+// This file is where the hardware gets configured
 // Select hardware to include using
-//  Undef to remove hardware
-//  define to include hardware
+//  #undef to remove hardware
+//  #define to include hardware
 
-// Global choices based on hardware used/not used
-// To include the function comment out the undef and use the include
+// Global choices included in all designs based on hardware used/not used
+
+#define RTC_DATA    0x60    // 96 dec
+#define RTC_CSR     0x61    // 97 dec
+
+#define DAC_DATA    0x62    // 98 dec
+#define DAC_CSR     0x63    // 99 dec
+
 //#undef USING_FRONT_PANEL        // Assume no front panel
 #define USING_FRONT_PANEL     // Use front panel
 //#undef USING_EXP_MCCP23017      // Assume no MCP23017 I2C I/O expansion part
 #define USING_EXP_MCCP23017   // Use MCP23017 I2C I/O expansion part
 
-// These are the Z80 peripherals
-// Assume none of the supported I/O peripheral chips are used
+#undef USING_MCP23017   // Set if either the Front Panel or Expansion MCP23017 is used
+#ifdef USING_FRONT_PANEL
+    #define USING_MCP23017
+    #else
+    #ifdef USING_EXP_MCCP23017
+        #define USING_MCP23017
+    #endif
+#endif
+
+////////////////////////////////////////////////////////////////////////////
+// These are the design specific Z80 peripherals
+// Assume none of the supported I/O peripheral chips are used (all #undef)
 // They are included in the specific builds if the build software uses them
+// These are used to control Z80 I/O writes
+
 #undef USING_PIO
 #undef USING_SIO
 #undef USING_6850
@@ -37,9 +57,11 @@
 #undef USING_MEM_MAP_1  // Swap out first 8KB
 #undef USING_MEM_MAP_4  // Four banks of 16KB per bank for entire SRAM
 
-// Select the build here. 
-//  Only 1 build at a time is supported.
-//  All other builds are set to undef
+////////////////////////////////////////////////////////////////////////////
+// Select the build here
+//  Only 1 build at a time is supported
+//  All other builds are set to #undef
+
 //#define GRANT_9_CHIP_Z80
 #undef GRANT_9_CHIP_Z80
 //#define GRANT_7_CHIP_Z80
@@ -49,13 +71,13 @@
 //#undef MULTIBOOT_CPM
 #define MULTIBOOT_CPM
 
-#define RTC_DATA    0x60    // 96 dec
-#define RTC_CSR     0x61    // 97 dec
+////////////////////////////////////////////////////////////////////////////
+// The individual memory maps follow
+// There is a section for each build
 
-#define DAC_DATA    0x62    // 98 dec
-#define DAC_CSR     0x63    // 99 dec
-
+////////////////////////////////////////////////////////////////////////////
 // defines for building Grant Searle's 9-chip Z80 design
+
 #ifdef GRANT_9_CHIP_Z80
     #define MONITOR_START       0x00000000      // EEPROM loads to address 0
     #define MONITOR_LENGTH      0x00004000      // 16K build
@@ -90,8 +112,10 @@
     #endif
 #endif
 
+////////////////////////////////////////////////////////////////////////////
 // defines for building Grant Searle's 7-chip Z80 design
 // http://zx80.netai.net/grant/z80/SimpleZ80.htm
+
 #ifdef GRANT_7_CHIP_Z80
     #define MONITOR_START       0x00000000      // EEPROM loads to address 0
     #define MONITOR_LENGTH      0x00002000      // 8K build
@@ -113,8 +137,10 @@
     #endif
 #endif
 
+////////////////////////////////////////////////////////////////////////////
 // defines for building Grant Searle's FPGA Z80 design
 // http://zx80.netai.net/grant/Multicomp/index.html
+
 #ifdef GRANT_FPGA_CPM
     #define MONITOR_START       0x00000000      // EEPROM loads to address 0
     #define MONITOR_LENGTH      0x00002000      // 8K build
@@ -152,8 +178,10 @@
     #endif
 #endif
 
-// defines for building Grant Searle's FPGA Z80 design
-// http://zx80.netai.net/grant/Multicomp/index.html
+////////////////////////////////////////////////////////////////////////////
+// defines for building Multiboot Multicomp
+// https://retrobrewcomputers.org/doku.php?id=builderpages:rhkoolstar:mc-2g-1024
+
 #ifdef MULTIBOOT_CPM
     #define MONITOR_START       0x00000000      // EEPROM loads to address 0
     #define MONITOR_LENGTH      0x00002000      // 8K build
@@ -193,16 +221,6 @@
         #define PIOB_C              0x23    // decimal 35
     #endif
 #endif
-
-#undef USING_MCP23017   // Set if either the Front Panel or Expansion MCP23017 is used
-#ifdef USING_FRONT_PANEL
-    #define USING_MCP23017
-    #else
-    #ifdef USING_EXP_MCCP23017
-        #define USING_MCP23017
-    #endif
-#endif
-
 
 /* [] END OF FILE */
 

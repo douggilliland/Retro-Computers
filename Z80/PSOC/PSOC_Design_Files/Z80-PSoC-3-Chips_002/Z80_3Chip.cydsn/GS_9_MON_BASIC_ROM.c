@@ -1382,8 +1382,9 @@ const unsigned long eprom_start       = 0x00000000;
 const unsigned long eprom_finish      = 0x00004000;
 const unsigned long eprom_length      = 0x00004000;
 
-#define MONITOR_TERMINATION 0x00000000
-#define MONITOR_START       0x00000000
-#define MONITOR_FINISH      0x00004000
-#define MONITOR_LENGTH      0x00004000
+#define EPROM_TERMINATION 0x00000000
+#define EPROM_START       0x00000000
+#define EPROM_FINISH      0x00004000
+#define EPROM_LENGTH      0x00004000
+
 #endif

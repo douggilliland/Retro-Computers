@@ -63,10 +63,10 @@ int main(void)
 	// SRAM POST
 	postVal = TestSRAM();       // Run External SRAM POST
 	PostLed(postVal+1);         // 1 blink = pass, more than 1 = fail
-	if (postVal != 0)
+	if (postVal != 0)           // Halt on POST failure (could do something better here)
 		while(1);
         
-    // Memory Map
+    // Memory Map/MMU initialization
     #ifdef USING_MEM_MAP_1
 	    init_mem_map_1();       // Set up the address mapper
     #endif
@@ -80,9 +80,10 @@ int main(void)
 	// Front Panel Initialization
     #ifdef USING_FRONT_PANEL
 		Z80Running = runFrontPanel();            // Exits either by pressing EXitFrontPanel or RUN button on front panel
+        // TBD - the reset on the Expansion MCP23017 was tied to CPURESET* but it's been removed so this code should be moved up
         if (Z80Running == 1)
         {
-        	#ifdef USING_EXP_MCCP23017  // The expansion MCP23017 has its reset tied to the CPU reset so the Z80 has to be running
+        	#ifdef USING_EXP_MCCP23017  // The expansion MCP23017 had its reset tied to the CPU reset so the Z80 has to be running
             	init_PIO();
         	#endif
         }
@@ -90,6 +91,7 @@ int main(void)
 		ExtSRAMCtl_Control = 0;     // Auto Run if there's no Front Panel
 	#endif
 
+    // Code has two loops - one for when Z80 is running with PSoC as Z80 I/O handler - other as PSoC monitor with Z80 in reset
     if (Z80Running == 1)    // Z80 Running (RUN front panel switch pushed)
 	{
 		#ifdef USING_6850

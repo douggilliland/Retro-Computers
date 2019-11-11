@@ -1,4 +1,4 @@
-ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 1
+ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\ccOlmfcj.s 			page 1
 
 
    1              		.syntax unified
@@ -45,7 +45,7 @@ ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 1
   15:FrontPanel.c  **** 
   16:FrontPanel.c  **** //////////////////////////////////////////////////////////////////////////////
   17:FrontPanel.c  **** // Front Panel Handler
-  18:FrontPanel.c  **** // Starts at CPU address = 0
+  18:FrontPanel.c  **** // Starts reading memory at CPU address = 0
   19:FrontPanel.c  **** //////////////////////////////////////////////////////////////////////////////
   20:FrontPanel.c  **** 
   21:FrontPanel.c  **** // Global variables
@@ -53,317 +53,325 @@ ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 1
   23:FrontPanel.c  **** uint16 FPAddr;      // Address that is on the Front Panel (middle 16 lEDs)
   24:FrontPanel.c  **** uint8 FPCtrl;       // Control that is on the Front Panel (top 8 LEDs)
   25:FrontPanel.c  **** uint32 FPLong;      // Long value of the Front Panel
-  26:FrontPanel.c  **** uint32 LEDsVal;         // Front Panel LEDs - copy here
+  26:FrontPanel.c  **** uint32 LEDsVal;     // Front Panel LEDs - copy here
   27:FrontPanel.c  **** 
   28:FrontPanel.c  **** //////////////////////////////////////////////////////////////////////////////
-  29:FrontPanel.c  **** // init_FrontPanel() - Switches are on Port A, LEDs are on Port B
-  30:FrontPanel.c  **** 
-ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 2
+  29:FrontPanel.c  **** // init_FrontPanel() - Initialize the Front Panel Hardware
+  30:FrontPanel.c  **** // Implemented as 4 of MCP23017 parts
+ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\ccOlmfcj.s 			page 2
 
 
-  31:FrontPanel.c  **** void init_FrontPanel(void)
-  32:FrontPanel.c  **** {
-  33:FrontPanel.c  **** 	uint8 chipAddr;
-  34:FrontPanel.c  **** 	for (chipAddr = 0x24; chipAddr < 0x28; chipAddr++)
-  35:FrontPanel.c  **** 	{
-  36:FrontPanel.c  **** 		writeRegister_MCP23017(chipAddr,MCP23017_IODIRA_REGADR,MCP23017_IODIR_ALL_INS);     // IO: Port A
-  37:FrontPanel.c  **** 		writeRegister_MCP23017(chipAddr,MCP23017_IODIRB_REGADR,MCP23017_IODIR_ALL_OUTS);    // IO: Port B
-  38:FrontPanel.c  **** 		writeRegister_MCP23017(chipAddr,MCP23017_IPOLA_REGADR,MCP23017_IPOL_INVERT);        // IP: Invert
-  39:FrontPanel.c  **** 		writeRegister_MCP23017(chipAddr,MCP23017_GPINTENA_REGADR,MCP23017_GPINTEN_ENABLE);  // GPINT: Ena
-  40:FrontPanel.c  **** 		writeRegister_MCP23017(chipAddr,MCP23017_GPINTENB_REGADR,MCP23017_GPINTEN_DISABLE); // GPINT: Dis
-  41:FrontPanel.c  **** 		writeRegister_MCP23017(chipAddr,MCP23017_DEFVALA_REGADR,MCP23017_DEFVALA_DEFVAL);   // Default va
-  42:FrontPanel.c  **** 		writeRegister_MCP23017(chipAddr,MCP23017_INTCONA_REGADR,MCP23017_INTCON_PREVPIN);    // Int for c
-  43:FrontPanel.c  **** 		writeRegister_MCP23017(chipAddr,MCP23017_IOCONA_REGADR,MCP23017_IOCON_DEFVAL);      
-  44:FrontPanel.c  ****         // BANK: Register addresses are in the same bank (addresses are sequential)
-  45:FrontPanel.c  **** 		// MIRROR: Int pins not connected (they are externally connected together on the Front Panel boar
-  46:FrontPanel.c  **** 		// SEQOP: Enable sequential operation (although the driver doesn't use it)
-  47:FrontPanel.c  **** 		// HAEN: (Not used on MCP23017)
-  48:FrontPanel.c  **** 		// ODR: Open Drain output (over-rides INTPOL)
-  49:FrontPanel.c  **** 		// INTPOL: Over-ridden by ODR
-  50:FrontPanel.c  **** 		writeRegister_MCP23017(chipAddr,MCP23017_IOCONB_REGADR,MCP23017_IOCON_DEFVAL);      // Int for ch
-  51:FrontPanel.c  **** 		writeRegister_MCP23017(chipAddr,MCP23017_GPPUA_REGADR,MCP23017_GPPU_ENABLE);        // Pull-up to
-  52:FrontPanel.c  **** 		readRegister_MCP23017(chipAddr,MCP23017_INTCAPA_REGADR);                            // Clears int
-  53:FrontPanel.c  **** 	}
-  54:FrontPanel.c  **** 	FPData = 0;
-  55:FrontPanel.c  **** 	FPAddr = 0;
-  56:FrontPanel.c  **** 	FPCtrl = 0;
-  57:FrontPanel.c  **** 	FPLong = 0;
-  58:FrontPanel.c  **** }
-  59:FrontPanel.c  **** 
-  60:FrontPanel.c  **** //////////////////////////////////////////////////////////////////////////////
-  61:FrontPanel.c  **** // FrontPanelZ80Read() - Read the Front Panel switches to the Z80
-  62:FrontPanel.c  **** 
-  63:FrontPanel.c  **** void FrontPanelZ80Read(uint8 portSelect)
-  64:FrontPanel.c  **** {
-  65:FrontPanel.c  **** 	uint32 fpVal = readFrontPanelSwitchesStatic();
-  66:FrontPanel.c  **** 	uint8 fpByte;
-  67:FrontPanel.c  **** 	switch (portSelect & 0x3)
-  68:FrontPanel.c  **** 	{
-  69:FrontPanel.c  **** 	case 0:
-  70:FrontPanel.c  **** 		fpByte = ((uint8) fpVal) & 0xff;
-  71:FrontPanel.c  **** 		break;
-  72:FrontPanel.c  **** 	case 1:
-  73:FrontPanel.c  **** 		fpByte = ((uint8) (fpVal>>8)) & 0xff;
-  74:FrontPanel.c  **** 		break;
-  75:FrontPanel.c  **** 	case 2:
-  76:FrontPanel.c  **** 		fpByte = ((uint8) (fpVal>>16)) & 0xff;
-  77:FrontPanel.c  **** 		break;
-  78:FrontPanel.c  **** 	case 3:
-  79:FrontPanel.c  **** 		fpByte = ((uint8) (fpVal>>24)) & 0xff;
-  80:FrontPanel.c  **** 		break;
-  81:FrontPanel.c  **** 	default:
-  82:FrontPanel.c  **** 		fpByte = 0;
-  83:FrontPanel.c  **** 	}
-  84:FrontPanel.c  **** 	Z80_Data_In_Write(fpByte);
-  85:FrontPanel.c  **** 	ackIO();
-  86:FrontPanel.c  **** }
-  87:FrontPanel.c  **** 
-ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 3
+  31:FrontPanel.c  **** //  http://ww1.microchip.com/downloads/en/DeviceDoc/20001952C.pdf
+  32:FrontPanel.c  **** // Switches are on Port A, LEDs are on Port B
+  33:FrontPanel.c  **** // Switches can be interrupt driven or polled
+  34:FrontPanel.c  **** 
+  35:FrontPanel.c  **** void init_FrontPanel(void)
+  36:FrontPanel.c  **** {
+  37:FrontPanel.c  **** 	uint8 chipAddr;
+  38:FrontPanel.c  **** 	for (chipAddr = 0x24; chipAddr < 0x28; chipAddr++)
+  39:FrontPanel.c  **** 	{
+  40:FrontPanel.c  **** 		writeRegister_MCP23017(chipAddr,MCP23017_IODIRA_REGADR,MCP23017_IODIR_ALL_INS);     // IO: Port A
+  41:FrontPanel.c  **** 		writeRegister_MCP23017(chipAddr,MCP23017_IODIRB_REGADR,MCP23017_IODIR_ALL_OUTS);    // IO: Port B
+  42:FrontPanel.c  **** 		writeRegister_MCP23017(chipAddr,MCP23017_IPOLA_REGADR,MCP23017_IPOL_INVERT);        // IP: Invert
+  43:FrontPanel.c  **** 		writeRegister_MCP23017(chipAddr,MCP23017_GPINTENA_REGADR,MCP23017_GPINTEN_ENABLE);  // GPINT: Ena
+  44:FrontPanel.c  **** 		writeRegister_MCP23017(chipAddr,MCP23017_GPINTENB_REGADR,MCP23017_GPINTEN_DISABLE); // GPINT: Dis
+  45:FrontPanel.c  **** 		writeRegister_MCP23017(chipAddr,MCP23017_DEFVALA_REGADR,MCP23017_DEFVALA_DEFVAL);   // Default va
+  46:FrontPanel.c  **** 		writeRegister_MCP23017(chipAddr,MCP23017_INTCONA_REGADR,MCP23017_INTCON_PREVPIN);    // Int for c
+  47:FrontPanel.c  **** 		writeRegister_MCP23017(chipAddr,MCP23017_IOCONA_REGADR,MCP23017_IOCON_DEFVAL);      
+  48:FrontPanel.c  ****         // BANK: Register addresses are in the same bank (addresses are sequential)
+  49:FrontPanel.c  **** 		// MIRROR: Int pins not connected (they are externally connected together on the Front Panel boar
+  50:FrontPanel.c  **** 		// SEQOP: Enable sequential operation (although the driver doesn't use it)
+  51:FrontPanel.c  **** 		// HAEN: (Not used on MCP23017)
+  52:FrontPanel.c  **** 		// ODR: Open Drain output (over-rides INTPOL)
+  53:FrontPanel.c  **** 		// INTPOL: Over-ridden by ODR
+  54:FrontPanel.c  **** 		writeRegister_MCP23017(chipAddr,MCP23017_IOCONB_REGADR,MCP23017_IOCON_DEFVAL);      // Int for ch
+  55:FrontPanel.c  **** 		writeRegister_MCP23017(chipAddr,MCP23017_GPPUA_REGADR,MCP23017_GPPU_ENABLE);        // Pull-up to
+  56:FrontPanel.c  **** 		readRegister_MCP23017(chipAddr,MCP23017_INTCAPA_REGADR);                            // Clears int
+  57:FrontPanel.c  **** 	}
+  58:FrontPanel.c  **** 	FPData = 0;
+  59:FrontPanel.c  **** 	FPAddr = 0;
+  60:FrontPanel.c  **** 	FPCtrl = 0;
+  61:FrontPanel.c  **** 	FPLong = 0;
+  62:FrontPanel.c  **** }
+  63:FrontPanel.c  **** 
+  64:FrontPanel.c  **** //////////////////////////////////////////////////////////////////////////////
+  65:FrontPanel.c  **** // FrontPanelZ80Read() - Read the Front Panel switches from the Z80 I/O space
+  66:FrontPanel.c  **** // Reads as 4 Z80 I/O space read addresses
+  67:FrontPanel.c  **** 
+  68:FrontPanel.c  **** void FrontPanelZ80Read(uint8 portSelect)
+  69:FrontPanel.c  **** {
+  70:FrontPanel.c  **** 	uint32 fpVal = readFrontPanelSwitchesStatic();
+  71:FrontPanel.c  **** 	uint8 fpByte;
+  72:FrontPanel.c  **** 	switch (portSelect & 0x3)
+  73:FrontPanel.c  **** 	{
+  74:FrontPanel.c  **** 	case 0:
+  75:FrontPanel.c  **** 		fpByte = ((uint8) fpVal) & 0xff;
+  76:FrontPanel.c  **** 		break;
+  77:FrontPanel.c  **** 	case 1:
+  78:FrontPanel.c  **** 		fpByte = ((uint8) (fpVal>>8)) & 0xff;
+  79:FrontPanel.c  **** 		break;
+  80:FrontPanel.c  **** 	case 2:
+  81:FrontPanel.c  **** 		fpByte = ((uint8) (fpVal>>16)) & 0xff;
+  82:FrontPanel.c  **** 		break;
+  83:FrontPanel.c  **** 	case 3:
+  84:FrontPanel.c  **** 		fpByte = ((uint8) (fpVal>>24)) & 0xff;
+  85:FrontPanel.c  **** 		break;
+  86:FrontPanel.c  **** 	default:
+  87:FrontPanel.c  **** 		fpByte = 0;
+ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\ccOlmfcj.s 			page 3
 
 
-  88:FrontPanel.c  **** //////////////////////////////////////////////////////////////////////////////
-  89:FrontPanel.c  **** // FrontPanelZ80Read() - Write to the Front Panel LEDs from the Z80
-  90:FrontPanel.c  **** 
-  91:FrontPanel.c  **** void FrontPanelZ80Write(uint8 portSelect)
-  92:FrontPanel.c  **** {
-  93:FrontPanel.c  **** 	uint32 outVal = Z80_Data_Out_Read();
-  94:FrontPanel.c  **** 	switch (portSelect & 0x3)
-  95:FrontPanel.c  **** 	{
-  96:FrontPanel.c  **** 	case 0:
-  97:FrontPanel.c  **** 		LEDsVal = ((LEDsVal & 0xffffff00) | outVal);
-  98:FrontPanel.c  **** 		break;
-  99:FrontPanel.c  **** 	case 1:
- 100:FrontPanel.c  **** 		LEDsVal = ((LEDsVal & 0xffff00ff) | (outVal<<8));
- 101:FrontPanel.c  **** 		break;
- 102:FrontPanel.c  **** 	case 2:
- 103:FrontPanel.c  **** 		LEDsVal = ((LEDsVal & 0xff00ffff) | (outVal<<16));
+  88:FrontPanel.c  **** 	}
+  89:FrontPanel.c  **** 	Z80_Data_In_Write(fpByte);
+  90:FrontPanel.c  **** 	ackIO();
+  91:FrontPanel.c  **** }
+  92:FrontPanel.c  **** 
+  93:FrontPanel.c  **** //////////////////////////////////////////////////////////////////////////////
+  94:FrontPanel.c  **** // FrontPanelZ80Write() - Write to the Front Panel LEDs from the Z80
+  95:FrontPanel.c  **** // Implemented as four Z80 I/O space write addresses
+  96:FrontPanel.c  **** 
+  97:FrontPanel.c  **** void FrontPanelZ80Write(uint8 portSelect)
+  98:FrontPanel.c  **** {
+  99:FrontPanel.c  **** 	uint32 outVal = Z80_Data_Out_Read();
+ 100:FrontPanel.c  **** 	switch (portSelect & 0x3)
+ 101:FrontPanel.c  **** 	{
+ 102:FrontPanel.c  **** 	case 0:
+ 103:FrontPanel.c  **** 		LEDsVal = ((LEDsVal & 0xffffff00) | outVal);
  104:FrontPanel.c  **** 		break;
- 105:FrontPanel.c  **** 	case 3:
- 106:FrontPanel.c  **** 		LEDsVal = ((LEDsVal & 0x00ffffff) | (outVal<<24));
+ 105:FrontPanel.c  **** 	case 1:
+ 106:FrontPanel.c  **** 		LEDsVal = ((LEDsVal & 0xffff00ff) | (outVal<<8));
  107:FrontPanel.c  **** 		break;
- 108:FrontPanel.c  **** 	}
- 109:FrontPanel.c  **** 	writeFrontPanelLEDs(LEDsVal);
- 110:FrontPanel.c  **** 	ackIO();
- 111:FrontPanel.c  **** }
- 112:FrontPanel.c  **** 
- 113:FrontPanel.c  **** //////////////////////////////////////////////////////////////////////////////////////
- 114:FrontPanel.c  **** // runFrontPanel()
- 115:FrontPanel.c  **** // Returns when run button is pressed on front panel
- 116:FrontPanel.c  **** // Return value 0 = Z80 is left in reset
- 117:FrontPanel.c  **** //              1 = Z80 is out of reset
+ 108:FrontPanel.c  **** 	case 2:
+ 109:FrontPanel.c  **** 		LEDsVal = ((LEDsVal & 0xff00ffff) | (outVal<<16));
+ 110:FrontPanel.c  **** 		break;
+ 111:FrontPanel.c  **** 	case 3:
+ 112:FrontPanel.c  **** 		LEDsVal = ((LEDsVal & 0x00ffffff) | (outVal<<24));
+ 113:FrontPanel.c  **** 		break;
+ 114:FrontPanel.c  **** 	}
+ 115:FrontPanel.c  **** 	writeFrontPanelLEDs(LEDsVal);
+ 116:FrontPanel.c  **** 	ackIO();
+ 117:FrontPanel.c  **** }
  118:FrontPanel.c  **** 
- 119:FrontPanel.c  **** uint8 runFrontPanel(void)
- 120:FrontPanel.c  **** {
- 121:FrontPanel.c  **** 	uint32 switchesVal = 0;
- 122:FrontPanel.c  **** 
- 123:FrontPanel.c  **** 	LEDsVal = 0;
- 124:FrontPanel.c  **** 	
- 125:FrontPanel.c  **** 	//    I2C_Start();
- 126:FrontPanel.c  **** 	init_FrontPanel();
- 127:FrontPanel.c  **** 	// Bounce LEDs
- 128:FrontPanel.c  **** 	for (LEDsVal = 1; LEDsVal != 0; LEDsVal <<= 1)
- 129:FrontPanel.c  **** 	{
- 130:FrontPanel.c  **** 		writeFrontPanelLEDs(LEDsVal);
- 131:FrontPanel.c  **** 		CyDelay(50);
- 132:FrontPanel.c  **** 	}
- 133:FrontPanel.c  **** 	LEDsVal |= ReadExtSRAM(0);
- 134:FrontPanel.c  **** 	writeFrontPanelLEDs(LEDsVal);       // clears LEDs
- 135:FrontPanel.c  **** 	for(;;)                     // Loop forever
- 136:FrontPanel.c  **** 	{
- 137:FrontPanel.c  **** 		switchesVal = waitFrontPanelSwitchesPressed();
- 138:FrontPanel.c  **** 		if ((switchesVal & 0xff000000) != 0)    // Control switch on top row was pressed
- 139:FrontPanel.c  **** 		{
- 140:FrontPanel.c  **** 			if ((switchesVal & 0x01000000) == 0x01000000)       // Incr address and read memory
- 141:FrontPanel.c  **** 			{
- 142:FrontPanel.c  **** 				LEDsVal |= 0x01000000;          // Flicker INCAD LED
- 143:FrontPanel.c  **** 				writeFrontPanelLEDs(LEDsVal);
- 144:FrontPanel.c  **** 				LEDsVal += 0x00000100;
-ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 4
+ 119:FrontPanel.c  **** //////////////////////////////////////////////////////////////////////////////////////
+ 120:FrontPanel.c  **** // runFrontPanel() - Front Panel monitor program
+ 121:FrontPanel.c  **** // Returns when run button is pressed on front panel
+ 122:FrontPanel.c  **** // Return value 0 = Z80 is in reset
+ 123:FrontPanel.c  **** //              1 = Z80 is to taken out of reset
+ 124:FrontPanel.c  **** 
+ 125:FrontPanel.c  **** uint8 runFrontPanel(void)
+ 126:FrontPanel.c  **** {
+ 127:FrontPanel.c  **** 	uint32 switchesVal = 0;
+ 128:FrontPanel.c  **** 
+ 129:FrontPanel.c  **** 	LEDsVal = 0;
+ 130:FrontPanel.c  **** 	
+ 131:FrontPanel.c  **** 	//    I2C_Start();
+ 132:FrontPanel.c  **** 	init_FrontPanel();
+ 133:FrontPanel.c  **** 	// Quickly bounce LEDs from the least significant to most significant bit
+ 134:FrontPanel.c  **** 	for (LEDsVal = 1; LEDsVal != 0; LEDsVal <<= 1)
+ 135:FrontPanel.c  **** 	{
+ 136:FrontPanel.c  **** 		writeFrontPanelLEDs(LEDsVal);
+ 137:FrontPanel.c  **** 		CyDelay(50);
+ 138:FrontPanel.c  **** 	}
+ 139:FrontPanel.c  ****     // Read the first location of the SRAM and display it on the LEDs
+ 140:FrontPanel.c  **** 	LEDsVal |= ReadExtSRAM(0);
+ 141:FrontPanel.c  **** 	writeFrontPanelLEDs(LEDsVal);   // clears address LEDs
+ 142:FrontPanel.c  **** 	for(;;)                         // Exit loop on particular button presses
+ 143:FrontPanel.c  **** 	{
+ 144:FrontPanel.c  **** 		switchesVal = waitFrontPanelSwitchesPressed();
+ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\ccOlmfcj.s 			page 4
 
 
- 145:FrontPanel.c  **** 				LEDsVal &= 0x00ffff00;
- 146:FrontPanel.c  **** 				LEDsVal |= ReadExtSRAM((LEDsVal >> 8) & 0xffff);
- 147:FrontPanel.c  **** 				writeFrontPanelLEDs(LEDsVal);
- 148:FrontPanel.c  **** 			}
- 149:FrontPanel.c  **** 			else if ((switchesVal & 0x02000000) == 0x02000000)  // Store to addr, incr address and read memo
- 150:FrontPanel.c  **** 			{
- 151:FrontPanel.c  **** 				LEDsVal |= 0x02000000;          // Flicker STINC LED
- 152:FrontPanel.c  **** 				writeFrontPanelLEDs(LEDsVal);
- 153:FrontPanel.c  **** 				WriteExtSRAM((LEDsVal >> 8) & 0xffff,LEDsVal&0xff);
- 154:FrontPanel.c  **** 				LEDsVal += 0x00000100;
- 155:FrontPanel.c  **** 				LEDsVal &= 0x00ffff00;
- 156:FrontPanel.c  **** 				LEDsVal |= ReadExtSRAM((LEDsVal >> 8) & 0xffff);
- 157:FrontPanel.c  **** 				writeFrontPanelLEDs(LEDsVal);
- 158:FrontPanel.c  **** 			}
- 159:FrontPanel.c  **** 			else if ((switchesVal & 0x04000000) == 0x04000000)  //Load address and read memory
- 160:FrontPanel.c  **** 			{
- 161:FrontPanel.c  **** 				LEDsVal |= 0x04000000;          // Flicker LDADR LED
- 162:FrontPanel.c  **** 				writeFrontPanelLEDs(LEDsVal);
- 163:FrontPanel.c  **** 				LEDsVal &= 0x00ffff00;
- 164:FrontPanel.c  **** 				LEDsVal |= ReadExtSRAM((LEDsVal >> 8) & 0xffff);
- 165:FrontPanel.c  **** 				writeFrontPanelLEDs(LEDsVal);
- 166:FrontPanel.c  **** 			}
- 167:FrontPanel.c  **** 			else if ((switchesVal & 0x08000000) == 0x08000000)  // Run program
- 168:FrontPanel.c  **** 			{
- 169:FrontPanel.c  **** 				ExtSRAMCtl_Control = 0;
- 170:FrontPanel.c  **** 				LEDsVal = 0x08000000;
- 171:FrontPanel.c  **** 				writeFrontPanelLEDs(LEDsVal);       // Leave Run LED on
- 172:FrontPanel.c  **** 				return (1);
+ 145:FrontPanel.c  **** 		if ((switchesVal & 0xff000000) != 0)    // Control switch on top row was pressed
+ 146:FrontPanel.c  **** 		{
+ 147:FrontPanel.c  **** 			if ((switchesVal & 0x01000000) == 0x01000000)       // Incr address and read memory
+ 148:FrontPanel.c  **** 			{
+ 149:FrontPanel.c  **** 				LEDsVal |= 0x01000000;          // Flicker INCAD LED
+ 150:FrontPanel.c  **** 				writeFrontPanelLEDs(LEDsVal);
+ 151:FrontPanel.c  **** 				LEDsVal += 0x00000100;
+ 152:FrontPanel.c  **** 				LEDsVal &= 0x00ffff00;
+ 153:FrontPanel.c  **** 				LEDsVal |= ReadExtSRAM((LEDsVal >> 8) & 0xffff);
+ 154:FrontPanel.c  **** 				writeFrontPanelLEDs(LEDsVal);
+ 155:FrontPanel.c  **** 			}
+ 156:FrontPanel.c  **** 			else if ((switchesVal & 0x02000000) == 0x02000000)  // Store to addr, incr address and read memo
+ 157:FrontPanel.c  **** 			{
+ 158:FrontPanel.c  **** 				LEDsVal |= 0x02000000;          // Flicker STINC LED
+ 159:FrontPanel.c  **** 				writeFrontPanelLEDs(LEDsVal);
+ 160:FrontPanel.c  **** 				WriteExtSRAM((LEDsVal >> 8) & 0xffff,LEDsVal&0xff);
+ 161:FrontPanel.c  **** 				LEDsVal += 0x00000100;
+ 162:FrontPanel.c  **** 				LEDsVal &= 0x00ffff00;
+ 163:FrontPanel.c  **** 				LEDsVal |= ReadExtSRAM((LEDsVal >> 8) & 0xffff);
+ 164:FrontPanel.c  **** 				writeFrontPanelLEDs(LEDsVal);
+ 165:FrontPanel.c  **** 			}
+ 166:FrontPanel.c  **** 			else if ((switchesVal & 0x04000000) == 0x04000000)  //Load address and read memory
+ 167:FrontPanel.c  **** 			{
+ 168:FrontPanel.c  **** 				LEDsVal |= 0x04000000;          // Flicker LDADR LED
+ 169:FrontPanel.c  **** 				writeFrontPanelLEDs(LEDsVal);
+ 170:FrontPanel.c  **** 				LEDsVal &= 0x00ffff00;
+ 171:FrontPanel.c  **** 				LEDsVal |= ReadExtSRAM((LEDsVal >> 8) & 0xffff);
+ 172:FrontPanel.c  **** 				writeFrontPanelLEDs(LEDsVal);
  173:FrontPanel.c  **** 			}
- 174:FrontPanel.c  **** 			else if ((switchesVal & 0x10000000) == 0x10000000)  // TBD
+ 174:FrontPanel.c  **** 			else if ((switchesVal & 0x08000000) == 0x08000000)  // Run program
  175:FrontPanel.c  **** 			{
- 176:FrontPanel.c  **** 				LEDsVal = 0x10000000;
- 177:FrontPanel.c  **** 				writeFrontPanelLEDs(LEDsVal);       // Leave LED on
- 178:FrontPanel.c  **** 				CyDelay(250);
- 179:FrontPanel.c  **** 				LEDsVal &= 0x00ffffff;
- 180:FrontPanel.c  **** 				writeFrontPanelLEDs(LEDsVal);       // Turn off LED
- 181:FrontPanel.c  **** 			}
- 182:FrontPanel.c  **** 			else if ((switchesVal & 0x20000000) == 0x20000000)  // TBD
- 183:FrontPanel.c  **** 			{
- 184:FrontPanel.c  **** 				LEDsVal = 0x20000000;
- 185:FrontPanel.c  **** 				writeFrontPanelLEDs(LEDsVal);       // Leave LED on
- 186:FrontPanel.c  **** 				CyDelay(250);
- 187:FrontPanel.c  **** 				LEDsVal &= 0x00ffffff;
- 188:FrontPanel.c  **** 				writeFrontPanelLEDs(LEDsVal);       // Turn off LED
- 189:FrontPanel.c  **** 			}
- 190:FrontPanel.c  **** 			else if ((switchesVal & 0x40000000) == 0x40000000)  // TBD
- 191:FrontPanel.c  **** 			{
- 192:FrontPanel.c  **** 				LEDsVal = 0x40000000;
- 193:FrontPanel.c  **** 				writeFrontPanelLEDs(LEDsVal);       // Leave LED on
- 194:FrontPanel.c  **** 				CyDelay(250);
- 195:FrontPanel.c  **** 				LEDsVal &= 0x00ffffff;
- 196:FrontPanel.c  **** 				writeFrontPanelLEDs(LEDsVal);       // Turn off LED
- 197:FrontPanel.c  **** 			}
- 198:FrontPanel.c  **** 			else if ((switchesVal & 0x80000000) == 0x80000000)  // Exit front panel without releasing reset 
- 199:FrontPanel.c  **** 			{
- 200:FrontPanel.c  **** 				LEDsVal = 0x80000000;
- 201:FrontPanel.c  **** 				writeFrontPanelLEDs(LEDsVal);       // Leave LED on
-ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 5
+ 176:FrontPanel.c  **** 				ExtSRAMCtl_Control = 0;
+ 177:FrontPanel.c  **** 				LEDsVal = 0x08000000;
+ 178:FrontPanel.c  **** 				writeFrontPanelLEDs(LEDsVal);       // Leave Run LED on
+ 179:FrontPanel.c  **** 				return (1);
+ 180:FrontPanel.c  **** 			}
+ 181:FrontPanel.c  **** 			else if ((switchesVal & 0x10000000) == 0x10000000)  // TBD
+ 182:FrontPanel.c  **** 			{
+ 183:FrontPanel.c  **** 				LEDsVal = 0x10000000;
+ 184:FrontPanel.c  **** 				writeFrontPanelLEDs(LEDsVal);       // Leave LED on
+ 185:FrontPanel.c  **** 				CyDelay(250);
+ 186:FrontPanel.c  **** 				LEDsVal &= 0x00ffffff;
+ 187:FrontPanel.c  **** 				writeFrontPanelLEDs(LEDsVal);       // Turn off LED
+ 188:FrontPanel.c  **** 			}
+ 189:FrontPanel.c  **** 			else if ((switchesVal & 0x20000000) == 0x20000000)  // TBD
+ 190:FrontPanel.c  **** 			{
+ 191:FrontPanel.c  **** 				LEDsVal = 0x20000000;
+ 192:FrontPanel.c  **** 				writeFrontPanelLEDs(LEDsVal);       // Leave LED on
+ 193:FrontPanel.c  **** 				CyDelay(250);
+ 194:FrontPanel.c  **** 				LEDsVal &= 0x00ffffff;
+ 195:FrontPanel.c  **** 				writeFrontPanelLEDs(LEDsVal);       // Turn off LED
+ 196:FrontPanel.c  **** 			}
+ 197:FrontPanel.c  **** 			else if ((switchesVal & 0x40000000) == 0x40000000)  // TBD
+ 198:FrontPanel.c  **** 			{
+ 199:FrontPanel.c  **** 				LEDsVal = 0x40000000;
+ 200:FrontPanel.c  **** 				writeFrontPanelLEDs(LEDsVal);       // Leave LED on
+ 201:FrontPanel.c  **** 				CyDelay(250);
+ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\ccOlmfcj.s 			page 5
 
 
- 202:FrontPanel.c  **** 				return(0);                          // Z80 still in reset
- 203:FrontPanel.c  **** 			}
- 204:FrontPanel.c  **** 		}
- 205:FrontPanel.c  **** 		else    // Non-control switch was pressed
- 206:FrontPanel.c  **** 		{
- 207:FrontPanel.c  **** 			LEDsVal ^= switchesVal;
- 208:FrontPanel.c  **** 			writeFrontPanelLEDs(LEDsVal);
- 209:FrontPanel.c  **** 		}
- 210:FrontPanel.c  **** 	}
- 211:FrontPanel.c  **** }
- 212:FrontPanel.c  **** 
- 213:FrontPanel.c  **** //////////////////////////////////////////////////////////////////////////////////////
- 214:FrontPanel.c  **** // readFrontPanelSwitchesRegistered
- 215:FrontPanel.c  **** //  Handler for the Pushbuttons and LEDs
- 216:FrontPanel.c  **** //  Toggles the LED
- 217:FrontPanel.c  **** //  Reads all four MCP23017 Port A's to make a 32-bit result
- 218:FrontPanel.c  **** //  Looks for the switch to be pressed for 3 samples in a row
- 219:FrontPanel.c  **** // Returns: 0 if there was no key pressed
- 220:FrontPanel.c  **** //          1 if there was a key pressed
- 221:FrontPanel.c  **** 
- 222:FrontPanel.c  **** uint32 readFrontPanelSwitchesRegistered(void)
- 223:FrontPanel.c  **** {
- 224:FrontPanel.c  **** 	uint32 rdVal;
- 225:FrontPanel.c  **** 	uint32 retVal = 0;
- 226:FrontPanel.c  **** 	uint32 valMin1 = 0;
- 227:FrontPanel.c  **** 	uint32 valMin2 = 0;
- 228:FrontPanel.c  **** 	uint32 valMin3 = 0;
- 229:FrontPanel.c  **** 	uint8 keyPressed = 0;
- 230:FrontPanel.c  **** 	rdVal = readFrontPanelSwitchesStatic();
- 231:FrontPanel.c  **** 	if (rdVal  == 0x00)     // No key is pressed at this polling
- 232:FrontPanel.c  **** 	{
- 233:FrontPanel.c  **** 		valMin1 = 0;
- 234:FrontPanel.c  **** 		valMin2 = 0;
- 235:FrontPanel.c  **** 		valMin3 = 0;
- 236:FrontPanel.c  **** 		return(0);
- 237:FrontPanel.c  **** 	}
- 238:FrontPanel.c  **** 	else    // key is now pressed
- 239:FrontPanel.c  **** 	{
- 240:FrontPanel.c  **** 		keyPressed = 1;
- 241:FrontPanel.c  **** 		while (keyPressed)  // stick around until key is no longer pressed
- 242:FrontPanel.c  **** 		{
- 243:FrontPanel.c  **** 			rdVal = readFrontPanelSwitchesStatic();
- 244:FrontPanel.c  **** 			if (rdVal == 0)
- 245:FrontPanel.c  **** 			{
- 246:FrontPanel.c  **** 				keyPressed = 0;
- 247:FrontPanel.c  **** 				valMin1 = 0;
- 248:FrontPanel.c  **** 				valMin2 = 0;
- 249:FrontPanel.c  **** 				valMin3 = 0;
- 250:FrontPanel.c  **** 				return(retVal);
- 251:FrontPanel.c  **** 			}
- 252:FrontPanel.c  **** 			valMin3 = valMin2;
- 253:FrontPanel.c  **** 			valMin2 = valMin1;
- 254:FrontPanel.c  **** 			valMin1 = rdVal;
- 255:FrontPanel.c  **** 			if ((valMin3 == 0) && (valMin2 != 0) && (valMin1 != 0) && (rdVal != 0))
- 256:FrontPanel.c  **** 			{
- 257:FrontPanel.c  **** 				return(valMin2);
- 258:FrontPanel.c  **** 			}
-ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 6
+ 202:FrontPanel.c  **** 				LEDsVal &= 0x00ffffff;
+ 203:FrontPanel.c  **** 				writeFrontPanelLEDs(LEDsVal);       // Turn off LED
+ 204:FrontPanel.c  **** 			}
+ 205:FrontPanel.c  **** 			else if ((switchesVal & 0x80000000) == 0x80000000)  // Exit front panel without releasing reset 
+ 206:FrontPanel.c  **** 			{
+ 207:FrontPanel.c  **** 				LEDsVal = 0x80000000;
+ 208:FrontPanel.c  **** 				writeFrontPanelLEDs(LEDsVal);       // Leave LED on
+ 209:FrontPanel.c  **** 				return(0);                          // Z80 still in reset
+ 210:FrontPanel.c  **** 			}
+ 211:FrontPanel.c  **** 		}
+ 212:FrontPanel.c  **** 		else    // Non-control switch was pressed
+ 213:FrontPanel.c  **** 		{
+ 214:FrontPanel.c  **** 			LEDsVal ^= switchesVal;
+ 215:FrontPanel.c  **** 			writeFrontPanelLEDs(LEDsVal);
+ 216:FrontPanel.c  **** 		}
+ 217:FrontPanel.c  **** 	}
+ 218:FrontPanel.c  **** }
+ 219:FrontPanel.c  **** 
+ 220:FrontPanel.c  **** //////////////////////////////////////////////////////////////////////////////////////
+ 221:FrontPanel.c  **** // readFrontPanelSwitchesRegistered() - Debounced read of front panel pushbuttons
+ 222:FrontPanel.c  **** //  Reads all four MCP23017 Port A's to produce a 32-bit result
+ 223:FrontPanel.c  **** //  Looks for the switch to be pressed for 3 samples in a row
+ 224:FrontPanel.c  **** //  10 mSec delay between samples
+ 225:FrontPanel.c  **** // Returns: 0 if there was no key pressed
+ 226:FrontPanel.c  **** //          switch value if there was a key pressed
+ 227:FrontPanel.c  **** 
+ 228:FrontPanel.c  **** uint32 readFrontPanelSwitchesRegistered(void)
+ 229:FrontPanel.c  **** {
+ 230:FrontPanel.c  **** 	uint32 rdVal;
+ 231:FrontPanel.c  **** 	uint32 retVal = 0;
+ 232:FrontPanel.c  **** 	uint32 valMin1 = 0;
+ 233:FrontPanel.c  **** 	uint32 valMin2 = 0;
+ 234:FrontPanel.c  **** 	uint32 valMin3 = 0;
+ 235:FrontPanel.c  **** 	uint8 keyPressed = 0;
+ 236:FrontPanel.c  **** 	rdVal = readFrontPanelSwitchesStatic();
+ 237:FrontPanel.c  **** 	if (rdVal  == 0x00)     // No key is pressed at this polling
+ 238:FrontPanel.c  **** 	{
+ 239:FrontPanel.c  **** 		valMin1 = 0;
+ 240:FrontPanel.c  **** 		valMin2 = 0;
+ 241:FrontPanel.c  **** 		valMin3 = 0;
+ 242:FrontPanel.c  **** 		return(0);
+ 243:FrontPanel.c  **** 	}
+ 244:FrontPanel.c  **** 	else    // key is now pressed
+ 245:FrontPanel.c  **** 	{
+ 246:FrontPanel.c  **** 		keyPressed = 1;
+ 247:FrontPanel.c  **** 		while (keyPressed)  // stick around until key is no longer pressed
+ 248:FrontPanel.c  **** 		{
+ 249:FrontPanel.c  **** 			rdVal = readFrontPanelSwitchesStatic();
+ 250:FrontPanel.c  **** 			if (rdVal == 0)
+ 251:FrontPanel.c  **** 			{
+ 252:FrontPanel.c  **** 				keyPressed = 0;
+ 253:FrontPanel.c  **** 				valMin1 = 0;
+ 254:FrontPanel.c  **** 				valMin2 = 0;
+ 255:FrontPanel.c  **** 				valMin3 = 0;
+ 256:FrontPanel.c  **** 				return(retVal);
+ 257:FrontPanel.c  **** 			}
+ 258:FrontPanel.c  **** 			valMin3 = valMin2;
+ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\ccOlmfcj.s 			page 6
 
 
- 259:FrontPanel.c  **** 			CyDelay(10);    // 10 mS sampling for debouncing
- 260:FrontPanel.c  **** 		}
- 261:FrontPanel.c  **** 	}
- 262:FrontPanel.c  **** 	return (retVal);
- 263:FrontPanel.c  **** }
- 264:FrontPanel.c  **** 
- 265:FrontPanel.c  **** //////////////////////////////////////////////////////////////////////////////////////
- 266:FrontPanel.c  **** // waitFrontPanelSwitchesPressed() - Wait for switch to be pressed and return value
- 267:FrontPanel.c  **** 
- 268:FrontPanel.c  **** uint32 waitFrontPanelSwitchesPressed(void)
- 269:FrontPanel.c  **** {
- 270:FrontPanel.c  **** 	uint32 switchVals = 0;
- 271:FrontPanel.c  **** 	while (readFrontPanelSwitchesRegistered() != 0);    // wait for previous key release
- 272:FrontPanel.c  **** 	while (switchVals == 0)
- 273:FrontPanel.c  **** 	{   
- 274:FrontPanel.c  **** 		switchVals = readFrontPanelSwitchesRegistered();
- 275:FrontPanel.c  **** 		if (switchVals != 0x0)
- 276:FrontPanel.c  **** 		return (switchVals);
- 277:FrontPanel.c  **** 	}
- 278:FrontPanel.c  **** 	return (0);
- 279:FrontPanel.c  **** }
- 280:FrontPanel.c  **** 
- 281:FrontPanel.c  **** //////////////////////////////////////////////////////////////////////////////////////
- 282:FrontPanel.c  **** // readFrontPanelSwitchesStatic() - Reads the current value of the actual switches
- 283:FrontPanel.c  **** //  Reads all four MCP23017 Port A's to make a 32-bit result
- 284:FrontPanel.c  **** 
- 285:FrontPanel.c  **** uint32 readFrontPanelSwitchesStatic(void)
- 286:FrontPanel.c  **** {
- 287:FrontPanel.c  **** 	uint32 switchVals = 0;
- 288:FrontPanel.c  **** 	switchVals = readRegister_MCP23017(MCP23017_0,MCP23017_GPIOA_REGADR);
- 289:FrontPanel.c  **** 	switchVals = switchVals<<8;
- 290:FrontPanel.c  **** 	switchVals |= readRegister_MCP23017(MCP23017_1,MCP23017_GPIOA_REGADR);
- 291:FrontPanel.c  **** 	switchVals = switchVals<<8;
- 292:FrontPanel.c  **** 	switchVals |= readRegister_MCP23017(MCP23017_2,MCP23017_GPIOA_REGADR);
- 293:FrontPanel.c  **** 	switchVals = switchVals<<8;
- 294:FrontPanel.c  **** 	switchVals |= readRegister_MCP23017(MCP23017_3,MCP23017_GPIOA_REGADR);
- 295:FrontPanel.c  **** 	return (switchVals);
- 296:FrontPanel.c  **** }
- 297:FrontPanel.c  **** 
- 298:FrontPanel.c  **** //////////////////////////////////////////////////////////////////////////////////////
- 299:FrontPanel.c  **** // writeFrontPanelLEDs(uint32) - Write a 32-bit value to the Front Panel LEDs
- 300:FrontPanel.c  **** 
- 301:FrontPanel.c  **** void writeFrontPanelLEDs(uint32 ledsVal)
- 302:FrontPanel.c  **** {
- 303:FrontPanel.c  **** 	writeRegister_MCP23017(MCP23017_0,MCP23017_OLATB_REGADR,((ledsVal>>24) & 0xff));
- 304:FrontPanel.c  **** 	writeRegister_MCP23017(MCP23017_1,MCP23017_OLATB_REGADR,((ledsVal>>16) & 0xff));
- 305:FrontPanel.c  **** 	writeRegister_MCP23017(MCP23017_2,MCP23017_OLATB_REGADR,((ledsVal>>8) & 0xff));
- 306:FrontPanel.c  **** 	writeRegister_MCP23017(MCP23017_3,MCP23017_OLATB_REGADR,ledsVal&0xff);
- 307:FrontPanel.c  **** }
+ 259:FrontPanel.c  **** 			valMin2 = valMin1;
+ 260:FrontPanel.c  **** 			valMin1 = rdVal;
+ 261:FrontPanel.c  **** 			if ((valMin3 == 0) && (valMin2 != 0) && (valMin1 != 0) && (rdVal != 0))
+ 262:FrontPanel.c  **** 			{
+ 263:FrontPanel.c  **** 				return(valMin2);
+ 264:FrontPanel.c  **** 			}
+ 265:FrontPanel.c  **** 			CyDelay(10);    // 10 mS sampling for debouncing
+ 266:FrontPanel.c  **** 		}
+ 267:FrontPanel.c  **** 	}
+ 268:FrontPanel.c  **** 	return (retVal);
+ 269:FrontPanel.c  **** }
+ 270:FrontPanel.c  **** 
+ 271:FrontPanel.c  **** //////////////////////////////////////////////////////////////////////////////////////
+ 272:FrontPanel.c  **** // waitFrontPanelSwitchesPressed() - Wait for switch to be pressed and return value
+ 273:FrontPanel.c  **** 
+ 274:FrontPanel.c  **** uint32 waitFrontPanelSwitchesPressed(void)
+ 275:FrontPanel.c  **** {
+ 276:FrontPanel.c  **** 	uint32 switchVals = 0;
+ 277:FrontPanel.c  **** 	while (readFrontPanelSwitchesRegistered() != 0);    // wait for previous key release
+ 278:FrontPanel.c  **** 	while (switchVals == 0)
+ 279:FrontPanel.c  **** 	{   
+ 280:FrontPanel.c  **** 		switchVals = readFrontPanelSwitchesRegistered();
+ 281:FrontPanel.c  **** 		if (switchVals != 0x0)
+ 282:FrontPanel.c  **** 		return (switchVals);
+ 283:FrontPanel.c  **** 	}
+ 284:FrontPanel.c  **** 	return (0);
+ 285:FrontPanel.c  **** }
+ 286:FrontPanel.c  **** 
+ 287:FrontPanel.c  **** //////////////////////////////////////////////////////////////////////////////////////
+ 288:FrontPanel.c  **** // readFrontPanelSwitchesStatic() - Reads the current value of the actual switches
+ 289:FrontPanel.c  **** //  Reads all four MCP23017 Port A's to make a 32-bit result
+ 290:FrontPanel.c  **** // Registered routine calls this routine for the samples
+ 291:FrontPanel.c  **** 
+ 292:FrontPanel.c  **** uint32 readFrontPanelSwitchesStatic(void)
+ 293:FrontPanel.c  **** {
+ 294:FrontPanel.c  **** 	uint32 switchVals = 0;
+ 295:FrontPanel.c  **** 	switchVals = readRegister_MCP23017(MCP23017_0,MCP23017_GPIOA_REGADR);
+ 296:FrontPanel.c  **** 	switchVals = switchVals<<8;
+ 297:FrontPanel.c  **** 	switchVals |= readRegister_MCP23017(MCP23017_1,MCP23017_GPIOA_REGADR);
+ 298:FrontPanel.c  **** 	switchVals = switchVals<<8;
+ 299:FrontPanel.c  **** 	switchVals |= readRegister_MCP23017(MCP23017_2,MCP23017_GPIOA_REGADR);
+ 300:FrontPanel.c  **** 	switchVals = switchVals<<8;
+ 301:FrontPanel.c  **** 	switchVals |= readRegister_MCP23017(MCP23017_3,MCP23017_GPIOA_REGADR);
+ 302:FrontPanel.c  **** 	return (switchVals);
+ 303:FrontPanel.c  **** }
+ 304:FrontPanel.c  **** 
+ 305:FrontPanel.c  **** //////////////////////////////////////////////////////////////////////////////////////
+ 306:FrontPanel.c  **** // writeFrontPanelLEDs(uint32) - Write a 32-bit value to the Front Panel LEDs
+ 307:FrontPanel.c  **** // Takes an unsigned long 32-bit value
  308:FrontPanel.c  **** 
- 309:FrontPanel.c  **** //////////////////////////////////////////////////////////////////////////////////////
- 310:FrontPanel.c  **** // I2C Low Level Hardware access functions
- 311:FrontPanel.c  **** 
- 312:FrontPanel.c  **** //////////////////////////////////////////////////////////////////////////////////////
- 313:FrontPanel.c  **** //
- 314:FrontPanel.c  **** //////////////////////////////////////////////////////////////////////////////////////
- 315:FrontPanel.c  **** 
-ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 7
+ 309:FrontPanel.c  **** void writeFrontPanelLEDs(uint32 ledsVal)
+ 310:FrontPanel.c  **** {
+ 311:FrontPanel.c  **** 	writeRegister_MCP23017(MCP23017_0,MCP23017_OLATB_REGADR,((ledsVal>>24) & 0xff));
+ 312:FrontPanel.c  **** 	writeRegister_MCP23017(MCP23017_1,MCP23017_OLATB_REGADR,((ledsVal>>16) & 0xff));
+ 313:FrontPanel.c  **** 	writeRegister_MCP23017(MCP23017_2,MCP23017_OLATB_REGADR,((ledsVal>>8) & 0xff));
+ 314:FrontPanel.c  **** 	writeRegister_MCP23017(MCP23017_3,MCP23017_OLATB_REGADR,ledsVal&0xff);
+ 315:FrontPanel.c  **** }
+ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\ccOlmfcj.s 			page 7
 
 
- 316:FrontPanel.c  **** uint8 readRegister_MCP23017(uint8 chipAddr, uint8 ctrlAdr)
- 317:FrontPanel.c  **** {
-  28              		.loc 1 317 0
+ 316:FrontPanel.c  **** 
+ 317:FrontPanel.c  **** //////////////////////////////////////////////////////////////////////////////////////
+ 318:FrontPanel.c  **** // I2C Low Level Hardware access functions
+ 319:FrontPanel.c  **** 
+ 320:FrontPanel.c  **** //////////////////////////////////////////////////////////////////////////////////////
+ 321:FrontPanel.c  **** // uint8 readRegister_MCP23017(uint8 chipAddr, uint8 ctrlAdr) - Read MCP23017 register
+ 322:FrontPanel.c  **** //////////////////////////////////////////////////////////////////////////////////////
+ 323:FrontPanel.c  **** 
+ 324:FrontPanel.c  **** uint8 readRegister_MCP23017(uint8 chipAddr, uint8 ctrlAdr)
+ 325:FrontPanel.c  **** {
+  28              		.loc 1 325 0
   29              		.cfi_startproc
   30              		@ args = 0, pretend = 0, frame = 0
   31              		@ frame_needed = 0, uses_anonymous_args = 0
@@ -376,55 +384,55 @@ ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 1
   38              		.cfi_offset 14, -4
   39 0002 0446     		mov	r4, r0
   40 0004 0D46     		mov	r5, r1
- 318:FrontPanel.c  **** 	uint8 rdBuff;
- 319:FrontPanel.c  **** 
- 320:FrontPanel.c  **** 	I2C_MasterClearStatus();
-  41              		.loc 1 320 0
+ 326:FrontPanel.c  **** 	uint8 rdBuff;
+ 327:FrontPanel.c  **** 
+ 328:FrontPanel.c  **** 	I2C_MasterClearStatus();
+  41              		.loc 1 328 0
   42 0006 FFF7FEFF 		bl	I2C_MasterClearStatus
   43              	.LVL1:
- 321:FrontPanel.c  **** 	I2C_MasterSendStart(chipAddr,I2C_WRITE_XFER_MODE);
-  44              		.loc 1 321 0
+ 329:FrontPanel.c  **** 	I2C_MasterSendStart(chipAddr,I2C_WRITE_XFER_MODE);
+  44              		.loc 1 329 0
   45 000a 0021     		movs	r1, #0
   46 000c 2046     		mov	r0, r4
   47 000e FFF7FEFF 		bl	I2C_MasterSendStart
   48              	.LVL2:
- 322:FrontPanel.c  **** 	I2C_MasterWriteByte(ctrlAdr);
-  49              		.loc 1 322 0
+ 330:FrontPanel.c  **** 	I2C_MasterWriteByte(ctrlAdr);
+  49              		.loc 1 330 0
   50 0012 2846     		mov	r0, r5
   51 0014 FFF7FEFF 		bl	I2C_MasterWriteByte
   52              	.LVL3:
- 323:FrontPanel.c  **** 	I2C_MasterSendStop();
-  53              		.loc 1 323 0
+ 331:FrontPanel.c  **** 	I2C_MasterSendStop();
+  53              		.loc 1 331 0
   54 0018 FFF7FEFF 		bl	I2C_MasterSendStop
   55              	.LVL4:
- 324:FrontPanel.c  **** 	I2C_MasterSendStart(chipAddr,I2C_READ_XFER_MODE);
-  56              		.loc 1 324 0
+ 332:FrontPanel.c  **** 	I2C_MasterSendStart(chipAddr,I2C_READ_XFER_MODE);
+  56              		.loc 1 332 0
   57 001c 0121     		movs	r1, #1
   58 001e 2046     		mov	r0, r4
   59 0020 FFF7FEFF 		bl	I2C_MasterSendStart
   60              	.LVL5:
- 325:FrontPanel.c  **** 	rdBuff = I2C_MasterReadByte(I2C_NAK_DATA);
-  61              		.loc 1 325 0
+ 333:FrontPanel.c  **** 	rdBuff = I2C_MasterReadByte(I2C_NAK_DATA);
+  61              		.loc 1 333 0
   62 0024 0020     		movs	r0, #0
   63 0026 FFF7FEFF 		bl	I2C_MasterReadByte
   64              	.LVL6:
   65 002a 0446     		mov	r4, r0
   66              	.LVL7:
- 326:FrontPanel.c  **** 	I2C_MasterSendStop();
-  67              		.loc 1 326 0
+ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\ccOlmfcj.s 			page 8
+
+
+ 334:FrontPanel.c  **** 	I2C_MasterSendStop();
+  67              		.loc 1 334 0
   68 002c FFF7FEFF 		bl	I2C_MasterSendStop
   69              	.LVL8:
- 327:FrontPanel.c  **** 	I2C_MasterClearStatus();
-  70              		.loc 1 327 0
+ 335:FrontPanel.c  **** 	I2C_MasterClearStatus();
+  70              		.loc 1 335 0
   71 0030 FFF7FEFF 		bl	I2C_MasterClearStatus
   72              	.LVL9:
-ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 8
-
-
- 328:FrontPanel.c  **** 	return rdBuff;
- 329:FrontPanel.c  **** 
- 330:FrontPanel.c  **** }
-  73              		.loc 1 330 0
+ 336:FrontPanel.c  **** 	return rdBuff;
+ 337:FrontPanel.c  **** 
+ 338:FrontPanel.c  **** }
+  73              		.loc 1 338 0
   74 0034 2046     		mov	r0, r4
   75 0036 38BD     		pop	{r3, r4, r5, pc}
   76              		.cfi_endproc
@@ -438,8 +446,8 @@ ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 1
   84              		.type	readFrontPanelSwitchesStatic, %function
   85              	readFrontPanelSwitchesStatic:
   86              	.LFB69:
- 286:FrontPanel.c  **** 	uint32 switchVals = 0;
-  87              		.loc 1 286 0
+ 293:FrontPanel.c  **** 	uint32 switchVals = 0;
+  87              		.loc 1 293 0
   88              		.cfi_startproc
   89              		@ args = 0, pretend = 0, frame = 0
   90              		@ frame_needed = 0, uses_anonymous_args = 0
@@ -448,51 +456,51 @@ ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 1
   93              		.cfi_offset 4, -8
   94              		.cfi_offset 14, -4
   95              	.LVL10:
- 288:FrontPanel.c  **** 	switchVals = switchVals<<8;
-  96              		.loc 1 288 0
+ 295:FrontPanel.c  **** 	switchVals = switchVals<<8;
+  96              		.loc 1 295 0
   97 0002 1221     		movs	r1, #18
   98 0004 2420     		movs	r0, #36
   99 0006 FFF7FEFF 		bl	readRegister_MCP23017
  100              	.LVL11:
- 289:FrontPanel.c  **** 	switchVals |= readRegister_MCP23017(MCP23017_1,MCP23017_GPIOA_REGADR);
- 101              		.loc 1 289 0
+ 296:FrontPanel.c  **** 	switchVals |= readRegister_MCP23017(MCP23017_1,MCP23017_GPIOA_REGADR);
+ 101              		.loc 1 296 0
  102 000a 0402     		lsls	r4, r0, #8
  103              	.LVL12:
- 290:FrontPanel.c  **** 	switchVals = switchVals<<8;
- 104              		.loc 1 290 0
+ 297:FrontPanel.c  **** 	switchVals = switchVals<<8;
+ 104              		.loc 1 297 0
  105 000c 1221     		movs	r1, #18
  106 000e 2520     		movs	r0, #37
  107 0010 FFF7FEFF 		bl	readRegister_MCP23017
  108              	.LVL13:
  109 0014 2043     		orrs	r0, r0, r4
  110              	.LVL14:
- 291:FrontPanel.c  **** 	switchVals |= readRegister_MCP23017(MCP23017_2,MCP23017_GPIOA_REGADR);
- 111              		.loc 1 291 0
+ 298:FrontPanel.c  **** 	switchVals |= readRegister_MCP23017(MCP23017_2,MCP23017_GPIOA_REGADR);
+ 111              		.loc 1 298 0
  112 0016 0402     		lsls	r4, r0, #8
  113              	.LVL15:
- 292:FrontPanel.c  **** 	switchVals = switchVals<<8;
- 114              		.loc 1 292 0
+ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\ccOlmfcj.s 			page 9
+
+
+ 299:FrontPanel.c  **** 	switchVals = switchVals<<8;
+ 114              		.loc 1 299 0
  115 0018 1221     		movs	r1, #18
  116 001a 2620     		movs	r0, #38
  117 001c FFF7FEFF 		bl	readRegister_MCP23017
  118              	.LVL16:
  119 0020 2043     		orrs	r0, r0, r4
  120              	.LVL17:
-ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 9
-
-
- 293:FrontPanel.c  **** 	switchVals |= readRegister_MCP23017(MCP23017_3,MCP23017_GPIOA_REGADR);
- 121              		.loc 1 293 0
+ 300:FrontPanel.c  **** 	switchVals |= readRegister_MCP23017(MCP23017_3,MCP23017_GPIOA_REGADR);
+ 121              		.loc 1 300 0
  122 0022 0402     		lsls	r4, r0, #8
  123              	.LVL18:
- 294:FrontPanel.c  **** 	return (switchVals);
- 124              		.loc 1 294 0
+ 301:FrontPanel.c  **** 	return (switchVals);
+ 124              		.loc 1 301 0
  125 0024 1221     		movs	r1, #18
  126 0026 2720     		movs	r0, #39
  127 0028 FFF7FEFF 		bl	readRegister_MCP23017
  128              	.LVL19:
- 296:FrontPanel.c  **** 
- 129              		.loc 1 296 0
+ 303:FrontPanel.c  **** 
+ 129              		.loc 1 303 0
  130 002c 2043     		orrs	r0, r0, r4
  131              	.LVL20:
  132 002e 10BD     		pop	{r4, pc}
@@ -507,8 +515,8 @@ ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 1
  141              		.type	FrontPanelZ80Read, %function
  142              	FrontPanelZ80Read:
  143              	.LFB64:
-  64:FrontPanel.c  **** 	uint32 fpVal = readFrontPanelSwitchesStatic();
- 144              		.loc 1 64 0
+  69:FrontPanel.c  **** 	uint32 fpVal = readFrontPanelSwitchesStatic();
+ 144              		.loc 1 69 0
  145              		.cfi_startproc
  146              		@ args = 0, pretend = 0, frame = 0
  147              		@ frame_needed = 0, uses_anonymous_args = 0
@@ -518,78 +526,81 @@ ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 1
  151              		.cfi_offset 4, -8
  152              		.cfi_offset 14, -4
  153 0002 0446     		mov	r4, r0
-  65:FrontPanel.c  **** 	uint8 fpByte;
- 154              		.loc 1 65 0
+  70:FrontPanel.c  **** 	uint8 fpByte;
+ 154              		.loc 1 70 0
  155 0004 FFF7FEFF 		bl	readFrontPanelSwitchesStatic
  156              	.LVL22:
-  67:FrontPanel.c  **** 	{
- 157              		.loc 1 67 0
+  72:FrontPanel.c  **** 	{
+ 157              		.loc 1 72 0
  158 0008 04F00303 		and	r3, r4, #3
  159 000c 032B     		cmp	r3, #3
  160 000e 0DD8     		bhi	.L12
  161 0010 DFE803F0 		tbb	[pc, r3]
  162              	.L8:
  163 0014 02       		.byte	(.L7-.L8)/2
+ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\ccOlmfcj.s 			page 10
+
+
  164 0015 04       		.byte	(.L9-.L8)/2
  165 0016 07       		.byte	(.L10-.L8)/2
  166 0017 0A       		.byte	(.L11-.L8)/2
  167              		.p2align 1
  168              	.L7:
-  70:FrontPanel.c  **** 		break;
- 169              		.loc 1 70 0
+  75:FrontPanel.c  **** 		break;
+ 169              		.loc 1 75 0
  170 0018 C0B2     		uxtb	r0, r0
-ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 10
-
-
  171              	.LVL23:
-  71:FrontPanel.c  **** 	case 1:
- 172              		.loc 1 71 0
+  76:FrontPanel.c  **** 	case 1:
+ 172              		.loc 1 76 0
  173 001a 08E0     		b	.L6
  174              	.LVL24:
  175              	.L9:
-  73:FrontPanel.c  **** 		break;
- 176              		.loc 1 73 0
+  78:FrontPanel.c  **** 		break;
+ 176              		.loc 1 78 0
  177 001c C0F30720 		ubfx	r0, r0, #8, #8
  178              	.LVL25:
-  74:FrontPanel.c  **** 	case 2:
- 179              		.loc 1 74 0
+  79:FrontPanel.c  **** 	case 2:
+ 179              		.loc 1 79 0
  180 0020 05E0     		b	.L6
  181              	.LVL26:
  182              	.L10:
-  76:FrontPanel.c  **** 		break;
- 183              		.loc 1 76 0
+  81:FrontPanel.c  **** 		break;
+ 183              		.loc 1 81 0
  184 0022 C0F30740 		ubfx	r0, r0, #16, #8
  185              	.LVL27:
-  77:FrontPanel.c  **** 	case 3:
- 186              		.loc 1 77 0
+  82:FrontPanel.c  **** 	case 3:
+ 186              		.loc 1 82 0
  187 0026 02E0     		b	.L6
  188              	.LVL28:
  189              	.L11:
-  79:FrontPanel.c  **** 		break;
- 190              		.loc 1 79 0
+  84:FrontPanel.c  **** 		break;
+ 190              		.loc 1 84 0
  191 0028 000E     		lsrs	r0, r0, #24
  192              	.LVL29:
-  80:FrontPanel.c  **** 	default:
- 193              		.loc 1 80 0
+  85:FrontPanel.c  **** 	default:
+ 193              		.loc 1 85 0
  194 002a 00E0     		b	.L6
  195              	.LVL30:
  196              	.L12:
-  82:FrontPanel.c  **** 	}
- 197              		.loc 1 82 0
+  87:FrontPanel.c  **** 	}
+ 197              		.loc 1 87 0
  198 002c 0020     		movs	r0, #0
  199              	.LVL31:
  200              	.L6:
-  84:FrontPanel.c  **** 	ackIO();
- 201              		.loc 1 84 0
+  89:FrontPanel.c  **** 	ackIO();
+ 201              		.loc 1 89 0
  202 002e FFF7FEFF 		bl	Z80_Data_In_Write
  203              	.LVL32:
-  85:FrontPanel.c  **** }
- 204              		.loc 1 85 0
+  90:FrontPanel.c  **** }
+ 204              		.loc 1 90 0
  205 0032 FFF7FEFF 		bl	ackIO
  206              	.LVL33:
  207 0036 10BD     		pop	{r4, pc}
  208              		.cfi_endproc
  209              	.LFE64:
+ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\ccOlmfcj.s 			page 11
+
+
  210              		.size	FrontPanelZ80Read, .-FrontPanelZ80Read
  211              		.section	.text.readFrontPanelSwitchesRegistered,"ax",%progbits
  212              		.align	2
@@ -598,12 +609,9 @@ ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 1
  215              		.thumb_func
  216              		.type	readFrontPanelSwitchesRegistered, %function
  217              	readFrontPanelSwitchesRegistered:
-ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 11
-
-
  218              	.LFB67:
- 223:FrontPanel.c  **** 	uint32 rdVal;
- 219              		.loc 1 223 0
+ 229:FrontPanel.c  **** 	uint32 rdVal;
+ 219              		.loc 1 229 0
  220              		.cfi_startproc
  221              		@ args = 0, pretend = 0, frame = 0
  222              		@ frame_needed = 0, uses_anonymous_args = 0
@@ -614,74 +622,74 @@ ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 1
  227              		.cfi_offset 6, -8
  228              		.cfi_offset 14, -4
  229              	.LVL34:
- 230:FrontPanel.c  **** 	if (rdVal  == 0x00)     // No key is pressed at this polling
- 230              		.loc 1 230 0
+ 236:FrontPanel.c  **** 	if (rdVal  == 0x00)     // No key is pressed at this polling
+ 230              		.loc 1 236 0
  231 0002 FFF7FEFF 		bl	readFrontPanelSwitchesStatic
  232              	.LVL35:
- 231:FrontPanel.c  **** 	{
- 233              		.loc 1 231 0
+ 237:FrontPanel.c  **** 	{
+ 233              		.loc 1 237 0
  234 0006 88B1     		cbz	r0, .L19
  235 0008 0026     		movs	r6, #0
  236 000a 3446     		mov	r4, r6
  237 000c 08E0     		b	.L16
  238              	.LVL36:
  239              	.L18:
- 255:FrontPanel.c  **** 			{
- 240              		.loc 1 255 0
+ 261:FrontPanel.c  **** 			{
+ 240              		.loc 1 261 0
  241 000e 16B9     		cbnz	r6, .L17
- 255:FrontPanel.c  **** 			{
- 242              		.loc 1 255 0 is_stmt 0 discriminator 1
+ 261:FrontPanel.c  **** 			{
+ 242              		.loc 1 261 0 is_stmt 0 discriminator 1
  243 0010 0CB1     		cbz	r4, .L17
- 255:FrontPanel.c  **** 			{
- 244              		.loc 1 255 0 discriminator 2
+ 261:FrontPanel.c  **** 			{
+ 244              		.loc 1 261 0 discriminator 2
  245 0012 05B1     		cbz	r5, .L17
- 255:FrontPanel.c  **** 			{
- 246              		.loc 1 255 0 discriminator 3
+ 261:FrontPanel.c  **** 			{
+ 246              		.loc 1 261 0 discriminator 3
  247 0014 65B9     		cbnz	r5, .L20
  248              	.L17:
- 259:FrontPanel.c  **** 		}
- 249              		.loc 1 259 0 is_stmt 1
+ 265:FrontPanel.c  **** 		}
+ 249              		.loc 1 265 0 is_stmt 1
  250 0016 0A20     		movs	r0, #10
  251              	.LVL37:
  252 0018 FFF7FEFF 		bl	CyDelay
  253              	.LVL38:
- 253:FrontPanel.c  **** 			valMin1 = rdVal;
- 254              		.loc 1 253 0
+ 259:FrontPanel.c  **** 			valMin1 = rdVal;
+ 254              		.loc 1 259 0
  255 001c 2646     		mov	r6, r4
  256              	.LVL39:
- 254:FrontPanel.c  **** 			if ((valMin3 == 0) && (valMin2 != 0) && (valMin1 != 0) && (rdVal != 0))
- 257              		.loc 1 254 0
+ 260:FrontPanel.c  **** 			if ((valMin3 == 0) && (valMin2 != 0) && (valMin1 != 0) && (rdVal != 0))
+ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\ccOlmfcj.s 			page 12
+
+
+ 257              		.loc 1 260 0
  258 001e 2C46     		mov	r4, r5
  259              	.LVL40:
  260              	.L16:
- 243:FrontPanel.c  **** 			if (rdVal == 0)
- 261              		.loc 1 243 0
+ 249:FrontPanel.c  **** 			if (rdVal == 0)
+ 261              		.loc 1 249 0
  262 0020 FFF7FEFF 		bl	readFrontPanelSwitchesStatic
  263              	.LVL41:
-ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 12
-
-
- 244:FrontPanel.c  **** 			{
- 264              		.loc 1 244 0
+ 250:FrontPanel.c  **** 			{
+ 264              		.loc 1 250 0
  265 0024 0546     		mov	r5, r0
  266 0026 0028     		cmp	r0, #0
  267 0028 F1D1     		bne	.L18
  268 002a 70BD     		pop	{r4, r5, r6, pc}
  269              	.LVL42:
  270              	.L19:
- 236:FrontPanel.c  **** 	}
- 271              		.loc 1 236 0
+ 242:FrontPanel.c  **** 	}
+ 271              		.loc 1 242 0
  272 002c 0020     		movs	r0, #0
  273              	.LVL43:
  274 002e 70BD     		pop	{r4, r5, r6, pc}
  275              	.LVL44:
  276              	.L20:
- 257:FrontPanel.c  **** 			}
- 277              		.loc 1 257 0
+ 263:FrontPanel.c  **** 			}
+ 277              		.loc 1 263 0
  278 0030 2046     		mov	r0, r4
  279              	.LVL45:
- 263:FrontPanel.c  **** 
- 280              		.loc 1 263 0
+ 269:FrontPanel.c  **** 
+ 280              		.loc 1 269 0
  281 0032 70BD     		pop	{r4, r5, r6, pc}
  282              		.cfi_endproc
  283              	.LFE67:
@@ -694,8 +702,8 @@ ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 1
  290              		.type	waitFrontPanelSwitchesPressed, %function
  291              	waitFrontPanelSwitchesPressed:
  292              	.LFB68:
- 269:FrontPanel.c  **** 	uint32 switchVals = 0;
- 293              		.loc 1 269 0
+ 275:FrontPanel.c  **** 	uint32 switchVals = 0;
+ 293              		.loc 1 275 0
  294              		.cfi_startproc
  295              		@ args = 0, pretend = 0, frame = 0
  296              		@ frame_needed = 0, uses_anonymous_args = 0
@@ -704,44 +712,44 @@ ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 1
  299              		.cfi_offset 4, -8
  300              		.cfi_offset 14, -4
  301              	.L23:
- 271:FrontPanel.c  **** 	while (switchVals == 0)
- 302              		.loc 1 271 0 discriminator 1
+ 277:FrontPanel.c  **** 	while (switchVals == 0)
+ 302              		.loc 1 277 0 discriminator 1
  303 0002 FFF7FEFF 		bl	readFrontPanelSwitchesRegistered
  304              	.LVL46:
  305 0006 0028     		cmp	r0, #0
  306 0008 FBD1     		bne	.L23
+ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\ccOlmfcj.s 			page 13
+
+
  307 000a 0446     		mov	r4, r0
  308 000c 0023     		movs	r3, #0
  309 000e 03E0     		b	.L24
  310              	.LVL47:
  311              	.L26:
- 274:FrontPanel.c  **** 		if (switchVals != 0x0)
- 312              		.loc 1 274 0
+ 280:FrontPanel.c  **** 		if (switchVals != 0x0)
+ 312              		.loc 1 280 0
  313 0010 FFF7FEFF 		bl	readFrontPanelSwitchesRegistered
-ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 13
-
-
  314              	.LVL48:
- 275:FrontPanel.c  **** 		return (switchVals);
- 315              		.loc 1 275 0
+ 281:FrontPanel.c  **** 		return (switchVals);
+ 315              		.loc 1 281 0
  316 0014 0346     		mov	r3, r0
  317 0016 10B9     		cbnz	r0, .L27
  318              	.LVL49:
  319              	.L24:
- 272:FrontPanel.c  **** 	{   
- 320              		.loc 1 272 0
+ 278:FrontPanel.c  **** 	{   
+ 320              		.loc 1 278 0
  321 0018 002B     		cmp	r3, #0
  322 001a F9D0     		beq	.L26
  323 001c 00E0     		b	.L25
  324              	.LVL50:
  325              	.L27:
- 276:FrontPanel.c  **** 	}
- 326              		.loc 1 276 0
+ 282:FrontPanel.c  **** 	}
+ 326              		.loc 1 282 0
  327 001e 0446     		mov	r4, r0
  328              	.LVL51:
  329              	.L25:
- 279:FrontPanel.c  **** 
- 330              		.loc 1 279 0
+ 285:FrontPanel.c  **** 
+ 330              		.loc 1 285 0
  331 0020 2046     		mov	r0, r4
  332 0022 10BD     		pop	{r4, pc}
  333              		.cfi_endproc
@@ -755,20 +763,24 @@ ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 1
  341              		.type	writeRegister_MCP23017, %function
  342              	writeRegister_MCP23017:
  343              	.LFB72:
- 331:FrontPanel.c  **** 
- 332:FrontPanel.c  **** //////////////////////////////////////////////////////////////////////////////////////
- 333:FrontPanel.c  **** //
- 334:FrontPanel.c  **** //////////////////////////////////////////////////////////////////////////////////////
- 335:FrontPanel.c  **** 
- 336:FrontPanel.c  **** void writeRegister_MCP23017(uint8 chipAddr, uint8 ctrlAdr, uint8 ctrlVal)
- 337:FrontPanel.c  **** {
- 344              		.loc 1 337 0
+ 339:FrontPanel.c  **** 
+ 340:FrontPanel.c  **** //////////////////////////////////////////////////////////////////////////////////////
+ 341:FrontPanel.c  **** //void writeRegister_MCP23017(uint8 chipAddr, uint8 ctrlAdr, uint8 ctrlVal) - Write
+ 342:FrontPanel.c  **** // to an MCP23017 register
+ 343:FrontPanel.c  **** //////////////////////////////////////////////////////////////////////////////////////
+ 344:FrontPanel.c  **** 
+ 345:FrontPanel.c  **** void writeRegister_MCP23017(uint8 chipAddr, uint8 ctrlAdr, uint8 ctrlVal)
+ 346:FrontPanel.c  **** {
+ 344              		.loc 1 346 0
  345              		.cfi_startproc
  346              		@ args = 0, pretend = 0, frame = 8
  347              		@ frame_needed = 0, uses_anonymous_args = 0
  348              	.LVL52:
  349 0000 70B5     		push	{r4, r5, r6, lr}
  350              		.cfi_def_cfa_offset 16
+ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\ccOlmfcj.s 			page 14
+
+
  351              		.cfi_offset 4, -16
  352              		.cfi_offset 5, -12
  353              		.cfi_offset 6, -8
@@ -778,22 +790,19 @@ ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 1
  357 0004 0446     		mov	r4, r0
  358 0006 0E46     		mov	r6, r1
  359 0008 1546     		mov	r5, r2
-ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 14
-
-
- 338:FrontPanel.c  **** 	uint8 MCP23017_WrBuffer[2];
- 339:FrontPanel.c  **** 	I2C_MasterClearStatus();
- 360              		.loc 1 339 0
+ 347:FrontPanel.c  **** 	uint8 MCP23017_WrBuffer[2];
+ 348:FrontPanel.c  **** 	I2C_MasterClearStatus();
+ 360              		.loc 1 348 0
  361 000a FFF7FEFF 		bl	I2C_MasterClearStatus
  362              	.LVL53:
- 340:FrontPanel.c  **** 	MCP23017_WrBuffer[0] = ctrlAdr;
- 363              		.loc 1 340 0
+ 349:FrontPanel.c  **** 	MCP23017_WrBuffer[0] = ctrlAdr;
+ 363              		.loc 1 349 0
  364 000e 8DF80460 		strb	r6, [sp, #4]
- 341:FrontPanel.c  **** 	MCP23017_WrBuffer[1] = ctrlVal;
- 365              		.loc 1 341 0
+ 350:FrontPanel.c  **** 	MCP23017_WrBuffer[1] = ctrlVal;
+ 365              		.loc 1 350 0
  366 0012 8DF80550 		strb	r5, [sp, #5]
- 342:FrontPanel.c  **** 	I2C_MasterWriteBuf(chipAddr, MCP23017_WrBuffer, 2, I2C_MODE_COMPLETE_XFER);
- 367              		.loc 1 342 0
+ 351:FrontPanel.c  **** 	I2C_MasterWriteBuf(chipAddr, MCP23017_WrBuffer, 2, I2C_MODE_COMPLETE_XFER);
+ 367              		.loc 1 351 0
  368 0016 0023     		movs	r3, #0
  369 0018 0222     		movs	r2, #2
  370 001a 01A9     		add	r1, sp, #4
@@ -801,18 +810,18 @@ ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 1
  372 001e FFF7FEFF 		bl	I2C_MasterWriteBuf
  373              	.LVL54:
  374              	.L30:
- 343:FrontPanel.c  **** 	while (0u == (I2C_MasterStatus() & I2C_MSTAT_WR_CMPLT));
- 375              		.loc 1 343 0 discriminator 1
+ 352:FrontPanel.c  **** 	while (0u == (I2C_MasterStatus() & I2C_MSTAT_WR_CMPLT));
+ 375              		.loc 1 352 0 discriminator 1
  376 0022 FFF7FEFF 		bl	I2C_MasterStatus
  377              	.LVL55:
  378 0026 10F0020F 		tst	r0, #2
  379 002a FAD0     		beq	.L30
- 344:FrontPanel.c  **** 	I2C_MasterClearStatus();
- 380              		.loc 1 344 0
+ 353:FrontPanel.c  **** 	I2C_MasterClearStatus();
+ 380              		.loc 1 353 0
  381 002c FFF7FEFF 		bl	I2C_MasterClearStatus
  382              	.LVL56:
- 345:FrontPanel.c  **** }
- 383              		.loc 1 345 0
+ 354:FrontPanel.c  **** }
+ 383              		.loc 1 354 0
  384 0030 02B0     		add	sp, sp, #8
  385              		.cfi_def_cfa_offset 16
  386              		@ sp needed
@@ -828,8 +837,11 @@ ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 1
  396              		.type	init_FrontPanel, %function
  397              	init_FrontPanel:
  398              	.LFB63:
-  32:FrontPanel.c  **** 	uint8 chipAddr;
- 399              		.loc 1 32 0
+  36:FrontPanel.c  **** 	uint8 chipAddr;
+ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\ccOlmfcj.s 			page 15
+
+
+ 399              		.loc 1 36 0
  400              		.cfi_startproc
  401              		@ args = 0, pretend = 0, frame = 0
  402              		@ frame_needed = 0, uses_anonymous_args = 0
@@ -838,129 +850,126 @@ ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 1
  405              		.cfi_offset 4, -8
  406              		.cfi_offset 14, -4
  407              	.LVL57:
-ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 15
-
-
-  34:FrontPanel.c  **** 	{
- 408              		.loc 1 34 0
+  38:FrontPanel.c  **** 	{
+ 408              		.loc 1 38 0
  409 0002 2424     		movs	r4, #36
  410 0004 37E0     		b	.L33
  411              	.LVL58:
  412              	.L34:
-  36:FrontPanel.c  **** 		writeRegister_MCP23017(chipAddr,MCP23017_IODIRB_REGADR,MCP23017_IODIR_ALL_OUTS);    // IO: Port B
- 413              		.loc 1 36 0 discriminator 3
+  40:FrontPanel.c  **** 		writeRegister_MCP23017(chipAddr,MCP23017_IODIRB_REGADR,MCP23017_IODIR_ALL_OUTS);    // IO: Port B
+ 413              		.loc 1 40 0 discriminator 3
  414 0006 FF22     		movs	r2, #255
  415 0008 0021     		movs	r1, #0
  416 000a 2046     		mov	r0, r4
  417 000c FFF7FEFF 		bl	writeRegister_MCP23017
  418              	.LVL59:
-  37:FrontPanel.c  **** 		writeRegister_MCP23017(chipAddr,MCP23017_IPOLA_REGADR,MCP23017_IPOL_INVERT);        // IP: Invert
- 419              		.loc 1 37 0 discriminator 3
+  41:FrontPanel.c  **** 		writeRegister_MCP23017(chipAddr,MCP23017_IPOLA_REGADR,MCP23017_IPOL_INVERT);        // IP: Invert
+ 419              		.loc 1 41 0 discriminator 3
  420 0010 0022     		movs	r2, #0
  421 0012 0121     		movs	r1, #1
  422 0014 2046     		mov	r0, r4
  423 0016 FFF7FEFF 		bl	writeRegister_MCP23017
  424              	.LVL60:
-  38:FrontPanel.c  **** 		writeRegister_MCP23017(chipAddr,MCP23017_GPINTENA_REGADR,MCP23017_GPINTEN_ENABLE);  // GPINT: Ena
- 425              		.loc 1 38 0 discriminator 3
+  42:FrontPanel.c  **** 		writeRegister_MCP23017(chipAddr,MCP23017_GPINTENA_REGADR,MCP23017_GPINTEN_ENABLE);  // GPINT: Ena
+ 425              		.loc 1 42 0 discriminator 3
  426 001a FF22     		movs	r2, #255
  427 001c 0221     		movs	r1, #2
  428 001e 2046     		mov	r0, r4
  429 0020 FFF7FEFF 		bl	writeRegister_MCP23017
  430              	.LVL61:
-  39:FrontPanel.c  **** 		writeRegister_MCP23017(chipAddr,MCP23017_GPINTENB_REGADR,MCP23017_GPINTEN_DISABLE); // GPINT: Dis
- 431              		.loc 1 39 0 discriminator 3
+  43:FrontPanel.c  **** 		writeRegister_MCP23017(chipAddr,MCP23017_GPINTENB_REGADR,MCP23017_GPINTEN_DISABLE); // GPINT: Dis
+ 431              		.loc 1 43 0 discriminator 3
  432 0024 FF22     		movs	r2, #255
  433 0026 0421     		movs	r1, #4
  434 0028 2046     		mov	r0, r4
  435 002a FFF7FEFF 		bl	writeRegister_MCP23017
  436              	.LVL62:
-  40:FrontPanel.c  **** 		writeRegister_MCP23017(chipAddr,MCP23017_DEFVALA_REGADR,MCP23017_DEFVALA_DEFVAL);   // Default va
- 437              		.loc 1 40 0 discriminator 3
+  44:FrontPanel.c  **** 		writeRegister_MCP23017(chipAddr,MCP23017_DEFVALA_REGADR,MCP23017_DEFVALA_DEFVAL);   // Default va
+ 437              		.loc 1 44 0 discriminator 3
  438 002e 0022     		movs	r2, #0
  439 0030 0521     		movs	r1, #5
  440 0032 2046     		mov	r0, r4
  441 0034 FFF7FEFF 		bl	writeRegister_MCP23017
  442              	.LVL63:
-  41:FrontPanel.c  **** 		writeRegister_MCP23017(chipAddr,MCP23017_INTCONA_REGADR,MCP23017_INTCON_PREVPIN);    // Int for c
- 443              		.loc 1 41 0 discriminator 3
+  45:FrontPanel.c  **** 		writeRegister_MCP23017(chipAddr,MCP23017_INTCONA_REGADR,MCP23017_INTCON_PREVPIN);    // Int for c
+ 443              		.loc 1 45 0 discriminator 3
  444 0038 0022     		movs	r2, #0
  445 003a 0621     		movs	r1, #6
  446 003c 2046     		mov	r0, r4
  447 003e FFF7FEFF 		bl	writeRegister_MCP23017
  448              	.LVL64:
-  42:FrontPanel.c  **** 		writeRegister_MCP23017(chipAddr,MCP23017_IOCONA_REGADR,MCP23017_IOCON_DEFVAL);      
- 449              		.loc 1 42 0 discriminator 3
+ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\ccOlmfcj.s 			page 16
+
+
+  46:FrontPanel.c  **** 		writeRegister_MCP23017(chipAddr,MCP23017_IOCONA_REGADR,MCP23017_IOCON_DEFVAL);      
+ 449              		.loc 1 46 0 discriminator 3
  450 0042 0022     		movs	r2, #0
  451 0044 0821     		movs	r1, #8
  452 0046 2046     		mov	r0, r4
  453 0048 FFF7FEFF 		bl	writeRegister_MCP23017
  454              	.LVL65:
-  43:FrontPanel.c  ****         // BANK: Register addresses are in the same bank (addresses are sequential)
- 455              		.loc 1 43 0 discriminator 3
-ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 16
-
-
+  47:FrontPanel.c  ****         // BANK: Register addresses are in the same bank (addresses are sequential)
+ 455              		.loc 1 47 0 discriminator 3
  456 004c 0422     		movs	r2, #4
  457 004e 0A21     		movs	r1, #10
  458 0050 2046     		mov	r0, r4
  459 0052 FFF7FEFF 		bl	writeRegister_MCP23017
  460              	.LVL66:
-  50:FrontPanel.c  **** 		writeRegister_MCP23017(chipAddr,MCP23017_GPPUA_REGADR,MCP23017_GPPU_ENABLE);        // Pull-up to
- 461              		.loc 1 50 0 discriminator 3
+  54:FrontPanel.c  **** 		writeRegister_MCP23017(chipAddr,MCP23017_GPPUA_REGADR,MCP23017_GPPU_ENABLE);        // Pull-up to
+ 461              		.loc 1 54 0 discriminator 3
  462 0056 0422     		movs	r2, #4
  463 0058 0B21     		movs	r1, #11
  464 005a 2046     		mov	r0, r4
  465 005c FFF7FEFF 		bl	writeRegister_MCP23017
  466              	.LVL67:
-  51:FrontPanel.c  **** 		readRegister_MCP23017(chipAddr,MCP23017_INTCAPA_REGADR);                            // Clears int
- 467              		.loc 1 51 0 discriminator 3
+  55:FrontPanel.c  **** 		readRegister_MCP23017(chipAddr,MCP23017_INTCAPA_REGADR);                            // Clears int
+ 467              		.loc 1 55 0 discriminator 3
  468 0060 FF22     		movs	r2, #255
  469 0062 0C21     		movs	r1, #12
  470 0064 2046     		mov	r0, r4
  471 0066 FFF7FEFF 		bl	writeRegister_MCP23017
  472              	.LVL68:
-  52:FrontPanel.c  **** 	}
- 473              		.loc 1 52 0 discriminator 3
+  56:FrontPanel.c  **** 	}
+ 473              		.loc 1 56 0 discriminator 3
  474 006a 1021     		movs	r1, #16
  475 006c 2046     		mov	r0, r4
  476 006e FFF7FEFF 		bl	readRegister_MCP23017
  477              	.LVL69:
-  34:FrontPanel.c  **** 	{
- 478              		.loc 1 34 0 discriminator 3
+  38:FrontPanel.c  **** 	{
+ 478              		.loc 1 38 0 discriminator 3
  479 0072 0134     		adds	r4, r4, #1
  480              	.LVL70:
  481 0074 E4B2     		uxtb	r4, r4
  482              	.LVL71:
  483              	.L33:
-  34:FrontPanel.c  **** 	{
- 484              		.loc 1 34 0 is_stmt 0 discriminator 1
+  38:FrontPanel.c  **** 	{
+ 484              		.loc 1 38 0 is_stmt 0 discriminator 1
  485 0076 272C     		cmp	r4, #39
  486 0078 C5D9     		bls	.L34
-  54:FrontPanel.c  **** 	FPAddr = 0;
- 487              		.loc 1 54 0 is_stmt 1
+  58:FrontPanel.c  **** 	FPAddr = 0;
+ 487              		.loc 1 58 0 is_stmt 1
  488 007a 0023     		movs	r3, #0
  489 007c 044A     		ldr	r2, .L36
  490 007e 1370     		strb	r3, [r2]
-  55:FrontPanel.c  **** 	FPCtrl = 0;
- 491              		.loc 1 55 0
+  59:FrontPanel.c  **** 	FPCtrl = 0;
+ 491              		.loc 1 59 0
  492 0080 044A     		ldr	r2, .L36+4
  493 0082 1380     		strh	r3, [r2]	@ movhi
-  56:FrontPanel.c  **** 	FPLong = 0;
- 494              		.loc 1 56 0
+  60:FrontPanel.c  **** 	FPLong = 0;
+ 494              		.loc 1 60 0
  495 0084 044A     		ldr	r2, .L36+8
+ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\ccOlmfcj.s 			page 17
+
+
  496 0086 1370     		strb	r3, [r2]
-  57:FrontPanel.c  **** }
- 497              		.loc 1 57 0
+  61:FrontPanel.c  **** }
+ 497              		.loc 1 61 0
  498 0088 044A     		ldr	r2, .L36+12
  499 008a 1360     		str	r3, [r2]
  500 008c 10BD     		pop	{r4, pc}
  501              	.LVL72:
  502              	.L37:
  503 008e 00BF     		.align	2
-ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 17
-
-
  504              	.L36:
  505 0090 00000000 		.word	FPData
  506 0094 00000000 		.word	FPAddr
@@ -977,8 +986,8 @@ ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 1
  517              		.type	writeFrontPanelLEDs, %function
  518              	writeFrontPanelLEDs:
  519              	.LFB70:
- 302:FrontPanel.c  **** 	writeRegister_MCP23017(MCP23017_0,MCP23017_OLATB_REGADR,((ledsVal>>24) & 0xff));
- 520              		.loc 1 302 0
+ 310:FrontPanel.c  **** 	writeRegister_MCP23017(MCP23017_0,MCP23017_OLATB_REGADR,((ledsVal>>24) & 0xff));
+ 520              		.loc 1 310 0
  521              		.cfi_startproc
  522              		@ args = 0, pretend = 0, frame = 0
  523              		@ frame_needed = 0, uses_anonymous_args = 0
@@ -988,39 +997,39 @@ ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 1
  527              		.cfi_offset 4, -8
  528              		.cfi_offset 14, -4
  529 0002 0446     		mov	r4, r0
- 303:FrontPanel.c  **** 	writeRegister_MCP23017(MCP23017_1,MCP23017_OLATB_REGADR,((ledsVal>>16) & 0xff));
- 530              		.loc 1 303 0
+ 311:FrontPanel.c  **** 	writeRegister_MCP23017(MCP23017_1,MCP23017_OLATB_REGADR,((ledsVal>>16) & 0xff));
+ 530              		.loc 1 311 0
  531 0004 020E     		lsrs	r2, r0, #24
  532 0006 1521     		movs	r1, #21
  533 0008 2420     		movs	r0, #36
  534              	.LVL74:
  535 000a FFF7FEFF 		bl	writeRegister_MCP23017
  536              	.LVL75:
- 304:FrontPanel.c  **** 	writeRegister_MCP23017(MCP23017_2,MCP23017_OLATB_REGADR,((ledsVal>>8) & 0xff));
- 537              		.loc 1 304 0
+ 312:FrontPanel.c  **** 	writeRegister_MCP23017(MCP23017_2,MCP23017_OLATB_REGADR,((ledsVal>>8) & 0xff));
+ 537              		.loc 1 312 0
  538 000e C4F30742 		ubfx	r2, r4, #16, #8
  539 0012 1521     		movs	r1, #21
  540 0014 2520     		movs	r0, #37
  541 0016 FFF7FEFF 		bl	writeRegister_MCP23017
  542              	.LVL76:
- 305:FrontPanel.c  **** 	writeRegister_MCP23017(MCP23017_3,MCP23017_OLATB_REGADR,ledsVal&0xff);
- 543              		.loc 1 305 0
+ 313:FrontPanel.c  **** 	writeRegister_MCP23017(MCP23017_3,MCP23017_OLATB_REGADR,ledsVal&0xff);
+ 543              		.loc 1 313 0
  544 001a C4F30722 		ubfx	r2, r4, #8, #8
  545 001e 1521     		movs	r1, #21
  546 0020 2620     		movs	r0, #38
  547 0022 FFF7FEFF 		bl	writeRegister_MCP23017
+ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\ccOlmfcj.s 			page 18
+
+
  548              	.LVL77:
- 306:FrontPanel.c  **** }
- 549              		.loc 1 306 0
+ 314:FrontPanel.c  **** }
+ 549              		.loc 1 314 0
  550 0026 E2B2     		uxtb	r2, r4
  551 0028 1521     		movs	r1, #21
  552 002a 2720     		movs	r0, #39
  553 002c FFF7FEFF 		bl	writeRegister_MCP23017
  554              	.LVL78:
  555 0030 10BD     		pop	{r4, pc}
-ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 18
-
-
  556              		.cfi_endproc
  557              	.LFE70:
  558              		.size	writeFrontPanelLEDs, .-writeFrontPanelLEDs
@@ -1032,8 +1041,8 @@ ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 1
  564              		.type	FrontPanelZ80Write, %function
  565              	FrontPanelZ80Write:
  566              	.LFB65:
-  92:FrontPanel.c  **** 	uint32 outVal = Z80_Data_Out_Read();
- 567              		.loc 1 92 0
+  98:FrontPanel.c  **** 	uint32 outVal = Z80_Data_Out_Read();
+ 567              		.loc 1 98 0
  568              		.cfi_startproc
  569              		@ args = 0, pretend = 0, frame = 0
  570              		@ frame_needed = 0, uses_anonymous_args = 0
@@ -1043,12 +1052,12 @@ ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 1
  574              		.cfi_offset 4, -8
  575              		.cfi_offset 14, -4
  576 0002 0446     		mov	r4, r0
-  93:FrontPanel.c  **** 	switch (portSelect & 0x3)
- 577              		.loc 1 93 0
+  99:FrontPanel.c  **** 	switch (portSelect & 0x3)
+ 577              		.loc 1 99 0
  578 0004 FFF7FEFF 		bl	Z80_Data_Out_Read
  579              	.LVL80:
-  94:FrontPanel.c  **** 	{
- 580              		.loc 1 94 0
+ 100:FrontPanel.c  **** 	{
+ 580              		.loc 1 100 0
  581 0008 04F00303 		and	r3, r4, #3
  582 000c 032B     		cmp	r3, #3
  583 000e 21D8     		bhi	.L41
@@ -1060,50 +1069,50 @@ ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 1
  589 0017 19       		.byte	(.L46-.L43)/2
  590              		.p2align 1
  591              	.L42:
-  97:FrontPanel.c  **** 		break;
- 592              		.loc 1 97 0
+ 103:FrontPanel.c  **** 		break;
+ 592              		.loc 1 103 0
  593 0018 124A     		ldr	r2, .L48
  594 001a 1368     		ldr	r3, [r2]
  595 001c 23F0FF03 		bic	r3, r3, #255
  596 0020 1843     		orrs	r0, r0, r3
  597              	.LVL81:
  598 0022 1060     		str	r0, [r2]
-  98:FrontPanel.c  **** 	case 1:
- 599              		.loc 1 98 0
+ 104:FrontPanel.c  **** 	case 1:
+ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\ccOlmfcj.s 			page 19
+
+
+ 599              		.loc 1 104 0
  600 0024 16E0     		b	.L41
  601              	.LVL82:
  602              	.L44:
- 100:FrontPanel.c  **** 		break;
- 603              		.loc 1 100 0
+ 106:FrontPanel.c  **** 		break;
+ 603              		.loc 1 106 0
  604 0026 0F4A     		ldr	r2, .L48
  605 0028 1368     		ldr	r3, [r2]
  606 002a 23F47F43 		bic	r3, r3, #65280
-ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 19
-
-
  607 002e 43EA0020 		orr	r0, r3, r0, lsl #8
  608              	.LVL83:
  609 0032 1060     		str	r0, [r2]
- 101:FrontPanel.c  **** 	case 2:
- 610              		.loc 1 101 0
+ 107:FrontPanel.c  **** 	case 2:
+ 610              		.loc 1 107 0
  611 0034 0EE0     		b	.L41
  612              	.LVL84:
  613              	.L45:
- 103:FrontPanel.c  **** 		break;
- 614              		.loc 1 103 0
+ 109:FrontPanel.c  **** 		break;
+ 614              		.loc 1 109 0
  615 0036 0B4A     		ldr	r2, .L48
  616 0038 1368     		ldr	r3, [r2]
  617 003a 23F47F03 		bic	r3, r3, #16711680
  618 003e 43EA0040 		orr	r0, r3, r0, lsl #16
  619              	.LVL85:
  620 0042 1060     		str	r0, [r2]
- 104:FrontPanel.c  **** 	case 3:
- 621              		.loc 1 104 0
+ 110:FrontPanel.c  **** 	case 3:
+ 621              		.loc 1 110 0
  622 0044 06E0     		b	.L41
  623              	.LVL86:
  624              	.L46:
- 106:FrontPanel.c  **** 		break;
- 625              		.loc 1 106 0
+ 112:FrontPanel.c  **** 		break;
+ 625              		.loc 1 112 0
  626 0046 074A     		ldr	r2, .L48
  627 0048 1368     		ldr	r3, [r2]
  628 004a 23F07F43 		bic	r3, r3, #-16777216
@@ -1111,14 +1120,14 @@ ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 1
  630              	.LVL87:
  631 0052 1060     		str	r0, [r2]
  632              	.L41:
- 109:FrontPanel.c  **** 	ackIO();
- 633              		.loc 1 109 0
+ 115:FrontPanel.c  **** 	ackIO();
+ 633              		.loc 1 115 0
  634 0054 034B     		ldr	r3, .L48
  635 0056 1868     		ldr	r0, [r3]
  636 0058 FFF7FEFF 		bl	writeFrontPanelLEDs
  637              	.LVL88:
- 110:FrontPanel.c  **** }
- 638              		.loc 1 110 0
+ 116:FrontPanel.c  **** }
+ 638              		.loc 1 116 0
  639 005c FFF7FEFF 		bl	ackIO
  640              	.LVL89:
  641 0060 10BD     		pop	{r4, pc}
@@ -1129,6 +1138,9 @@ ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 1
  646              		.cfi_endproc
  647              	.LFE65:
  648              		.size	FrontPanelZ80Write, .-FrontPanelZ80Write
+ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\ccOlmfcj.s 			page 20
+
+
  649              		.section	.text.runFrontPanel,"ax",%progbits
  650              		.align	2
  651              		.global	runFrontPanel
@@ -1137,11 +1149,8 @@ ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 1
  654              		.type	runFrontPanel, %function
  655              	runFrontPanel:
  656              	.LFB66:
- 120:FrontPanel.c  **** 	uint32 switchesVal = 0;
-ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 20
-
-
- 657              		.loc 1 120 0
+ 126:FrontPanel.c  **** 	uint32 switchesVal = 0;
+ 657              		.loc 1 126 0
  658              		.cfi_startproc
  659              		@ args = 0, pretend = 0, frame = 0
  660              		@ frame_needed = 0, uses_anonymous_args = 0
@@ -1150,347 +1159,350 @@ ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 1
  663              		.cfi_offset 4, -8
  664              		.cfi_offset 14, -4
  665              	.LVL90:
- 123:FrontPanel.c  **** 	
- 666              		.loc 1 123 0
+ 129:FrontPanel.c  **** 	
+ 666              		.loc 1 129 0
  667 0002 684C     		ldr	r4, .L65
  668 0004 0023     		movs	r3, #0
  669 0006 2360     		str	r3, [r4]
- 126:FrontPanel.c  **** 	// Bounce LEDs
- 670              		.loc 1 126 0
+ 132:FrontPanel.c  **** 	// Quickly bounce LEDs from the least significant to most significant bit
+ 670              		.loc 1 132 0
  671 0008 FFF7FEFF 		bl	init_FrontPanel
  672              	.LVL91:
- 128:FrontPanel.c  **** 	{
- 673              		.loc 1 128 0
+ 134:FrontPanel.c  **** 	{
+ 673              		.loc 1 134 0
  674 000c 0123     		movs	r3, #1
  675 000e 2360     		str	r3, [r4]
  676 0010 08E0     		b	.L51
  677              	.L52:
- 130:FrontPanel.c  **** 		CyDelay(50);
- 678              		.loc 1 130 0 discriminator 3
+ 136:FrontPanel.c  **** 		CyDelay(50);
+ 678              		.loc 1 136 0 discriminator 3
  679 0012 FFF7FEFF 		bl	writeFrontPanelLEDs
  680              	.LVL92:
- 131:FrontPanel.c  **** 	}
- 681              		.loc 1 131 0 discriminator 3
+ 137:FrontPanel.c  **** 	}
+ 681              		.loc 1 137 0 discriminator 3
  682 0016 3220     		movs	r0, #50
  683 0018 FFF7FEFF 		bl	CyDelay
  684              	.LVL93:
- 128:FrontPanel.c  **** 	{
- 685              		.loc 1 128 0 discriminator 3
+ 134:FrontPanel.c  **** 	{
+ 685              		.loc 1 134 0 discriminator 3
  686 001c 614A     		ldr	r2, .L65
  687 001e 1368     		ldr	r3, [r2]
  688 0020 5B00     		lsls	r3, r3, #1
  689 0022 1360     		str	r3, [r2]
  690              	.L51:
- 128:FrontPanel.c  **** 	{
- 691              		.loc 1 128 0 is_stmt 0 discriminator 1
+ 134:FrontPanel.c  **** 	{
+ 691              		.loc 1 134 0 is_stmt 0 discriminator 1
  692 0024 5F4B     		ldr	r3, .L65
  693 0026 1868     		ldr	r0, [r3]
  694 0028 0028     		cmp	r0, #0
  695 002a F2D1     		bne	.L52
- 133:FrontPanel.c  **** 	writeFrontPanelLEDs(LEDsVal);       // clears LEDs
- 696              		.loc 1 133 0 is_stmt 1
+ 140:FrontPanel.c  **** 	writeFrontPanelLEDs(LEDsVal);   // clears address LEDs
+ 696              		.loc 1 140 0 is_stmt 1
+ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\ccOlmfcj.s 			page 21
+
+
  697 002c FFF7FEFF 		bl	ReadExtSRAM
  698              	.LVL94:
  699 0030 5C4A     		ldr	r2, .L65
  700 0032 1368     		ldr	r3, [r2]
  701 0034 1843     		orrs	r0, r0, r3
  702 0036 1060     		str	r0, [r2]
- 134:FrontPanel.c  **** 	for(;;)                     // Loop forever
- 703              		.loc 1 134 0
+ 141:FrontPanel.c  **** 	for(;;)                         // Exit loop on particular button presses
+ 703              		.loc 1 141 0
  704 0038 FFF7FEFF 		bl	writeFrontPanelLEDs
-ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 21
-
-
  705              	.LVL95:
  706              	.L53:
- 137:FrontPanel.c  **** 		if ((switchesVal & 0xff000000) != 0)    // Control switch on top row was pressed
- 707              		.loc 1 137 0
+ 144:FrontPanel.c  **** 		if ((switchesVal & 0xff000000) != 0)    // Control switch on top row was pressed
+ 707              		.loc 1 144 0
  708 003c FFF7FEFF 		bl	waitFrontPanelSwitchesPressed
  709              	.LVL96:
- 138:FrontPanel.c  **** 		{
- 710              		.loc 1 138 0
+ 145:FrontPanel.c  **** 		{
+ 710              		.loc 1 145 0
  711 0040 10F07F4F 		tst	r0, #-16777216
  712 0044 00F0A780 		beq	.L54
- 140:FrontPanel.c  **** 			{
- 713              		.loc 1 140 0
+ 147:FrontPanel.c  **** 			{
+ 713              		.loc 1 147 0
  714 0048 10F0807F 		tst	r0, #16777216
  715 004c 17D0     		beq	.L55
- 142:FrontPanel.c  **** 				writeFrontPanelLEDs(LEDsVal);
- 716              		.loc 1 142 0
+ 149:FrontPanel.c  **** 				writeFrontPanelLEDs(LEDsVal);
+ 716              		.loc 1 149 0
  717 004e 554C     		ldr	r4, .L65
  718 0050 2068     		ldr	r0, [r4]
  719              	.LVL97:
  720 0052 40F08070 		orr	r0, r0, #16777216
  721 0056 2060     		str	r0, [r4]
- 143:FrontPanel.c  **** 				LEDsVal += 0x00000100;
- 722              		.loc 1 143 0
+ 150:FrontPanel.c  **** 				LEDsVal += 0x00000100;
+ 722              		.loc 1 150 0
  723 0058 FFF7FEFF 		bl	writeFrontPanelLEDs
  724              	.LVL98:
- 144:FrontPanel.c  **** 				LEDsVal &= 0x00ffff00;
- 725              		.loc 1 144 0
+ 151:FrontPanel.c  **** 				LEDsVal &= 0x00ffff00;
+ 725              		.loc 1 151 0
  726 005c 2068     		ldr	r0, [r4]
  727 005e 00F58070 		add	r0, r0, #256
- 145:FrontPanel.c  **** 				LEDsVal |= ReadExtSRAM((LEDsVal >> 8) & 0xffff);
- 728              		.loc 1 145 0
+ 152:FrontPanel.c  **** 				LEDsVal |= ReadExtSRAM((LEDsVal >> 8) & 0xffff);
+ 728              		.loc 1 152 0
  729 0062 20F07F40 		bic	r0, r0, #-16777216
  730 0066 20F0FF00 		bic	r0, r0, #255
  731 006a 2060     		str	r0, [r4]
- 146:FrontPanel.c  **** 				writeFrontPanelLEDs(LEDsVal);
- 732              		.loc 1 146 0
+ 153:FrontPanel.c  **** 				writeFrontPanelLEDs(LEDsVal);
+ 732              		.loc 1 153 0
  733 006c 000A     		lsrs	r0, r0, #8
  734 006e FFF7FEFF 		bl	ReadExtSRAM
  735              	.LVL99:
  736 0072 2368     		ldr	r3, [r4]
  737 0074 1843     		orrs	r0, r0, r3
  738 0076 2060     		str	r0, [r4]
- 147:FrontPanel.c  **** 			}
- 739              		.loc 1 147 0
+ 154:FrontPanel.c  **** 			}
+ 739              		.loc 1 154 0
  740 0078 FFF7FEFF 		bl	writeFrontPanelLEDs
  741              	.LVL100:
  742 007c DEE7     		b	.L53
  743              	.LVL101:
+ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\ccOlmfcj.s 			page 22
+
+
  744              	.L55:
- 149:FrontPanel.c  **** 			{
- 745              		.loc 1 149 0
+ 156:FrontPanel.c  **** 			{
+ 745              		.loc 1 156 0
  746 007e 10F0007F 		tst	r0, #33554432
  747 0082 1DD0     		beq	.L57
- 151:FrontPanel.c  **** 				writeFrontPanelLEDs(LEDsVal);
- 748              		.loc 1 151 0
+ 158:FrontPanel.c  **** 				writeFrontPanelLEDs(LEDsVal);
+ 748              		.loc 1 158 0
  749 0084 474C     		ldr	r4, .L65
  750 0086 2068     		ldr	r0, [r4]
-ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 22
-
-
  751              	.LVL102:
  752 0088 40F00070 		orr	r0, r0, #33554432
  753 008c 2060     		str	r0, [r4]
- 152:FrontPanel.c  **** 				WriteExtSRAM((LEDsVal >> 8) & 0xffff,LEDsVal&0xff);
- 754              		.loc 1 152 0
+ 159:FrontPanel.c  **** 				WriteExtSRAM((LEDsVal >> 8) & 0xffff,LEDsVal&0xff);
+ 754              		.loc 1 159 0
  755 008e FFF7FEFF 		bl	writeFrontPanelLEDs
  756              	.LVL103:
- 153:FrontPanel.c  **** 				LEDsVal += 0x00000100;
- 757              		.loc 1 153 0
+ 160:FrontPanel.c  **** 				LEDsVal += 0x00000100;
+ 757              		.loc 1 160 0
  758 0092 2068     		ldr	r0, [r4]
  759 0094 C1B2     		uxtb	r1, r0
  760 0096 C0F30F20 		ubfx	r0, r0, #8, #16
  761 009a FFF7FEFF 		bl	WriteExtSRAM
  762              	.LVL104:
- 154:FrontPanel.c  **** 				LEDsVal &= 0x00ffff00;
- 763              		.loc 1 154 0
+ 161:FrontPanel.c  **** 				LEDsVal &= 0x00ffff00;
+ 763              		.loc 1 161 0
  764 009e 2068     		ldr	r0, [r4]
  765 00a0 00F58070 		add	r0, r0, #256
- 155:FrontPanel.c  **** 				LEDsVal |= ReadExtSRAM((LEDsVal >> 8) & 0xffff);
- 766              		.loc 1 155 0
+ 162:FrontPanel.c  **** 				LEDsVal |= ReadExtSRAM((LEDsVal >> 8) & 0xffff);
+ 766              		.loc 1 162 0
  767 00a4 20F07F40 		bic	r0, r0, #-16777216
  768 00a8 20F0FF00 		bic	r0, r0, #255
  769 00ac 2060     		str	r0, [r4]
- 156:FrontPanel.c  **** 				writeFrontPanelLEDs(LEDsVal);
- 770              		.loc 1 156 0
+ 163:FrontPanel.c  **** 				writeFrontPanelLEDs(LEDsVal);
+ 770              		.loc 1 163 0
  771 00ae 000A     		lsrs	r0, r0, #8
  772 00b0 FFF7FEFF 		bl	ReadExtSRAM
  773              	.LVL105:
  774 00b4 2368     		ldr	r3, [r4]
  775 00b6 1843     		orrs	r0, r0, r3
  776 00b8 2060     		str	r0, [r4]
- 157:FrontPanel.c  **** 			}
- 777              		.loc 1 157 0
+ 164:FrontPanel.c  **** 			}
+ 777              		.loc 1 164 0
  778 00ba FFF7FEFF 		bl	writeFrontPanelLEDs
  779              	.LVL106:
  780 00be BDE7     		b	.L53
  781              	.LVL107:
  782              	.L57:
- 159:FrontPanel.c  **** 			{
- 783              		.loc 1 159 0
+ 166:FrontPanel.c  **** 			{
+ 783              		.loc 1 166 0
  784 00c0 10F0806F 		tst	r0, #67108864
  785 00c4 15D0     		beq	.L58
- 161:FrontPanel.c  **** 				writeFrontPanelLEDs(LEDsVal);
- 786              		.loc 1 161 0
+ 168:FrontPanel.c  **** 				writeFrontPanelLEDs(LEDsVal);
+ 786              		.loc 1 168 0
  787 00c6 374C     		ldr	r4, .L65
  788 00c8 2068     		ldr	r0, [r4]
  789              	.LVL108:
  790 00ca 40F08060 		orr	r0, r0, #67108864
+ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\ccOlmfcj.s 			page 23
+
+
  791 00ce 2060     		str	r0, [r4]
- 162:FrontPanel.c  **** 				LEDsVal &= 0x00ffff00;
- 792              		.loc 1 162 0
+ 169:FrontPanel.c  **** 				LEDsVal &= 0x00ffff00;
+ 792              		.loc 1 169 0
  793 00d0 FFF7FEFF 		bl	writeFrontPanelLEDs
  794              	.LVL109:
- 163:FrontPanel.c  **** 				LEDsVal |= ReadExtSRAM((LEDsVal >> 8) & 0xffff);
- 795              		.loc 1 163 0
+ 170:FrontPanel.c  **** 				LEDsVal |= ReadExtSRAM((LEDsVal >> 8) & 0xffff);
+ 795              		.loc 1 170 0
  796 00d4 2068     		ldr	r0, [r4]
  797 00d6 20F07F40 		bic	r0, r0, #-16777216
-ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 23
-
-
  798 00da 20F0FF00 		bic	r0, r0, #255
  799 00de 2060     		str	r0, [r4]
- 164:FrontPanel.c  **** 				writeFrontPanelLEDs(LEDsVal);
- 800              		.loc 1 164 0
+ 171:FrontPanel.c  **** 				writeFrontPanelLEDs(LEDsVal);
+ 800              		.loc 1 171 0
  801 00e0 000A     		lsrs	r0, r0, #8
  802 00e2 FFF7FEFF 		bl	ReadExtSRAM
  803              	.LVL110:
  804 00e6 2368     		ldr	r3, [r4]
  805 00e8 1843     		orrs	r0, r0, r3
  806 00ea 2060     		str	r0, [r4]
- 165:FrontPanel.c  **** 			}
- 807              		.loc 1 165 0
+ 172:FrontPanel.c  **** 			}
+ 807              		.loc 1 172 0
  808 00ec FFF7FEFF 		bl	writeFrontPanelLEDs
  809              	.LVL111:
  810 00f0 A4E7     		b	.L53
  811              	.LVL112:
  812              	.L58:
- 167:FrontPanel.c  **** 			{
- 813              		.loc 1 167 0
+ 174:FrontPanel.c  **** 			{
+ 813              		.loc 1 174 0
  814 00f2 10F0006F 		tst	r0, #134217728
  815 00f6 0AD0     		beq	.L59
- 169:FrontPanel.c  **** 				LEDsVal = 0x08000000;
- 816              		.loc 1 169 0
+ 176:FrontPanel.c  **** 				LEDsVal = 0x08000000;
+ 816              		.loc 1 176 0
  817 00f8 0022     		movs	r2, #0
  818 00fa 2B4B     		ldr	r3, .L65+4
  819 00fc 1A70     		strb	r2, [r3]
- 170:FrontPanel.c  **** 				writeFrontPanelLEDs(LEDsVal);       // Leave Run LED on
- 820              		.loc 1 170 0
+ 177:FrontPanel.c  **** 				writeFrontPanelLEDs(LEDsVal);       // Leave Run LED on
+ 820              		.loc 1 177 0
  821 00fe 4FF00060 		mov	r0, #134217728
  822              	.LVL113:
  823 0102 284B     		ldr	r3, .L65
  824 0104 1860     		str	r0, [r3]
- 171:FrontPanel.c  **** 				return (1);
- 825              		.loc 1 171 0
+ 178:FrontPanel.c  **** 				return (1);
+ 825              		.loc 1 178 0
  826 0106 FFF7FEFF 		bl	writeFrontPanelLEDs
  827              	.LVL114:
- 172:FrontPanel.c  **** 			}
- 828              		.loc 1 172 0
+ 179:FrontPanel.c  **** 			}
+ 828              		.loc 1 179 0
  829 010a 0120     		movs	r0, #1
  830 010c 10BD     		pop	{r4, pc}
  831              	.LVL115:
  832              	.L59:
- 174:FrontPanel.c  **** 			{
- 833              		.loc 1 174 0
+ 181:FrontPanel.c  **** 			{
+ 833              		.loc 1 181 0
  834 010e 10F0805F 		tst	r0, #268435456
  835 0112 0FD0     		beq	.L61
- 176:FrontPanel.c  **** 				writeFrontPanelLEDs(LEDsVal);       // Leave LED on
- 836              		.loc 1 176 0
+ 183:FrontPanel.c  **** 				writeFrontPanelLEDs(LEDsVal);       // Leave LED on
+ 836              		.loc 1 183 0
+ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\ccOlmfcj.s 			page 24
+
+
  837 0114 234C     		ldr	r4, .L65
  838 0116 4FF08050 		mov	r0, #268435456
  839              	.LVL116:
  840 011a 2060     		str	r0, [r4]
- 177:FrontPanel.c  **** 				CyDelay(250);
- 841              		.loc 1 177 0
+ 184:FrontPanel.c  **** 				CyDelay(250);
+ 841              		.loc 1 184 0
  842 011c FFF7FEFF 		bl	writeFrontPanelLEDs
  843              	.LVL117:
- 178:FrontPanel.c  **** 				LEDsVal &= 0x00ffffff;
-ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 24
-
-
- 844              		.loc 1 178 0
+ 185:FrontPanel.c  **** 				LEDsVal &= 0x00ffffff;
+ 844              		.loc 1 185 0
  845 0120 FA20     		movs	r0, #250
  846 0122 FFF7FEFF 		bl	CyDelay
  847              	.LVL118:
- 179:FrontPanel.c  **** 				writeFrontPanelLEDs(LEDsVal);       // Turn off LED
- 848              		.loc 1 179 0
+ 186:FrontPanel.c  **** 				writeFrontPanelLEDs(LEDsVal);       // Turn off LED
+ 848              		.loc 1 186 0
  849 0126 2068     		ldr	r0, [r4]
  850 0128 20F07F40 		bic	r0, r0, #-16777216
  851 012c 2060     		str	r0, [r4]
- 180:FrontPanel.c  **** 			}
- 852              		.loc 1 180 0
+ 187:FrontPanel.c  **** 			}
+ 852              		.loc 1 187 0
  853 012e FFF7FEFF 		bl	writeFrontPanelLEDs
  854              	.LVL119:
  855 0132 83E7     		b	.L53
  856              	.LVL120:
  857              	.L61:
- 182:FrontPanel.c  **** 			{
- 858              		.loc 1 182 0
+ 189:FrontPanel.c  **** 			{
+ 858              		.loc 1 189 0
  859 0134 10F0005F 		tst	r0, #536870912
  860 0138 0FD0     		beq	.L62
- 184:FrontPanel.c  **** 				writeFrontPanelLEDs(LEDsVal);       // Leave LED on
- 861              		.loc 1 184 0
+ 191:FrontPanel.c  **** 				writeFrontPanelLEDs(LEDsVal);       // Leave LED on
+ 861              		.loc 1 191 0
  862 013a 1A4C     		ldr	r4, .L65
  863 013c 4FF00050 		mov	r0, #536870912
  864              	.LVL121:
  865 0140 2060     		str	r0, [r4]
- 185:FrontPanel.c  **** 				CyDelay(250);
- 866              		.loc 1 185 0
+ 192:FrontPanel.c  **** 				CyDelay(250);
+ 866              		.loc 1 192 0
  867 0142 FFF7FEFF 		bl	writeFrontPanelLEDs
  868              	.LVL122:
- 186:FrontPanel.c  **** 				LEDsVal &= 0x00ffffff;
- 869              		.loc 1 186 0
+ 193:FrontPanel.c  **** 				LEDsVal &= 0x00ffffff;
+ 869              		.loc 1 193 0
  870 0146 FA20     		movs	r0, #250
  871 0148 FFF7FEFF 		bl	CyDelay
  872              	.LVL123:
- 187:FrontPanel.c  **** 				writeFrontPanelLEDs(LEDsVal);       // Turn off LED
- 873              		.loc 1 187 0
+ 194:FrontPanel.c  **** 				writeFrontPanelLEDs(LEDsVal);       // Turn off LED
+ 873              		.loc 1 194 0
  874 014c 2068     		ldr	r0, [r4]
  875 014e 20F07F40 		bic	r0, r0, #-16777216
  876 0152 2060     		str	r0, [r4]
- 188:FrontPanel.c  **** 			}
- 877              		.loc 1 188 0
+ 195:FrontPanel.c  **** 			}
+ 877              		.loc 1 195 0
  878 0154 FFF7FEFF 		bl	writeFrontPanelLEDs
  879              	.LVL124:
  880 0158 70E7     		b	.L53
  881              	.LVL125:
  882              	.L62:
- 190:FrontPanel.c  **** 			{
- 883              		.loc 1 190 0
+ 197:FrontPanel.c  **** 			{
+ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\ccOlmfcj.s 			page 25
+
+
+ 883              		.loc 1 197 0
  884 015a 10F0804F 		tst	r0, #1073741824
  885 015e 0FD0     		beq	.L63
- 192:FrontPanel.c  **** 				writeFrontPanelLEDs(LEDsVal);       // Leave LED on
- 886              		.loc 1 192 0
+ 199:FrontPanel.c  **** 				writeFrontPanelLEDs(LEDsVal);       // Leave LED on
+ 886              		.loc 1 199 0
  887 0160 104C     		ldr	r4, .L65
  888 0162 4FF08040 		mov	r0, #1073741824
  889              	.LVL126:
  890 0166 2060     		str	r0, [r4]
-ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 25
-
-
- 193:FrontPanel.c  **** 				CyDelay(250);
- 891              		.loc 1 193 0
+ 200:FrontPanel.c  **** 				CyDelay(250);
+ 891              		.loc 1 200 0
  892 0168 FFF7FEFF 		bl	writeFrontPanelLEDs
  893              	.LVL127:
- 194:FrontPanel.c  **** 				LEDsVal &= 0x00ffffff;
- 894              		.loc 1 194 0
+ 201:FrontPanel.c  **** 				LEDsVal &= 0x00ffffff;
+ 894              		.loc 1 201 0
  895 016c FA20     		movs	r0, #250
  896 016e FFF7FEFF 		bl	CyDelay
  897              	.LVL128:
- 195:FrontPanel.c  **** 				writeFrontPanelLEDs(LEDsVal);       // Turn off LED
- 898              		.loc 1 195 0
+ 202:FrontPanel.c  **** 				writeFrontPanelLEDs(LEDsVal);       // Turn off LED
+ 898              		.loc 1 202 0
  899 0172 2068     		ldr	r0, [r4]
  900 0174 20F07F40 		bic	r0, r0, #-16777216
  901 0178 2060     		str	r0, [r4]
- 196:FrontPanel.c  **** 			}
- 902              		.loc 1 196 0
+ 203:FrontPanel.c  **** 			}
+ 902              		.loc 1 203 0
  903 017a FFF7FEFF 		bl	writeFrontPanelLEDs
  904              	.LVL129:
  905 017e 5DE7     		b	.L53
  906              	.LVL130:
  907              	.L63:
- 198:FrontPanel.c  **** 			{
- 908              		.loc 1 198 0
+ 205:FrontPanel.c  **** 			{
+ 908              		.loc 1 205 0
  909 0180 0028     		cmp	r0, #0
  910 0182 BFF65BAF 		bge	.L53
- 200:FrontPanel.c  **** 				writeFrontPanelLEDs(LEDsVal);       // Leave LED on
- 911              		.loc 1 200 0
+ 207:FrontPanel.c  **** 				writeFrontPanelLEDs(LEDsVal);       // Leave LED on
+ 911              		.loc 1 207 0
  912 0186 4FF00040 		mov	r0, #-2147483648
  913              	.LVL131:
  914 018a 064B     		ldr	r3, .L65
  915 018c 1860     		str	r0, [r3]
- 201:FrontPanel.c  **** 				return(0);                          // Z80 still in reset
- 916              		.loc 1 201 0
+ 208:FrontPanel.c  **** 				return(0);                          // Z80 still in reset
+ 916              		.loc 1 208 0
  917 018e FFF7FEFF 		bl	writeFrontPanelLEDs
  918              	.LVL132:
- 202:FrontPanel.c  **** 			}
- 919              		.loc 1 202 0
+ 209:FrontPanel.c  **** 			}
+ 919              		.loc 1 209 0
  920 0192 0020     		movs	r0, #0
  921 0194 10BD     		pop	{r4, pc}
  922              	.LVL133:
  923              	.L54:
- 207:FrontPanel.c  **** 			writeFrontPanelLEDs(LEDsVal);
- 924              		.loc 1 207 0
+ 214:FrontPanel.c  **** 			writeFrontPanelLEDs(LEDsVal);
+ 924              		.loc 1 214 0
  925 0196 034A     		ldr	r2, .L65
  926 0198 1368     		ldr	r3, [r2]
  927 019a 5840     		eors	r0, r0, r3
  928              	.LVL134:
  929 019c 1060     		str	r0, [r2]
- 208:FrontPanel.c  **** 		}
- 930              		.loc 1 208 0
+ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\ccOlmfcj.s 			page 26
+
+
+ 215:FrontPanel.c  **** 		}
+ 930              		.loc 1 215 0
  931 019e FFF7FEFF 		bl	writeFrontPanelLEDs
  932              	.LVL135:
  933 01a2 4BE7     		b	.L53
@@ -1498,9 +1510,6 @@ ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 1
  935              		.align	2
  936              	.L65:
  937 01a4 00000000 		.word	LEDsVal
-ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 26
-
-
  938 01a8 75650040 		.word	1073767797
  939              		.cfi_endproc
  940              	.LFE66:
@@ -1549,6 +1558,9 @@ ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 1
  983 0035 05       		.byte	0x5
  984 0036 2D000000 		.4byte	.LASF2
  985 003a 02       		.uleb128 0x2
+ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\ccOlmfcj.s 			page 27
+
+
  986 003b 02       		.byte	0x2
  987 003c 07       		.byte	0x7
  988 003d 14020000 		.4byte	.LASF3
@@ -1558,9 +1570,6 @@ ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 1
  992 0047 3F       		.byte	0x3f
  993 0048 4C000000 		.4byte	0x4c
  994 004c 02       		.uleb128 0x2
-ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 27
-
-
  995 004d 04       		.byte	0x4
  996 004e 05       		.byte	0x5
  997 004f 00010000 		.4byte	.LASF4
@@ -1609,6 +1618,9 @@ ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 1
  1040 00a7 04       		.byte	0x4
  1041 00a8 BB000000 		.4byte	.LASF14
  1042 00ac 02       		.uleb128 0x2
+ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\ccOlmfcj.s 			page 28
+
+
  1043 00ad 08       		.byte	0x8
  1044 00ae 04       		.byte	0x4
  1045 00af 30030000 		.4byte	.LASF15
@@ -1618,9 +1630,6 @@ ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 1
  1049 00b6 27020000 		.4byte	.LASF16
  1050 00ba 05       		.uleb128 0x5
  1051 00bb 0E030000 		.4byte	.LASF17
-ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 28
-
-
  1052 00bf 04       		.byte	0x4
  1053 00c0 8E02     		.2byte	0x28e
  1054 00c2 C6000000 		.4byte	0xc6
@@ -1637,7 +1646,7 @@ ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 1
  1065 00d9 07       		.uleb128 0x7
  1066 00da 09010000 		.4byte	.LASF22
  1067 00de 01       		.byte	0x1
- 1068 00df 3C01     		.2byte	0x13c
+ 1068 00df 4401     		.2byte	0x144
  1069 00e1 81000000 		.4byte	0x81
  1070 00e5 00000000 		.4byte	.LFB71
  1071 00e9 38000000 		.4byte	.LFE71-.LFB71
@@ -1647,19 +1656,19 @@ ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 1
  1075 00f3 08       		.uleb128 0x8
  1076 00f4 B3020000 		.4byte	.LASF20
  1077 00f8 01       		.byte	0x1
- 1078 00f9 3C01     		.2byte	0x13c
+ 1078 00f9 4401     		.2byte	0x144
  1079 00fb 81000000 		.4byte	0x81
  1080 00ff 00000000 		.4byte	.LLST0
  1081 0103 08       		.uleb128 0x8
  1082 0104 00000000 		.4byte	.LASF21
  1083 0108 01       		.byte	0x1
- 1084 0109 3C01     		.2byte	0x13c
+ 1084 0109 4401     		.2byte	0x144
  1085 010b 81000000 		.4byte	0x81
  1086 010f 21000000 		.4byte	.LLST1
  1087 0113 09       		.uleb128 0x9
  1088 0114 C1000000 		.4byte	.LASF24
  1089 0118 01       		.byte	0x1
- 1090 0119 3E01     		.2byte	0x13e
+ 1090 0119 4601     		.2byte	0x146
  1091 011b 81000000 		.4byte	0x81
  1092 011f 01       		.uleb128 0x1
  1093 0120 54       		.byte	0x54
@@ -1669,6 +1678,9 @@ ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 1
  1097 012a 0B       		.uleb128 0xb
  1098 012b 12000000 		.4byte	.LVL2
  1099 012f 62080000 		.4byte	0x862
+ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\ccOlmfcj.s 			page 29
+
+
  1100 0133 43010000 		.4byte	0x143
  1101 0137 0C       		.uleb128 0xc
  1102 0138 01       		.uleb128 0x1
@@ -1678,9 +1690,6 @@ ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 1
  1106 013c 00       		.sleb128 0
  1107 013d 0C       		.uleb128 0xc
  1108 013e 01       		.uleb128 0x1
-ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 29
-
-
  1109 013f 51       		.byte	0x51
  1110 0140 01       		.uleb128 0x1
  1111 0141 30       		.byte	0x30
@@ -1729,18 +1738,18 @@ ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 1
  1154 018d 30000000 		.4byte	.LVL8
  1155 0191 78080000 		.4byte	0x878
  1156 0195 0A       		.uleb128 0xa
+ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\ccOlmfcj.s 			page 30
+
+
  1157 0196 34000000 		.4byte	.LVL9
  1158 019a 57080000 		.4byte	0x857
  1159 019e 00       		.byte	0
  1160 019f 07       		.uleb128 0x7
  1161 01a0 13030000 		.4byte	.LASF23
  1162 01a4 01       		.byte	0x1
- 1163 01a5 1D01     		.2byte	0x11d
+ 1163 01a5 2401     		.2byte	0x124
  1164 01a7 99000000 		.4byte	0x99
  1165 01ab 00000000 		.4byte	.LFB69
-ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 30
-
-
  1166 01af 30000000 		.4byte	.LFE69-.LFB69
  1167 01b3 01       		.uleb128 0x1
  1168 01b4 9C       		.byte	0x9c
@@ -1748,7 +1757,7 @@ ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 1
  1170 01b9 0D       		.uleb128 0xd
  1171 01ba F5000000 		.4byte	.LASF25
  1172 01be 01       		.byte	0x1
- 1173 01bf 1F01     		.2byte	0x11f
+ 1173 01bf 2601     		.2byte	0x126
  1174 01c1 99000000 		.4byte	0x99
  1175 01c5 42000000 		.4byte	.LLST2
  1176 01c9 0B       		.uleb128 0xb
@@ -1789,6 +1798,9 @@ ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 1
  1211 0204 14020000 		.4byte	0x214
  1212 0208 0C       		.uleb128 0xc
  1213 0209 01       		.uleb128 0x1
+ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\ccOlmfcj.s 			page 31
+
+
  1214 020a 50       		.byte	0x50
  1215 020b 02       		.uleb128 0x2
  1216 020c 08       		.byte	0x8
@@ -1798,9 +1810,6 @@ ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 1
  1220 0210 51       		.byte	0x51
  1221 0211 01       		.uleb128 0x1
  1222 0212 42       		.byte	0x42
-ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 31
-
-
  1223 0213 00       		.byte	0
  1224 0214 0E       		.uleb128 0xe
  1225 0215 2C000000 		.4byte	.LVL19
@@ -1821,7 +1830,7 @@ ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 1
  1240 022a 0F       		.uleb128 0xf
  1241 022b A1020000 		.4byte	.LASF37
  1242 022f 01       		.byte	0x1
- 1243 0230 3F       		.byte	0x3f
+ 1243 0230 44       		.byte	0x44
  1244 0231 00000000 		.4byte	.LFB64
  1245 0235 38000000 		.4byte	.LFE64-.LFB64
  1246 0239 01       		.uleb128 0x1
@@ -1830,25 +1839,28 @@ ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 1
  1249 023f 10       		.uleb128 0x10
  1250 0240 71030000 		.4byte	.LASF26
  1251 0244 01       		.byte	0x1
- 1252 0245 3F       		.byte	0x3f
+ 1252 0245 44       		.byte	0x44
  1253 0246 81000000 		.4byte	0x81
  1254 024a B3000000 		.4byte	.LLST3
  1255 024e 11       		.uleb128 0x11
  1256 024f 72000000 		.4byte	.LASF27
  1257 0253 01       		.byte	0x1
- 1258 0254 41       		.byte	0x41
+ 1258 0254 46       		.byte	0x46
  1259 0255 99000000 		.4byte	0x99
  1260 0259 D4000000 		.4byte	.LLST4
  1261 025d 11       		.uleb128 0x11
  1262 025e 85030000 		.4byte	.LASF28
  1263 0262 01       		.byte	0x1
- 1264 0263 42       		.byte	0x42
+ 1264 0263 47       		.byte	0x47
  1265 0264 81000000 		.4byte	0x81
  1266 0268 13010000 		.4byte	.LLST5
  1267 026c 0A       		.uleb128 0xa
  1268 026d 08000000 		.4byte	.LVL22
  1269 0271 9F010000 		.4byte	0x19f
  1270 0275 0A       		.uleb128 0xa
+ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\ccOlmfcj.s 			page 32
+
+
  1271 0276 32000000 		.4byte	.LVL32
  1272 027a 8E080000 		.4byte	0x88e
  1273 027e 0A       		.uleb128 0xa
@@ -1858,10 +1870,7 @@ ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 1
  1277 0288 12       		.uleb128 0x12
  1278 0289 2E040000 		.4byte	.LASF29
  1279 028d 01       		.byte	0x1
-ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 32
-
-
- 1280 028e DE       		.byte	0xde
+ 1280 028e E4       		.byte	0xe4
  1281 028f 99000000 		.4byte	0x99
  1282 0293 00000000 		.4byte	.LFB67
  1283 0297 34000000 		.4byte	.LFE67-.LFB67
@@ -1871,37 +1880,37 @@ ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 1
  1287 02a1 11       		.uleb128 0x11
  1288 02a2 56030000 		.4byte	.LASF30
  1289 02a6 01       		.byte	0x1
- 1290 02a7 E0       		.byte	0xe0
+ 1290 02a7 E6       		.byte	0xe6
  1291 02a8 99000000 		.4byte	0x99
  1292 02ac 52010000 		.4byte	.LLST6
  1293 02b0 13       		.uleb128 0x13
  1294 02b1 8C030000 		.4byte	.LASF31
  1295 02b5 01       		.byte	0x1
- 1296 02b6 E1       		.byte	0xe1
+ 1296 02b6 E7       		.byte	0xe7
  1297 02b7 99000000 		.4byte	0x99
  1298 02bb 00       		.byte	0
  1299 02bc 11       		.uleb128 0x11
  1300 02bd 37000000 		.4byte	.LASF32
  1301 02c1 01       		.byte	0x1
- 1302 02c2 E2       		.byte	0xe2
+ 1302 02c2 E8       		.byte	0xe8
  1303 02c3 99000000 		.4byte	0x99
  1304 02c7 91010000 		.4byte	.LLST7
  1305 02cb 11       		.uleb128 0x11
  1306 02cc 3F000000 		.4byte	.LASF33
  1307 02d0 01       		.byte	0x1
- 1308 02d1 E3       		.byte	0xe3
+ 1308 02d1 E9       		.byte	0xe9
  1309 02d2 99000000 		.4byte	0x99
  1310 02d6 E8010000 		.4byte	.LLST8
  1311 02da 11       		.uleb128 0x11
  1312 02db F1020000 		.4byte	.LASF34
  1313 02df 01       		.byte	0x1
- 1314 02e0 E4       		.byte	0xe4
+ 1314 02e0 EA       		.byte	0xea
  1315 02e1 99000000 		.4byte	0x99
  1316 02e5 29020000 		.4byte	.LLST9
  1317 02e9 13       		.uleb128 0x13
  1318 02ea 5C030000 		.4byte	.LASF35
  1319 02ee 01       		.byte	0x1
- 1320 02ef E5       		.byte	0xe5
+ 1320 02ef EB       		.byte	0xeb
  1321 02f0 81000000 		.4byte	0x81
  1322 02f4 00       		.byte	0
  1323 02f5 0A       		.uleb128 0xa
@@ -1909,6 +1918,9 @@ ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 1
  1325 02fa 9F010000 		.4byte	0x19f
  1326 02fe 0B       		.uleb128 0xb
  1327 02ff 1C000000 		.4byte	.LVL38
+ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\ccOlmfcj.s 			page 33
+
+
  1328 0303 A4080000 		.4byte	0x8a4
  1329 0307 11030000 		.4byte	0x311
  1330 030b 0C       		.uleb128 0xc
@@ -1918,16 +1930,13 @@ ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 1
  1334 030f 3A       		.byte	0x3a
  1335 0310 00       		.byte	0
  1336 0311 0A       		.uleb128 0xa
-ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 33
-
-
  1337 0312 24000000 		.4byte	.LVL41
  1338 0316 9F010000 		.4byte	0x19f
  1339 031a 00       		.byte	0
  1340 031b 07       		.uleb128 0x7
  1341 031c C2020000 		.4byte	.LASF36
  1342 0320 01       		.byte	0x1
- 1343 0321 0C01     		.2byte	0x10c
+ 1343 0321 1201     		.2byte	0x112
  1344 0323 99000000 		.4byte	0x99
  1345 0327 00000000 		.4byte	.LFB68
  1346 032b 24000000 		.4byte	.LFE68-.LFB68
@@ -1937,7 +1946,7 @@ ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 1
  1350 0335 0D       		.uleb128 0xd
  1351 0336 F5000000 		.4byte	.LASF25
  1352 033a 01       		.byte	0x1
- 1353 033b 0E01     		.2byte	0x10e
+ 1353 033b 1401     		.2byte	0x114
  1354 033d 99000000 		.4byte	0x99
  1355 0341 5F020000 		.4byte	.LLST10
  1356 0345 0A       		.uleb128 0xa
@@ -1950,7 +1959,7 @@ ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 1
  1363 0358 14       		.uleb128 0x14
  1364 0359 3F030000 		.4byte	.LASF38
  1365 035d 01       		.byte	0x1
- 1366 035e 5001     		.2byte	0x150
+ 1366 035e 5901     		.2byte	0x159
  1367 0360 00000000 		.4byte	.LFB72
  1368 0364 34000000 		.4byte	.LFE72-.LFB72
  1369 0368 01       		.uleb128 0x1
@@ -1959,28 +1968,28 @@ ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 1
  1372 036e 08       		.uleb128 0x8
  1373 036f B3020000 		.4byte	.LASF20
  1374 0373 01       		.byte	0x1
- 1375 0374 5001     		.2byte	0x150
+ 1375 0374 5901     		.2byte	0x159
  1376 0376 81000000 		.4byte	0x81
  1377 037a 9E020000 		.4byte	.LLST11
  1378 037e 08       		.uleb128 0x8
  1379 037f 00000000 		.4byte	.LASF21
  1380 0383 01       		.byte	0x1
- 1381 0384 5001     		.2byte	0x150
+ 1381 0384 5901     		.2byte	0x159
  1382 0386 81000000 		.4byte	0x81
  1383 038a BF020000 		.4byte	.LLST12
  1384 038e 08       		.uleb128 0x8
+ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\ccOlmfcj.s 			page 34
+
+
  1385 038f 37030000 		.4byte	.LASF39
  1386 0393 01       		.byte	0x1
- 1387 0394 5001     		.2byte	0x150
+ 1387 0394 5901     		.2byte	0x159
  1388 0396 81000000 		.4byte	0x81
  1389 039a E0020000 		.4byte	.LLST13
  1390 039e 09       		.uleb128 0x9
  1391 039f EE010000 		.4byte	.LASF40
  1392 03a3 01       		.byte	0x1
- 1393 03a4 5201     		.2byte	0x152
-ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 34
-
-
+ 1393 03a4 5B01     		.2byte	0x15b
  1394 03a6 ED030000 		.4byte	0x3ed
  1395 03aa 02       		.uleb128 0x2
  1396 03ab 91       		.byte	0x91
@@ -2029,22 +2038,22 @@ ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 1
  1439 03f7 D2000000 		.4byte	0xd2
  1440 03fb 01       		.byte	0x1
  1441 03fc 00       		.byte	0
+ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\ccOlmfcj.s 			page 35
+
+
  1442 03fd 0F       		.uleb128 0xf
  1443 03fe 4E010000 		.4byte	.LASF41
  1444 0402 01       		.byte	0x1
- 1445 0403 1F       		.byte	0x1f
+ 1445 0403 23       		.byte	0x23
  1446 0404 00000000 		.4byte	.LFB63
  1447 0408 A0000000 		.4byte	.LFE63-.LFB63
  1448 040c 01       		.uleb128 0x1
  1449 040d 9C       		.byte	0x9c
  1450 040e 67050000 		.4byte	0x567
-ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 35
-
-
  1451 0412 11       		.uleb128 0x11
  1452 0413 B3020000 		.4byte	.LASF20
  1453 0417 01       		.byte	0x1
- 1454 0418 21       		.byte	0x21
+ 1454 0418 25       		.byte	0x25
  1455 0419 81000000 		.4byte	0x81
  1456 041d 01030000 		.4byte	.LLST14
  1457 0421 0B       		.uleb128 0xb
@@ -2089,6 +2098,9 @@ ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 1
  1496 045a 52       		.byte	0x52
  1497 045b 01       		.uleb128 0x1
  1498 045c 30       		.byte	0x30
+ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\ccOlmfcj.s 			page 36
+
+
  1499 045d 00       		.byte	0
  1500 045e 0B       		.uleb128 0xb
  1501 045f 24000000 		.4byte	.LVL61
@@ -2098,9 +2110,6 @@ ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 1
  1505 046c 01       		.uleb128 0x1
  1506 046d 50       		.byte	0x50
  1507 046e 02       		.uleb128 0x2
-ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 36
-
-
  1508 046f 74       		.byte	0x74
  1509 0470 00       		.sleb128 0
  1510 0471 0C       		.uleb128 0xc
@@ -2149,6 +2158,9 @@ ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 1
  1553 04ae 00       		.sleb128 0
  1554 04af 0C       		.uleb128 0xc
  1555 04b0 01       		.uleb128 0x1
+ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\ccOlmfcj.s 			page 37
+
+
  1556 04b1 51       		.byte	0x51
  1557 04b2 01       		.uleb128 0x1
  1558 04b3 35       		.byte	0x35
@@ -2158,9 +2170,6 @@ ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 1
  1562 04b7 01       		.uleb128 0x1
  1563 04b8 30       		.byte	0x30
  1564 04b9 00       		.byte	0
-ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 37
-
-
  1565 04ba 0B       		.uleb128 0xb
  1566 04bb 42000000 		.4byte	.LVL64
  1567 04bf 58030000 		.4byte	0x358
@@ -2209,6 +2218,9 @@ ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 1
  1610 04ff 14050000 		.4byte	0x514
  1611 0503 0C       		.uleb128 0xc
  1612 0504 01       		.uleb128 0x1
+ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\ccOlmfcj.s 			page 38
+
+
  1613 0505 50       		.byte	0x50
  1614 0506 02       		.uleb128 0x2
  1615 0507 74       		.byte	0x74
@@ -2218,9 +2230,6 @@ ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 1
  1619 050b 51       		.byte	0x51
  1620 050c 01       		.uleb128 0x1
  1621 050d 3A       		.byte	0x3a
-ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 38
-
-
  1622 050e 0C       		.uleb128 0xc
  1623 050f 01       		.uleb128 0x1
  1624 0510 52       		.byte	0x52
@@ -2269,6 +2278,9 @@ ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 1
  1667 054d 02       		.uleb128 0x2
  1668 054e 09       		.byte	0x9
  1669 054f FF       		.byte	0xff
+ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\ccOlmfcj.s 			page 39
+
+
  1670 0550 00       		.byte	0
  1671 0551 0E       		.uleb128 0xe
  1672 0552 72000000 		.4byte	.LVL69
@@ -2278,9 +2290,6 @@ ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 1
  1676 055c 50       		.byte	0x50
  1677 055d 02       		.uleb128 0x2
  1678 055e 74       		.byte	0x74
-ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 39
-
-
  1679 055f 00       		.sleb128 0
  1680 0560 0C       		.uleb128 0xc
  1681 0561 01       		.uleb128 0x1
@@ -2292,7 +2301,7 @@ ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 1
  1687 0567 14       		.uleb128 0x14
  1688 0568 26010000 		.4byte	.LASF42
  1689 056c 01       		.byte	0x1
- 1690 056d 2D01     		.2byte	0x12d
+ 1690 056d 3501     		.2byte	0x135
  1691 056f 00000000 		.4byte	.LFB70
  1692 0573 32000000 		.4byte	.LFE70-.LFB70
  1693 0577 01       		.uleb128 0x1
@@ -2301,7 +2310,7 @@ ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 1
  1696 057d 08       		.uleb128 0x8
  1697 057e ED000000 		.4byte	.LASF43
  1698 0582 01       		.byte	0x1
- 1699 0583 2D01     		.2byte	0x12d
+ 1699 0583 3501     		.2byte	0x135
  1700 0585 99000000 		.4byte	0x99
  1701 0589 2C030000 		.4byte	.LLST15
  1702 058d 0B       		.uleb128 0xb
@@ -2329,6 +2338,9 @@ ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 1
  1724 05ac 25       		.byte	0x25
  1725 05ad 00       		.byte	0
  1726 05ae 0B       		.uleb128 0xb
+ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\ccOlmfcj.s 			page 40
+
+
  1727 05af 1A000000 		.4byte	.LVL76
  1728 05b3 58030000 		.4byte	0x358
  1729 05b7 D3050000 		.4byte	0x5d3
@@ -2338,9 +2350,6 @@ ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 1
  1733 05be 02       		.uleb128 0x2
  1734 05bf 08       		.byte	0x8
  1735 05c0 25       		.byte	0x25
-ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 40
-
-
  1736 05c1 0C       		.uleb128 0xc
  1737 05c2 01       		.uleb128 0x1
  1738 05c3 51       		.byte	0x51
@@ -2389,6 +2398,9 @@ ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 1
  1781 05f7 00       		.byte	0
  1782 05f8 0E       		.uleb128 0xe
  1783 05f9 30000000 		.4byte	.LVL78
+ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\ccOlmfcj.s 			page 41
+
+
  1784 05fd 58030000 		.4byte	0x358
  1785 0601 0C       		.uleb128 0xc
  1786 0602 01       		.uleb128 0x1
@@ -2398,9 +2410,6 @@ ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 1
  1790 0606 27       		.byte	0x27
  1791 0607 0C       		.uleb128 0xc
  1792 0608 01       		.uleb128 0x1
-ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 41
-
-
  1793 0609 51       		.byte	0x51
  1794 060a 01       		.uleb128 0x1
  1795 060b 45       		.byte	0x45
@@ -2415,7 +2424,7 @@ ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 1
  1804 0614 0F       		.uleb128 0xf
  1805 0615 86000000 		.4byte	.LASF44
  1806 0619 01       		.byte	0x1
- 1807 061a 5B       		.byte	0x5b
+ 1807 061a 61       		.byte	0x61
  1808 061b 00000000 		.4byte	.LFB65
  1809 061f 68000000 		.4byte	.LFE65-.LFB65
  1810 0623 01       		.uleb128 0x1
@@ -2424,13 +2433,13 @@ ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 1
  1813 0629 10       		.uleb128 0x10
  1814 062a 71030000 		.4byte	.LASF26
  1815 062e 01       		.byte	0x1
- 1816 062f 5B       		.byte	0x5b
+ 1816 062f 61       		.byte	0x61
  1817 0630 81000000 		.4byte	0x81
  1818 0634 4A030000 		.4byte	.LLST16
  1819 0638 11       		.uleb128 0x11
  1820 0639 8B010000 		.4byte	.LASF45
  1821 063d 01       		.byte	0x1
- 1822 063e 5D       		.byte	0x5d
+ 1822 063e 63       		.byte	0x63
  1823 063f 99000000 		.4byte	0x99
  1824 0643 6B030000 		.4byte	.LLST17
  1825 0647 0A       		.uleb128 0xa
@@ -2446,9 +2455,12 @@ ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 1
  1835 0663 12       		.uleb128 0x12
  1836 0664 F9020000 		.4byte	.LASF46
  1837 0668 01       		.byte	0x1
- 1838 0669 77       		.byte	0x77
+ 1838 0669 7D       		.byte	0x7d
  1839 066a 81000000 		.4byte	0x81
  1840 066e 00000000 		.4byte	.LFB66
+ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\ccOlmfcj.s 			page 42
+
+
  1841 0672 AC010000 		.4byte	.LFE66-.LFB66
  1842 0676 01       		.uleb128 0x1
  1843 0677 9C       		.byte	0x9c
@@ -2456,11 +2468,8 @@ ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 1
  1845 067c 11       		.uleb128 0x11
  1846 067d 21000000 		.4byte	.LASF47
  1847 0681 01       		.byte	0x1
- 1848 0682 79       		.byte	0x79
+ 1848 0682 7F       		.byte	0x7f
  1849 0683 99000000 		.4byte	0x99
-ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 42
-
-
  1850 0687 9F030000 		.4byte	.LLST18
  1851 068b 0A       		.uleb128 0xa
  1852 068c 0C000000 		.4byte	.LVL91
@@ -2509,6 +2518,9 @@ ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 1
  1895 0702 0A       		.uleb128 0xa
  1896 0703 BE000000 		.4byte	.LVL106
  1897 0707 67050000 		.4byte	0x567
+ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\ccOlmfcj.s 			page 43
+
+
  1898 070b 0A       		.uleb128 0xa
  1899 070c D4000000 		.4byte	.LVL109
  1900 0710 67050000 		.4byte	0x567
@@ -2518,9 +2530,6 @@ ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 1
  1904 071d 0A       		.uleb128 0xa
  1905 071e F0000000 		.4byte	.LVL111
  1906 0722 67050000 		.4byte	0x567
-ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 43
-
-
  1907 0726 0B       		.uleb128 0xb
  1908 0727 0A010000 		.4byte	.LVL114
  1909 072b 67050000 		.4byte	0x567
@@ -2569,6 +2578,9 @@ ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 1
  1952 077d 03       		.uleb128 0x3
  1953 077e 40       		.byte	0x40
  1954 077f 49       		.byte	0x49
+ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\ccOlmfcj.s 			page 44
+
+
  1955 0780 24       		.byte	0x24
  1956 0781 00       		.byte	0
  1957 0782 0B       		.uleb128 0xb
@@ -2578,9 +2590,6 @@ ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 1
  1961 078f 0C       		.uleb128 0xc
  1962 0790 01       		.uleb128 0x1
  1963 0791 50       		.byte	0x50
-ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 44
-
-
  1964 0792 02       		.uleb128 0x2
  1965 0793 08       		.byte	0x8
  1966 0794 FA       		.byte	0xfa
@@ -2629,6 +2638,9 @@ ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 1
  2009 07e6 00       		.byte	0
  2010 07e7 0A       		.uleb128 0xa
  2011 07e8 A2010000 		.4byte	.LVL135
+ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\ccOlmfcj.s 			page 45
+
+
  2012 07ec 67050000 		.4byte	0x567
  2013 07f0 00       		.byte	0
  2014 07f1 17       		.uleb128 0x17
@@ -2638,9 +2650,6 @@ ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 1
  2018 07f9 FD070000 		.4byte	0x7fd
  2019 07fd 06       		.uleb128 0x6
  2020 07fe 76000000 		.4byte	0x76
-ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 45
-
-
  2021 0802 18       		.uleb128 0x18
  2022 0803 59000000 		.4byte	.LASF49
  2023 0807 01       		.byte	0x1
@@ -2689,6 +2698,9 @@ ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 1
  2066 0862 19       		.uleb128 0x19
  2067 0863 00020000 		.4byte	.LASF55
  2068 0867 00020000 		.4byte	.LASF55
+ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\ccOlmfcj.s 			page 46
+
+
  2069 086b 06       		.byte	0x6
  2070 086c B1       		.byte	0xb1
  2071 086d 19       		.uleb128 0x19
@@ -2698,9 +2710,6 @@ ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 1
  2075 0877 B6       		.byte	0xb6
  2076 0878 19       		.uleb128 0x19
  2077 0879 57040000 		.4byte	.LASF57
-ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 46
-
-
  2078 087d 57040000 		.4byte	.LASF57
  2079 0881 06       		.byte	0x6
  2080 0882 B5       		.byte	0xb5
@@ -2749,6 +2758,9 @@ ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 1
  2123 08e0 A6000000 		.4byte	.LASF66
  2124 08e4 0B       		.byte	0xb
  2125 08e5 13       		.byte	0x13
+ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\ccOlmfcj.s 			page 47
+
+
  2126 08e6 00       		.byte	0
  2127              		.section	.debug_abbrev,"",%progbits
  2128              	.Ldebug_abbrev0:
@@ -2758,9 +2770,6 @@ ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 1
  2132 0003 25       		.uleb128 0x25
  2133 0004 0E       		.uleb128 0xe
  2134 0005 13       		.uleb128 0x13
-ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 47
-
-
  2135 0006 0B       		.uleb128 0xb
  2136 0007 03       		.uleb128 0x3
  2137 0008 0E       		.uleb128 0xe
@@ -2809,6 +2818,9 @@ ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 1
  2180 0033 08       		.uleb128 0x8
  2181 0034 00       		.byte	0
  2182 0035 00       		.byte	0
+ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\ccOlmfcj.s 			page 48
+
+
  2183 0036 05       		.uleb128 0x5
  2184 0037 16       		.uleb128 0x16
  2185 0038 00       		.byte	0
@@ -2818,9 +2830,6 @@ ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 1
  2189 003c 0B       		.uleb128 0xb
  2190 003d 3B       		.uleb128 0x3b
  2191 003e 05       		.uleb128 0x5
-ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 48
-
-
  2192 003f 49       		.uleb128 0x49
  2193 0040 13       		.uleb128 0x13
  2194 0041 00       		.byte	0
@@ -2869,6 +2878,9 @@ ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 1
  2237 006d 3B       		.uleb128 0x3b
  2238 006e 05       		.uleb128 0x5
  2239 006f 49       		.uleb128 0x49
+ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\ccOlmfcj.s 			page 49
+
+
  2240 0070 13       		.uleb128 0x13
  2241 0071 02       		.uleb128 0x2
  2242 0072 17       		.uleb128 0x17
@@ -2878,9 +2890,6 @@ ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 1
  2246 0076 34       		.uleb128 0x34
  2247 0077 00       		.byte	0
  2248 0078 03       		.uleb128 0x3
-ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 49
-
-
  2249 0079 0E       		.uleb128 0xe
  2250 007a 3A       		.uleb128 0x3a
  2251 007b 0B       		.uleb128 0xb
@@ -2929,6 +2938,9 @@ ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 1
  2294 00ad 3A       		.uleb128 0x3a
  2295 00ae 0B       		.uleb128 0xb
  2296 00af 3B       		.uleb128 0x3b
+ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\ccOlmfcj.s 			page 50
+
+
  2297 00b0 05       		.uleb128 0x5
  2298 00b1 49       		.uleb128 0x49
  2299 00b2 13       		.uleb128 0x13
@@ -2938,9 +2950,6 @@ ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 1
  2303 00b6 00       		.byte	0
  2304 00b7 0E       		.uleb128 0xe
  2305 00b8 898201   		.uleb128 0x4109
-ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 50
-
-
  2306 00bb 01       		.byte	0x1
  2307 00bc 11       		.uleb128 0x11
  2308 00bd 01       		.uleb128 0x1
@@ -2989,6 +2998,9 @@ ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 1
  2351 00e9 00       		.byte	0
  2352 00ea 00       		.byte	0
  2353 00eb 11       		.uleb128 0x11
+ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\ccOlmfcj.s 			page 51
+
+
  2354 00ec 34       		.uleb128 0x34
  2355 00ed 00       		.byte	0
  2356 00ee 03       		.uleb128 0x3
@@ -2998,9 +3010,6 @@ ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 1
  2360 00f2 3B       		.uleb128 0x3b
  2361 00f3 0B       		.uleb128 0xb
  2362 00f4 49       		.uleb128 0x49
-ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 51
-
-
  2363 00f5 13       		.uleb128 0x13
  2364 00f6 02       		.uleb128 0x2
  2365 00f7 17       		.uleb128 0x17
@@ -3049,6 +3058,9 @@ ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 1
  2408 0123 00       		.byte	0
  2409 0124 00       		.byte	0
  2410 0125 14       		.uleb128 0x14
+ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\ccOlmfcj.s 			page 52
+
+
  2411 0126 2E       		.uleb128 0x2e
  2412 0127 01       		.byte	0x1
  2413 0128 3F       		.uleb128 0x3f
@@ -3058,9 +3070,6 @@ ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 1
  2417 012c 3A       		.uleb128 0x3a
  2418 012d 0B       		.uleb128 0xb
  2419 012e 3B       		.uleb128 0x3b
-ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 52
-
-
  2420 012f 05       		.uleb128 0x5
  2421 0130 27       		.uleb128 0x27
  2422 0131 19       		.uleb128 0x19
@@ -3109,6 +3118,9 @@ ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 1
  2465 015d 19       		.uleb128 0x19
  2466 015e 3C       		.uleb128 0x3c
  2467 015f 19       		.uleb128 0x19
+ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\ccOlmfcj.s 			page 53
+
+
  2468 0160 00       		.byte	0
  2469 0161 00       		.byte	0
  2470 0162 18       		.uleb128 0x18
@@ -3118,9 +3130,6 @@ ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 1
  2474 0166 0E       		.uleb128 0xe
  2475 0167 3A       		.uleb128 0x3a
  2476 0168 0B       		.uleb128 0xb
-ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 53
-
-
  2477 0169 3B       		.uleb128 0x3b
  2478 016a 0B       		.uleb128 0xb
  2479 016b 49       		.uleb128 0x49
@@ -3169,6 +3178,9 @@ ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 1
  2522 0021 00000000 		.4byte	.LVL0
  2523 0025 09000000 		.4byte	.LVL1-1
  2524 0029 0100     		.2byte	0x1
+ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\ccOlmfcj.s 			page 54
+
+
  2525 002b 51       		.byte	0x51
  2526 002c 09000000 		.4byte	.LVL1-1
  2527 0030 38000000 		.4byte	.LFE71
@@ -3178,9 +3190,6 @@ ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 1
  2531 0038 51       		.byte	0x51
  2532 0039 9F       		.byte	0x9f
  2533 003a 00000000 		.4byte	0
-ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 54
-
-
  2534 003e 00000000 		.4byte	0
  2535              	.LLST2:
  2536 0042 02000000 		.4byte	.LVL10
@@ -3229,6 +3238,9 @@ ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 1
  2579 00af 00000000 		.4byte	0
  2580              	.LLST3:
  2581 00b3 00000000 		.4byte	.LVL21
+ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\ccOlmfcj.s 			page 55
+
+
  2582 00b7 07000000 		.4byte	.LVL22-1
  2583 00bb 0100     		.2byte	0x1
  2584 00bd 50       		.byte	0x50
@@ -3238,9 +3250,6 @@ ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 1
  2588 00c8 F3       		.byte	0xf3
  2589 00c9 01       		.uleb128 0x1
  2590 00ca 50       		.byte	0x50
-ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 55
-
-
  2591 00cb 9F       		.byte	0x9f
  2592 00cc 00000000 		.4byte	0
  2593 00d0 00000000 		.4byte	0
@@ -3289,6 +3298,9 @@ ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 1
  2636 0147 0100     		.2byte	0x1
  2637 0149 50       		.byte	0x50
  2638 014a 00000000 		.4byte	0
+ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\ccOlmfcj.s 			page 56
+
+
  2639 014e 00000000 		.4byte	0
  2640              	.LLST6:
  2641 0152 06000000 		.4byte	.LVL35
@@ -3298,9 +3310,6 @@ ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 1
  2645 015d 18000000 		.4byte	.LVL37
  2646 0161 20000000 		.4byte	.LVL40
  2647 0165 0100     		.2byte	0x1
-ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 56
-
-
  2648 0167 55       		.byte	0x55
  2649 0168 24000000 		.4byte	.LVL41
  2650 016c 2E000000 		.4byte	.LVL43
@@ -3349,6 +3358,9 @@ ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 1
  2693 01df 55       		.byte	0x55
  2694 01e0 00000000 		.4byte	0
  2695 01e4 00000000 		.4byte	0
+ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\ccOlmfcj.s 			page 57
+
+
  2696              	.LLST8:
  2697 01e8 02000000 		.4byte	.LVL34
  2698 01ec 0E000000 		.4byte	.LVL36
@@ -3358,9 +3370,6 @@ ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 1
  2702 01f4 0E000000 		.4byte	.LVL36
  2703 01f8 20000000 		.4byte	.LVL40
  2704 01fc 0100     		.2byte	0x1
-ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 57
-
-
  2705 01fe 54       		.byte	0x54
  2706 01ff 20000000 		.4byte	.LVL40
  2707 0203 2C000000 		.4byte	.LVL42
@@ -3409,6 +3418,9 @@ ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 1
  2750 0274 50       		.byte	0x50
  2751 0275 18000000 		.4byte	.LVL49
  2752 0279 1E000000 		.4byte	.LVL50
+ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\ccOlmfcj.s 			page 58
+
+
  2753 027d 0100     		.2byte	0x1
  2754 027f 53       		.byte	0x53
  2755 0280 1E000000 		.4byte	.LVL50
@@ -3418,9 +3430,6 @@ ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 1
  2759 028b 20000000 		.4byte	.LVL51
  2760 028f 24000000 		.4byte	.LFE68
  2761 0293 0100     		.2byte	0x1
-ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 58
-
-
  2762 0295 53       		.byte	0x53
  2763 0296 00000000 		.4byte	0
  2764 029a 00000000 		.4byte	0
@@ -3469,6 +3478,9 @@ ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 1
  2807              	.LLST14:
  2808 0301 02000000 		.4byte	.LVL57
  2809 0305 06000000 		.4byte	.LVL58
+ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\ccOlmfcj.s 			page 59
+
+
  2810 0309 0300     		.2byte	0x3
  2811 030b 08       		.byte	0x8
  2812 030c 24       		.byte	0x24
@@ -3478,9 +3490,6 @@ ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 1
  2816 0316 0100     		.2byte	0x1
  2817 0318 54       		.byte	0x54
  2818 0319 76000000 		.4byte	.LVL71
-ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 59
-
-
  2819 031d 8E000000 		.4byte	.LVL72
  2820 0321 0100     		.2byte	0x1
  2821 0323 54       		.byte	0x54
@@ -3529,6 +3538,9 @@ ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 1
  2864 0394 0100     		.2byte	0x1
  2865 0396 50       		.byte	0x50
  2866 0397 00000000 		.4byte	0
+ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\ccOlmfcj.s 			page 60
+
+
  2867 039b 00000000 		.4byte	0
  2868              	.LLST18:
  2869 039f 02000000 		.4byte	.LVL90
@@ -3538,9 +3550,6 @@ ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 1
  2873 03aa 9F       		.byte	0x9f
  2874 03ab 40000000 		.4byte	.LVL96
  2875 03af 52000000 		.4byte	.LVL97
-ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 60
-
-
  2876 03b3 0100     		.2byte	0x1
  2877 03b5 50       		.byte	0x50
  2878 03b6 7E000000 		.4byte	.LVL101
@@ -3589,6 +3598,9 @@ ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 1
  2921 0014 38000000 		.4byte	.LFE71-.LFB71
  2922 0018 00000000 		.4byte	.LFB69
  2923 001c 30000000 		.4byte	.LFE69-.LFB69
+ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\ccOlmfcj.s 			page 61
+
+
  2924 0020 00000000 		.4byte	.LFB64
  2925 0024 38000000 		.4byte	.LFE64-.LFB64
  2926 0028 00000000 		.4byte	.LFB67
@@ -3598,9 +3610,6 @@ ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 1
  2930 0038 00000000 		.4byte	.LFB72
  2931 003c 34000000 		.4byte	.LFE72-.LFB72
  2932 0040 00000000 		.4byte	.LFB63
-ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 61
-
-
  2933 0044 A0000000 		.4byte	.LFE63-.LFB63
  2934 0048 00000000 		.4byte	.LFB70
  2935 004c 32000000 		.4byte	.LFE70-.LFB70
@@ -3636,7 +3645,7 @@ ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 1
  2965 0054 00000000 		.4byte	0
  2966              		.section	.debug_line,"",%progbits
  2967              	.Ldebug_line0:
- 2968 0000 54030000 		.section	.debug_str,"MS",%progbits,1
+ 2968 0000 55030000 		.section	.debug_str,"MS",%progbits,1
  2968      0200AD01 
  2968      00000201 
  2968      FB0E0D00 
@@ -3649,6 +3658,9 @@ ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 1
  2972      6E6700
  2973              	.LASF59:
  2974 000f 5A38305F 		.ascii	"Z80_Data_In_Write\000"
+ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\ccOlmfcj.s 			page 62
+
+
  2974      44617461 
  2974      5F496E5F 
  2974      57726974 
@@ -3658,9 +3670,6 @@ ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 1
  2976      63686573 
  2976      56616C00 
  2977              	.LASF2:
-ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 62
-
-
  2978 002d 73686F72 		.ascii	"short int\000"
  2978      7420696E 
  2978      7400
@@ -3709,6 +3718,9 @@ ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 1
  3001              	.LASF66:
  3002 00a6 57726974 		.ascii	"WriteExtSRAM\000"
  3002      65457874 
+ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\ccOlmfcj.s 			page 63
+
+
  3002      5352414D 
  3002      00
  3003              	.LASF53:
@@ -3718,9 +3730,6 @@ ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 1
  3006 00bb 666C6F61 		.ascii	"float\000"
  3006      7400
  3007              	.LASF24:
-ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 63
-
-
  3008 00c1 72644275 		.ascii	"rdBuff\000"
  3008      666600
  3009              	.LASF6:
@@ -3769,6 +3778,9 @@ ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 1
  3027              	.LASF41:
  3028 014e 696E6974 		.ascii	"init_FrontPanel\000"
  3028      5F46726F 
+ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\ccOlmfcj.s 			page 64
+
+
  3028      6E745061 
  3028      6E656C00 
  3029              	.LASF18:
@@ -3778,9 +3790,6 @@ ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 1
  3031              	.LASF1:
  3032 016a 756E7369 		.ascii	"unsigned char\000"
  3032      676E6564 
-ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 64
-
-
  3032      20636861 
  3032      7200
  3033              	.LASF58:
@@ -3829,6 +3838,9 @@ ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 1
  3050      75666665 
  3050      7200
  3051              	.LASF55:
+ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\ccOlmfcj.s 			page 65
+
+
  3052 0200 4932435F 		.ascii	"I2C_MasterSendStart\000"
  3052      4D617374 
  3052      65725365 
@@ -3838,9 +3850,6 @@ ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 1
  3054 0214 73686F72 		.ascii	"short unsigned int\000"
  3054      7420756E 
  3054      7369676E 
-ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 65
-
-
  3054      65642069 
  3054      6E7400
  3055              	.LASF16:
@@ -3889,6 +3898,9 @@ ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 1
  3070      00
  3071              	.LASF34:
  3072 02f1 76616C4D 		.ascii	"valMin3\000"
+ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\ccOlmfcj.s 			page 66
+
+
  3072      696E3300 
  3073              	.LASF46:
  3074 02f9 72756E46 		.ascii	"runFrontPanel\000"
@@ -3898,9 +3910,6 @@ ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 1
  3075              	.LASF13:
  3076 0307 75696E74 		.ascii	"uint32\000"
  3076      333200
-ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 66
-
-
  3077              	.LASF17:
  3078 030e 72656738 		.ascii	"reg8\000"
  3078      00
@@ -3949,6 +3958,9 @@ ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 1
  3100      616C00
  3101              	.LASF48:
  3102 0393 49544D5F 		.ascii	"ITM_RxBuffer\000"
+ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\ccOlmfcj.s 			page 67
+
+
  3102      52784275 
  3102      66666572 
  3102      00
@@ -3958,9 +3970,6 @@ ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 1
  3104      352E342E 
  3104      31203230 
  3104      31363036 
-ARM GAS  C:\Users\DGILLI~1\AppData\Local\Temp\cczqsiHf.s 			page 67
-
-
  3105 03d3 616E6368 		.ascii	"anch revision 237715] -mcpu=cortex-m3 -mthumb -g -O"
  3105      20726576 
  3105      6973696F 
