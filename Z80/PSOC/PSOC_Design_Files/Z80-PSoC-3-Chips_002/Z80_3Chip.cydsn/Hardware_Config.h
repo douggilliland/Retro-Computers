@@ -35,16 +35,19 @@
 #undef USING_6850_2
 #undef USING_SDCARD
 #undef USING_MEM_MAP_1  // Swap out first 8KB
+#undef USING_MEM_MAP_4  // Four banks of 16KB per bank for entire SRAM
 
 // Select the build here. 
 //  Only 1 build at a time is supported.
 //  All other builds are set to undef
-//#undef GRANT_9_CHIP_Z80
 //#define GRANT_9_CHIP_Z80
+#undef GRANT_9_CHIP_Z80
 //#define GRANT_7_CHIP_Z80
-//#undef GRANT_7_CHIP_Z80
-#define GRANT_FPGA_CPM
-//#undef GRANT_FPGA_CPM
+#undef GRANT_7_CHIP_Z80
+//#define GRANT_FPGA_CPM
+#undef GRANT_FPGA_CPM
+//#undef MULTIBOOT_CPM
+#define MULTIBOOT_CPM
 
 #define RTC_DATA    0x60    // 96 dec
 #define RTC_CSR     0x61    // 97 dec
@@ -131,6 +134,46 @@
     #define USING_MEM_MAP_1
     #ifdef USING_MEM_MAP_1
         #define MEM_MAP_SWAP        0x38
+    #endif
+    #define USING_SDCARD
+    #ifdef USING_SDCARD
+        #define SD_DATA             0x88    // decimal 128
+        #define SD_CONTROL	        0x89    // decimal 129
+        #define SD_STATUS	        0x89    // decimal 129
+        #define SD_LBA0		        0x8A    // decimal 130
+        #define SD_LBA1		        0x8B    // decimal 131
+        #define SD_LBA2		        0x8C    // decimal 132
+    #endif
+    #ifdef USING_EXP_MCCP23017
+        #define PIOA_D              0x20    // decimal 32
+        #define PIOA_C              0x22    // decimal 34
+        #define PIOB_D              0x21    // decimal 33
+        #define PIOB_C              0x23    // decimal 35
+    #endif
+#endif
+
+// defines for building Grant Searle's FPGA Z80 design
+// http://zx80.netai.net/grant/Multicomp/index.html
+#ifdef MULTIBOOT_CPM
+    #define MONITOR_START       0x00000000      // EEPROM loads to address 0
+    #define MONITOR_LENGTH      0x00002000      // 8K build
+    // I/O Space Address Map follow
+    #define USING_6850
+    #define M6850_C              0x80       // Control/Status register
+    #define M6850_D              0x81       // Data
+    #define USING_6850_2
+    #define M6850_2_C            0x86       // Control/Status register - 2nd 6850 part (faked)
+    #define M6850_2_D            0x87       // Data
+    #ifdef USING_FRONT_PANEL
+        #define FR_PNL_IO_LO        0x18    // decimal 24
+        #define FR_PNL_IO_LO_MID    0x19    // decimal 25
+        #define FR_PNL_IO_HI_MID    0x1A    // decimal 26
+        #define FR_PNL_IO_HI        0x1B    // decimal 27
+    #endif
+    #define USING_MEM_MAP_4
+    #ifdef USING_MEM_MAP_4
+        #define MMU4_REG_SEL        0xF8    // Selects which register is used
+        #define MMU4_REG_WR         0xFD    // Writes to the register
     #endif
     #define USING_SDCARD
     #ifdef USING_SDCARD

@@ -70,6 +70,9 @@ int main(void)
     #ifdef USING_MEM_MAP_1
 	    init_mem_map_1();       // Set up the address mapper
     #endif
+    #ifdef USING_MEM_MAP_4
+	    init_mem_map_4();       // Set up the address mapper
+    #endif
     
     // Load SRAM with BIOS and/or language image
 	loadSRAM();

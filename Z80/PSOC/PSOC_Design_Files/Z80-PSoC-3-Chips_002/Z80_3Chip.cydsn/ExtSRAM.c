@@ -61,9 +61,9 @@ extern const unsigned char gs_fpga_basic_eeprom[];
 
 void SetExtSRAMAddr(uint32 addr)
 {
-	AdrLowOut_Control = addr & 0xff;        // bottom 8-bits of the address A0..A7
-	AdrMidOut_Control = (addr>>8) & 0x7;
-	AdrHighOut_Control = (addr>>11) & 0xFF;
+	AdrLowOut_Write(addr & 0xff);        // bottom 8-bits of the address A0..A7
+	AdrMidOut_Write((addr>>8) & 0x7);
+	AdrHighOut_Write((addr>>11) & 0xFF);
 }
 
 ////////////////////////////////////////////////////////////////////////////

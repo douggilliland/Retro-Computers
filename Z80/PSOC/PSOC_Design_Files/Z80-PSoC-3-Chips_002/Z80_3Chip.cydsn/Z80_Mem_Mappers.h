@@ -23,6 +23,9 @@
 
 void init_mem_map_1(void);
 void swap_out_ROM_space(void);
+void init_mem_map_4(void);
+void wrMMU4SelectReg(void);
+void wrMMU4Bank(void);
 
 /* [] END OF FILE */
 

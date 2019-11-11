@@ -266,6 +266,19 @@ void HandleZ80IO(void)
 			return;
 		}
 #endif
+#ifdef USING_MEM_MAP_4
+	case MMU4_REG_SEL:
+		if (ioCrtlRegVal == REGULAR_WRITE_CYCLE)      // regular write cycle
+		{
+			wrMMU4SelectReg();
+			return;
+		}
+    case MMU4_REG_WR:
+        {
+            wrMMU4Bank();
+            return;
+        }
+#endif
 #ifdef USING_EXP_MCCP23017
 	case PIOA_D:
 		if (ioCrtlRegVal == REGULAR_READ_CYCLE)             // regular read cycle
