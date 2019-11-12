@@ -98,6 +98,7 @@ uint32 TestSRAM(void)
 	volatile uint32 sramAddr;
 	volatile uint8 sramData;
 	volatile uint8 sramReadData;
+    MMU_Sel_Write(0x0); // PSoC to SRAM path is through MMU1 - path
 	ExtSRAMCtl_Control = (CPURESET_BIT | DRVRAM_BIT);              // Z80 in reset, SRAM deselected, DRV_RAM asserted
 	// Do a single write/read of the first location as a quick test
 	WriteExtSRAM(0x0,0x55);             // Write 0x55 to the SRAM

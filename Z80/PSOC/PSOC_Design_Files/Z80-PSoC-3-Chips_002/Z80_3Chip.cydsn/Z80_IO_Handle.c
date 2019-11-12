@@ -181,11 +181,13 @@ void HandleZ80IO(void)
 			return;
 		}
 		break;
-    case M6850_B:   // Baud rate register - do nothing in this configuration
-        {
-            ackIO();
-        }
-        break;
+        #ifdef MULTIBOOT_CPM
+        case M6850_B:   // Baud rate register - do nothing in this configuration
+            {
+                ackIO();
+            }
+            break;
+        #endif
 #endif
 #ifdef USING_6850_2
 	case M6850_2_D:
@@ -212,11 +214,13 @@ void HandleZ80IO(void)
 			return;
 		}
 		break;
-    case M6850_2_B: // Baud rate register - do nothing in this configuration
-        {
-            ackIO();
-        }
-        break;
+        #ifdef MULTIBOOT_CPM
+        case M6850_2_B: // Baud rate register - do nothing in this configuration
+            {
+                ackIO();
+            }
+            break;
+        #endif
 #endif
 #ifdef USING_FRONT_PANEL
 	case FR_PNL_IO_LO:

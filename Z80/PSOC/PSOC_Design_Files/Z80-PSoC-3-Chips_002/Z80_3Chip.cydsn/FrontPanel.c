@@ -12,6 +12,7 @@
 
 #include <project.h>
 #include <Z80_PSoC_3Chips.h>
+#ifdef USING_FRONT_PANEL
 
 //////////////////////////////////////////////////////////////////////////////
 // Front Panel Handler
@@ -128,8 +129,6 @@ uint8 runFrontPanel(void)
 
 	LEDsVal = 0;
 	
-	//    I2C_Start();
-	init_FrontPanel();
 	// Quickly bounce LEDs from the least significant to most significant bit
 	for (LEDsVal = 1; LEDsVal != 0; LEDsVal <<= 1)
 	{
@@ -352,5 +351,7 @@ void writeRegister_MCP23017(uint8 chipAddr, uint8 ctrlAdr, uint8 ctrlVal)
 	while (0u == (I2C_MasterStatus() & I2C_MSTAT_WR_CMPLT));
 	I2C_MasterClearStatus();
 }
+
+#endif
 
 /* [] END OF FILE */

@@ -62,14 +62,14 @@
 //  Only 1 build at a time is supported
 //  All other builds are set to #undef
 
-//#define GRANT_9_CHIP_Z80
 #undef GRANT_9_CHIP_Z80
-//#define GRANT_7_CHIP_Z80
+//#define GRANT_9_CHIP_Z80
 #undef GRANT_7_CHIP_Z80
-//#define GRANT_FPGA_CPM
-#undef GRANT_FPGA_CPM
+//#define GRANT_7_CHIP_Z80
+//#undef GRANT_FPGA_CPM
+#define GRANT_FPGA_CPM
 //#undef MULTIBOOT_CPM
-#define MULTIBOOT_CPM
+//#define MULTIBOOT_CPM
 
 ////////////////////////////////////////////////////////////////////////////
 // The individual memory maps follow
