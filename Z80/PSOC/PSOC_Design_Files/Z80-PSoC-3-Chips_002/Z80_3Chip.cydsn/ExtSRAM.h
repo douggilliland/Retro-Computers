@@ -23,6 +23,13 @@
 #define SRAMRD_BIT      0x04    // 1 = Drive SRAM read
 #define SRAMWR_BIT      0x08    // 1 = Drive SRAM write
 #define CPURESET_BIT    0x10    // 1 = Z80 held in reset
+    
+#define SRAM_SIZE       0x80000 // 512KB
+
+#define POST_PASSED                         0
+#define POST_FAILED_SINGLE_LOCATION_TEST    1
+#define POST_FAILED_ADDRESS_RAMP            2
+#define POST_FAILED_TEST_ALL_RAM            3
 
 ////////////////////////////////////////////////////////////////////////////
 // Function prototypes

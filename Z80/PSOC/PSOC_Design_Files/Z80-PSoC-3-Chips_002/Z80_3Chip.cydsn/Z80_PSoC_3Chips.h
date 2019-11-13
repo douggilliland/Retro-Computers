@@ -25,19 +25,22 @@
 #include "Z80_DAC.h"
 
 ////////////////////////////////////////////////////////////////////////////
-// externs for the EPROM images - Only 1 image is actually used
+// externs for the EPROM image - Only 1 image is actually used
+// All images have the same variable name
 
-extern unsigned char monitor_basic_eprom[];
-extern unsigned char gs7chip_basic_eeprom[];
-extern const unsigned char gs_fpga_basic_eeprom[];
-extern const unsigned char multi_boot_eprom[];
+extern const unsigned char Z80_eeprom[];
 
 ////////////////////////////////////////////////////////////////////////////
 // externs for the Front Panel
 
+#ifdef USING_FRONT_PANEL
 extern uint32 fpIntVal;
+#endif
+
+#ifdef USING_EXP_MCCP23017
 extern uint8 pioAIntVals;
 extern uint8 pioBIntVals;
+#endif
 
 ////////////////////////////////////////////////////////////////////////////
 // Function prototypes for Z80_PSoC_3Chips.c file

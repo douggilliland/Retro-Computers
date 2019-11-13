@@ -17,9 +17,27 @@
 
 ////////////////////////////////////////////////////////////////////////////
 // This file is where the hardware gets configured
+// I/O address map is here
 // Select hardware to include using
 //  #undef to remove hardware
 //  #define to include hardware
+
+////////////////////////////////////////////////////////////////////////////
+// Select the build here
+//  Only 1 build at a time is supported
+//  All other builds are set to #undef
+
+#undef GRANT_9_CHIP_Z80
+//#define GRANT_9_CHIP_Z80
+
+#undef GRANT_7_CHIP_Z80
+//#define GRANT_7_CHIP_Z80
+    
+//#undef GRANT_FPGA_CPM
+#define GRANT_FPGA_CPM
+    
+#undef MULTIBOOT_CPM
+//#define MULTIBOOT_CPM
 
 // Global choices included in all designs based on hardware used/not used
 
@@ -56,20 +74,6 @@
 #undef USING_SDCARD
 #undef USING_MEM_MAP_1  // Swap out first 8KB
 #undef USING_MEM_MAP_4  // Four banks of 16KB per bank for entire SRAM
-
-////////////////////////////////////////////////////////////////////////////
-// Select the build here
-//  Only 1 build at a time is supported
-//  All other builds are set to #undef
-
-#undef GRANT_9_CHIP_Z80
-//#define GRANT_9_CHIP_Z80
-#undef GRANT_7_CHIP_Z80
-//#define GRANT_7_CHIP_Z80
-//#undef GRANT_FPGA_CPM
-#define GRANT_FPGA_CPM
-//#undef MULTIBOOT_CPM
-//#define MULTIBOOT_CPM
 
 ////////////////////////////////////////////////////////////////////////////
 // The individual memory maps follow
@@ -222,6 +226,6 @@
     #endif
 #endif
 
-/* [] END OF FILE */
-
 #endif
+
+/* [] END OF FILE */

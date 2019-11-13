@@ -34,7 +34,8 @@ void PostLed(uint32 postVal)
 }
 
 ////////////////////////////////////////////////////////////////////////////
-// void putStringToUSB(char * stringToPutOutUSB)
+// void putStringToUSB(char * stringToPutOutUSB) - Print string out USB-Serial to host
+// Blocking function
 
 void putStringToUSB(char * stringToPutOutUSB)
 {
@@ -52,7 +53,7 @@ void I2CIntISR(void)
     uint32 lFPVal;
     uint8 bPortA;
     uint8 bPortB;
-    I2CINT_ISR_Disable();
+    I2CINT_ISR_Disable();       // Cause an implicit delay between interrupts
 	#ifdef USING_FRONT_PANEL
   		lFPVal = readRegister_MCP23017(0x24,MCP23017_GPIOA_REGADR) << 8;                  // Clears interrupt
   		lFPVal = ((readRegister_MCP23017(0x25,MCP23017_GPIOA_REGADR) | lFPVal) << 8);     // Clears interrupt
@@ -69,6 +70,5 @@ void I2CIntISR(void)
         pioBIntVals = pioBIntVals ^ bPortB;
 	#endif
 }
-
 
 /* [] END OF FILE */

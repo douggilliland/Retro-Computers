@@ -27,7 +27,8 @@ void SetExtSRAMAddr(uint32 addr)
 }
 
 ////////////////////////////////////////////////////////////////////////////
-// ReadExtSRAM(addr) - Read the external SRAM at address = addr
+// ReadExtSRAM(addr) - Read the external SRAM at addr
+// Returns the byte that was read from addr
 //  Z80 is held in CPU_RESET during this action
 
 uint8 ReadExtSRAM(uint32 addr)
@@ -37,12 +38,12 @@ uint8 ReadExtSRAM(uint32 addr)
 	ExtSRAMCtl_Write(CPURESET_BIT | DRVRAM_BIT | SRAMRD_BIT);               // Set R/W* to Read
 	ExtSRAMCtl_Write(CPURESET_BIT | DRVRAM_BIT | SRAMRD_BIT | SRAMCS_BIT);  // Assert SRAMCS
 	rdVal = Z80_Data_Out_Status;
-	ExtSRAMCtl_Write(CPURESET_BIT | DRVRAM_BIT);                        // Remove SRAMCS
+	ExtSRAMCtl_Write(CPURESET_BIT | DRVRAM_BIT);                            // Remove SRAMCS
 	return(rdVal);
 }
 
 ////////////////////////////////////////////////////////////////////////////
-// WriteExtSRAM(addr,data) - Write to the external SRAM at address = addr
+// WriteExtSRAM(addr,data) - Write data to the external SRAM at address
 //  Z80 is held in CPU_RESET during this action
 
 void WriteExtSRAM(uint32 addr, uint8 data)
@@ -63,32 +64,27 @@ void WriteExtSRAM(uint32 addr, uint8 data)
 //  2 if POST failed test of first 256 locations
 //  3 if POST failed address ramp test
 
-#define POST_PASSED                         0
-#define POST_FAILED_SINGLE_LOCATION_TEST    1
-#define POST_FAILED_ADDRESS_RAMP            2
-#define POST_FAILED_TEST_ALL_RAM            3
-
 uint32 TestSRAM(void)
 {
 	volatile uint32 sramAddr;
 	volatile uint8 sramData;
 	volatile uint8 sramReadData;
-    MMU_Sel_Write(0x0); // PSoC to SRAM path is through MMU1 - path
-	ExtSRAMCtl_Write(CPURESET_BIT | DRVRAM_BIT);              // Z80 in reset, SRAM deselected, DRV_RAM asserted
+    MMU_Sel_Write(0x0);                             // PSoC to SRAM path is always through MMU1 path
+	ExtSRAMCtl_Write(CPURESET_BIT | DRVRAM_BIT);    // Z80 in reset, SRAM deselected, DRV_RAM asserted
 	// Do a single write/read of the first location as a quick test
-	WriteExtSRAM(0x0,0x55);             // Write 0x55 to the SRAM
-	if (ReadExtSRAM(0x0) != 0x55)       // Read the SRAM
-	return(POST_FAILED_SINGLE_LOCATION_TEST);   // Post failed
+	WriteExtSRAM(0x0,0x55);                         // Write 0x55 to the SRAM
+	if (ReadExtSRAM(0x0) != 0x55)                   // Read the SRAM
+	return(POST_FAILED_SINGLE_LOCATION_TEST);       // Post failed
 	// Write/read a data ramp to exercise address lines (step in address bits)
 	sramData = 1;
-	for (sramAddr = 1; sramAddr < 0x80000; sramAddr <<= 1)
+	for (sramAddr = 1; sramAddr < SRAM_SIZE; sramAddr <<= 1)
 	{
 		WriteExtSRAM(sramAddr,sramData);
 		sramData++;
 	}
 	// Bounce a one across the address lines to test all 512KB
 	sramData = 1;
-	for (sramAddr = 1; sramAddr < 0x80000; sramAddr <<= 1)
+	for (sramAddr = 1; sramAddr < SRAM_SIZE; sramAddr <<= 1)
 	{
 		sramReadData = ReadExtSRAM(sramAddr);
 		if (sramReadData != sramData)
@@ -97,30 +93,31 @@ uint32 TestSRAM(void)
 	}
 	// Fill all of the SRAM with data = bottom of 8 bits of address
 	sramData = 0;
-	for (sramAddr = 0; sramAddr < 0x80000; sramAddr++)
+	for (sramAddr = 0; sramAddr < SRAM_SIZE; sramAddr++)
 	{
 		WriteExtSRAM(sramAddr,sramData);
 		sramData++;
 	}
 	// Verify the SRAM has data=address
 	sramData = 0;
-	for (sramAddr = 0; sramAddr < 0x80000; sramAddr++)
+	for (sramAddr = 0; sramAddr < SRAM_SIZE; sramAddr++)
 	{
 		sramReadData = ReadExtSRAM(sramAddr);
 		if (sramReadData != sramData)
 		return(POST_FAILED_TEST_ALL_RAM);
 		sramData++;
 	}
-	ExtSRAMCtl_Write(CPURESET_BIT);              // Leave Z80 in reset
+    // De-assert all SRAM controls but leave Z80 in reset
+	ExtSRAMCtl_Write(CPURESET_BIT);
 	return(POST_PASSED);
 }
 
 ////////////////////////////////////////////////////////////////////////////
-// void loadSRAM(void) - Load the SRAM on the card with the ROM code
-// Supports all builds
+// void loadSRAM(void) - Load the SRAM on the card with the EPROM code
+// Supports any build
 // Create the C array using srec_cat and put into a .c file
-//  Hex files:      srec_cat.exe HexFile.hex -I -o cmon32.c -C-Array
-//  Object files:   srec_cat.exe ObjFile.o -binary -o CCode.c -C-Array
+//  Hex source files:      srec_cat.exe HexFile.hex -I -o CCode.c -C-Array
+//  Object source files:   srec_cat.exe ObjFile.o -binary -o CCode.c -C-Array
 
 void loadSRAM(void)
 {
@@ -128,18 +125,7 @@ void loadSRAM(void)
     uint8 dataVal;
 	for (uint32 charCount = 0; charCount < MONITOR_LENGTH; charCount++)
 	{
-#ifdef GRANT_9_CHIP_Z80
-		dataVal = monitor_basic_eprom[charCount];
-#endif
-#ifdef GRANT_7_CHIP_Z80
-		dataVal = gs7chip_basic_eeprom[charCount];
-#endif
-#ifdef GRANT_FPGA_CPM
-		dataVal = gs_fpga_basic_eeprom[charCount];
-#endif
-#ifdef MULTIBOOT_CPM
-		dataVal = multi_boot_eprom[charCount];
-#endif
+		dataVal = Z80_eeprom[charCount];
 		WriteExtSRAM(SRAMAddr,dataVal);
 		SRAMAddr++;
 	}
