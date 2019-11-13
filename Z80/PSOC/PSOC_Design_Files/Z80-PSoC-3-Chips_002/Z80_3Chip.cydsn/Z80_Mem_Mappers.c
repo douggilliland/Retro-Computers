@@ -13,12 +13,6 @@
 #include <project.h>
 #include <Z80_PSoC_3Chips.h>
 
-uint8 mmu4select;
-uint8 mmu4Reg0;
-uint8 mmu4Reg1;
-uint8 mmu4Reg2;
-uint8 mmu4Reg3;
-
 #ifdef USING_MEM_MAP_1       // Memory mapper for Grant's CPM in FPGA code
 
 /////////////////////////////////////////////////////////////////////////////////
@@ -50,6 +44,12 @@ void swap_out_ROM_space(void)
 #endif
 
 #ifdef USING_MMU4       // Memory mapper for Multiboot code
+
+uint8 mmu4select;
+uint8 mmu4Reg0;
+uint8 mmu4Reg1;
+uint8 mmu4Reg2;
+uint8 mmu4Reg3;
 
 /////////////////////////////////////////////////////////////////////////////////
 // Memory Mapper version 4 has four banks of 16KB each with 64 total banks (1M SRAM) or 32 banks (512KB SRAM)

@@ -21,6 +21,8 @@
 
 #ifdef USING_FRONT_PANEL
     uint32 fpIntVal;
+#endif
+#ifdef USING_EXP_MCCP23017
     uint8 pioAIntVals;
     uint8 pioBIntVals;
 #endif
@@ -41,38 +43,43 @@ int main(void)
     
 #ifdef USING_FRONT_PANEL
     fpIntVal = 0;
+#endif
+
+#ifdef USING_EXP_MCCP23017
     pioAIntVals = 0;
     pioBIntVals = 0;
 #endif
 	
 	USBUART_Start(USBFS_DEVICE, USBUART_5V_OPERATION);  // Start USBFS operation with 5-V operation.
 
+    // Memory Map/MMU initialization
+    #ifdef USING_MEM_MAP_1
+	    init_mem_map_1();       // Set up the address mapper
+    #endif
+        
+	CyGlobalIntEnable;          /* Enable global interrupts. */
+    
     // I2C_Start() if either External MPC23017 or Front Panel or both are present
+    // I2C interrupts have to be enabled prior to starting up the PIO it uses interrupts
 	#ifdef USING_MCP23017
 		I2C_Start();                                // Start up the I2C interface
     	I2CINT_n_SetDriveMode(I2CINT_n_DM_RES_UP);  // Pull-up the I2C interrupt line
         I2CINT_ISR_Start();                         // Start up I2C interface interrupts
+        I2CINT_ISR_Disable();
+	#endif  
+	#ifdef USING_FRONT_PANEL
+        init_FrontPanel();
+    #endif
+  	#ifdef USING_EXP_MCCP23017
+    	init_PIO();
 	#endif
     
 	#ifdef USING_SDCARD
 		SDInit();
 	#endif
-    
+    	
     init_Z80_RTC();
     init_DAC();
-	
-	CyGlobalIntEnable;          /* Enable global interrupts. */
-    
-    // The expansion MCP23017 had its reset tied to the CPU reset so the Z80 has to be running
-    // Interrupts have to be enabled prior to starting up the PIO it uses interrupts
-	#ifdef USING_EXP_MCCP23017
-    	init_PIO();
-	#endif
-    
-    // Interrupts have to be enabled prior to starting up the Front Panel since it uses interrupts
-	#ifdef USING_FRONT_PANEL
-        init_FrontPanel();
-    #endif
     
 	// Do Power On Self Tests (POST)
 	// SRAM POST
@@ -81,27 +88,18 @@ int main(void)
 	if (postVal != 0)           // Halt on POST failure (could do something better here)
 		while(1);
         
-    // Memory Map/MMU initialization
-    #ifdef USING_MEM_MAP_1
-	    init_mem_map_1();       // Set up the address mapper
-    #endif
-    #ifdef USING_MEM_MAP_4
-	    init_mem_map_4();       // Set up the address mapper
-    #endif
-    
     // Load SRAM with BIOS and/or language image
 	loadSRAM();
 	
 	// Front Panel Initialization
     #ifdef USING_FRONT_PANEL
 		Z80Running = runFrontPanel();            // Exits either by pressing EXitFrontPanel or RUN button on front panel
-        // TBD - the reset on the Expansion MCP23017 was tied to CPURESET* but it's been removed so this code should be moved up
-        if (Z80Running == 1)
-        {
-        }
-	#else
+ 	#else
 		ExtSRAMCtl_Control = 0;     // Auto Run if there's no Front Panel
 	#endif
+    #ifdef USING_MEM_MAP_4
+	    init_mem_map_4();       // Set up the address mapper
+    #endif
 
     // Code has two loops - one for when Z80 is running with PSoC as Z80 I/O handler - other as PSoC monitor with Z80 in reset
     if (Z80Running == 1)    // Z80 Running (RUN front panel switch pushed)
