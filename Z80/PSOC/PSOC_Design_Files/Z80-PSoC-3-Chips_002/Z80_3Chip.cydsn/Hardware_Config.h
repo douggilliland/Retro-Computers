@@ -184,7 +184,7 @@
 
 #ifdef MULTIBOOT_CPM
     #define MONITOR_START       0x00000000      // EEPROM loads to address 0
-    #define MONITOR_LENGTH      0x00002000      // 8K build
+    #define MONITOR_LENGTH      0x00000800      // 2K build
     // I/O Space Address Map follow
     #define USING_6850
     #define M6850_C              0x80       // Control/Status register
