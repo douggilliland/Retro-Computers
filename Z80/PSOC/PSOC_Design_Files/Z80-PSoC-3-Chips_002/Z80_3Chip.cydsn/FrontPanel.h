@@ -65,10 +65,10 @@
 
 // Function Prototypes
 
-void FrontPanelZ80Read(uint8);
-void FrontPanelZ80Write(uint8);
 void init_FrontPanel(void);
 uint8 runFrontPanel(void);
+void FrontPanelZ80Read(uint8);
+void FrontPanelZ80Write(uint8);
 uint32 readFrontPanelSwitchesRegistered(void);
 uint32 waitFrontPanelSwitchesPressed();
 uint32 readFrontPanelSwitchesStatic(void);
@@ -76,5 +76,6 @@ void writeFrontPanelLEDs(uint32);
 void writeRegister_MCP23017(uint8, uint8, uint8);
 uint8 readRegister_MCP23017(uint8, uint8);
 
-/* [] END OF FILE */
 #endif
+
+/* [] END OF FILE */

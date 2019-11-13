@@ -45,7 +45,7 @@ void putStringToUSB(char * stringToPutOutUSB)
 ////////////////////////////////////////////////////////////////////////////
 // void I2CIntISR(void) - Handle the I2CINT* line
 // The routine is called when a button on the front panel is pressed or 
-// Expansion MCP23017 pin is toggle by a JOYPAD or Gen Purp Input.
+//  Expansion MCP23017 pin is toggle by a JOYPAD or General Purpose Input
 
 void I2CIntISR(void)
 {

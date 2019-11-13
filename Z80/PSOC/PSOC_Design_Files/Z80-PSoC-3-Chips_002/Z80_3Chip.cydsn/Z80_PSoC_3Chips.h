@@ -24,9 +24,23 @@
 #include "Z80_RTC.h"
 #include "Z80_DAC.h"
 
+////////////////////////////////////////////////////////////////////////////
+// externs for the EPROM images - Only 1 image is actually used
+
+extern unsigned char monitor_basic_eprom[];
+extern unsigned char gs7chip_basic_eeprom[];
+extern const unsigned char gs_fpga_basic_eeprom[];
+extern const unsigned char multi_boot_eprom[];
+
+////////////////////////////////////////////////////////////////////////////
+// externs for the Front Panel
+
 extern uint32 fpIntVal;
 extern uint8 pioAIntVals;
 extern uint8 pioBIntVals;
+
+////////////////////////////////////////////////////////////////////////////
+// Function prototypes for Z80_PSoC_3Chips.c file
 
 void PostLed(uint32);
 void putStringToUSB(char *);

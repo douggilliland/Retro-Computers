@@ -17,31 +17,6 @@
 #include <Z80_PSoC_3Chips.h>
 
 ////////////////////////////////////////////////////////////////////////////
-// Bits in the SRAM direct control register 
-
-#define DRVRAM_BIT      0x01    // 1 = Drive SRAM bus from PSoC
-#define SRAMCS_BIT      0x02    // 1 = Drive SRAMCS
-#define SRAMRD_BIT      0x04    // 1 = SRAM read
-#define SRAMWR_BIT      0x08    // 1 = SRAM write
-#define CPURESET_BIT    0x10    // 1 = Z80 held in reset
-
-////////////////////////////////////////////////////////////////////////////
-// externs for the EPROM images
-
-#ifdef GRANT_9_CHIP_Z80
-extern unsigned char monitor_basic_eprom[];
-#endif
-#ifdef GRANT_7_CHIP_Z80
-extern unsigned char gs7chip_basic_eeprom[];
-#endif
-#ifdef GRANT_FPGA_CPM
-extern const unsigned char gs_fpga_basic_eeprom[];
-#endif
-#ifdef MULTIBOOT_CPM
-extern const unsigned char multi_boot_eprom[];
-#endif
-
-////////////////////////////////////////////////////////////////////////////
 // SetExtSRAMAddr(addr) - Set the address registers for the SRAM
 
 void SetExtSRAMAddr(uint32 addr)

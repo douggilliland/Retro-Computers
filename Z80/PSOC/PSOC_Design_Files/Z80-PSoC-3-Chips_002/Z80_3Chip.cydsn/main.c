@@ -97,19 +97,20 @@ int main(void)
  	#else
 		ExtSRAMCtl_Control = 0;     // Auto Run if there's no Front Panel
 	#endif
+    
     #ifdef USING_MEM_MAP_4
 	    init_mem_map_4();       // Set up the address mapper
     #endif
+	#ifdef USING_6850
+		initM6850StatusRegister();
+	#endif
+	#ifdef USING_6850_2
+		initM6850_2_StatusRegister();
+	#endif
 
     // Code has two loops - one for when Z80 is running with PSoC as Z80 I/O handler - other as PSoC monitor with Z80 in reset
     if (Z80Running == 1)    // Z80 Running (RUN front panel switch pushed)
 	{
-		#ifdef USING_6850
-			initM6850StatusRegister();
-		#endif
-		#ifdef USING_6850_2
-			initM6850_2_StatusRegister();
-		#endif
 		for(;;)
 		{
 			if (0u != USBUART_IsConfigurationChanged()) // Host can send double SET_INTERFACE request.

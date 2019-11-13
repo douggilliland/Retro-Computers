@@ -170,11 +170,11 @@ uint8 runFrontPanel(void)
 				LEDsVal |= ReadExtSRAM((LEDsVal >> 8) & 0xffff);
 				writeFrontPanelLEDs(LEDsVal);
 			}
-			else if ((switchesVal & 0x08000000) == 0x08000000)  // Run program
+			else if ((switchesVal & 0x08000000) == 0x08000000)  // Take Z80 out of reset
 			{
-				ExtSRAMCtl_Control = 0;
 				LEDsVal = 0x08000000;
 				writeFrontPanelLEDs(LEDsVal);       // Leave Run LED on
+				ExtSRAMCtl_Write(0);                // Remove Z80 reset
 				return (1);
 			}
 			else if ((switchesVal & 0x10000000) == 0x10000000)  // TBD
@@ -205,7 +205,7 @@ uint8 runFrontPanel(void)
 			{
 				LEDsVal = 0x80000000;
 				writeFrontPanelLEDs(LEDsVal);       // Leave LED on
-				return(0);                          // Z80 still in reset
+				return(0);                          // Z80 held in reset
 			}
 		}
 		else    // Non-control switch was pressed

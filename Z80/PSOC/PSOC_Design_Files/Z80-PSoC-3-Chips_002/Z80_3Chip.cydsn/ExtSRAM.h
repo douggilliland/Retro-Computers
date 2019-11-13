@@ -15,11 +15,24 @@
 
 #include <project.h>
 
-void SetExtSRAMAddr(uint32);
-void WriteExtSRAM(uint32, uint8);
-uint32 TestSRAM(void);
-uint8 ReadExtSRAM(uint32);
-void loadSRAM(void);
+////////////////////////////////////////////////////////////////////////////
+// Bits in the SRAM direct control register 
+
+#define DRVRAM_BIT      0x01    // 1 = Drive SRAM bus from PSoC
+#define SRAMCS_BIT      0x02    // 1 = Drive SRAM Chip Select
+#define SRAMRD_BIT      0x04    // 1 = Drive SRAM read
+#define SRAMWR_BIT      0x08    // 1 = Drive SRAM write
+#define CPURESET_BIT    0x10    // 1 = Z80 held in reset
+
+////////////////////////////////////////////////////////////////////////////
+// Function prototypes
+
+void    SetExtSRAMAddr(uint32);
+void    WriteExtSRAM(uint32, uint8);
+uint32  TestSRAM(void);
+uint8   ReadExtSRAM(uint32);
+void    loadSRAM(void);
+
+#endif
 
 /* [] END OF FILE */
-#endif
