@@ -1,5 +1,5 @@
 /*******************************************************************************
-* File Name: CPUA15_1.h  
+* File Name: CPUA15.h  
 * Version 2.20
 *
 * Description:
@@ -15,8 +15,8 @@
 * the software package with which this file was provided.
 *******************************************************************************/
 
-#if !defined(CY_PINS_CPUA15_1_ALIASES_H) /* Pins CPUA15_1_ALIASES_H */
-#define CY_PINS_CPUA15_1_ALIASES_H
+#if !defined(CY_PINS_CPUA15_ALIASES_H) /* Pins CPUA15_ALIASES_H */
+#define CY_PINS_CPUA15_ALIASES_H
 
 #include "cytypes.h"
 #include "cyfitter.h"
@@ -25,12 +25,12 @@
 /***************************************
 *              Constants        
 ***************************************/
-#define CPUA15_1_0			(CPUA15_1__0__PC)
-#define CPUA15_1_0_INTR	((uint16)((uint16)0x0001u << CPUA15_1__0__SHIFT))
+#define CPUA15_0			(CPUA15__0__PC)
+#define CPUA15_0_INTR	((uint16)((uint16)0x0001u << CPUA15__0__SHIFT))
 
-#define CPUA15_1_INTR_ALL	 ((uint16)(CPUA15_1_0_INTR))
+#define CPUA15_INTR_ALL	 ((uint16)(CPUA15_0_INTR))
 
-#endif /* End Pins CPUA15_1_ALIASES_H */
+#endif /* End Pins CPUA15_ALIASES_H */
 
 
 /* [] END OF FILE */

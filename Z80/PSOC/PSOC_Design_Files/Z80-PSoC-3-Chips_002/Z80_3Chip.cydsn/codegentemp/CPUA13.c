@@ -1,5 +1,5 @@
 /*******************************************************************************
-* File Name: CPUA14_1.c  
+* File Name: CPUA13.c  
 * Version 2.20
 *
 * Description:
@@ -15,15 +15,15 @@
 *******************************************************************************/
 
 #include "cytypes.h"
-#include "CPUA14_1.h"
+#include "CPUA13.h"
 
 /* APIs are not generated for P15[7:6] on PSoC 5 */
 #if !(CY_PSOC5A &&\
-	 CPUA14_1__PORT == 15 && ((CPUA14_1__MASK & 0xC0) != 0))
+	 CPUA13__PORT == 15 && ((CPUA13__MASK & 0xC0) != 0))
 
 
 /*******************************************************************************
-* Function Name: CPUA14_1_Write
+* Function Name: CPUA13_Write
 ****************************************************************************//**
 *
 * \brief Writes the value to the physical port (data output register), masking
@@ -52,17 +52,17 @@
 *  this function.
 *
 * \funcusage
-*  \snippet CPUA14_1_SUT.c usage_CPUA14_1_Write
+*  \snippet CPUA13_SUT.c usage_CPUA13_Write
 *******************************************************************************/
-void CPUA14_1_Write(uint8 value)
+void CPUA13_Write(uint8 value)
 {
-    uint8 staticBits = (CPUA14_1_DR & (uint8)(~CPUA14_1_MASK));
-    CPUA14_1_DR = staticBits | ((uint8)(value << CPUA14_1_SHIFT) & CPUA14_1_MASK);
+    uint8 staticBits = (CPUA13_DR & (uint8)(~CPUA13_MASK));
+    CPUA13_DR = staticBits | ((uint8)(value << CPUA13_SHIFT) & CPUA13_MASK);
 }
 
 
 /*******************************************************************************
-* Function Name: CPUA14_1_SetDriveMode
+* Function Name: CPUA13_SetDriveMode
 ****************************************************************************//**
 *
 * \brief Sets the drive mode for each of the Pins component's pins.
@@ -85,16 +85,16 @@ void CPUA14_1_Write(uint8 value)
 *  APIs (primary method) or disable interrupts around this function.
 *
 * \funcusage
-*  \snippet CPUA14_1_SUT.c usage_CPUA14_1_SetDriveMode
+*  \snippet CPUA13_SUT.c usage_CPUA13_SetDriveMode
 *******************************************************************************/
-void CPUA14_1_SetDriveMode(uint8 mode)
+void CPUA13_SetDriveMode(uint8 mode)
 {
-	CyPins_SetPinDriveMode(CPUA14_1_0, mode);
+	CyPins_SetPinDriveMode(CPUA13_0, mode);
 }
 
 
 /*******************************************************************************
-* Function Name: CPUA14_1_Read
+* Function Name: CPUA13_Read
 ****************************************************************************//**
 *
 * \brief Reads the associated physical port (pin status register) and masks 
@@ -108,16 +108,16 @@ void CPUA14_1_SetDriveMode(uint8 mode)
 *  The current value for the pins in the component as a right justified number.
 *
 * \funcusage
-*  \snippet CPUA14_1_SUT.c usage_CPUA14_1_Read  
+*  \snippet CPUA13_SUT.c usage_CPUA13_Read  
 *******************************************************************************/
-uint8 CPUA14_1_Read(void)
+uint8 CPUA13_Read(void)
 {
-    return (CPUA14_1_PS & CPUA14_1_MASK) >> CPUA14_1_SHIFT;
+    return (CPUA13_PS & CPUA13_MASK) >> CPUA13_SHIFT;
 }
 
 
 /*******************************************************************************
-* Function Name: CPUA14_1_ReadDataReg
+* Function Name: CPUA13_ReadDataReg
 ****************************************************************************//**
 *
 * \brief Reads the associated physical port's data output register and masks 
@@ -126,8 +126,8 @@ uint8 CPUA14_1_Read(void)
 *
 * The data output register controls the signal applied to the physical pin in 
 * conjunction with the drive mode parameter. This is not the same as the 
-* preferred CPUA14_1_Read() API because the 
-* CPUA14_1_ReadDataReg() reads the data register instead of the status 
+* preferred CPUA13_Read() API because the 
+* CPUA13_ReadDataReg() reads the data register instead of the status 
 * register. For output pins this is a useful function to determine the value 
 * just written to the pin.
 *
@@ -136,19 +136,19 @@ uint8 CPUA14_1_Read(void)
 *  justified number for the component instance.
 *
 * \funcusage
-*  \snippet CPUA14_1_SUT.c usage_CPUA14_1_ReadDataReg 
+*  \snippet CPUA13_SUT.c usage_CPUA13_ReadDataReg 
 *******************************************************************************/
-uint8 CPUA14_1_ReadDataReg(void)
+uint8 CPUA13_ReadDataReg(void)
 {
-    return (CPUA14_1_DR & CPUA14_1_MASK) >> CPUA14_1_SHIFT;
+    return (CPUA13_DR & CPUA13_MASK) >> CPUA13_SHIFT;
 }
 
 
 /* If interrupt is connected for this Pins component */ 
-#if defined(CPUA14_1_INTSTAT) 
+#if defined(CPUA13_INTSTAT) 
 
     /*******************************************************************************
-    * Function Name: CPUA14_1_SetInterruptMode
+    * Function Name: CPUA13_SetInterruptMode
     ****************************************************************************//**
     *
     * \brief Configures the interrupt mode for each of the Pins component's
@@ -161,12 +161,12 @@ uint8 CPUA14_1_ReadDataReg(void)
     * \param position
     *  The pin position as listed in the Pins component. You may OR these to be 
     *  able to configure the interrupt mode of multiple pins within a Pins 
-    *  component. Or you may use CPUA14_1_INTR_ALL to configure the
+    *  component. Or you may use CPUA13_INTR_ALL to configure the
     *  interrupt mode of all the pins in the Pins component.       
-    *  - CPUA14_1_0_INTR       (First pin in the list)
-    *  - CPUA14_1_1_INTR       (Second pin in the list)
+    *  - CPUA13_0_INTR       (First pin in the list)
+    *  - CPUA13_1_INTR       (Second pin in the list)
     *  - ...
-    *  - CPUA14_1_INTR_ALL     (All pins in Pins component)
+    *  - CPUA13_INTR_ALL     (All pins in Pins component)
     *
     * \param mode
     *  Interrupt mode for the selected pins. Valid options are documented in
@@ -182,19 +182,19 @@ uint8 CPUA14_1_ReadDataReg(void)
     *  port.
     *
     * \funcusage
-    *  \snippet CPUA14_1_SUT.c usage_CPUA14_1_SetInterruptMode
+    *  \snippet CPUA13_SUT.c usage_CPUA13_SetInterruptMode
     *******************************************************************************/
-    void CPUA14_1_SetInterruptMode(uint16 position, uint16 mode)
+    void CPUA13_SetInterruptMode(uint16 position, uint16 mode)
     {
-		if((position & CPUA14_1_0_INTR) != 0u) 
+		if((position & CPUA13_0_INTR) != 0u) 
 		{ 
-			 CPUA14_1_0_INTTYPE_REG = (uint8)mode; 
+			 CPUA13_0_INTTYPE_REG = (uint8)mode; 
 		}
     }
     
     
     /*******************************************************************************
-    * Function Name: CPUA14_1_ClearInterrupt
+    * Function Name: CPUA13_ClearInterrupt
     ****************************************************************************//**
     *
     * \brief Clears any active interrupts attached with the component and returns 
@@ -211,11 +211,11 @@ uint8 CPUA14_1_ReadDataReg(void)
     *  those associated with the Pins component.
     *
     * \funcusage
-    *  \snippet CPUA14_1_SUT.c usage_CPUA14_1_ClearInterrupt
+    *  \snippet CPUA13_SUT.c usage_CPUA13_ClearInterrupt
     *******************************************************************************/
-    uint8 CPUA14_1_ClearInterrupt(void)
+    uint8 CPUA13_ClearInterrupt(void)
     {
-        return (CPUA14_1_INTSTAT & CPUA14_1_MASK) >> CPUA14_1_SHIFT;
+        return (CPUA13_INTSTAT & CPUA13_MASK) >> CPUA13_SHIFT;
     }
 
 #endif /* If Interrupts Are Enabled for this Pins component */ 

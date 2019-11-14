@@ -1,5 +1,5 @@
 /*******************************************************************************
-* File Name: CPUA13_1.h  
+* File Name: CPUA12.h  
 * Version 2.20
 *
 * Description:
@@ -15,8 +15,8 @@
 * the software package with which this file was provided.
 *******************************************************************************/
 
-#if !defined(CY_PINS_CPUA13_1_ALIASES_H) /* Pins CPUA13_1_ALIASES_H */
-#define CY_PINS_CPUA13_1_ALIASES_H
+#if !defined(CY_PINS_CPUA12_ALIASES_H) /* Pins CPUA12_ALIASES_H */
+#define CY_PINS_CPUA12_ALIASES_H
 
 #include "cytypes.h"
 #include "cyfitter.h"
@@ -25,12 +25,12 @@
 /***************************************
 *              Constants        
 ***************************************/
-#define CPUA13_1_0			(CPUA13_1__0__PC)
-#define CPUA13_1_0_INTR	((uint16)((uint16)0x0001u << CPUA13_1__0__SHIFT))
+#define CPUA12_0			(CPUA12__0__PC)
+#define CPUA12_0_INTR	((uint16)((uint16)0x0001u << CPUA12__0__SHIFT))
 
-#define CPUA13_1_INTR_ALL	 ((uint16)(CPUA13_1_0_INTR))
+#define CPUA12_INTR_ALL	 ((uint16)(CPUA12_0_INTR))
 
-#endif /* End Pins CPUA13_1_ALIASES_H */
+#endif /* End Pins CPUA12_ALIASES_H */
 
 
 /* [] END OF FILE */
