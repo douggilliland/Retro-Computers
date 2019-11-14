@@ -98,8 +98,8 @@ int main(void)
 		ExtSRAMCtl_Control = 0;     // Auto Run if there's no Front Panel
 	#endif
     
-    #ifdef USING_MEM_MAP_4
-	    init_mem_map_4();       // Set up the address mapper
+    #ifdef USING_MMU4
+	    init_mem_map_4();       // Set up the address mapper - will be over-written by the BIOS
     #endif
 	#ifdef USING_6850
 		initM6850StatusRegister();

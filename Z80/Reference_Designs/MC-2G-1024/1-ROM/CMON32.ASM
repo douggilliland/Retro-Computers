@@ -100,7 +100,7 @@ rst08h:	jr conout
 	ds start+10h-$
 
 
-;  RST 10h - CONIN receice character from default console
+;  RST 10h - CONIN receive character from default console
 ;-------------------------------------------------------------
 rst10h:
 conin:	push BC			; we use C for IN/OUTput

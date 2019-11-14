@@ -53,10 +53,13 @@ volatile uint8 mmu4select;
 
 void init_mem_map_4(void)
 {
-    MMU_Sel_Write(0x1);
+    MMU_Sel_Write(0x0);
     MMU4_Addr_0_Write(0x0);
+    MMU_Sel_Write(0x1);
     MMU4_Addr_1_Write(0x1);
+    MMU_Sel_Write(0x2);
     MMU4_Addr_2_Write(0x2);
+    MMU_Sel_Write(0x3);
     MMU4_Addr_3_Write(0x3);
 }
 
