@@ -1,6 +1,6 @@
 // ======================================================================
 // Z80_3Chip.v generated from TopDesign.cysch
-// 11/13/2019 at 20:47
+// 11/14/2019 at 06:41
 // This file is auto generated. ANY EDITS YOU MAKE MAY BE LOST WHEN THIS FILE IS REGENERATED!!!
 // ======================================================================
 
@@ -5359,9 +5359,9 @@ module top ;
 
 	cy_clock_v1_0
 		#(.id("3ef6089a-404f-4833-9881-9f7f0afe9423"),
-		  .source_clock_id(""),
+		  .source_clock_id("39D5E4C2-EBFC-44ab-AE3D-19F9BBFD674D"),
 		  .divisor(0),
-		  .period("100000000"),
+		  .period("80000000"),
 		  .is_direct(0),
 		  .is_digital(1))
 		CPUCLK
