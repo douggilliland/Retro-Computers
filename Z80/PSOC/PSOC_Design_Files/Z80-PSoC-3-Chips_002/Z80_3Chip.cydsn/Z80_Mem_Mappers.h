@@ -21,6 +21,8 @@
 #define BANK_SIZE_4K    0x1E
 #define BANK_SIZE_2K    0x1F
 
+extern volatile uint8 mmu4select;
+
 void init_mem_map_1(void);
 void swap_out_ROM_space(void);
 void init_mem_map_4(void);

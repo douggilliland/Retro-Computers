@@ -45,11 +45,7 @@ void swap_out_ROM_space(void)
 
 #ifdef USING_MMU4       // Memory mapper for Multiboot code
 
-uint8 mmu4select;
-uint8 mmu4Reg0;
-uint8 mmu4Reg1;
-uint8 mmu4Reg2;
-uint8 mmu4Reg3;
+volatile uint8 mmu4select;
 
 /////////////////////////////////////////////////////////////////////////////////
 // Memory Mapper version 4 has four banks of 16KB each with 64 total banks (1M SRAM) or 32 banks (512KB SRAM)
@@ -71,7 +67,7 @@ void init_mem_map_4(void)
 
 void wrMMU4SelectReg(void)
 {
-    mmu4select = Z80_Data_In_Read() & 0x03;
+    mmu4select = Z80_Data_Out_Read();
 	ackIO();
 }
 
@@ -80,18 +76,20 @@ void wrMMU4SelectReg(void)
 
 void wrMMU4Bank(void)
 {
+    volatile uint8 mmuVal;
+    mmuVal = Z80_Data_Out_Read();
     switch (mmu4select)
     {
         case 0:
-            MMU4_Addr_0_Write(Z80_Data_In_Read());
+            MMU4_Addr_0_Write(mmuVal);
             break;
         case 1:
-            MMU4_Addr_1_Write(Z80_Data_In_Read());
+            MMU4_Addr_1_Write(mmuVal);
             break;
         case 2:
-            MMU4_Addr_2_Write(Z80_Data_In_Read());
+            MMU4_Addr_2_Write(mmuVal);
         case 3:
-            MMU4_Addr_3_Write(Z80_Data_In_Read());
+            MMU4_Addr_3_Write(mmuVal);
     }
 	ackIO();
 }

@@ -34,10 +34,10 @@
 //#define GRANT_7_CHIP_Z80
     
 //#undef GRANT_FPGA_CPM
-#define GRANT_FPGA_CPM
-    
-#undef MULTIBOOT_CPM
-//#define MULTIBOOT_CPM
+//#define GRANT_FPGA_CPM
+
+//#undef MULTIBOOT_CPM
+#define MULTIBOOT_CPM
 
 // Global choices included in all designs based on hardware used/not used
 
@@ -195,8 +195,8 @@
     #define M6850_D              0x81       // Data
     #define M6850_B              0x7B       // Baud Rate Select
     #define USING_6850_2
-    #define M6850_2_C            0x86       // Control/Status register - 2nd 6850 part (faked)
-    #define M6850_2_D            0x87       // Data
+    #define M6850_2_C            0x82       // Control/Status register - 2nd 6850 part (faked)
+    #define M6850_2_D            0x83       // Data
     #define M6850_2_B            0x7C       // Baud Rate Select
     #ifdef USING_FRONT_PANEL
         #define FR_PNL_IO_LO        0x18    // decimal 24
