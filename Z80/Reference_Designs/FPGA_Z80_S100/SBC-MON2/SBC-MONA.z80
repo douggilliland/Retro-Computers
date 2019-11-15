@@ -1,0 +1,1806 @@
+;	SBC-MON2.Z80  This is a stripped down version of the main MASTER-Z80 (and SBC-MON.Z80 monitor) programs 
+;	for use with the S100 bus Z80-FPGA SBC. It will not work with other Z80 CPU Boards without modifications.
+; 
+;	Assemble and SLR's Z80ASM Assembler (Can also use the Cromemco Assembler)
+;	Use:- Z80ASM SBC-MON FH
+;
+;	NOTE. This board utilizes an 8K 28C64 EEPROM (or 27C64 UV-ROM). 
+;
+;	To assemble under windows...
+;	Load Altair.EXE in Windows CMD box
+;	do cpm3
+;	I:
+;	I:>Submit SBC-MON
+;
+;	SBC-MON2.HEX  is written back to the same windows folder that the PC file "altair.exe" is in.
+
+;	Programming an EEPROM for the SBC-Z80 Board with a PROM burner is fairly straightfoward. 
+;	Using a 28C64 EEPROM and a Wellon VP-280 or VP290 Programmer
+;	For a monitor at E000H-FFFFH:-
+
+;	Make sure the ORG is E000H (BASE_RAM).
+;	Load the SBC-MON2.HEX file
+;	Clear Buffer Options:- 00
+;	Load Buffer Address : 0000
+;	From File address use:- E000H
+;	File Size use:- 2000H
+;
+;	Recent History...
+;
+;	V1.0	4/30/2019	Started with the modified MASTER.Z80 V5.1 Monitor. Removed the page switching menu option.
+;	V1.01	7/20/2019	Added printer output
+;	V2.0	8/21/2019	Added a second HIGH page for SD Cards
+;
+;
+FALSE		EQU	0
+TRUE		EQU	NOT FALSE
+;
+;--------------------------------------------------------
+;        IDE Routines           E000-EFFFH
+;        MONITOR Routines       F000-FFFFH
+;        Start Monitor by jumping to F000H (not E000H)
+;--------------------------------------------------------
+;
+;
+MONITOR_BASE	EQU	0F000H		;Start of monitor after a reset								
+RAM_BASE	EQU	0C000H		;Default location of RAM buffer area for IDE/CF card diagnostic routines
+					;Can be changed with "D" IDE menu command
+
+SCROLL		EQU	01H					
+BELL		EQU	07H
+SPACE		EQU	20H
+TAB		EQU	09H		;TAB ACROSS (8 SPACES FOR SD-BOARD)
+CR		EQU	0DH
+LF		EQU	0AH
+FF		EQU	0CH
+QUIT		EQU	11H		;Turns off any screen enhancements (flashing, underline etc).
+NO_ENH		EQU 	17H		;Turns off whatever is on
+FAST		EQU	10H		;High speed scroll
+ESC		EQU	1BH
+DELETE		EQU	7FH
+BACKS		EQU	08H
+CLEAR		EQU	1AH		;TO CLEAR SCREEN
+RST7		EQU	38H		;RST 7 (LOCATION FOR TRAP)
+NN		EQU	0H		;[I] INITIAL VALUE
+SOH		EQU	1		;For XModem etc.
+EOT		EQU	4
+ACK		EQU	6
+NAK		EQU	15H
+;
+
+; Note on the mapping below: The DIP switches on the physical board connect to GND with pull up resistors 
+; OPEN/OFF switches are '1's and CLOSED/ON DIP switches are '0's
+;
+; BIT MAP OF IOBYTE BASE_PORT + 6H:- X X X X  X X X X  (if xxxxx111= 111 = CONSOLE IN/OUT DATA for all Console IO board
+;			             | | | |  | | | |..............  110 = will use onboard USB chip for ALL Console I/O
+;			             | | | |  | | |................  x0x = will force/override onboard FPGA code, to PS2 keyboard input 
+;			             | | | |  | |..................  0xx = will force/override, VGA for Console output
+;			             | | | |  |....................  0 = Send Console Data to Printer as well as console.
+;			             | | | |.......................  Unused			
+;			             | | |.........................  Unused							 
+;			             | |...........................  Unused
+;			     	     |.............................  0 Low Speed Clock for CPU
+;
+;
+;
+
+BASE_PORT	EQU	30H		;Note by using 30H we can use software already on CF-CARDS that
+USB_STATUS_PORT	EQU	BASE_PORT+4H	;Status port for USB console input port
+USB_DATA_PORT	EQU	BASE_PORT+5H	;Status port for USB console data port
+IOBYTE		EQU	BASE_PORT+6H	;See above
+
+PS2_STATUS_PORT	EQU	02H		;PS2 Keyboard input port
+PS2_DATA_PORT	EQU	03H
+
+DIAG_LEDS	EQU	06H		;LED BAR of FPGA Board (and LED Bar on V3 SMB if present)
+SW_TMAX		EQU	0EEH		;OUTPUT BIT 0 HIGH FROM THIS PORT LOWERS DMA0* on V3 SMB (if present)
+					;OUTPUT BIT 1 HIGH FROM THIS PORT LOWERS DMA1* on V3 SMB (if present)
+					;OUTPUT BIT 2 HIGH FROM THIS PORT LOWERS DMA2* on V3 SMB (if present)
+					;OUTPUT BIT 3 HIGH FROM THIS PORT LOWERS DMA3* on V3 SMB (if present) 
+SW_TMA0	EQU	0EDH			;INPUT FROM THIS PORT LOWERS DMA0* (SWITCHES IN THE 8088,8086,80286 or 80386 boards)
+
+
+					;Note these DMA lines are only used in master/slave changes. Not normally used here.
+
+RAM_BANK	EQU	36H		;Port to switch Low/High 32K RAM Page
+ROM_PAGE	EQU	07H		;Inactivete part or all of onboard ROM
+
+PRINTER_STROBE	EQU	0C6H		;PRINTER DATA STROBE PORT OUT
+PRINTER_STATUS	EQU	0C7H		;PRINTER STATUS PORT IN
+PRINTER_OUT	EQU	0C7H		;PRINTER DATA PORT OUT
+
+SPEED_PORT	EQU	07H		;Bit 7 HIGH forces CPU to SLOW State
+	
+VGA_CURSOR_X	EQU	0C0H		;Port to set VGA video cursor
+VGA_CURSOR_Y	EQU	0C1H
+VGA_COLOR	EQU	0C2H		;Port to set text color
+VGA_BASE	EQU	0E000H		;The VGA text will reside from E000H to EC7FH
+VGA_BASE_END	EQU	0EC7FH		;Last character at bottom RHS
+TOTAL_VGA_LINES	EQU	38		;26H
+RAM_POINTER	EQU	VGA_BASE+0FFEH	;Will store VGA RAM Pointer at very top or its RAM.
+LOCAL_X		EQU	VGA_BASE+0FFDH
+LOCAL_Y		EQU	VGA_BASE+0FFCH
+					;FOR S100 BUS 8259A (If Present)
+MASTER_PIC_PORT	EQU	20h		;Hardware port the 8259A (two ports 20H & 21H)
+MasterICW1	equ	00010111B	;EDGE triggered, 4 bytes, single Master,ICW4 needed
+MasterICW2	equ	8H		;Base address for 8259A Int Table (IBM-PC uses 8X4 = 20H)
+MasterICW3	equ	0H		;No slave
+MasterICW4	equ	00000011B	;No special mode, non buffer, Auto EOI, 8086.  ;<<<<,
+
+MODEM_SEND_MASK	EQU	4
+SEND_READY	EQU	4		;VALUE WHEN READY
+MODEM_RECV_MASK	EQU	1
+RECV_READY	EQU	1		;BIT ON WHEN READY
+MODEM_ERR_LIMIT	EQU	8		;Max number of Modem serial port re-reads aborting
+MODEM_RTS_DELAY	EQU	1		;Time to check Modem RTS line (See XMODEM_LOAD & P_XMODEM_LOAD). Not critical.
+
+RECVD_SECT_NO	EQU	0H		;IX Offset for XModem Recieved Sector Number
+SECTNO		EQU	1H		;IX Offset for XModem CURRENT SECTOR NUMBER 
+ERRCT		EQU	2H		;IX Offset for XModem ERROR COUNT
+					
+;****************************************************************************************************************
+;
+;		 EQUATES FOR OTHER POSSIBLE BOARDS IN THE S100 BUS SYSTEM
+;               (Note. If the board is not present the code will ignore the hardware)
+;
+;****************************************************************************************************************
+
+
+;-------------- S100Computers PROPELLER CONSOLE_IO (OR SD SYSTEMS VIDIO BOARD) FOR CONSOLE INPUT & OUTPUT
+
+S100_CONSOL_STATUS	EQU	0H	;Note will utilize this board if IOBYTE bits 0 & 1 are ZERO (or bit 5 is 1).	
+S100_CONSOL_IN		EQU	1H
+S100_CONSOL_OUT		EQU	1H
+
+;-------------- S100Computers IDE HARD DISK CONTROLLER COMMANDS ETC. (for Z80_MONB.Z80) -------------------------------------
+
+IDEPORTA	EQU	030H		;Lower 8 bits of IDE interface (8255)
+IDEPORTB	EQU	031H		;Upper 8 bits of IDE interface
+IDEPORTC	EQU	032H		;Control lines for IDE interface
+IDEPORTCTRL	EQU	033H		;8255 configuration port
+
+READCFG8255	EQU	10010010b	;Set 8255 IDEportC to output, IDEportA/B input
+WRITECFG8255	EQU	10000000b	;Set all three 8255 ports to output mode
+
+;IDE control lines for use with IDEportC.  
+
+IDEA0LINE	EQU	01H		;direct from 8255 to IDE interface
+IDEA1LINE	EQU	02H		;direct from 8255 to IDE interface
+IDEA2LINE	EQU	04H		;direct from 8255 to IDE interface
+IDECS0LINE	EQU	08H		;inverter between 8255 and IDE interface
+IDECS1LINE	EQU	10H		;inverter between 8255 and IDE interface
+IDEWRLINE	EQU	20H		;inverter between 8255 and IDE interface
+IDERDLINE	EQU	40H		;inverter between 8255 and IDE interface
+IDERSTLINE	EQU	80H		;inverter between 8255 and IDE interface
+
+;Symbolic constants for the IDE Drive registers, which makes the
+;code more readable than always specifying the address bits
+
+REGDATA	EQU	IDEcs0line
+REGERR	EQU	IDEcs0line + IDEa0line
+REGSECCNT	EQU	IDEcs0line + IDEa1line
+REGSECTOR	EQU	IDEcs0line + IDEa1line + IDEa0line
+REGCYLINDERLSB	EQU	IDEcs0line + IDEa2line
+REGCYLINDERMSB	EQU	IDEcs0line + IDEa2line + IDEa0line
+REGSHD	EQU	IDEcs0line + IDEa2line + IDEa1line			;(0EH)
+REGCOMMAND	EQU	IDEcs0line + IDEa2line + IDEa1line + IDEa0line	;(0FH)
+REGSTATUS	EQU	IDEcs0line + IDEa2line + IDEa1line + IDEa0line
+REGCONTROL	EQU	IDEcs1line + IDEa2line + IDEa1line
+REGASTATUS	EQU	IDEcs1line + IDEa2line + IDEa1line + IDEa0line
+
+;IDE Command Constants.  These should never change.
+
+COMMANDrecal	EQU	10H
+COMMANDread	EQU	20H
+COMMANDwrite	EQU	30H
+COMMANDinit	EQU	91H
+COMMANDid	EQU	0ECH
+COMMANDspindown	EQU	0E0H
+COMMANDspinup	EQU	0E1H
+
+
+; IDE Status Register:
+;  bit 7: Busy	1=busy, 0=not busy
+;  bit 6: Ready 1=ready for command, 0=not ready yet
+;  bit 5: DF	1=fault occured insIDE drive
+;  bit 4: DSC	1=seek complete
+;  bit 3: DRQ	1=data request ready, 0=not ready to xfer yet
+;  bit 2: CORR	1=correctable error occured
+;  bit 1: IDX	vendor specific
+;  bit 0: ERR	1=error occured
+
+SEC$SIZE	EQU	512		;Assume sector size as 512. (Not tested for other sizes)
+MAXSEC		EQU	3DH		;Sectors per track for CF my Memory drive, Kingston CF 8G. (For CPM format, 0-3CH)
+					;This translates to LBA format of 1 to 3D sectors, for a total of 61 sectors/track.
+					;This CF card actully has 3F sectors/track. Will use 3D for my CPM3 system because
+					;my Seagate drive has 3D sectors/track. Don't want different CPM3.SYS files around
+					;so this program as is will also work with a Seagate 6531 IDE drive
+
+MAXTRK		EQU	0FFH		;CPM3 allows up to 8MG so 0-256 "tracks"
+BUFFER$ORG	EQU	3000H		;<----- Will place all sector data here
+
+CPM$BOOT$COUNT	EQU	12		;Allow up to 12 CPM sectors for CPMLDR
+CPMLDR$ADDRESS	EQU	100H		;Load the CPMLDR at 100H in RAM 
+
+DEBUG EQU FALSE				;For a display of error codes returned from CF-Card drive
+
+
+
+;///////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+;-------------------------------- START OF ACTUAL MONITOR @ FOOOH --------------------------------------------------
+;//////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+
+	ORG		MONITOR_BASE	;<--------<<<<<< LOCATION OF START OF MONITOR >>>>>>>>>>>>>>>>>>>>>>
+
+;PROGRAM CODE BEGINS HERE
+
+ZAPPLE:		JP	COLD		;INITILIZATION ON RESET
+
+;>>>>>>>>>>> THIS CODE MUST BE AT THE SAME LOCATION AS FOR THE HIGH PAGE ROM CODE (SBC-MONB.Z80) <<<<<<<<<
+
+ACTIVATE_1_HIGH_PAGE:				; SWITCH TO HIGH PAGE #1 of ROM
+	LD	A,01H				; 01H for ROM A12 HIGH Page
+	OUT	(ROM_PAGE),A	
+	JP	START				; Will arrive here only IF no address line switch. 
+
+ACTIVATE_2_HIGH_PAGE:				; SWITCH TO HIGH PAGE #2 of ROM
+	LD	A,04H				; 04H for ROM A13 HIGH Page
+	OUT	(ROM_PAGE),A	
+	JP	START				; Will arrive here only IF no address line switch. 
+
+
+ACTIVATE_LOW_PAGE:				; RETURN BACK TO LOW PAGE OF ROM
+	NOP
+	NOP
+	NOP
+	NOP
+	JP	START				; <---- Switching back to LOW page will arrive here
+
+
+;>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+;
+;	NOTE TABLE MUST BE WITHIN 0-FFH BOUNDRY (CHECK YOUR LISTING)
+;
+;COMMAND BRANCH TABLE
+
+TBL:	DW  FLUSH			; "@"  SEND FF to LaserJet printer
+	DW  MEMMAP			; "A"  DISPLAY A MAP OF MEMORY
+	DW  BEGIN			; "B"  
+	DW  BEGIN			; "C"  
+	DW  DISP			; "D"  DISPLAY MEMORY (IN HEX & ASCII)
+	DW  ECHO			; "E"  ECHO CHAR IN TO CHAR OUT
+	DW  FILL			; "F"  FILL MEMORY WITH A CONSTANT
+	DW  GOTO			; "G"  GO TO [ADDRESS]
+	DW  BEGIN			; "H"  
+	DW  IDE_MENU			; "I"  GOTO IDE MENU
+	DW  RAMTEST			; "J"  NON-DESTRUCTIVE MEMORY TEST 
+	DW  KCMD			; "K"  DISPLAY THE LIST OF SBC-Z80 COMMANDS
+	DW  BEGIN			; "L"  
+	DW  MOVE			; "M"  MOVE BLOCK OF MEMORY (START,FINISH,DESTINATION)
+	DW  BEGIN			; "N"  
+	DW  NOT_DONE			; "O"  Boot up 8086 (if present)
+	DW  CPM_BOOT			; "P"  Boot up CPM
+	DW  QUERY			; "Q"  QUERY PORT (IN OR OUT)
+	DW  INPORTS			; "R"  Read ALL Input Ports
+	DW  SUBS			; "S"  SUBSTITUTE &/OR EXAMINE MEMORY
+	DW  TYPE			; "T"  TYPE ASCII PRESENT IN MEMORY 
+	DW  SD_MENU			; "U"  GOTO SD CARD MENU
+	DW  VERIFY			; "V"  COMPARE MEMORY
+	DW  INTS_OK			; "W"  Allow Interrupts
+	DW  BOOT_XMODEM			; "X"  Download a file over USB port to RAM
+	DW  SWAP_RAM			; "Y"  Switch lower 32K RAM page
+	DW  SIZE			; "Z"  FIND HIGHEST R/W RAM
+;
+IDE_MENU:	
+	LD	D,1			; Jumps to HIGH PAGE #1 code with 1 in [D] to indicate IDE MENU menu option
+	JP	ACTIVATE_1_HIGH_PAGE
+CPM_BOOT:
+	LD	D,2			; Jumps to HIGH PAGE #1 code with 2 in [D] to indicate CPM_BOOT menu option
+	JP	ACTIVATE_1_HIGH_PAGE
+
+SD_MENU:	
+	LD	D,3			; Jumps to HIGH PAGE #2 code with 3 in [D] to indicate SD CARD MENU menu option
+	JP	ACTIVATE_2_HIGH_PAGE
+
+;-------------------------------------------------------------------------------------------------------------
+
+COLD:	LD	A,'#'			;For quick hardware diagnostic test
+	OUT	(S100_CONSOL_OUT),A	;Force a "#" on the CRT if ROM access is active
+							
+BEGIN:					;Can use the next 3 lines initially to debug hardware
+	DI				;Enable interrupts
+	IM1				;Set to Z80 INT Mode 1 (SO ALL interrupts to 38H in RAM)
+	
+	XOR	A			
+	OUT	(RAM_BANK),A		;Start in default LOW RAM Page
+	OUT	(ROM_PAGE),A		;Start in default ROM F000-FFFFH Z80_MONA
+	
+	OUT	(SW_TMAX),A		;Make sure TMA0*,TMA1*,TMA2* & TMA3* S100 lines are high on V2 SMB (if present)
+
+					;Turn all LED's OFF as a diagnostic on SMB V2 and this board
+BEGIN1:	LD	A,00000000B		;FLAG PROGRESS VISUALLY FOR DIAGNOSTIC 
+	OUT	(DIAG_LEDS),A		;LED's will go off one at a time
+
+SETUP_STACK:
+	LD	SP,AHEAD-4		;SETUP A FAKE STACK
+	JP	MEMSZ1			;RETURNS WITH TOP OF RAM IN [HL]
+	DW	AHEAD			;A Return opcode will pick up this address
+AHEAD:
+	LD	L,0F0H			;We will make space for extra RAM parameters (Like RAM_POINTER)
+	LD	SP,HL			;[HL] CONTAINS TOP OF RAM - WORK AREA
+	PUSH	HL
+	POP	IX			;Store stack pointer for below in [IX]
+
+
+	IN	A,(IOBYTE)		;Get IOBYTE 
+	AND	A,00000111B
+	OR	A,10000000B		;FLAG PROGRESS VISUALLY FOR DIAGNOSTIC ((Bit 7 LED on)
+	OUT	(DIAG_LEDS),A		;To show we got this far.
+	BIT	2,A	
+	JR	Z,VGA_SIGNON
+	BIT	0,A	
+	JR	Z,TTY_SIGNON		;USB/TTY output cannot tolorate some control characters
+	BIT	3,A	
+	JR	Z,TTY_SIGNON		;Printer output cannot tolorate some control characters
+	JR	PROP_SIGNON		;Else, default Propeller Console I/O
+
+PROP_SIGNON:				;LED's 0,1 & 2 ON, indicates Propeller for Console
+	LD	HL,SIGNON_MSG		;Clear screen etc. if propeller
+	CALL	PRINT_STRING		;Have a valid Stack, so now we can use CALL
+TTY_SIGNON: 
+	LD	HL,SIGNON_MSG1		
+	CALL	PRINT_STRING
+	JR	SIGNON_DONE
+
+VGA_SIGNON:
+	CALL	VGA_CLEAR_SCREEN	;Note this will setup the RAM POINTER to VGA_BASE
+	LD	A,0FFH
+	OUT	(VGA_COLOR),A		;Port to set text color to white
+	DEC	A			;Note No characters visible until color is set.
+	OUT	(VGA_CURSOR_Y),A	;0, Curaor at top RH corner. Y goes:- 0,1,2,3,...80	
+	INC	A
+	OUT	(VGA_CURSOR_X),A	;1, Cursor X goes:- 1,2,3,...79,0
+	
+;	JP	TEST
+	
+	LD	HL,SIGNON_MSG1		
+	CALL	PRINT_STRING
+;	JP	TEST
+	
+SIGNON_DONE:
+	CALL	CRLF
+	LD	HL,SP_MSG		;Print 'SP=$'
+	CALL	PRINT_STRING
+
+	PUSH	IX			;SP is stored from above in [IX]
+	POP	HL
+	CALL	HLSP			;Print HL/SP 
+
+	LD	HL,IOBYTE_MSG		;Print ' IOBYTE=$'
+	CALL	PRINT_STRING
+	
+	IN	A,(IOBYTE)		;Show IOBYTE bits. 
+	CALL	BITS1			;Signon done for any one of the 3 video output options.
+	
+	CALL	CRLF			;Then CRLF
+	CALL	CSTS			;Check if garbage at keyboard
+	CALL	NZ,CI			;If so flush it
+
+	IN	A,(DIAG_LEDS)
+	OR	A,01000000B		;FLAG PROGRESS (Ready to go, 2 LED's On)
+	OUT	(DIAG_LEDS),A
+
+	CALL	CSTS			;Flush CI status port
+	
+	LD	a,READcfg8255		;Config 8255 chip (10010010B), read mode on return
+	OUT	(IDEportCtrl),a		;Config 8255 chip, READ mode
+
+	LD	A,0			;Zero in LBA paramaters after a reset	
+	LD	(@SEC),A		
+	LD	(@SEC+1),A		
+	LD	(@TRK),A
+	LD	(@TRK+1),A
+	LD	HL,buffer		;set default DMA address to RAM_BASE
+	LD	(@DMA),HL	
+					;IF S100 Bus MSDOS Support board is present. Inactivate 8259A -- just in case.
+	LD	A,MasterICW1		;Initilize the 8259A PIC Controller (;EDGE triggered, 4 bytes, single Master,ICW4 needed)
+	OUT	(MASTER_PIC_PORT),A
+	LD	A,MasterICW2		;Ints starts at 20H in RAM (IBM-PC uses 8X4 = 20H)
+	OUT	(MASTER_PIC_PORT+1),A
+	LD	A,MasterICW4		;No slaves above, so 8259 does not expect ICW3
+	out	(MASTER_PIC_PORT+1),A
+	LD	A,11111111b		;Allow no interrupts to the 8259A with Z80.
+	out	(MASTER_PIC_PORT+1),A
+
+	LD	A,0H			;IMSAI PIO Board and this board. Clear Printer strobe
+	OUT	(PRINTER_OUT),A	
+	LD	A,0FFH			
+	OUT	(PRINTER_STROBE),A	
+	LD	A,0H			
+	OUT	(PRINTER_STROBE),A	
+	LD	A,0FFH			
+	OUT	(PRINTER_STROBE),A	
+
+	IN	A,(DIAG_LEDS)
+	OR	A,00100000B		;FLAG PROGRESS (Ready to go, 3 LED's On)
+	OUT	(DIAG_LEDS),A
+
+
+;-------THIS IS THE START ON THE MAIN SBC-Z80 LOOP--------------------------------
+
+;TEST:	CALL	ECHO1
+;	JP	COLD
+
+START:	LD	DE,START
+	PUSH	DE			;EXTRA UNBALANCED POP & [DE] WOULD END UP IN [PC]
+	CALL	CRLF
+	LD	C,BELL			;A BELL HERE WILL SIGNAL WHEN JOBS ARE DONE
+	CALL	CO
+	LD	C,'-'
+	CALL	CO
+	LD	C,'>'	   
+	CALL	CO
+
+STARO:	CALL	CSTS			;Need to check status first because IOBYTE may have changed
+	JR	Z,STARO
+	CALL	TI			;Main loop. SBC-Z80 will stay here until cmd.
+	AND	7FH
+	JR	Z,STARO
+	SUB	'@'			;Commands @ to Z only
+	RET	M
+	CP	1BH			;A-Z only
+	RET	NC
+	ADD	A,A
+	LD	HL,TBL
+	ADD	A,L
+	LD	L,A
+	LD	A,(HL)
+	INC	HL
+	LD	H,(HL)
+	LD	L,A
+	LD	C,02H
+	JP	(HL)			;JUMP TO COMMAND TO COMMAND (from TABLE)
+;
+;
+INTS_OK:
+	LD	HL,IM1_MSG		;Print 'IM1 Mode Interrupts ON'
+	CALL	PRINT_STRING
+	EI				;Enable interrupts
+	IM1				;Set to Z80 INT Mode 1 (ALL interrupts to 38H in RAM)
+;	LD	A,0EDH			;Put an Z80 INT RETURN at 38H in RAM just in case we false trigger
+;	LD	(38H),A
+;	LD	A,4DH			
+;	LD	(39H),A
+	JP	BEGIN		
+
+;PRINT MAIN SBC-Z80 MENU ON CRT
+
+KCMD:	LD	HL,SIGNON_MSG1		;Menu Option "Y", List Menu Options
+	CALL	PRINT_STRING
+	LD	HL,MAIN_MENU_MSG	;Then Menu Message
+	JP	PRINT_STRING
+
+SWAP_RAM:				;Swap lowest 32K of RAM 
+	LD	HL,SWAP_RAM_MSG		
+	CALL	PRINT_STRING
+	CALL	PCHK			;Get a character
+	CP	A,'0'
+	JR	Z,Page0
+	CP	A,'1'
+	JR	Z,Page1
+	JP	INVALID_DATA
+	
+Page0:	LD	A,0
+	OUT	(RAM_BANK),A		;Output to this board bit 0 to switch lower 32K of RAM
+	LD	HL,PAGE0_MSG		
+	CALL	PRINT_STRING
+	JP	BEGIN1
+Page1:	LD	A,1
+	OUT	(RAM_BANK),A		;Output to this board bit 0 to switch lower 32K of RAM
+	LD	HL,PAGE1_MSG		;Note if this code is being tested in low RAM system will hang here.
+	CALL	PRINT_STRING
+	JP	BEGIN1
+	
+INVALID_DATA:
+	LD	HL,Invalid_Msg
+	CALL	PRINT_STRING
+	JP	BEGIN		
+
+			
+;SEND MESSAGE TO CONSOL MESSAGE IN [HL],LENGTH IN [B]
+
+TOM:	LD	C,(HL)
+	INC	HL
+	CALL	CO
+	DJNZ	TOM
+	RET
+
+USB_PRINT_STRING:			;Special print srring for Xmodem
+	IN	A,(IOBYTE)		;If transfer is via USB port - skip status updates
+	BIT	0,A
+	RET	Z
+PRINT_STRING:				;A ROUTINE TO PRINT OUT A STRING @ [HL]
+	LD	A,(HL)			;UP TO THE FIRST '$'.
+	INC	HL			
+	CP	'$'
+	RET	Z
+	LD	C,A
+	CALL	CO			;Note will go to Propeller Console OR USB Port
+	JR	PRINT_STRING
+
+
+;ABORT IF ESC AT CONSOL, PAUSE IF ^S AT CONSOL
+
+CCHK:	CALL	CSTS			;FIRST IS THERE ANYTHING THERE
+	RET	Z
+	CALL	CI
+	CP	'S'-40H
+	JR	NZ,CCHK1
+CCHK2:	CALL	CSTS			;WAIT HERE UNTIL ANOTHER INPUT IS GIVEN
+	JR	Z,CCHK2
+CCHK1:	CP	ESC
+	RET	NZ			;RETURN EXECPT IF ESC
+
+;RESTORE SYSTEM AFTER ERROR
+
+ERROR:	CALL	MEMSIZ			;GET RAM AVAILABLE - WORKSPACE IN [HL]
+	LD	SP,HL			;SET STACK UP IN WORKSPACE AREA
+	LD	C,'*'
+	CALL	CO
+	JP	START
+
+;PRINT HIGHEST RAM MEMORY FROM BOTTOM
+
+SIZE:	CALL	MEMSIZ			;RETURNS WITH [HL]= RAM AVAILABLE-WORKSPACE
+
+LFADR:	CALL	CRLF
+
+;PRINT [HL] AND A SPACE
+
+HLSP:	PUSH	HL
+	PUSH	BC
+	CALL	LADR			;Print [HL] with no space afterwards
+	LD	C,SPACE
+	CALL	CO
+	POP	BC
+	POP	HL
+	RET
+
+;PRINT A SPACE
+PSPACE:	LD	C,SPACE
+	CALL	CO
+	RET
+
+;CONVERT HEX TO ASCII
+
+CONV:	AND	0FH
+	ADD	A,90H
+	DAA 
+	ADC	A,40H
+	DAA 
+	LD	C,A
+	call	CO
+	RET
+
+;;;;;;;
+
+;GET TWO PARAMETERS AND PUT THEM IN [HL] & [DE] THEN CRLF
+
+EXLF:	CALL	HEXSP	
+	POP	DE
+	POP	HL
+
+;SEND TO CONSOL CR/LF
+
+CRLF:	PUSH	AF
+	PUSH	BC
+	LD	C,CR
+	CALL	CO
+	LD	C,LF
+	CALL	CO
+	POP	BC
+	POP	AF
+	RET
+	
+
+;PUT THREE PARAMETERS IN [BC] [DE] [HL] THEN CR/LF
+
+EXPR3:	INC	C			;ALREADY HAD [C]=2 FROM START
+	CALL	HEXSP
+	CALL	CRLF
+	POP	BC
+	POP	DE
+	POP	HL
+	RET 
+	
+;GET ONE PARAMETER
+
+EXPR1:	LD	C,01H
+HEXSP:	LD	HL,0000
+EX0:	CALL	TI
+EX1:	LD	B,A
+	CALL	NIBBLE
+	JR	C,EX2X
+	ADD	HL,HL
+	ADD	HL,HL
+	ADD	HL,HL
+	ADD	HL,HL
+	OR	L
+	LD	L,A
+	JR	EX0
+EX2X:	EX	(SP),HL
+	PUSH	HL
+	LD	A,B
+	CALL	QCHK
+	JR	NC,SF560
+	DEC	C
+	RET	Z
+SF560:	JP	NZ,ERROR
+	DEC	C
+	JR	NZ,HEXSP
+	RET 
+EXF:	LD	C,01H
+	LD	HL,0000H
+	JR	EX1
+
+;RANGE TEST ROUTINE CARRY SET = RANGE EXCEEDED
+
+HILOX:	CALL	CCHK
+	CALL	HILO
+	RET	NC
+	POP	DE			;DROP ONE LEVEL BACK TO START
+	RET 
+HILO:	INC	HL			;RANGE CHECK SET CARRY IF [DE]=[HL]
+	LD	A,H
+	OR	L
+	SCF
+	RET	Z
+	LD	A,E
+	SUB	L
+	LD	A,D
+	SBC	A,H
+	RET 
+
+;PRINT [HL] ON CONSOL
+
+LADR:	LD	A,H
+	CALL	LBYTE
+	LD	A,L
+LBYTE:	PUSH	AF
+	RRCA
+	RRCA
+	RRCA
+	RRCA
+	CALL	SF598
+	POP	AF
+SF598:	CALL	CONV			;Convert to ASCII AND print it
+	RET
+
+;THIS IS A CALLED ROUTINE USED TO CALCULATE TOP OF RAM IS USED BY
+;THE ERROR ROUTINE TO RESET THE STACK. 
+;Returns top of RAM in [HL]
+
+MEMSIZ:	PUSH	BC			;SAVE [BC]
+MEMSZ1:	LD	HL,0FFFFH		;START FROM THE TOP DOWN
+MEMSZ2:	LD	A,(HL)
+	CPL 
+	LD	(HL),A
+	CP	(HL)
+	CPL 				;PUT BACK WHAT WAS THERE
+	LD	(HL),A
+	JP	Z,GOTTOP
+	DEC	H			;TRY 100H BYTES LOWER
+	JR	MEMSZ2			;KEEP LOOKING FOR RAM
+GOTTOP:	POP	BC			;RESTORE [BC]
+	RET 
+
+NIBBLE:	SUB	30H
+	RET	C
+	CP	17H
+	CCF
+	RET	C
+	CP	LF
+	CCF
+	RET	NC
+	SUB	07H
+	CP	LF
+	RET
+
+COPCK:	LD	C,'-'
+	CALL	CO
+
+PCHK:	CALL	TI
+
+;TEST FOR DELIMITERS
+
+QCHK:	CP	SPACE
+	RET	Z
+	CP	','
+	RET	Z
+	CP	CR
+	SCF
+	RET	Z
+	CCF
+	RET 
+
+
+;KEYBOARD HANDELING ROUTINE (WILL NOT ECHO CR/LF)
+;IT CONVERTS LOWER CASE TO UPPER CASE FOR LOOKUP COMMANDS
+;ALL OTHERE CHARACTERS ARE ECHOED ON CONSOL
+
+TI:	CALL	CI
+	CP	CR
+	RET	Z
+	PUSH	BC
+	LD	C,A
+	CALL	CO
+	LD	A,C
+	POP	BC
+	CP	40H			;LC->UC
+	RET	C
+	CP	7BH
+	RET	NC
+SF754:	AND	5FH
+	RET 
+
+GETHL:	PUSH	BC			;Return a HEX value in [HL]
+	LD	C,1			;1 paramater
+	CALL	HEXSP
+	POP	HL
+	POP	BC
+	RET
+
+
+;DISPLAY 8 BITS OF [A] (No registers changed)
+
+BITS1:	PUSH	DE			
+	PUSH	BC
+	LD	E,A
+	CALL	BITS
+	POP	BC
+	POP	DE
+	RET
+
+;DISPLAY 8 BITS OF [A] (B & C registers changed)
+
+BITS:	LD	B,08H			
+	CALL	PSPACE
+SF76E:	SLA	E
+	LD	A,18H
+	ADC	A,A
+	LD	C,A
+	CALL	CO
+	DJNZ	SF76E
+	RET 
+	
+;MEMORY MAP PROGRAM CF.DR.DOBBS VOL 31 P40.
+;IT WILL SHOW ON CONSOL TOTAL MEMORY SUMMARY OF RAM,PROM, AND NO MEMORY
+
+MEMMAP:
+	CALL	CRLF
+	LD	HL,0
+	LD	B,1
+MAP1:	LD	E,'R'			;PRINT R FOR RAM
+	LD	A,(HL)
+	CPL
+	LD	(HL),A
+	CP	(HL)
+	CPL
+	LD	(HL),A
+	JR	NZ,MAP2
+	CP	(HL)
+	JR	Z,PRINT
+MAP2:	LD	E,'p'
+MAP3:	LD	A,0FFH
+	CP	(HL)
+	JR	NZ,PRINT
+	INC	L
+	XOR	A
+	CP	L
+	JR	NZ,MAP3
+	LD	E,'.'
+PRINT:	LD	L,0
+	DEC	B
+	JR	NZ,NLINE
+	LD	B,16
+	CALL	CRLF
+	CALL	HXOT4
+NLINE:	LD	A,SPACE
+	CALL	OTA
+	LD	A,E
+	CALL	OTA
+	INC	H
+	JR	NZ,MAP1
+	CALL	CRLF
+	CALL	CRLF
+	JP	START
+
+;16 HEX OUTPUT ROUTINE
+
+HXOT4:	LD	C,H
+	CALL	HXO2
+	LD	C,L
+HXO2:	LD	A,C
+	RRA
+	RRA
+	RRA
+	RRA
+	CALL	HXO3
+	LD	A,C
+HXO3:	AND	0FH
+	CP	10
+	JR	C,HADJ
+	ADD	A,7
+HADJ:	ADD	A,30H
+OTA:	PUSH	BC
+	LD	C,A
+	CALL	CO			;SEND TO CONSOL
+	POP	BC
+	RET
+
+;DISPLAY MEMORY IN HEX
+
+DISP:	CALL	EXLF			;GET PARAMETERS IN [HL],[DE]
+	LD	A,L			;ROUND OFF ADDRESSES TO XX00H
+	AND	0F0H
+	LD	L,A
+	LD	A,E			;FINAL ADDRESS LOWER HALF
+	AND	0F0H
+	ADD	A,10H			;FINISH TO END 0F LINE
+SF172A:	CALL	LFADR
+SF175A:	CALL	BLANK
+
+;	CALL	CSTS			;For debugging		
+;	CALL	PROP_CI
+					
+	LD	A,(HL)
+	CALL	LBYTE
+	CALL	HILOX
+	LD	A,L
+	AND	0FH
+	JR	NZ,SF175A
+	LD	C,TAB			;INSERT A TAB BETWEEN DATA
+	CALL	CO
+	LD	B,4H			;ALSO 1 SPACE
+TA11:	LD	C,SPACE
+	CALL	CO
+	DJNZ	TA11
+
+	IN	A,IOBYTE		;For some reason ASCII display only on VGA display is
+	BIT	2,A			;not working. Skip it for now!
+	JR	Z,SF172A
+		
+	LD	B,16			;NOW PRINT ASCII (16 CHARACTERS)
+	PUSH	DE			;TEMPORLY SAVE [DE]
+	LD	DE,0010H
+	SBC	HL,DE
+	POP	DE
+T11:	LD	A,(HL)
+	AND	7FH
+	CP	' ' 			;FILTER OUT CONTROL CHARACTERS'
+	JR	NC,T33
+T22:	LD	A,'.'
+T33:	CP	07CH
+	JR	NC,T22
+	LD	C,A			;SET UP TO SEND
+	CALL	CO
+	INC	HL
+	DJNZ	T11			;REPEAT FOR WHOLE LINE
+	JR	SF172A
+
+
+;INSPECT AND / OR MODIFY MEMORY
+
+SUBS:	LD	C,1
+	CALL	HEXSP
+	POP	HL
+SF2E3:	LD	A,(HL)
+	CALL	LBYTE
+	LD	C,'-'
+	CALL	CO
+	CALL	PCHK
+	RET	C
+	JR	Z,SF2FC
+	CP	5FH
+	JR	Z,SF305
+	PUSH	HL
+	CALL	EXF
+	POP	DE
+	POP	HL
+	LD	(HL),E
+	LD	A,B
+	CP	CR
+	RET	Z	
+SF2FC:	INC	HL
+SF2FD:	LD	A,L
+	AND	07H
+	CALL	Z,LFADR
+	JR	SF2E3
+SF305:	DEC	HL
+	JR	SF2FD
+
+
+;Print a space on screen
+
+BLANK:	PUSH	BC			
+	PUSH	HL
+	LD	C,' '
+	CALL	CO
+	POP	HL
+	POP	BC
+	RET
+
+;FILL A BLOCK OF MEMORY WITH A VALUE
+
+FILL:	CALL	EXPR3
+SF1A5:	LD	(HL),C
+	CALL	HILOX
+	JR	NC,SF1A5
+	POP	DE
+	JP	START
+
+;GO TO A RAM LOCATION
+						;++++++++++++++++++++++++++++++++++
+GOTO:	LD	C,1			;SIMPLE GOTO FIRST GET PARMS.
+	CALL	HEXSP
+	CALL	CRLF
+	POP	HL			;GET PARAMETER PUSHED BY EXF
+	JP	(HL)
+
+; GET OR OUTPUT TO A PORT
+
+QUERY:	CALL	PCHK
+	CP	'O'			;OUTPUT TO PORT
+	JR	Z,OUT_PORT
+	CP	'I'			;INPUT FROM PORT
+	JP	Z,IN_PORT
+	LD	C,'*'
+	JP	CO			;WILL ABORT IF NOT 'I' OR 'O'
+
+IN_PORT:
+	LD	C,1			;IN Port
+	CALL	HEXSP
+	POP	BC
+	IN	A,(C)
+	JP	BITS1
+;
+OUT_PORT:
+	CALL	HEXSP			;OUT Port
+	POP	DE
+	POP	BC
+	OUT	(C),E
+	RET
+
+
+; MEMORY TEST
+
+RAMTEST:
+	PUSH	HL
+	PUSH	BC
+	LD	HL,RAM_TEST_MSG
+	CALL	PRINT_STRING
+	POp	BC
+	POP	HL
+	CALL	EXLF
+SF200:	LD	A,(HL)
+	LD	B,A
+	CPL 
+	LD	(HL),A
+	XOR	(HL)
+	JR	Z,SF215
+	PUSH	DE
+	LD	D,B
+	LD	E,A			;TEMP STORE BITS
+	CALL	HLSP
+	CALL	BLANK
+	LD	A,E
+	CALL	BITS1
+	CALL	CRLF
+	LD	B,D
+	POP	DE
+SF215:	LD	(HL),B
+	CALL	HILOX
+	JR	SF200
+
+;MOVE A BLOCK OF MEMORY TO ANOTHER LOCATION
+
+MOVE:	CALL	EXPR3
+SF21E:	LD	A,(HL)
+	LD	(BC),A
+	INC	BC
+	CALL	HILOX
+	JR	SF21E
+
+;VERIFY ONE BLOCK OF MEMORY WITH ANOTHER
+ 
+VERIFY:	CALL	EXPR3
+VERIO:	LD	A,(BC)
+	CP	(HL)
+	JR	Z,SF78E
+	PUSH	BC
+	CALL	CERR
+	POP	BC
+SF78E:	INC	BC
+	CALL	HILOX
+	JR	VERIO
+	RET
+;
+CERR:	LD	B,A
+	CALL	HLSP
+	LD	A,(HL)
+	CALL	LBYTE
+	CALL	BLANK
+	LD	A,B
+	CALL	LBYTE
+	JP	CRLF
+
+ECHO:	LD	HL,ECHO_MSG
+	CALL	PRINT_STRING	
+ECHO1:	CALL	CI			;Routeen to check keyboard etc.
+	CP	'C'-40H			;Loop until  ^C
+	RET	Z
+	CP	'Z'-40H
+	RET	Z
+	LD	C,A
+	CALL	CO
+	JR	ECHO1
+
+
+;READ ASCII FROM MEMORY
+
+TYPE:	CALL	EXLF
+SF30B:	CALL	LFADR
+	LD	B,56
+SF310:	LD	A,(HL)
+	AND	7FH
+	CP	SPACE
+	JR	NC,SF319
+SF317:	LD	A,2EH
+SF319:	CP	7CH
+	JR	NC,SF317
+	LD	C,A
+	CALL	CO
+	CALL	HILOX
+	DJNZ	SF310
+	JR	SF30B
+
+
+;	Display all active IO input ports in the system
+;
+INPORTS:
+	LD	HL,ALL_PORTS
+	CALL	PRINT_STRING	
+	LD	B,0			;Now loop through all ports (0-FF)
+	LD	D,6			;Display 6 ports across
+	LD	E,0FFH			;Will contain port number
+LOOPIO:	LD	C,E
+	LD	A,E
+	CP	A,SW_TMA0		;Inputting here will switch out the Z80 to 8086/80286
+	JR	Z,SKIP			;Skip because we don't want that right now
+;
+	IN	A,(C)			;Remember  [ZASMB does not work with this opcode,SLR is OK]
+	CP	A,0FFH			;No need for 0FF's
+	JR	Z,SKIP
+	LD	H,A			;store port data in H for below
+	LD	A,E			;Need to print port # first
+	CALL	LBYTE			;Print port number
+	LD	C,'-'
+	CALL	CO
+	LD	C,'>'
+	CALL	CO
+	LD	A,H			;get back port data
+	CALL	LBYTE			;print it
+	LD	C,TAB
+	CALL	CO
+	DEC	D			;6 ports per line
+	JR	NZ,SKIP
+	LD	D,6
+	CALL	CRLF
+SKIP:	DEC	E			;Next Port
+	DJNZ	LOOPIO
+	CALL	CRLF
+	RET
+
+;
+;
+;>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> XMODEM ROUTINES <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+
+BOOT_XMODEM:
+;This routine will download any XMODEM formatted data from a file on a PC over a USB/Serial port.
+;If the USB port is NOT used as a console, errors (if any) will appear on the console screen.
+;If the USB port is ALSO used for console I/O, no progress or errors are shown until the download is complete.
+
+	LD	HL,MODEM_SIGNON		;Send Modem signon message
+	CALL	PRINT_STRING
+					
+	LD	HL,0			;SP to HL
+	ADD	HL,SP			
+	LD	DE,40H			;Drop 40H bytes below to be safe
+	SBC	HL,DE
+	PUSH	HL
+	POP	IX			;Will store data (in IX+offset) in RAM 40H bytes below SP to be safe
+					
+	XOR	A,A			;Initilize flags
+	LD	(IX+RECVD_SECT_NO),A
+	LD	(IX+SECTNO),A
+	LD	(IX+ERRCT),A
+					
+	LD	HL,MODEM_RAM_LOC	;Get RAM location for where to place code
+	CALL	PRINT_STRING
+	LD	C,1
+	CALL	HEXSP			;Get 16 bit value, put on stack
+	POP	IY			;DMA Value now in IY
+
+	LD	HL,MODEM_READING	;'Downloading, please wait.'
+	CALL	PRINT_STRING
+					
+	LD	B,1			;TIMEOUT DELAY
+	CALL	RECV			;GOBBLE UP GARBAGE CHARS FROM THE LINE
+
+
+
+RECV_LOOP:				;<------- MAIN RECIEVE LOOP 
+	XOR	A,A			;GET 0
+	LD	(IX+ERRCT),A		;INITIAL ERROR COUNT SET TO 0
+RECV_HDR:
+	LD	A,(IX+SECTNO)		;Get current sector number
+	INC	A
+SKIP0:	LD	B,100			;10 SEC TIMEOUT
+	CALL	RECV			;Get a character
+	JP	NC,RHNTO		;IF ALL OK (NO TIMEOUT), THEN DROP DOWN TO RHNTO TO GET DATA
+	JP	RECV_SECT_ERR
+	
+RECV_HDR_TIMEOUT:
+	CALL	TOUT			;PRINT TIMEOUT (IF NOT USB PORT)
+RECV_SECT_ERR:				;PURGE THE LINE OF INPUT CHARS
+	LD	B,1			;1 SEC W/NO CHARS
+	CALL	RECV
+	JP	NC,RECV_SECT_ERR	;LOOP UNTIL SENDER DONE
+	LD	A,NAK
+	CALL	SEND			;SEND NAK
+	LD	A,(IX+ERRCT)
+	INC	A
+	LD	(IX+ERRCT),A
+	CP	A,MODEM_ERR_LIMIT
+	JP	C,RECV_HDR
+	IN	A,(IOBYTE)		;Is USB port also console
+	BIT	0,A
+	JP	Z,EXIT
+	CALL	CHECK_FOR_QUIT
+	JP	Z,RECV_HDR
+	LD	HL,BAD_HEADER_MSG
+	CALL	PRINT_STRING
+	JP	EXIT
+								
+RHNTO:	
+	CP	A,SOH			;<---- GOT CHAR - CHECK IT's SOH
+	JP	Z,GOT_SOH		;Z IF OK
+	OR	A,A			;00 FROM SPEED CHECK?
+	JP	Z,RECV_HDR
+	CP	A,EOT
+	JP	Z,GOT_EOT
+					;DIDN'T GET SOH - 
+	PUSH	AF			;Save [A]
+	IN	A,(IOBYTE)		;Is USB port also console
+	BIT	0,A
+	JR	Z,SKIP1			;If so skip info display
+	POP	AF				
+	CALL	LBYTE			;Print [A] on console
+	LD	HL,ERRSOH		;'H RECEIVED, NOT SOH',0DH,0AH,'$'
+	CALL	PRINT_STRING
+	JR	RECV_SECT_ERR
+SKIP1:	POP	AF
+	JR	RECV_SECT_ERR
+
+GOT_SOH:
+	LD	B,1
+	CALL	RECV
+	JP	C,RECV_HDR_TIMEOUT
+	LD	D,A			;D=BLK #
+	LD	B,1
+	CALL	RECV			;GET CMA'D SECT #
+	JP	C,RECV_HDR_TIMEOUT
+	CPL
+	CP	A,D			;GOOD SECTOR #?
+	JP	Z,RECV_SECTOR
+					
+	LD	HL,ERR2			;GOT BAD SECTOR #
+	CALL	USB_PRINT_STRING
+	JP	RECV_SECT_ERR
+
+
+RECV_SECTOR:				;Sector is OK, so read data and place in RAM
+	LD	A,D			;GET SECTOR #
+	LD	(IX+RECVD_SECT_NO),A
+	LD	C,0			;INIT CKSUM
+	LD	E,80H			;Sector Byte Count
+	PUSH	IY
+	POP	HL			;DMA address (IY) to HL
+					
+RECV_CHAR:
+	LD	B,1			;1 SEC TIMEOUT
+	CALL	RECV			;GET CHAR
+	JP	C,RECV_HDR_TIMEOUT
+	LD	(HL),A			;STORE CHAR
+	INC	HL		
+	DEC	E			;Next sector byte
+	JP	NZ,RECV_CHAR
+
+					;VERIFY CHECKSUM
+	LD	D,C			;SAVE CHECKSUM
+	LD	B,1			;TIMEOUT
+	CALL	RECV			;GET CHECKSUM
+	JP	C,RECV_HDR_TIMEOUT
+	CP	A,D			;CHECK
+	JP	NZ,RECV_CKSUM_ERR
+
+					;GOT A SECTOR, WRITE IF = 1+PREV SECTOR
+	LD	A,(IX+RECVD_SECT_NO)
+	LD	B,A			;SAVE IT
+	LD	A,(IX+SECTNO)		;GET PREV
+	INC	A			;CALC NEXT SECTOR #
+	CP	B			;MATCH?
+	JP	NZ,DO_ACK
+	LD	(IX+SECTNO),A		;UPDATE SECTOR #
+DO_ACK:	LD	A,ACK
+	CALL	SEND
+				
+	PUSH	HL			;ALL OK SO SAVE DMA Address in IY
+	POP	IY			
+	JP	RECV_LOOP		;Back to Top recieve loop
+
+RECV_CKSUM_ERR:
+	LD	HL,ERR3
+	CALL	USB_PRINT_STRING
+	JP	RECV_SECT_ERR
+
+GOT_EOT:
+	LD	A,ACK			;ACK THE EOT
+	CALL	SEND
+	JP	XFER_CPLT
+
+;----------------------------------------------------
+;   XMODEM USB PORT GET CHARACTER ROUTINE
+;----------------------------------------------------
+
+RECV:	PUSH	DE			;SAVE D,E
+MSEC:	LD	DE,0BBBBH		;1 SEC DCR COUNT
+MWTI:	IN 	A,(USB_STATUS_PORT)	;NEED CONSTAT TO CLEAN UP SHIFT KEYS ETC
+	AND	01H
+	JR	NZ,MCHAR		;NZ if char available
+
+	DEC	E			;COUNT DOWN
+	JP	NZ,MWTI			;FOR TIMEOUT
+	DEC	D
+	JP	NZ,MWTI
+	DEC	B			;DCR # OF SECONDS
+	JP	NZ,MSEC			;MODEM TIMED OUT RECEIVING
+	POP	DE			;RESTORE D,E
+	SCF				;CARRY SHOWS TIMEOUT
+	RET
+					;GOT MODEM CHAR
+MCHAR:	IN	A,((USB_DATA_PORT))
+	POP	DE			;RESTORE DE
+	PUSH	AF			;CALC CHECKSUM
+	ADD	A,C
+	LD	C,A
+	POP	AF
+	OR	A,A			;TURN OFF CARRY TO SHOW NO TIMEOUT
+	RET
+
+					
+;----------------------------------------------------
+;   XMODEM USB PORT SEND CHARACTER ROUTINE
+;----------------------------------------------------
+				
+SEND:	PUSH	AF			;CHECK IF MONITORING OUTPUT
+	ADD	A,C			;CALC CKSUM
+	LD	C,A
+;
+SENDW:	IN	A,(USB_STATUS_PORT)	;USB Port for Console OUT
+	AND	00000010B
+	JR	NZ,SENDW		;Not yet ready - busy transmitting, try again
+	POP	AF
+	OUT	(USB_DATA_PORT),A
+	RET
+;
+;
+;---------------- XMODEM SUPPORT ROUTINES -----------------------------
+
+TOUT:	IN	A,(IOBYTE)		;Is USB port also console
+	BIT	0,A
+	RET	Z
+	LD	HL,TOUTM		;PRINT TIMEOUT MESSAGE
+	CALL	PRINT_STRING
+	LD	A,(IX+ERRCT)
+	CALL	LBYTE		
+	CALL	CRLF
+	RET
+
+CO_A:	PUSH	AF			;PRINT VALUE of [A] on CRT
+	PUSH	BC
+	LD	C,A
+	CALL	CO
+	POP	BC
+	POP	AF
+	RET
+
+CHECK_FOR_QUIT:				;MULTIPLE ERRORS, ASK IF TIME TO QUIT
+	XOR	A,A			;GET 0
+	LD	(IX+ERRCT),A		;RESET ERROR COUNT
+	LD	HL,QUITM
+	CALL	USB_PRINT_STRING
+
+CI3:	CALL	CSTS			;NEED CONSTAT TO CLEAN UP SHIFT KEYS ETC
+	JP	Z,CI3
+	CALL	CI
+	PUSH	AF			;SAVE CHAR
+	CALL	CRLF
+	POP	AF
+	CP	A,'R'
+	RET	Z			;RETURN IF RETRY
+	CP	A,'r'
+	RET	Z
+	CP	A,'Q'			;QUIT?
+	JP	NZ,LCQ
+	OR	A,A			;TURN OFF ZERO FLAG
+	RET
+LCQ:	CP	A,'q'
+	JP	NZ,CHECK_FOR_QUIT
+	OR	A,A			;TURN OFF ZERO FLAG
+	RET
+;
+XFER_CPLT:				;DONE - CLOSE UP SHOP
+	LD	HL,MODEM_DONE_MSG
+	CALL	PRINT_STRING
+EXIT:	JP	START
+						
+
+;
+;XXXXXX <<<<<<<<<<<<<<<<<<<<<< MAIN CONSOL I/O ROUTINES >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+;
+CO:	IN	A,IOBYTE		;Find out where we send data
+	BIT	3,A
+	CALL	Z,LO			;SEND OUTPUT TO PRINTER AS WELL			
+	IN	A,IOBYTE		;Find out where we send data
+	BIT	2,A	
+	JR	Z,VGA_CO
+	BIT	0,A	
+	JR	Z,USB_CO			;USB port for output
+	JR	PROP_CO				;For now everything else Propeller Console Board
+	
+PROP_CO:
+	IN	A,(S100_CONSOL_STATUS)	;PROPELLER VIDIO BOARD PORT
+	AND	4H
+	JR	Z,PROP_CO		;Not yet ready, try both outputs
+	LD	A,C
+	CP	07H			;IS IT A BELL
+	JP	Z,BELL1			;Special case
+	CP	0H			;SD BOARD CANNOT TAKE A NULL!
+	RET	Z
+	OUT	(S100_CONSOL_OUT),A
+	RET
+
+LOX:	CALL	CO			;OUTPUT TO BOTH PRINTER & CONSOLE
+	CALL	LO
+	RET
+
+BELL1:	LD	A,06H			;SEND A BELL
+	OUT	(S100_CONSOL_OUT),A
+	LD	A,0FH
+	CALL	DELAY
+	LD	A,07H
+	OUT	(S100_CONSOL_OUT),A
+	RET
+
+
+DELAY:	DEC	A			;GENERAL COUNT DOWN TIME DELAY
+	RET	Z			;LENGTH SET IN [A]
+	PUSH	AF
+	LD	A,05H
+MORE:	DEC	A
+	PUSH	AF
+	XOR	A
+MORE2:	DEC	A
+	JR	NZ,MORE2
+	POP	AF
+	JR	NZ,MORE
+	POP	AF
+	JR	DELAY
+
+
+USB_CO:	IN	A,(USB_STATUS_PORT)	;USB Port for Console OUT
+	AND	00000010B
+	JR	NZ,USB_CO		;Not yet ready - busy transmitting, try again
+	LD	A,C
+	AND	7FH			;Always 7 bits only.
+	OUT	(USB_DATA_PORT),A
+	RET
+
+;--------------------------------------VGA VIDEO ROUTINES ---------------------------------------
+
+VGA_CO:	
+	PUSH	BC			;Only A is changed
+	PUSH	DE
+	PUSH	HL
+	LD	A,C			;Character output to VGA Display
+;	CALL	PROP_CO			;For Diagnostic display only
+	LD	A,C
+	CP	A,CR			;Is it a CR, will convert to CR/LF
+	JP	Z,DO_CR
+	CP	A,LF			;Is it a LF, Skip for now
+	JP	Z,DO_LF	
+	CP	A,FF			;Is it a FF (0CH,^L), if so clear screen 
+	JP	Z,DO_FF	
+	CP	A,BACKS			;Back Space
+	JP	Z,DO_BS
+	CP	A,TAB			;Is it a TAB, skip for now
+	JP	Z,DO_TAB
+	CP	A,BELL			;Is it a BELL, skip for now
+	JP	Z,DO_BELL
+	CP	A,1FH			;Only real characters
+	JR	NC,NORMAL_CHAR
+	JP	VGA_CO_DONE		;SKIP anything else
+	
+NORMAL_CHAR:				;All other (real) ASCII characters
+	LD	HL,(RAM_POINTER)	;RAM POINTER to [HL] & UPDATE RAM POINTER X,Y
+	LD	(HL),C			;Drop down character
+	INC	HL			;Move to next RAM position
+	LD	(RAM_POINTER),HL
+	LD	A,(LOCAL_X)		;Get current RAM X position
+	INC	A			;Point to next position
+	CP	A,50H			;Is it past EOL, LOCAL X cursor goes 0,2,3...4FH (80)
+	JR	NZ,NOT_EOL		;LOCAL X goes 0,2,3...4F
+	
+	LD	A,(LOCAL_Y)		;At EOL,  LOCAL Y goes 0,2,3...26H (36)
+	CP	A,TOTAL_VGA_LINES	;Are we on the bottom line
+	JP	Z,BOTTOM_LINE	
+
+	LD	A,0			;Not Bottom line, so MOVE to next line
+	LD	(LOCAL_X),A
+	LD	A,(LOCAL_Y)
+	INC	A
+	LD	(LOCAL_Y),A
+	JR	DONE_NORMAL_CHARACTER
+NOT_EOL:
+	LD	(LOCAL_X),A
+	JR	DONE_NORMAL_CHAR
+
+BOTTOM_LINE:				;Special case situation for bottom line (38)
+	CALL	VGA_SCROOL
+	LD	A,(LOCAL_X)		;Get current RAM X position
+	CP	A,4FH			;Is it the last character on last line
+	JP	Z,LAST_CHAR		;If so special case
+	LD	A,0			;Not last char on last line so just move everything up one line
+	LD	(LOCAL_X),A
+	JR	DONE_NORMAL_CHAR
+LAST_CHAR:
+	LD	A,0			;Move to start of line
+	LD	(LOCAL_X),A
+	LD	HL,VGA_BASE + (TOTAL_VGA_LINES * 50H)  ;Point to bottom LHS corner
+	LD	(RAM_POINTER),HL
+	JR	DONE_NORMAL_CHAR
+	
+DONE_NORMAL_CHAR:
+	LD	A,(LOCAL_X)
+	INC	A			;Cursor X goes 1,2,3...4F,0!
+	CP	A,50H
+	JR	NZ,NOT_50
+	LD	A,0
+NOT_50:	OUT	(VGA_CURSOR_X),A
+	LD	A,(LOCAL_Y)		;Cursor Y goes 0,1,2,3...4F
+	OUT	(VGA_CURSOR_Y),A
+VGA_CO_DONE:	
+	POP	HL
+	POP	DE
+	POP	BC
+	LD	A,C
+	RET
+
+	
+DO_CR:	LD	A,(LOCAL_X)
+	LD	HL,(RAM_POINTER)
+DO_CR1:	OR	A,A
+	JR	Z,DONE_DO_CR
+	DEC	A
+	DEC	HL
+	JR	DO_CR1
+DONE_DO_CR:
+	LD	(RAM_POINTER),HL
+	LD	(LOCAL_X),A
+	JR	DONE_NORMAL_CHAR
+	
+	
+DO_LF:	LD	A,(LOCAL_Y)
+	LD	HL,(RAM_POINTER)
+	LD	DE,50H			;Add 80 character positions
+	CP	A,TOTAL_VGA_LINES	;My VGA Monitor works best with no more than 38 lines
+	JR	Z,LF_SCROOL
+	ADD	HL,DE
+	LD	(RAM_POINTER),HL
+	INC	A
+	LD	(LOCAL_Y),A
+	JR	DONE_NORMAL_CHAR
+LF_SCROOL:
+	CALL	VGA_SCROOL	
+	JR	DONE_NORMAL_CHAR
+
+
+DO_TAB:	LD	A,(LOCAL_X)		;Expand out tabs so line numbering is 1,2,3,4.....80
+	CP	A,4FH
+	JR	NZ,DO_TAB1		;Not at end of line, expand tabs
+	LD	C,CR			;At end of line, do CR/FL
+	CALL	VGA_CO
+	LD	C,LF			;At end of line, do CR/FL
+	CALL	VGA_CO
+	JP	DONE_NORMAL_CHAR
+DO_TAB1:	
+	LD	D,A			;Store for below	
+	INC	A
+	AND	A,00000111B		;Max 8 spaces for tabs
+	LD	B,A
+	LD	A,8
+	SUB	A,B			
+	LD	B,A			;1 to 8 spaces in loop below								
+DO_8:	LD	C,SPACE			;Print a space
+	CALL	VGA_CO
+	DJNZ	DO_8
+	JP	DONE_NORMAL_CHAR
+
+
+DO_BS:	LD	A,(LOCAL_X)		;Get current RAM X position
+	OR	A,A
+	JP	Z,VGA_CO_DONE		;NO BS for first character, just return
+	LD	HL,(RAM_POINTER)	;RAM POINTER to [HL] & BACKUP RAM POINTER X,Y
+	DEC	HL
+	LD	(RAM_POINTER),HL	
+	LD	A,SPACE
+	LD	(HL),A
+	LD	A,(LOCAL_X)		;Get current RAM X position
+	DEC	A
+	LD	(LOCAL_X),A
+	IN	A,(VGA_CURSOR_X)
+	DEC	A
+	OUT	(VGA_CURSOR_X),A
+	JP	VGA_CO_DONE	
+
+	
+DO_FF:	
+	CALL	VGA_CLEAR_SCREEN	; Clear VGA Screen, put cursor at Top LH corner
+	JP	DONE_NORMAL_CHAR
+	
+DO_DEL:
+	LD	HL,(RAM_POINTER)	;RAM POINTER to [HL]
+	LD	A,SPACE
+	LD	(HL),A
+	JP	VGA_CO_DONE	
+
+
+DO_BELL:POP	DE			;Skip for now
+	POP	HL
+	POP	BC
+	LD	A,C
+	RET
+	
+VGA_SCROOL:
+	LD	DE,VGA_BASE		;Start from E000H
+	LD	HL,VGA_BASE+50H
+	LD	BC,0BE0H + 50H		;Total number of bytes to move for 38 lines + one blank line
+	LDIR				;Z80 block move ((DE++)<-(HL++), BC--
+	RET
+	
+	
+	
+VGA_CLEAR_SCREEN:			; Clear VGA Screen, put cursor ate Top LH corner
+	LD	HL,VGA_BASE
+	LD	DE,(VGA_BASE_END + 51H )- VGA_BASE		;<--- Do NOT clear all the way up to EFFFH because
+CLEAR1:	LD	A,SPACE						;     this Z80 monitor stack will get overwritten
+	LD	(HL),A						;Note we clear an extra line for screen scrolls
+	INC	HL
+	DEC	DE
+	LD	A,E
+	CP	A,0
+	JR	NZ,CLEAR1		; Continue until DE = 0
+	LD	A,D
+	CP	A,0
+	JR	NZ,CLEAR1
+	XOR	A,A
+	LD	(LOCAL_X),A		;0, RAM X offset
+	LD	(LOCAL_Y),A		;0, RAM Y offset
+	OUT	(VGA_CURSOR_Y),A	;0, Cursor Y at top RH corner. Cursor Y goes:- 0,1,2,3,...80	
+	INC	A
+	OUT	(VGA_CURSOR_X),A	;1, Cursor X goes:- 1,2,3,...79,0
+	LD	HL,VGA_BASE
+	LD	(RAM_POINTER),HL
+	RET
+	
+
+
+
+;<<<<<<<<<<<<<<<<<<< MAIN CONSOL STATUS ROUTINE >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+
+CSTS:	IN	A,IOBYTE		;Find out where we send data
+	BIT	1,A	
+	JR	Z,PS2_CSTS
+	BIT	2,A	
+	JR	Z,VGA_CSTS
+	BIT	0,A	
+	JR	Z,USB_CSTS		;USB port
+	JR	PROP_CSTS		;For now everything else Propeller Console Board
+	
+PROP_CSTS:
+	IN	A,(S100_CONSOL_STATUS)
+	AND	02H
+	JP	Z,NO_CSTS		;Zero if nothing
+GOT_CSTS:
+	XOR	A
+	DEC	A			;RETURN WITH 0FFH IN [A] IF SOMETHING
+	RET
+NO_CSTS:
+	XOR	A			
+	RET				;RETURN WITH 0 IN A IF NOTHING THERE
+
+USB_CSTS:
+	IN	A,(USB_STATUS_PORT)
+	AND	01H
+	JR	Z,NO_CSTS		;Zero if nothing
+	JR	GOT_CSTS
+
+PS2_CSTS:
+	IN	A,(PS2_STATUS_PORT)
+	AND	01H
+	JR	Z,NO_CSTS		;Zero/Low if nothing
+	JR	GOT_CSTS
+	
+VGA_CSTS:
+	JP	PROP_CSTS
+
+;<<<<<<<<<<<<<<<<<<<< MAIN CONSOL INPUT ROUTINE >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+
+CI:	IN	A,IOBYTE		;Find out where we send data
+	BIT	1,A	
+	JR	Z,PS2_CI
+	BIT	2,A	
+	JR	Z,VGA_CI
+	BIT	0,A	
+	JR	Z,USB_CI		;USB port
+	JR	PROP_CI		;For now everything else Propeller Console Board
+	
+PROP_CI:
+	IN 	A,(S100_CONSOL_STATUS)	;NEED CONSTAT TO CLEAN UP SHIFT KEYS ETC
+	AND	02H
+	JR	Z,PROP_CI		;Wait until something there
+	IN	A,(S100_CONSOL_IN)
+	AND	7FH
+	RET
+
+USB_CI:
+	IN 	A,(USB_STATUS_PORT)	;NEED CONSTAT TO CLEAN UP SHIFT KEYS ETC
+	AND	01H
+	JR	Z,USB_CI		;Wait until something there
+	IN	A,(USB_DATA_PORT)
+	AND	7FH			;Always 7 bits only.
+	RET
+	
+PS2_CI:
+	IN 	A,(PS2_STATUS_PORT)	;NEED CONSTAT TO CLEAN UP SHIFT KEYS ETC
+	AND	01H
+	JR	Z,PS2_CI		;Wait until something there
+	IN	A,(PS2_DATA_PORT)
+	AND	7FH			;Always 7 bits only.
+	RET
+
+
+VGA_CI:
+	JP	PROP_CI
+	
+	
+;>>>>>>>>>>>>>>>>>>>> MAIN PRINTER OUTPUT ROUTINE <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+LO:	LD	A,C
+	OUT	(PRINTER_OUT),A		;Send Data
+	LD	A,0FFH			;Setup strobe High -> Low -> High
+	OUT	(PRINTER_STROBE),A
+	XOR	A	 		;Send STROBE FOR CENTRONICS
+	OUT	(PRINTER_STROBE),A
+
+	PUSH	BC
+	LD	B,0FFH
+LO1:	IN	A,(PRINTER_STATUS)   	
+	AND	00000001B    		;Z if last char was acknowledged
+	JR	Z,LO2
+	DJNZ	LO1			;Try 255 times
+	
+LO2:	POP	BC
+	LD	A,0FFH			;Raise strobe again
+	OUT	(PRINTER_STROBE),A
+	JP	LSTAT			;Remain until printer is NOT Busy
+	
+
+FLUSH:	LD	C,FF			;Send a Form Feed to LaserJet Printer
+	CALL	LO			;This forces a partial page to be printed
+	RET
+
+
+;>>>>>>>>>>>>>>>>>>>>>> PRINTER STATUS ROUTINE <<<<<<<<<<<<<<<<<<<<<<<<
+LSTAT:	PUSH	BC
+	LD	B,0FFH
+LSTAT1:	IN	A,(PRINTER_STATUS)  
+	AND	A,00000011B
+	JR	Z,LSTAT2
+	DJNZ	LSTAT1			;Keep trying
+	POP	BC
+	XOR	A
+	DEC	A			;BUSY = HIGH, or ACK = HIGH,  NON-ZERO FLAG, PRINTER BUSY
+	RET	
+LSTAT2:	POP	BC
+	XOR	A	     		;BUSY = LOW, ACK = LOW,  ZERO FLAG, PRINTER READY
+	RET	
+	
+
+NOT_DONE:
+	LD	HL,NOT_DONE_MSG		;Routine not written yet
+	CALL	PRINT_STRING
+	RET
+	
+;-----------------------------------------------------------------------------------------------------
+;
+SIGNON_MSG:	DB SCROLL,QUIT,NO_ENH,FAST,BELL,'$'		
+SIGNON_MSG1:	DB CR,LF,LF,'FPGA SBC-Z80 FPGA-ROM MONITOR (@ F000H) V2.0 J.Monahan, 8/21/2019$' 	
+
+MAIN_MENU_MSG:	DB	CR,LF,LF
+  		DB	'A=Memmap     D=Show RAM   E=Echo Text   F=Fill RAM '
+		DB	CR,LF
+		DB	'G=Goto       I=IDE Menu   J=Test RAM    K=Menu'
+		DB	CR,LF
+		DB	'M=Move RAM   QI,O=Port    P=Boot CPM    R=Ports'
+		DB	CR,LF
+		DB	'S=Subs RAM   T=RAM Ascii  U=SD Card     V=Verify RAM' 
+		DB	CR,LF
+		DB      'X=XModem     Y=Swap RAM   Z=Top Of RAM  @=Flush Printer'
+		DB	CR,LF,LF,'$'
+
+	
+SP_MSG		DB	'SP=$'
+IOBYTE_MSG	DB	' IOBYTE=$'
+ALL_PORTS	DB	CR,LF,'Active I/O Ports:-',CR,LF,'$'
+Invalid_Msg	DB	CR,LF,BELL,'Invalid Data',CR,LF,'$'
+NOT_DONE_MSG	DB	CR,LF,BELL,'Routine not written!',CR,LF,'$'
+RAM_TEST_MSG    DB	CR,LF,'Enter RAM range (xxxx,yyyy)',CR,LF,'$'
+ECHO_MSG	DB	CR,LF,'Type characters. (^C to abort)',CR,LF,'$'
+
+MODEM_SIGNON:	DB	CR,LF,'Get a File from a PC',13,10,'$'
+MODEM_READING:	DB	CR,LF,'Downloading, please wait.......$'
+
+ERRSOH:		DB	'H RECEIVED, NOT SOH',0DH,0AH,'$'
+ERR2:		DB	'++BAD SECTOR # IN HDR',0DH,0AH,'$'
+ERR3:		DB	'++BAD CKSUM ON SECTOR',0DH,0AH,'$'
+TOUTM:		DB	'TIMEOUT $'
+QUITM:		DB	0DH,0AH,'MULTIPLE ERRORS.'
+		DB	0DH,0AH,'TYPE Q TO QUIT, R TO RETRY:$'
+MODEM_DONE_MSG:	DB	CR,LF,LF,BELL,'TRANSFER COMPLETE$'
+BAD_HEADER_MSG:	DB	CR,LF,'INVALID HEADER.',0DH,0AH,'$'
+MODEM_RAM_LOC:	DB	CR,LF,'Enter RAM location (xxxxH +CR): $'
+	
+SWAP_RAM_MSG	DB	CR,LF,'Swap Lowest 32K of RAM. (Enter 0 or 1)$'
+PAGE0_MSG	DB	CR,LF,'Page 0 RAM active',CR,LF,'$'
+PAGE1_MSG	DB	CR,LF,'Page 1 RAM active',CR,LF,'$'
+IM1_MSG		DB	CR,LF,'IM1 Mode Interrupts ON',CR,LF,'$'	
+
+; -------------------------- RAM usage for IDE Routines (in Z80_MONB.Z80)  -----------------------------------------
+
+IDBUFFER	EQU	RAM_BASE+ 1000H		;512 Bytes @ (C000H+1000H = D000H) for CF-Card paramaters
+buffer		EQU	RAM_BASE		;Default DMA buffer at C000H
+
+@DMA		EQU	RAM_BASE + 1F00H	;Remember Stack is at ~DFF0H
+@DRIVE$SEC	EQU	RAM_BASE + 1F02H
+@DRIVE$TRK	EQU	RAM_BASE + 1F04H
+@SEC		EQU	RAM_BASE + 1F06H
+@TRK		EQU	RAM_BASE + 1F08H
+@STARTLINEHEX	EQU	RAM_BASE + 1F10H
+@STARTLINEASCII	EQU	RAM_BASE + 1F12H
+@BYTE$COUNT	EQU	RAM_BASE + 1F14H
+@SECTOR$COUNT	EQU	RAM_BASE + 1F16H
+@DELAYSTORE	EQU	RAM_BASE + 1F18H
+
+

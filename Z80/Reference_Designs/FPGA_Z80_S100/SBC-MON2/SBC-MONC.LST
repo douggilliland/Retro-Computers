@@ -1,0 +1,1675 @@
+Z80ASM SuperFast Relocating Macro Assembler     	    Z80ASM 1.30 Page   1
+SBC-MONCZ80
+
+    1                   ;	SBC-MON2.Z80  This is a stripped down version of the main MASTER-Z80 (and SBC-MON.Z80 monitor) programs 
+    2                   ;	for use with the S100 bus Z80-FPGA SBC. It will not work with other Z80 CPU Boards without modifications.
+    3                   ; 
+    4                   ;	Assemble and SLR's Z80ASM Assembler (Can also use the Cromemco Assembler)
+    5                   ;	Use:- Z80ASM SBC-MON FH
+    6                   ;
+    7                   ;	NOTE. This board utilizes an 8K 28C64 EEPROM (or 27C64 UV-ROM). 
+    8                   ;
+    9                   ;	To assemble under windows...
+   10                   ;	Load Altair.EXE in Windows CMD box
+   11                   ;	do cpm3
+   12                   ;	I:
+   13                   ;	I:>Submit SBC-MON
+   14                   ;
+   15                   ;	SBC-MON2.HEX  is written back to the same windows folder that the PC file "altair.exe" is in.
+   16                   
+   17                   ;	Programming an EEPROM for the SBC-Z80 Board with a PROM burner is fairly straightfoward. 
+   18                   ;	Using a 28C64 EEPROM and a Wellon VP-280 or VP290 Programmer
+   19                   ;	For a monitor at E000H-FFFFH:-
+   20                   
+   21                   ;	Make sure the ORG is F000H (BASE_ROM).
+   22                   ;	Load the SBC-MON2.HEX file
+   23                   ;	Clear Buffer Options:- 00
+   24                   ;	Load Buffer Address : 0000
+   25                   ;	From File address use:- E000H
+   26                   ;	File Size use:- 2000H
+   27                   ;
+   28                   ;	Recent History...
+   29                   ;
+   30                   ;	V1.0	4/30/2019	Started with the modified MASTER.Z80 V5.1 Monitor. Removed the page switching menu option.
+   31                   ;	V1.01	7/20/2019	Added printer output
+   32                   ;
+   33                   ;
+   34         0000      FALSE		EQU	0
+   35         FFFF      TRUE		EQU	NOT FALSE
+   36                   ;
+   37                   ;--------------------------------------------------------
+   38                   ;        IDE Routines           E000-EFFFH
+   39                   ;        MONITOR Routines       F000-FFFFH
+   40                   ;        Start Monitor by jumping to F000H (not E000H)
+   41                   ;--------------------------------------------------------
+   42                   ;
+   43                   ;
+   44         F000      MONITOR_BASE	EQU	0F000H		;Start of monitor after a reset								
+   45         C000      RAM_BASE	EQU	0C000H		;Default location of RAM buffer area for IDE/CF card diagnostic routines
+   46                   					;Can be changed with "D" IDE menu command
+   47                   					
+   48         0001      SCROLL		EQU	01H		;Set scroll direction UP.
+   49         0007      BELL		EQU	07H
+   50         0020      SPACE		EQU	20H
+   51         0009      TAB		EQU	09H		;TAB ACROSS (8 SPACES FOR SD-BOARD)
+   52         000D      CR		EQU	0DH
+   53         000A      LF		EQU	0AH
+   54         000C      FF		EQU	0CH
+   55         0011      QUIT		EQU	11H		;Turns off any screen enhancements (flashing, underline etc).
+   56         0017      NO_ENH		EQU 	17H		;Turns off whatever is on
+   57         0010      FAST		EQU	10H		;High speed scroll
+   58         001B      ESC		EQU	1BH
+Z80ASM SuperFast Relocating Macro Assembler     	    Z80ASM 1.30 Page   2
+SBC-MONCZ80
+
+   59         007F      DELETE		EQU	7FH
+   60         0008      BACKS		EQU	08H
+   61         001A      CLEAR		EQU	1AH		;TO CLEAR SCREEN
+   62         0038      RST7		EQU	38H		;RST 7 (LOCATION FOR TRAP)
+   63         0000      NN		EQU	0H		;[I] INITIAL VALUE
+   64         0001      SOH		EQU	1		;For XModem etc.
+   65         0004      EOT		EQU	4
+   66         0006      ACK		EQU	6
+   67         0015      NAK		EQU	15H
+   68                   ;
+   69                   
+   70                   ; BIT MAP OF IOBYTE BASE_PORT + 6H:- X X X X  X X X X  (if xxxxx111= 111 = CONSOLE IN/OUT DATA for all Console IO board
+   71                   ;			             | | | |  | | | |..............  110 = will use onboard USB chip for ALL Console I/O
+   72                   ;			             | | | |  | | |................  x0x = will force/override onboard FPGA code to PS2 keyboard input 
+   73                   ;			             | | | |  | |..................  0xx = will force/override VGA for Console output
+   74                   ;			             | | | |  |....................  Unused
+   75                   ;			             | | | |.......................  Unused			
+   76                   ;			             | | |.........................  Unused						
+   77                   ;			             | |...........................  Unused
+   78                   ;			     	     |.............................  Unused
+   79                   ;
+   80                   ;
+   81                   
+   82         0030      BASE_PORT	EQU	30H		;Note by using 30H we can use software already on CF-CARDS that
+   83         0034      USB_STATUS_PORT	EQU	BASE_PORT+4H	;Status port for USB console input port
+   84         0035      USB_DATA_PORT	EQU	BASE_PORT+5H	;Status port for USB console data port
+   85         0036      IOBYTE		EQU	BASE_PORT+6H	;See above
+   86                   
+   87         0002      PS2_STATUS_PORT	EQU	02H		;PS2 Keyboard input port
+   88         0003      PS2_DATA_PORT	EQU	03H
+   89                   
+   90         0006      DIAG_LEDS	EQU	06H		;LED BAR of FPGA Board (and LED Bar on V3 SMB if present)
+   91         00EE      SW_TMAX		EQU	0EEH		;OUTPUT BIT 0 HIGH FROM THIS PORT LOWERS DMA0* on V3 SMB (if present)
+   92                   					;OUTPUT BIT 1 HIGH FROM THIS PORT LOWERS DMA1* on V3 SMB (if present)
+   93                   					;OUTPUT BIT 2 HIGH FROM THIS PORT LOWERS DMA2* on V3 SMB (if present)
+   94                   					;OUTPUT BIT 3 HIGH FROM THIS PORT LOWERS DMA3* on V3 SMB (if present) 
+   95         00ED      SW_TMA0	EQU	0EDH			;INPUT FROM THIS PORT LOWERS DMA0* (SWITCHES IN THE 8088,8086,80286 or 80386 boards)
+   96                   
+   97                   
+   98                   					;Note these DMA lines are only used in master/slave changes. Not normally used here.
+   99                   
+  100         0036      RAM_BANK	EQU	36H		;Port to switch Low/High 32K RAM Page
+  101         0007      ROM_PAGE	EQU	07H		;Inactivete part or all of onboard ROM
+  102                   
+  103         0004      PRINTER_STROBE	EQU	4		;PORT OUT
+  104         0005      PRINTER_STATUS	EQU	5		;PORT IN, IMSAI PIO Board PARRELL PORT
+  105         0005      PRINTER_OUT	EQU	5		;PORT OUT
+  106                   
+  107         00C0      VGA_CURSOR_X	EQU	0C0H		;Port to set VGA video cursor
+  108         00C1      VGA_CURSOR_Y	EQU	0C1H
+  109         00C2      VGA_COLOR	EQU	0C2H		;Port to set text color
+  110                   
+  111                   					;FOR S100 BUS 8259A (If Present)
+  112         0020      MASTER_PIC_PORT	EQU	20h		;Hardware port the 8259A (two ports 20H & 21H)
+  113         0017      MasterICW1	equ	00010111B	;EDGE triggered, 4 bytes, single Master,ICW4 needed
+  114         0008      MasterICW2	equ	8H		;Base address for 8259A Int Table (IBM-PC uses 8X4 = 20H)
+  115         0000      MasterICW3	equ	0H		;No slave
+  116         0003      MasterICW4	equ	00000011B	;No special mode, non buffer, Auto EOI, 8086.  ;<<<<,
+Z80ASM SuperFast Relocating Macro Assembler     	    Z80ASM 1.30 Page   3
+SBC-MONCZ80
+
+  117                   
+  118         0004      MODEM_SEND_MASK	EQU	4
+  119         0004      SEND_READY	EQU	4		;VALUE WHEN READY
+  120         0001      MODEM_RECV_MASK	EQU	1
+  121         0001      RECV_READY	EQU	1		;BIT ON WHEN READY
+  122         0008      MODEM_ERR_LIMIT	EQU	8		;Max number of Modem serial port re-reads aborting
+  123         0001      MODEM_RTS_DELAY	EQU	1		;Time to check Modem RTS line (See XMODEM_LOAD & P_XMODEM_LOAD). Not critical.
+  124                   
+  125         0000      RECVD_SECT_NO	EQU	0H		;IX Offset for XModem Recieved Sector Number
+  126         0001      SECTNO		EQU	1H		;IX Offset for XModem CURRENT SECTOR NUMBER 
+  127         0002      ERRCT		EQU	2H		;IX Offset for XModem ERROR COUNT
+  128                   					
+  129                   ;****************************************************************************************************************
+  130                   ;
+  131                   ;		 EQUATES FOR OTHER POSSIBLE BOARDS IN THE S100 BUS SYSTEM
+  132                   ;               (Note. If the board is not present the code will ignore the hardware)
+  133                   ;
+  134                   ;****************************************************************************************************************
+  135                   
+  136                   
+  137                   ;-------------- S100Computers PROPELLER CONSOLE_IO (OR SD SYSTEMS VIDIO BOARD) FOR CONSOLE INPUT & OUTPUT
+  138                   
+  139         0000      S100_CONSOL_STATUS	EQU	0H	;Note will utilize this board if IOBYTE bits 0 & 1 are ZERO (or bit 5 is 1).	
+  140         0001      S100_CONSOL_IN		EQU	1H
+  141         0001      S100_CONSOL_OUT		EQU	1H
+  142                   
+  143                   ;-------------- S100Computers IDE HARD DISK CONTROLLER COMMANDS ETC. (for Z80_MONB.Z80) -------------------------------------
+  144                   
+  145         0030      IDEPORTA	EQU	030H		;Lower 8 bits of IDE interface (8255)
+  146         0031      IDEPORTB	EQU	031H		;Upper 8 bits of IDE interface
+  147         0032      IDEPORTC	EQU	032H		;Control lines for IDE interface
+  148         0033      IDEPORTCTRL	EQU	033H		;8255 configuration port
+  149                   
+  150         0092      READCFG8255	EQU	10010010b	;Set 8255 IDEportC to output, IDEportA/B input
+  151         0080      WRITECFG8255	EQU	10000000b	;Set all three 8255 ports to output mode
+  152                   
+  153                   ;IDE control lines for use with IDEportC.  
+  154                   
+  155         0001      IDEA0LINE	EQU	01H		;direct from 8255 to IDE interface
+  156         0002      IDEA1LINE	EQU	02H		;direct from 8255 to IDE interface
+  157         0004      IDEA2LINE	EQU	04H		;direct from 8255 to IDE interface
+  158         0008      IDECS0LINE	EQU	08H		;inverter between 8255 and IDE interface
+  159         0010      IDECS1LINE	EQU	10H		;inverter between 8255 and IDE interface
+  160         0020      IDEWRLINE	EQU	20H		;inverter between 8255 and IDE interface
+  161         0040      IDERDLINE	EQU	40H		;inverter between 8255 and IDE interface
+  162         0080      IDERSTLINE	EQU	80H		;inverter between 8255 and IDE interface
+  163                   
+  164                   ;Symbolic constants for the IDE Drive registers, which makes the
+  165                   ;code more readable than always specifying the address bits
+  166                   
+  167         0008      REGDATA	EQU	IDEcs0line
+  168         0009      REGERR	EQU	IDEcs0line + IDEa0line
+  169         000A      REGSECCNT	EQU	IDEcs0line + IDEa1line
+  170         000B      REGSECTOR	EQU	IDEcs0line + IDEa1line + IDEa0line
+  171         000C      REGCYLINDERLSB	EQU	IDEcs0line + IDEa2line
+  172         000D      REGCYLINDERMSB	EQU	IDEcs0line + IDEa2line + IDEa0line
+  173         000E      REGSHD	EQU	IDEcs0line + IDEa2line + IDEa1line			;(0EH)
+  174         000F      REGCOMMAND	EQU	IDEcs0line + IDEa2line + IDEa1line + IDEa0line	;(0FH)
+Z80ASM SuperFast Relocating Macro Assembler     	    Z80ASM 1.30 Page   4
+SBC-MONCZ80
+
+  175         000F      REGSTATUS	EQU	IDEcs0line + IDEa2line + IDEa1line + IDEa0line
+  176         0016      REGCONTROL	EQU	IDEcs1line + IDEa2line + IDEa1line
+  177         0017      REGASTATUS	EQU	IDEcs1line + IDEa2line + IDEa1line + IDEa0line
+  178                   
+  179                   ;IDE Command Constants.  These should never change.
+  180                   
+  181         0010      COMMANDrecal	EQU	10H
+  182         0020      COMMANDread	EQU	20H
+  183         0030      COMMANDwrite	EQU	30H
+  184         0091      COMMANDinit	EQU	91H
+  185         00EC      COMMANDid	EQU	0ECH
+  186         00E0      COMMANDspindown	EQU	0E0H
+  187         00E1      COMMANDspinup	EQU	0E1H
+  188                   
+  189                   
+  190                   ; IDE Status Register:
+  191                   ;  bit 7: Busy	1=busy, 0=not busy
+  192                   ;  bit 6: Ready 1=ready for command, 0=not ready yet
+  193                   ;  bit 5: DF	1=fault occured insIDE drive
+  194                   ;  bit 4: DSC	1=seek complete
+  195                   ;  bit 3: DRQ	1=data request ready, 0=not ready to xfer yet
+  196                   ;  bit 2: CORR	1=correctable error occured
+  197                   ;  bit 1: IDX	vendor specific
+  198                   ;  bit 0: ERR	1=error occured
+  199                   
+  200         0200      SEC$SIZE	EQU	512		;Assume sector size as 512. (Not tested for other sizes)
+  201         003D      MAXSEC		EQU	3DH		;Sectors per track for CF my Memory drive, Kingston CF 8G. (For CPM format, 0-3CH)
+  202                   					;This translates to LBA format of 1 to 3D sectors, for a total of 61 sectors/track.
+  203                   					;This CF card actully has 3F sectors/track. Will use 3D for my CPM3 system because
+  204                   					;my Seagate drive has 3D sectors/track. Don't want different CPM3.SYS files around
+  205                   					;so this program as is will also work with a Seagate 6531 IDE drive
+  206                   
+  207         00FF      MAXTRK		EQU	0FFH		;CPM3 allows up to 8MG so 0-256 "tracks"
+  208         3000      BUFFER$ORG	EQU	3000H		;<----- Will place all sector data here
+  209                   
+  210         000C      CPM$BOOT$COUNT	EQU	12		;Allow up to 12 CPM sectors for CPMLDR
+  211         0100      CPMLDR$ADDRESS	EQU	100H		;Load the CPMLDR at 100H in RAM 
+  212                   
+  213         0000      DEBUG EQU FALSE				;For a display of error codes returned from CF-Card drive
+  214                   
+  215                   
+  216                   
+  217                   ;///////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+  218                   ;-------------------------------- START OF ACTUAL MONITOR @ FOOOH  --------------------------------------------------
+  219                   ;//////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+  220                   
+  221                   
+  222         F000      ORG		MONITOR_BASE		;<--------<<<<<< LOCATION OF START OF MONITOR, F000H >>>>>>>>>>>>>>>>>>>>>>
+  223                   
+  224 F000  C3 F040     	JP	IDE_LOOP
+  225                   
+  226                   ;----------------->>> THIS CODE MUST BE AT THE SAME LOCATION AS FOR THE LOW PAGE ROM CODE <<<---------
+  227                   ;
+  228 F003              ACTIVATE_1_HIGH_PAGE:			; SWITCH TO HIGH PAGE of ROM 
+  229 F003  00          	NOP
+  230 F004  00          	NOP
+  231 F005  00          	NOP
+  232 F006  00          	NOP
+Z80ASM SuperFast Relocating Macro Assembler     	    Z80ASM 1.30 Page   5
+SBC-MONCZ80
+
+  233 F007  C3 F01F     	JP	INVALID_MENU_ERROR
+  234                   	
+  235                   	
+  236 F00A              ACTIVATE_2_HIGH_PAGE:			; SWITCH TO HIGH PAGE #2 of ROM
+  237 F00A  00          	NOP
+  238 F00B  00          	NOP
+  239 F00C  00          	NOP
+  240 F00D  00          	NOP
+  241 F00E  C3 F016     	JP	HIGH_MENU_2_OPTION	
+  242                   	
+  243 F011              ACTIVATE_LOW_PAGE:			; RETURN BACK TO LOW PAGE (00) OF ROM
+  244 F011  3E 00       	LD	A,00H			
+  245 F013  D3 07       	OUT	(ROM_PAGE),A	
+  246 F015  76          	HALT				; Will arrive here only IF no address line switch 
+  247                   ;
+  248                   ;----------------------->>> END OF COMMON CODE LOACTIONS <<<----------------------------------
+  249                   ;
+  250                   ;
+  251 F016              HIGH_MENU_2_OPTION:
+  252 F016  7A          	LD	A,D			; HIGH PAGE code with 1 in [D] for XMODEM
+  253 F017  FE 03       	CP	A,3
+  254 F019  CA F028     	JP	Z,SD_CARD_MENU
+  255                   ;	CP	A,2
+  256                   ;	JP	Z,CPM_BOOT
+  257 F01C  C3 F01F     	JP	INVALID_MENU_ERROR	; The only menu options so far
+  258                   	
+  259 F01F              INVALID_MENU_ERROR:
+  260 F01F  11 FD72     	LD      DE,MSGERR		; Point Error Message
+  261 F022  CD F3F3     	CALL	PSTRING			; Print string
+  262 F025  C3 F011     	JP	ACTIVATE_LOW_PAGE
+  263                   
+  264 F028              SD_CARD_MENU:
+  265 F028  C3 F040     	JP	IDE_LOOP
+  266                   	
+  267 F02B  CD F532     	call	IDEinit			;initialize the board and drive. If there is no drive abort
+  268 F02E  CA F040     	jp	z,IDE_LOOP		;Setup for main menu commands
+  269 F031  11 F907     	ld	de,INIT$ERROR
+  270 F034  CD F3F3     	call	PSTRING
+  271 F037  CD F409     	call	SHOWerrors
+  272 F03A  C3 F03D     	jp	ABORT
+  273                   
+  274 F03D  C3 F011     ABORT: 	jp	ACTIVATE_LOW_PAGE	;Else jump to start of monitor
+  275                   
+  276                   
+  277 F040              IDE_LOOP:				;A 1 line prompt
+  278 F040  11 F805     	ld	de,IDE_MENU_MSG		;List command options
+  279 F043  CD F3F3     	call	PSTRING
+  280                   
+  281 F046  CD F61B     	call	wrlba			;Update LBA on drive
+  282 F049  CD F30C     	call	DISPLAYposition		;Display current Track,sector,head#
+  283                   
+  284 F04C  11 F9A2     	ld	de,Prompt		;'Please enter a command >'
+  285 F04F  CD F3F3     	call	PSTRING
+  286                   
+  287 F052  CD F49C     	call	GETCMD			;Simple UC character Input (Note, no fancy checking)
+  288 F055  FE 1B       	cp	ESC			;ESC back to main menu
+  289 F057  CA F03D     	jp	z,ABORT
+  290 F05A  CD F4AE     	call	upper
+Z80ASM SuperFast Relocating Macro Assembler     	    Z80ASM 1.30 Page   6
+SBC-MONCZ80
+
+  291 F05D  CD F76B     	call	CRLF
+  292                   	
+  293 F060  FE 44       	cp	a,'D'
+  294 F062  CA F693     	jp	z,SET_DMA		; "D"  SET BUFFER ADDRESS
+  295 F065  FE 4C       	cp	a,'L'
+  296 F067  CA F0ED     	jp	z,SET$LBA		; "L"  Set LBA value (Set Track,sector) 
+  297 F06A  FE 4D       	cp	a,'M'
+  298 F06C  CA F120     	jp	z,PREV$SEC		; "M"  Previous sector
+  299 F06F  FE 4E       	cp	a,'N'
+  300 F071  CA F102     	jp	z,NEXT$SECT		; "N"  Next Sector
+  301 F074  FE 50       	cp	a,'P'
+  302 F076  CA F134     	JP	Z,CPM_BOOT		; "P"  Boot CPM
+  303 F079  FE 52       	cp	a,'R'
+  304 F07B  CA F09A     	jp	z,READ$SEC		; "R"  Read sector to data buffer
+  305 F07E  FE 53       	cp	a,'S'
+  306 F080  CA F2A9     	jp	z,SEQ$RD		; "S"  Sequental sec read and display contents
+  307 F083  FE 56       	cp	a,'V'
+  308 F085  CA F1B2     	jp	z,N$RD$SEC		; "V"  Read N sectors
+  309 F088  FE 57       	cp	a,'W'
+  310 F08A  CA F0B8     	jp	z,WRITE$SEC		; "W"  Write data buffer to current sector
+  311 F08D  FE 58       	cp	a,'X'
+  312 F08F  CA F210     	jp	z,N$WR$SEC		; "X"  Write N sectors
+  313 F092  FE 59       	cp	a,'Y'
+  314 F094  CA F361     	JP	Z,SHOW$ID		; "y" Show CF Card Paramaters
+  315 F097  C3 F286     	JP	IDE_ERROR
+  316                   	
+  317                   
+  318 F09A              READ$SEC:				;Read Sector @ LBA to the RAM buffer
+  319 F09A  2A DF00     	ld	hl,(@DMA)		;Point to buffer
+  320 F09D  CD F599     	call	READSECTOR
+  321 F0A0  CA F0A9     	jp	z,main1b		;Z means the sector read was OK
+  322 F0A3  CD F76B     	call	CRLF
+  323 F0A6  C3 F040     	jp	IDE_LOOP
+  324 F0A9  11 F9FB     main1b:	ld	de, msgrd		;Sector read OK
+  325 F0AC  CD F3F3     	call	PSTRING
+  326                   
+  327 F0AF  2A DF00     	ld	HL,(@DMA)		;Point to buffer.
+  328 F0B2  CD F4BF     	call	HEXDUMP			;Show sector data
+  329 F0B5  C3 F040     	jp	IDE_LOOP
+  330                   
+  331 F0B8              WRITE$SEC:				;Write data in RAM buffer to sector @ LBA
+  332 F0B8  11 F9B5     	ld	de,msgsure		;Are you sure?
+  333 F0BB  CD F3F3     	call	PSTRING
+  334 F0BE  CD F73E     	call	ZCI
+  335 F0C1  CD F4AE     	call	upper
+  336 F0C4  4F          	LD	C,A			;Print response
+  337 F0C5  CD F6D1     	CALL	ZCO
+  338 F0C8  FE 59       	CP	'Y'
+  339 F0CA  F5          	PUSH	AF
+  340 F0CB  CD F76B     	CALL	CRLF
+  341 F0CE  F1          	POP	AF
+  342 F0CF  C2 F040     	jp	nz,IDE_LOOP
+  343 F0D2  CD F76B     	CALL	CRLF
+  344                   
+  345 F0D5  2A DF00     	ld	HL,(@DMA)
+  346                   
+  347 F0D8  CD F5D6     	call	WRITESECTOR
+  348                   
+Z80ASM SuperFast Relocating Macro Assembler     	    Z80ASM 1.30 Page   7
+SBC-MONCZ80
+
+  349 F0DB  CA F040     	jp	z,IDE_LOOP		;Z means the sector write was OK
+  350 F0DE  CD F76B     	call	CRLF
+  351 F0E1  C3 F040     	jp	IDE_LOOP
+  352 F0E4  11 FA0C     main2b:	ld	de, msgwr		;Sector written OK
+  353 F0E7  CD F3F3     	call	PSTRING
+  354 F0EA  C3 F040     	jp	IDE_LOOP
+  355                   
+  356                   
+  357 F0ED              SET$LBA:				;Set the logical block address
+  358 F0ED  11 FA1E     	ld	de,GET$LBA
+  359 F0F0  CD F3F3     	call	PSTRING
+  360 F0F3  CD F435     	call	ghex32lba		;Get new CPM style Track & Sector number and put them in RAM at @SEC & @TRK
+  361 F0F6  DA F0FC     	jp	c,main3b		;Ret C set if abort/error
+  362 F0F9  CD F61B     	call	wrlba			;Update LBA on drive
+  363 F0FC  CD F76B     main3b:	call	CRLF
+  364 F0FF  C3 F040     	jp	IDE_LOOP
+  365                   
+  366 F102              NEXT$SECT:
+  367 F102  3A DF06     	ld	a,(@SEC)
+  368 F105  3C          	inc	A
+  369 F106  FE 3C       	cp	MAXSEC-1
+  370 F108  D2 F117     	jp	nc,RANGE$ERROR
+  371 F10B  32 DF06     	ld	(@SEC),a
+  372 F10E  CD F61B     	call	wrlba			;Update LBA on drive
+  373 F111  CD F76B     	call	CRLF
+  374 F114  C3 F040     	jp	IDE_LOOP
+  375 F117              RANGE$ERROR:
+  376 F117  11 FDA9     	ld	de,RANGE$MSG
+  377 F11A  CD F3F3     	call	PSTRING
+  378 F11D  C3 F040     	jp	IDE_LOOP
+  379                   
+  380 F120              PREV$SEC:
+  381 F120  3A DF06     	ld	a,(@SEC)
+  382 F123  B7          	or	A
+  383 F124  CA F117     	jp	z,RANGE$ERROR
+  384 F127  3D          	dec	A
+  385 F128  32 DF06     	ld	(@SEC),a
+  386 F12B  CD F61B     	call	wrlba			;Update LBA on drive
+  387 F12E  CD F76B     	call	CRLF
+  388 F131  C3 F040     	jp	IDE_LOOP
+  389                   
+  390                   
+  391                   
+  392 F134              CPM_BOOT:				;Boot CPM from IDE system tracks -- if present
+  393 F134  DB 06       	IN	A,(DIAG_LEDS)
+  394 F136  F6 10       	OR	A,00010000B		;FLAG PROGRESS (Ready to go, 4 LED's On)
+  395 F138  D3 06       	OUT	(DIAG_LEDS),A
+  396                   
+  397 F13A  11 FE2F     	ld	de,BOOTCPM$MSG
+  398 F13D  CD F3F3     	call	PSTRING
+  399 F140  3E 00       	ld	a,0
+  400 F142  D3 36       	out	(RAM_BANK),a		;<<<<<<<<<< make sure that RAM bank is 0 before we start loading CPM  >>>>>>>>>>>
+  401 F144  CD F532     	call	IDEinit			;initialize the board and drive. If there is no drive abort
+  402 F147  3E 00       	ld	a,0			;Load from track 0,sec 1, head 0 (Always)
+  403 F149  32 DF06     	ld	(@SEC),a		;Remember sectors are numbered +1
+  404 F14C  AF          	xor	A
+  405 F14D  32 DF09     	ld	(@TRK+1),a
+  406 F150  32 DF08     	ld	(@TRK),a
+Z80ASM SuperFast Relocating Macro Assembler     	    Z80ASM 1.30 Page   8
+SBC-MONCZ80
+
+  407                   
+  408 F153  3E 0C       	ld	a,CPM$BOOT$COUNT	;Count of CPMLDR sectors  (12)
+  409 F155  32 DF16     	ld	(@SECTOR$COUNT),a
+  410 F158  21 0100     	ld	hl,CPMLDR$ADDRESS	;DMA address where the CPMLDR resides in RAM (100H)
+  411 F15B  22 DF00     	ld	(@DMA),hl
+  412                   
+  413 F15E              NextRCPM:
+  414 F15E  CD F61B     	call	wrlba			;Update LBA on drive
+  415 F161  CD F30C     	call	DISPLAYposition		;Display current Track,sector,head#
+  416 F164  CD F76B     	call	CRLF
+  417                   
+  418 F167  2A DF00     	ld	hl,(@DMA)
+  419 F16A  CD F599     	call	READSECTOR		;read a sector
+  420 F16D  22 DF00     	ld	(@DMA),hl
+  421                   
+  422 F170  3A DF16     	ld	a,(@SECTOR$COUNT)
+  423 F173  3D          	DEC     A
+  424 F174  32 DF16     	ld	(@SECTOR$COUNT),a
+  425 F177  CA F184     	jp	z,LOAD$DONE
+  426                   
+  427 F17A  2A DF06     	ld	hl,(@SEC)
+  428 F17D  23          	inc	hl
+  429 F17E  22 DF06     	ld	(@SEC),hl		;Note we assume we alway will stay on tarck 0 in this special case
+  430 F181  C3 F15E     	jp	NextRCPM
+  431                   
+  432 F184              LOAD$DONE:
+  433 F184  1E 0F       	ld	e,REGstatus		;Check the R/W status when done
+  434 F186  CD F6A7     	call	IDErd8D
+  435 F189  CB 42       	BIT	0,D
+  436 F18B  C2 F1A9     	jp	nz,CPMLoadErr		;Z if no errors
+  437 F18E  21 0100     	ld	hl,CPMLDR$ADDRESS
+  438 F191  7E          	ld	a,(hl)
+  439 F192  FE 31       	cp	31H			;EXPECT TO HAVE 31H @80H IE. LD SP,80H
+  440 F194  C2 F1A0     	jp	nz,CPMLoadErr1		;Z if no errors
+  441                   
+  442 F197  DB 06       	IN	A,(DIAG_LEDS)
+  443 F199  F6 08       	OR	A,00001000B		;FLAG PROGRESS (Ready to go, 5 LED's On)
+  444 F19B  D3 06       	OUT	(DIAG_LEDS),A
+  445 F19D  C3 0100     	jp	100H			;Now jump here where the code for the CPMLDR resides
+  446                   
+  447 F1A0              CPMLoadErr1:
+  448 F1A0  11 FDDC     	ld	de,CPM$ERROR1		;Drive data error
+  449 F1A3  CD F3F3     	call	PSTRING
+  450 F1A6  C3 F040     	jp	IDE_LOOP
+  451                   
+  452 F1A9              CPMLoadErr:
+  453 F1A9  11 FDC2     	ld	de,CPM$ERROR		;Drive Read Error
+  454 F1AC  CD F3F3     	call	PSTRING
+  455 F1AF  C3 F040     	jp	IDE_LOOP
+  456                   
+  457                   
+  458 F1B2              N$RD$SEC:				;Read N sectors >>>> NOTE no check is made to not overwrite 
+  459 F1B2  11 FCA0     	ld	de,ReadN$MSG		;CPM etc. in high RAM
+  460 F1B5  CD F3F3     	call	PSTRING
+  461 F1B8  CD F468     	call	GETHEX
+  462 F1BB  DA F040     	jp	c,IDE_LOOP		;Abort if ESC (C flag set)
+  463 F1BE  CD F76B     	CALL	CRLF
+  464 F1C1  CD F76B     	CALL	CRLF
+Z80ASM SuperFast Relocating Macro Assembler     	    Z80ASM 1.30 Page   9
+SBC-MONCZ80
+
+  465                   	
+  466 F1C4  32 DF16     	ld	(@SECTOR$COUNT),a	;store sector count
+  467 F1C7  2A DF00     	ld	HL,(@DMA)		;Point to buffer
+  468                   
+  469 F1CA              NextRSec:	
+  470 F1CA  11 FD54     	ld	de,MultiRD_MSG
+  471 F1CD  CD F3F3     	call	PSTRING
+  472 F1D0  CD F61B     	call	wrlba			;Update LBA on drive
+  473 F1D3  CD F30C     	call	DISPLAYposition		;Display current Track,sector,head#
+  474                   
+  475 F1D6  2A DF00     	ld	hl,(@DMA)
+  476 F1D9  CD F599     	call	READSECTOR
+  477 F1DC  22 DF00     	ld	(@DMA),hl
+  478                   
+  479 F1DF  3A DF16     	ld	a,(@SECTOR$COUNT)
+  480 F1E2  3D          	DEC     A
+  481 F1E3  32 DF16     	ld	(@SECTOR$COUNT),a
+  482 F1E6  CA F040     	jp	z,IDE_LOOP
+  483                   
+  484 F1E9  2A DF06     	ld	hl,(@SEC)
+  485 F1EC  23          	inc	hl
+  486 F1ED  22 DF06     	ld	(@SEC),hl
+  487 F1F0  7D          	ld	a,L			;0 to 62 CPM Sectors
+  488 F1F1  FE 3C       	cp	MAXSEC-1
+  489 F1F3  C2 F1CA     	jp	nz,NextRSec
+  490                   
+  491 F1F6  21 0000     	ld	hl,0			;Back to CPM sector 0
+  492 F1F9  22 DF06     	ld	(@SEC),hl
+  493 F1FC  2A DF08     	ld	hl,(@TRK)		;Bump to next track
+  494 F1FF  23          	inc	hl
+  495 F200  22 DF08     	ld	(@TRK),hl
+  496 F203  7D          	ld	a,L			;0-FFH tracks (only)
+  497 F204  C2 F1CA     	jp	nz,NextRSec
+  498                   
+  499 F207  11 FD89     	ld	de,AtEnd		;Tell us we are at end of disk
+  500 F20A  CD F3F3     	call	PSTRING
+  501 F20D  C3 F040     	jp	IDE_LOOP
+  502                   
+  503                   
+  504 F210              N$WR$SEC:				;Write N sectors 
+  505 F210  11 FCFB     	ld	de,WriteN$MSG		;How many sectors
+  506 F213  CD F3F3     	call	PSTRING
+  507 F216  CD F468     	call	GETHEX	
+  508 F219  DA F040     	jp	c,IDE_LOOP		;Abort if ESC (C flag set)
+  509 F21C  32 DF16     	ld	(@SECTOR$COUNT),a	;store sector count
+  510                   	
+  511 F21F  11 F9B5     	ld	de,msgsure		;Are you sure?
+  512 F222  CD F3F3     	call	PSTRING
+  513 F225  CD F73E     	call	ZCI
+  514 F228  CD F4AE     	call	upper
+  515 F22B  4F          	LD	C,A			;Print response
+  516 F22C  CD F6D1     	CALL	ZCO
+  517 F22F  FE 59       	CP	'Y'
+  518 F231  F5          	PUSH	AF
+  519 F232  CD F76B     	CALL	CRLF
+  520 F235  F1          	POP	AF
+  521 F236  C2 F040     	jp	nz,IDE_LOOP
+  522 F239  CD F76B     	CALL	CRLF
+Z80ASM SuperFast Relocating Macro Assembler     	    Z80ASM 1.30 Page  10
+SBC-MONCZ80
+
+  523                   
+  524 F23C  2A DF00     	ld	HL,(@DMA)		;Point to current DMA buffer
+  525                   
+  526 F23F              NextWSec:	
+  527 F23F  11 FD63     	ld	de,MultiWR_MSG
+  528 F242  CD F3F3     	call	PSTRING
+  529 F245  CD F61B     	call	wrlba			;Update LBA on drive
+  530 F248  CD F30C     	call	DISPLAYposition		;Display current Track,sector,head#
+  531                   
+  532 F24B  2A DF00     	ld	hl,(@DMA)
+  533 F24E  CD F5D6     	call	WRITESECTOR		;Actully, Sector/track values are already updated
+  534 F251  22 DF00     	ld	(@DMA),hl		;above in wrlba, but WRITESECTOR is used in multiple places.
+  535                   					;A repeat does no harm -- speed is not an issue here
+  536 F254  3A DF16     	ld	a,(@SECTOR$COUNT)
+  537 F257  3D          	DEC     A
+  538 F258  32 DF16     	ld	(@SECTOR$COUNT),a
+  539 F25B  CA F040     	jp	z,IDE_LOOP
+  540                   
+  541 F25E  2A DF06     	ld	hl,(@SEC)
+  542 F261  23          	inc	hl
+  543 F262  22 DF06     	ld	(@SEC),hl
+  544 F265  7D          	ld	a,L			;0 to 62 CPM Sectors
+  545 F266  FE 3C       	cp	MAXSEC-1
+  546 F268  C2 F23F     	jp	nz,NextWSec
+  547                   
+  548 F26B  21 0000     	ld	hl,0			;Back to CPM sector 0
+  549 F26E  22 DF06     	ld	(@SEC),hl
+  550 F271  2A DF08     	ld	hl,(@TRK)		;Bump to next track
+  551 F274  23          	inc	hl
+  552 F275  22 DF08     	ld	(@TRK),hl
+  553 F278  7D          	ld	a,L			;0-FFH tracks (only)
+  554 F279  B7          	or	A
+  555 F27A  C2 F23F     	jp	nz,NextWSec
+  556                   
+  557 F27D  11 FD89     	ld	de,AtEnd		;Tell us we are at end of disk
+  558 F280  CD F3F3     	call	PSTRING
+  559 F283  C3 F040     	jp	IDE_LOOP
+  560                   
+  561                   
+  562                   
+  563                   
+  564 F286              IDE_ERROR:
+  565 F286  11 FD72     	ld	de, msgErr		;CMD error msg
+  566 F289  CD F3F3     	call	PSTRING
+  567 F28C  C3 F03D     	jp	ABORT
+  568                   
+  569                   
+  570                   ;---------------- Support Routines -------------------------------------------
+  571                   
+  572 F28F              driveid:
+  573 F28F  CD F647     	call	IDEwaitnotbusy		;Do the IDEntify drive command, and return with the buffer
+  574                   					;filled with info about the drive
+  575 F292  D8          	ret	c			;If Busy return NZ
+  576 F293  16 EC       	ld	d,COMMANDid
+  577 F295  1E 0F       	ld	e,REGcommand
+  578 F297  CD F6B8     	call	IDEwr8D			;issue the command
+  579                   
+  580 F29A  CD F66D     	call	IDEwaitdrq		;Wait for Busy=0, DRQ=1
+Z80ASM SuperFast Relocating Macro Assembler     	    Z80ASM 1.30 Page  11
+SBC-MONCZ80
+
+  581 F29D  DA F409     	jp	c,SHOWerrors
+  582                   
+  583 F2A0  06 00       	ld	b,0			;256 words
+  584 F2A2  21 D000     	ld	hl,IDbuffer		;Store data here
+  585 F2A5  CD F5B4     	call	MoreRD16		;Get 256 words of data from REGdata port to [HL]
+  586 F2A8  C9          	ret
+  587                   
+  588                   
+  589                   
+  590                   
+  591 F2A9              SEQ$RD:				
+  592 F2A9  CD F647     	call	IDEwaitnotbusy		;Sequentially read sectors one at a time from current position
+  593 F2AC  DA F409     	jp	c,SHOWerrors
+  594 F2AF  CD F76B     	call	CRLF
+  595 F2B2              NEXTSEC:
+  596 F2B2  2A DF00     	ld	HL,(@DMA)
+  597                   
+  598 F2B5  CD F599     	call	READSECTOR		;If there are errors they will show up in READSECTOR
+  599                   
+  600 F2B8  CA F2C9     	jp	z,SEQOK
+  601 F2BB  11 FC74     	ld	de,CONTINUE$MSG		;To Abort enter ESC. Any other key to continue.
+  602 F2BE  CD F3F3     	call	PSTRING
+  603 F2C1  CD F73E     	call	ZCI
+  604 F2C4  FE 1B       	cp	ESC			;Abort if ESC
+  605 F2C6  CA F040     	jp	Z,IDE_LOOP
+  606                   
+  607 F2C9  CD F76B     SEQOK:	CALL	CRLF
+  608 F2CC  CD F30C     	call	DISPLAYposition		;Display current Track,sector,head#
+  609                   
+  610 F2CF  2A DF00     	ld	HL,(@DMA)		;Point to buffer
+  611                   
+  612 F2D2  CD F4BF     	call	HEXDUMP			;Display sector contents
+  613 F2D5  CD F76B     	call	CRLF
+  614 F2D8  CD F76B     	call	CRLF
+  615 F2DB  CD F76B     	call	CRLF
+  616                   
+  617 F2DE  11 FC74     	ld	de,CONTINUE$MSG		;To Abort enter ESC. Any other key to continue.
+  618 F2E1  CD F3F3     	call	PSTRING
+  619 F2E4  CD F73E     	call	ZCI
+  620 F2E7  FE 1B       	cp	ESC
+  621 F2E9  CA F040     	JP	Z,IDE_LOOP
+  622 F2EC  CD F76B     	call	CRLF
+  623 F2EF              NEXTSEC1:
+  624                   	
+  625 F2EF  2A DF06     	ld	hl,(@SEC)
+  626 F2F2  23          	inc	hl
+  627 F2F3  22 DF06     	ld	(@SEC),hl
+  628 F2F6  7D          	ld	a,L			;0 to 62 CPM Sectors
+  629 F2F7  FE 3C       	cp	MAXSEC-1
+  630 F2F9  C2 F2B2     	jp	nz,NEXTSEC
+  631                   
+  632 F2FC  21 0000     	ld	hl,0			;Back to CPM sector 0
+  633 F2FF  22 DF06     	ld	(@SEC),hl
+  634 F302  2A DF08     	ld	hl,(@TRK)		;Bump to next track
+  635 F305  23          	inc	hl
+  636 F306  22 DF08     	ld	(@TRK),hl
+  637 F309  C3 F2B2     	jp	NEXTSEC			;Note will go to last sec on disk unless stopped
+  638                   
+Z80ASM SuperFast Relocating Macro Assembler     	    Z80ASM 1.30 Page  12
+SBC-MONCZ80
+
+  639                   
+  640 F30C              DISPLAYposition:			;Display current DMA, track,sector & head position
+  641 F30C  11 F96C     	LD	DE,msgDMA		;Show current DMA Address
+  642 F30F  CD F3F3     	CALL	PSTRING
+  643 F312  3A DF01     	ld	a,(@DMA+1)		;High DMA byte
+  644 F315  CD F417     	call	phex
+  645 F318  3A DF00     	ld	a,(@DMA)		;Low DMA byte
+  646 F31B  CD F417     	call	phex
+  647                   	
+  648 F31E  11 F976     	ld	de,msgCPMTRK		;Display in LBA format
+  649 F321  CD F3F3     	call	PSTRING			;---- CPM FORMAT ----
+  650 F324  3A DF09     	ld	a,(@TRK+1)		;High TRK byte
+  651 F327  CD F417     	call	phex
+  652 F32A  3A DF08     	ld	a,(@TRK)		;Low TRK byte
+  653 F32D  CD F417     	call	phex
+  654                   
+  655 F330  11 F985     	ld	de,msgCPMSEC
+  656 F333  CD F3F3     	call	PSTRING			;SEC = (16 bits)
+  657 F336  3A DF07     	ld	a,(@SEC+1)		;High Sec
+  658 F339  CD F417     	call	phex
+  659 F33C  3A DF06     	ld	a,(@SEC)		;Low sec
+  660 F33F  CD F417     	call	phex
+  661                   					;---- LBA FORMAT ----
+  662 F342  11 F993     	ld	de, msgLBA
+  663 F345  CD F3F3     	call	PSTRING			;(LBA = 00 (<-- Old "Heads" = 0 for these drives).
+  664 F348  3A DF05     	ld	a,(@DRIVE$TRK+1)	;High "cylinder" byte
+  665 F34B  CD F417     	call	phex
+  666 F34E  3A DF04     	ld	a,(@DRIVE$TRK)		;Low "cylinder" byte
+  667 F351  CD F417     	call	phex
+  668 F354  3A DF02     	ld	a,(@DRIVE$SEC)
+  669 F357  CD F417     	call	phex
+  670 F35A  11 F9A0     	ld	de, MSGBracket		;)$
+  671 F35D  CD F3F3     	call	PSTRING
+  672 F360  C9          	ret
+  673                   
+  674                   
+  675 F361              SHOW$ID:			
+  676 F361  CD F28F     	call	driveid			;Get the drive ID info. If there is no drive, abort
+  677 F364  CA F373     	jp	z,ID$OK1
+  678 F367  11 F91C     	ld	de,ID$ERROR
+  679 F36A  CD F3F3     	call	PSTRING
+  680 F36D  CD F409     	call	SHOWerrors
+  681 F370  C3 F03D     	jp	ABORT
+  682                   
+  683 F373              ID$OK1:					;print the drive's model number
+  684 F373  11 F932     	ld	de, msgmdl
+  685 F376  CD F3F3     	call	PSTRING
+  686 F379  21 D036     	ld	hl,IDbuffer + 54
+  687 F37C  06 0A       	ld	b,10			;character count in words
+  688 F37E  CD F3E2     	call	printname		;Print [HL], [B] X 2 characters
+  689 F381  CD F76B     	call	CRLF
+  690                   					;print the drive's serial number
+  691 F384  11 F93A     	ld	de, msgsn
+  692 F387  CD F3F3     	call	PSTRING
+  693 F38A  21 D014     	ld	hl,IDbuffer + 20
+  694 F38D  06 05       	ld	b, 5			;Character count in words
+  695 F38F  CD F3E2     	call	printname
+  696 F392  CD F76B     	call	CRLF
+Z80ASM SuperFast Relocating Macro Assembler     	    Z80ASM 1.30 Page  13
+SBC-MONCZ80
+
+  697                   					;Print the drive's firmware revision string
+  698 F395  11 F942     	ld	de, msgrev
+  699 F398  CD F3F3     	call	PSTRING
+  700 F39B  21 D02E     	ld	hl,IDbuffer + 46
+  701 F39E  06 02       	ld	b, 2
+  702 F3A0  CD F3E2     	call	printname		;Character count in words
+  703 F3A3  CD F76B     	call	CRLF
+  704                   					;print the drive's cylinder, head, and sector specs
+  705 F3A6  11 F94A     	ld	de, msgcy
+  706 F3A9  CD F3F3     	call	PSTRING
+  707 F3AC  21 D002     	ld	hl,IDbuffer + 2
+  708 F3AF  CD F40C     	call	printparm
+  709 F3B2  11 F956     	ld	de,msghd
+  710 F3B5  CD F3F3     	call	PSTRING
+  711 F3B8  21 D006     	ld	hl,IDbuffer + 6
+  712 F3BB  CD F40C     	call	printparm
+  713 F3BE  11 F960     	ld	de, msgsc
+  714 F3C1  CD F3F3     	call	PSTRING
+  715 F3C4  21 D00C     	ld	hl,IDbuffer + 12
+  716 F3C7  CD F40C     	call	printparm
+  717 F3CA  CD F76B     	call	CRLF
+  718                   					;Default position will be first block 
+  719 F3CD  21 0000     	ld	hl,0
+  720 F3D0  22 DF06     	ld	(@SEC),hl		;Default to Track 0, Sec 0
+  721 F3D3  22 DF08     	ld	(@TRK),hl
+  722 F3D6  21 C000     	ld	hl,buffer		;Set DMA address to buffer
+  723 F3D9  22 DF00     	ld	(@DMA),hl
+  724                   
+  725 F3DC  CD F532     	call	IDEinit			;For some reason this need to be here after getting the drive ID.
+  726 F3DF  C3 F040     	jp	IDE_LOOP		;otherewise sector #'s are off by one!
+  727                   
+  728                   
+  729                   
+  730                   
+  731 F3E2              printname:				;Send text up to [B]	
+  732 F3E2  23          	inc	hl			;Text is low byte high byte format
+  733 F3E3  4E          	ld	c,(hl)
+  734 F3E4  CD F6D1     	call	ZCO
+  735 F3E7  0B          	dec	bc
+  736 F3E8  4E          	ld	c,(hl)
+  737 F3E9  CD F6D1     	call	ZCO
+  738 F3EC  23          	inc	hl
+  739 F3ED  23          	inc	hl
+  740 F3EE  05          	DEC     B
+  741 F3EF  C2 F3E2     	jp	nz,printname
+  742 F3F2  C9          	ret
+  743                   
+  744                   
+  745                   ;	Print a string in [DE] up to '$'
+  746                   
+  747 F3F3              PSTRING:
+  748 F3F3  C5          	push	bc
+  749 F3F4  D5          	push	de
+  750 F3F5  E5          	push	hl
+  751 F3F6  EB          	ex	de,hl
+  752 F3F7  7E          PSTRX:	ld	a,(hl)
+  753 F3F8  FE 24       	cp	'$'
+  754 F3FA  CA F405     	jp	z,DONEP
+Z80ASM SuperFast Relocating Macro Assembler     	    Z80ASM 1.30 Page  14
+SBC-MONCZ80
+
+  755 F3FD  4F          	ld	c,A
+  756 F3FE  CD F6D1     	call	ZCO
+  757 F401  23          	inc	hl
+  758 F402  C3 F3F7     	jp	PSTRX
+  759 F405  E1          DONEP:	pop	hl
+  760 F406  D1          	pop	de
+  761 F407  C1          	pop	bc
+  762 F408  C9          	ret
+  763                   
+  764                   
+  765 F409              SHOWerrors:
+  766         FFFF         IF	NOT DEBUG
+  767 F409  B7          	or	A			;Set NZ flag
+  768 F40A  37          	scf				;Set Carry Flag
+  769 F40B  C9          	ret
+  770                      ELSE
+  842                      ENDIF
+  843                   
+  844                   
+  845                   ;------------------------------------------------------------------
+  846                   ; Print a 16 bit number in RAM located @ [HL] 
+  847                   ; (Note Special Low Byte First. Used only for Drive ID)
+  848                   
+  849 F40C              printparm:
+  850 F40C  23          	inc	hl			;Index to high byte first
+  851 F40D  7E          	ld	a,(hl)
+  852 F40E  CD F417     	call	PHEX
+  853 F411  0B          	dec	bc			;Now low byte
+  854 F412  7E          	ld	a,(hl)
+  855 F413  CD F417     	call	PHEX
+  856 F416  C9          	ret
+  857                   
+  858                   ; Print an 8 bit number, located in [A]
+  859 F417  F5          PHEX:	push	af
+  860 F418  C5          	push	bc
+  861 F419  F5          	push	af
+  862 F41A  0F          	rrca
+  863 F41B  0F          	rrca
+  864 F41C  0F          	rrca
+  865 F41D  0F          	rrca
+  866 F41E  CD F428     	call	ZCONV
+  867 F421  F1          	pop	af
+  868 F422  CD F428     	call	ZCONV
+  869 F425  C1          	pop	bc
+  870 F426  F1          	pop	af
+  871 F427  C9          	ret
+  872                   
+  873 F428  E6 0F       ZCONV:	and	0FH			;HEX to ASCII and print it
+  874 F42A  C6 90       	add	a,90H
+  875 F42C  27          	daa
+  876 F42D  CE 40       	adc	a,40H
+  877 F42F  27          	daa
+  878 F430  4F          	ld	c,A
+  879 F431  CD F6D1     	call	ZCO
+  880 F434  C9          	ret
+  881                   
+  882 F435              ghex32lba:				;get CPM style Track# & Sector# data and convert to LBA format
+  883 F435  11 FA83     	ld	de,ENTER$SECL		;Enter sector number
+Z80ASM SuperFast Relocating Macro Assembler     	    Z80ASM 1.30 Page  15
+SBC-MONCZ80
+
+  884 F438  CD F3F3     	call	PSTRING
+  885 F43B  CD F468     	call	GETHEX			;get 2 HEX digits
+  886 F43E  D8          	ret	c
+  887 F43F  32 DF06     	ld	(@SEC),a		;Note: no check data is < MAXSEC, sectors start 0,1,2,3....
+  888 F442  CD F76B     	call	CRLF
+  889                   
+  890 F445  11 FA9B     	ld	de,ENTER$TRKL		;Enter low byte track number
+  891 F448  CD F3F3     	call	PSTRING
+  892 F44B  CD F468     	call	GETHEX			;get 2 more HEX digits
+  893 F44E  D8          	ret	c
+  894 F44F  32 DF08     	ld	(@TRK),a
+  895 F452  CD F76B     	call	CRLF
+  896                   
+  897 F455  11 FAB6     	ld	de,ENTER$TRKH		;Enter high byte track number
+  898 F458  CD F3F3     	call	PSTRING
+  899 F45B  CD F468     	call	GETHEX			;get 2 more HEX digits
+  900 F45E  D8          	ret	c
+  901 F45F  32 DF09     	ld	(@TRK+1),a
+  902 F462  CD F76B     	call	CRLF
+  903 F465  AF          	xor	A
+  904 F466  B7          	or	A			;To return NC
+  905 F467  C9          	ret
+  906                   
+  907                   
+  908 F468              GETHEX:
+  909 F468  CD F49C     	call	GETCMD			;Get a character from keyboard & ECHO
+  910 F46B  FE 1B       	cp	ESC
+  911 F46D  CA F49A     	jp	z,HEXABORT
+  912 F470  FE 2F       	cp	'/'			;check 0-9, A-F
+  913 F472  DA F49A     	jp	c,HEXABORT
+  914 F475  FE 47       	cp	'F'+1
+  915 F477  D2 F49A     	jp	nc,HEXABORT
+  916 F47A  CD F4B7     	call	ASBIN			;Convert to binary
+  917 F47D  07          	rlca				;Shift to high nibble
+  918 F47E  07          	rlca
+  919 F47F  07          	rlca
+  920 F480  07          	rlca
+  921 F481  47          	ld	b,A			;Store it
+  922 F482  CD F49C     	call	GETCMD			;Get 2nd character from keyboard & ECHO
+  923 F485  FE 1B       	cp	ESC
+  924 F487  CA F49A     	jp	z,HEXABORT
+  925 F48A  FE 2F       	cp	'/'			;check 0-9, A-F
+  926 F48C  DA F49A     	jp	c,HEXABORT
+  927 F48F  FE 47       	cp	'F'+1
+  928 F491  D2 F49A     	jp	nc,HEXABORT
+  929 F494  CD F4B7     	call	ASBIN			;Convert to binary
+  930 F497  B0          	or	B			;add in the first digit
+  931 F498  B7          	or	A			;To return NC
+  932 F499  C9          	ret
+  933 F49A              HEXABORT:
+  934 F49A  37          	scf				;Set Carry flag
+  935 F49B  C9          	ret
+  936                   
+  937                   
+  938 F49C  CD F73E     GETCMD:	call	ZCI			;GET A CHARACTER, convert to UC, ECHO it
+  939 F49F  CD F4AE     	call	UPPER
+  940 F4A2  FE 1B       	cp	ESC
+  941 F4A4  C8          	ret	z			;Don't echo an ESC
+Z80ASM SuperFast Relocating Macro Assembler     	    Z80ASM 1.30 Page  16
+SBC-MONCZ80
+
+  942 F4A5  F5          	push	af			;Save it
+  943 F4A6  C5          	push	bc
+  944 F4A7  4F           	ld	c,A
+  945 F4A8  CD F6D1     	call	ZCO			;Echo it
+  946 F4AB  C1          	pop	bc
+  947 F4AC  F1          	pop	af			;get it back
+  948 F4AD  C9          	ret
+  949                   
+  950                   					;Convert LC to UC
+  951 F4AE  FE 61       UPPER:	cp	'a'			;must be >= lowercase a
+  952 F4B0  D8          	ret	c			; else go back...
+  953 F4B1  FE 7B       	cp	'z'+1			;must be <= lowercase z
+  954 F4B3  D0          	ret	nc			; else go back...
+  955 F4B4  D6 20       	sub	'a'-'A'			;subtract lowercase bias
+  956 F4B6  C9          	ret
+  957                   
+  958                   					;ASCII TO BINARY CONVERSION ROUTINE
+  959 F4B7  D6 30       ASBIN:	sub	30H
+  960 F4B9  FE 0A       	cp	0AH
+  961 F4BB  F8          	ret	m
+  962 F4BC  D6 07       	sub	07H
+  963 F4BE  C9          	ret
+  964                   
+  965                   
+  966 F4BF              HEXDUMP:				;Print a hexdump of the data in the 512 byte buffer @[HL]
+  967 F4BF  F5          	push	af			;Save everything
+  968 F4C0  C5          	push	bc
+  969 F4C1  D5          	push	de
+  970 F4C2  E5          	push	hl
+  971                   
+  972 F4C3  CD F76B     	call	CRLF			;CR/LF first
+  973 F4C6  16 20       	ld	d,32			;Print 32 lines total
+  974 F4C8  06 10       	ld	b,16			;16 characters across
+  975 F4CA  22 DF10     	ld	(@StartLineHex),hl	;Save the buffer location for ASCII display below
+  976 F4CD  21 0000     	ld	hl,0
+  977 F4D0  22 DF14     	ld	(@BYTE$COUNT),hl
+  978                   
+  979 F4D3  CD F76B     SF172:	call	CRLF
+  980 F4D6  2A DF14     	ld	hl,(@BYTE$COUNT)
+  981 F4D9  7C          	ld	a,H
+  982 F4DA  CD F417     	call	PHEX			;Print byte count in sector
+  983 F4DD  7D          	ld	a,L
+  984 F4DE  CD F417     	call	PHEX
+  985 F4E1  D5          	push	de
+  986 F4E2  11 0010     	ld	de,16
+  987 F4E5  19          	add	hl,de
+  988 F4E6  D1          	pop	de
+  989 F4E7  22 DF14     	ld	(@BYTE$COUNT),hl	;store for next time
+  990 F4EA  CD F77A     	call	BLANK
+  991 F4ED  2A DF10     	ld	hl,(@StartLineHex)
+  992 F4F0  22 DF12     	ld	(@StartLineASCII),hl	;Store for ASCII display below
+  993 F4F3  7E          SF175:	ld	a,(hl)
+  994 F4F4  CD F784     	call	LBYTE			;Display [A] on CRT/LCD
+  995 F4F7  23          	inc	hl
+  996 F4F8  10 F9       	DJNZ	SF175
+  997 F4FA  22 DF10     	ld	(@StartLineHex),hl	;Save for next line later
+  998 F4FD  CD F50E     	call	ShowAscii		;Now translate to ASCII and display
+  999 F500  06 10       	ld	b,16			;16 characters across for next line
+Z80ASM SuperFast Relocating Macro Assembler     	    Z80ASM 1.30 Page  17
+SBC-MONCZ80
+
+ 1000 F502  15          	dec	D
+ 1001 F503  C2 F4D3     	jp	nz,SF172		;Have we done all 32 lines
+ 1002                   ;
+ 1003 F506  CD F76B     	call	CRLF
+ 1004 F509  E1          	pop	hl			;Get back origional registers
+ 1005 F50A  D1          	pop	de
+ 1006 F50B  C1          	pop	bc
+ 1007 F50C  F1          	pop	af
+ 1008 F50D  C9          	ret
+ 1009                   
+ 1010 F50E              ShowAscii:				;Now show as ascii info
+ 1011 F50E  2A DF12     	ld	hl,(@StartLineASCII)
+ 1012 F511  06 10       	ld	b,16			;16 ASCII characters across
+ 1013 F513  CD F77A     XF172:	call	BLANK			;send a space character
+ 1014 F516  CD F77A     	call	BLANK
+ 1015 F519  7E          XF175:	ld	a,(hl)
+ 1016 F51A  E6 7F       	and	7FH
+ 1017 F51C  FE 20       	cp	' '			;FILTER OUT CONTROL CHARACTERS
+ 1018 F51E  D2 F523     	jp	nc,XT33
+ 1019 F521  3E 2E       XT22:	ld	a,'.'
+ 1020 F523  FE 7C       XT33:	cp	07CH
+ 1021 F525  D2 F521     	jp	nc,XT22
+ 1022 F528  4F          	ld	c,A			;SET UP TO SEND
+ 1023 F529  C5          	push	bc
+ 1024 F52A  CD F6D1     	call	ZCO
+ 1025 F52D  C1          	pop	bc
+ 1026 F52E  23          	inc	hl			;Next position in buffer
+ 1027 F52F  10 E8       	DJNZ	XF175
+ 1028 F531  C9          	ret
+ 1029                   ;
+ 1030                   ;
+ 1031                   ;================================================================================================
+ 1032                   ;
+ 1033                   ;      IDE Drive BIOS Routines written in a format that can be used directly with CPM3 
+ 1034                   ;
+ 1035                   ;================================================================================================
+ 1036                   ;
+ 1037 F532              IDEinit:				;Initilze the 8255 and drive then do a hard reset on the drive, 
+ 1038 F532  3E 92       	ld	a,READcfg8255		;Config 8255 chip (10010010B), read mode on return
+ 1039 F534  D3 33       	out	(IDEportCtrl),a		;Config 8255 chip, READ mode
+ 1040                   
+ 1041                   					;Hard reset the disk drive 
+ 1042                   					;For some reason some CF cards need to the RESET line 
+ 1043                   					;pulsed very carefully. You may need to play around   
+ 1044 F536  3E 80       	ld	a,IDErstline		;with the pulse length. Symptoms are: incorrect data comming
+ 1045 F538  D3 32       	out	(IDEportC),a		;back from a sector read (often due to the wrong sector being read)
+ 1046                   					;I have a (negative)pulse of 2.7uSec. (10Mz Z80, two IO wait states).
+ 1047 F53A  06 20       	ld	b,20H			;Which seem to work for the 5 different CF cards I have.
+ 1048 F53C              ResetDelay:
+ 1049 F53C  05          	DEC     B
+ 1050 F53D  C2 F53C     	jp	nz,ResetDelay		;Delay (reset pulse width)
+ 1051                   
+ 1052 F540  AF          	xor	A
+ 1053 F541  D3 32       	out	(IDEportC),a		;No IDE control lines asserted (just bit 7 of port C)
+ 1054 F543  CD F585     	call	DELAY$32
+ 1055                   
+ 1056                   	;**** A. Bingham - 7-April-2018 - from D. Fry ****
+ 1057 F546  CD F647     	CALL	IDEwaitnotbusy
+Z80ASM SuperFast Relocating Macro Assembler     	    Z80ASM 1.30 Page  18
+SBC-MONCZ80
+
+ 1058 F549  DA F590     	JP	C,InitError
+ 1059                   	;****
+ 1060                   
+ 1061 F54C  16 E0       	ld	d,11100000b		;Data for IDE SDH reg (512bytes, LBA mode,single drive,head 0000)
+ 1062                   					;For Trk,Sec,head (non LBA) use 10100000
+ 1063                   					;Note. Cannot get LBA mode to work with an old Seagate Medalist 6531 drive.
+ 1064                   					;have to use teh non-LBA mode. (Common for old hard disks).
+ 1065                   
+ 1066 F54E  1E 0E       	ld	e,REGshd		;00001110,(0EH) for CS0,A2,A1,
+ 1067 F550  CD F6B8     	call	IDEwr8D			;Write byte to select the MASTER device
+ 1068                   ;
+ 1069 F553  06 FF       	ld	b,0FFH			;<<< May need to adjust delay time for hard disks
+ 1070 F555              WaitInit:	
+ 1071 F555  1E 0F       	ld	e,REGstatus		;Get status after initialization
+ 1072 F557  CD F6A7     	call	IDErd8D			;Check Status (info in [D])
+ 1073 F55A  7A          	ld	a,D
+ 1074 F55B  E6 80       	and	80H
+ 1075 F55D  CA F56D     	jp	z,DoneInit		;Return if ready bit is zero
+ 1076 F560  3E 02       	ld	a,2
+ 1077 F562  CD F56F     	call	DELAYX			;Long delay, drive has to get up to speed
+ 1078 F565  05          	DEC     B
+ 1079 F566  C2 F555     	jp	nz,WaitInit
+ 1080 F569  CD F409     	call	SHOWerrors		;Ret with NZ flag set if error (probably no drive)
+ 1081 F56C  C9          	ret
+ 1082 F56D              DoneInit:
+ 1083 F56D  AF          	xor	A
+ 1084 F56E  C9          	ret
+ 1085                   
+ 1086                   
+ 1087 F56F  32 DF18     DELAYX:	ld	(@DELAYStore),a
+ 1088 F572  C5          	push	bc
+ 1089 F573  01 FFFF     	ld	bc,0FFFFH		;<<< May need to adjust delay time to allow cold drive to
+ 1090 F576  3A DF18     DELAY2:	ld	a,(@DELAYStore)		;get up to speed.
+ 1091 F579  3D          DELAY1:	DEC     A
+ 1092 F57A  C2 F579     	jp	nz,DELAY1
+ 1093 F57D  0B          	dec	bc
+ 1094 F57E  79          	ld	a,C
+ 1095 F57F  B0          	or	B
+ 1096 F580  C2 F576     	jp	nz,DELAY2
+ 1097 F583  C1          	pop	bc
+ 1098 F584  C9          	ret
+ 1099                   
+ 1100                   
+ 1101 F585  3E 28       DELAY$32: ld	a,40			;DELAY ~32 MS (DOES NOT SEEM TO BE CRITICAL)
+ 1102 F587  06 00       DELAY3:	ld	b,0
+ 1103 F589  10 FE       M0:	DJNZ	M0
+ 1104 F58B  3D          	DEC     A
+ 1105 F58C  C2 F587     	jp	nz,DELAY3
+ 1106 F58F  C9          	ret
+ 1107                   
+ 1108 F590              InitError:
+ 1109 F590  11 F907     	LD DE,INIT$ERROR
+ 1110 F593  CD F3F3     	CALL PSTRING
+ 1111 F596  C3 F03D     	JP ABORT
+ 1112                   
+ 1113                   					;Read a sector, specified by the 3 bytes in LBA
+ 1114                   					;Z on success, NZ call error routine if problem
+ 1115 F599              READSECTOR:
+Z80ASM SuperFast Relocating Macro Assembler     	    Z80ASM 1.30 Page  19
+SBC-MONCZ80
+
+ 1116 F599  CD F61B     	call	wrlba			;Tell which sector we want to read from.
+ 1117                   					;Note: Translate first in case of an error otherwise we 
+ 1118                   					;will get stuck on bad sector 
+ 1119 F59C  CD F647     	call	IDEwaitnotbusy		;make sure drive is ready
+ 1120 F59F  DA F409     	jp	c,SHOWerrors		;Returned with NZ set if error
+ 1121                   
+ 1122 F5A2  16 20       	ld	d,COMMANDread
+ 1123 F5A4  1E 0F       	ld	e,REGcommand
+ 1124 F5A6  CD F6B8     	call	IDEwr8D			;Send sec read command to drive.
+ 1125 F5A9  CD F66D     	call	IDEwaitdrq		;wait until it's got the data
+ 1126 F5AC  DA F409     	jp	c,SHOWerrors
+ 1127                   
+ 1128 F5AF  2A DF00     	LD  	HL,(@DMA)		;DMA address
+ 1129 F5B2  06 00       	ld	b,0			;Read 512 bytes to [HL] (256X2 bytes)
+ 1130 F5B4              MoreRD16:
+ 1131 F5B4  3E 08       	ld	a,REGdata		;REG register address
+ 1132 F5B6  D3 32       	out	(IDEportC),a
+ 1133                   
+ 1134 F5B8  F6 40       	or	IDErdline		;08H+40H, Pulse RD line
+ 1135 F5BA  D3 32       	out	(IDEportC),a
+ 1136                   
+ 1137 F5BC  DB 30       	in	a,(IDEportA)		;Read the lower byte first (Note very early versions had high byte then low byte
+ 1138 F5BE  77          	ld	(hl),A			;this made sector data incompatible with other controllers).
+ 1139 F5BF  23          	inc	hl
+ 1140 F5C0  DB 31       	in	a,(IDEportB)		;THEN read the upper byte
+ 1141 F5C2  77          	ld	(hl),A
+ 1142 F5C3  23          	inc	hl
+ 1143                   
+ 1144 F5C4  3E 08       	ld	a,REGdata		;De-assert RD line
+ 1145 F5C6  D3 32       	out	(IDEportC),a
+ 1146 F5C8  10 EA       	DJNZ	MoreRD16
+ 1147                   
+ 1148 F5CA  1E 0F       	ld	e,REGstatus
+ 1149 F5CC  CD F6A7     	call	IDErd8D
+ 1150 F5CF  7A          	ld	a,D
+ 1151 F5D0  E6 01       	and	1H
+ 1152 F5D2  C4 F409     	call	nz,SHOWerrors		;If error display status
+ 1153 F5D5  C9          	ret
+ 1154                   
+ 1155                   					;Write a sector, specified by the 3 bytes in LBA 
+ 1156                   					;Z on success, NZ to error routine if problem
+ 1157 F5D6              WRITESECTOR:
+ 1158 F5D6  CD F61B     	call	wrlba			;Tell which sector we want to read from.
+ 1159                   					;Note: Translate first in case of an error otherwise we 
+ 1160                   					;will get stuck on bad sector 
+ 1161 F5D9  CD F647     	call	IDEwaitnotbusy		;make sure drive is ready
+ 1162 F5DC  DA F409     	jp	c,SHOWerrors
+ 1163                   
+ 1164 F5DF  16 30       	ld	d,COMMANDwrite
+ 1165 F5E1  1E 0F       	ld	e,REGcommand
+ 1166 F5E3  CD F6B8     	call	IDEwr8D			;tell drive to write a sector
+ 1167 F5E6  CD F66D     	call	IDEwaitdrq		;wait unit it wants the data
+ 1168 F5E9  DA F409     	jp	c,SHOWerrors
+ 1169                   
+ 1170 F5EC  2A DF00     	ld	hl,(@DMA)
+ 1171 F5EF  06 00       	ld	b,0			;256X2 bytes
+ 1172                   
+ 1173 F5F1  3E 80       	ld	a,WRITEcfg8255
+Z80ASM SuperFast Relocating Macro Assembler     	    Z80ASM 1.30 Page  20
+SBC-MONCZ80
+
+ 1174 F5F3  D3 33       	out	(IDEportCtrl),a
+ 1175                   
+ 1176 F5F5  7E          WRSEC1:	ld	a,(hl)
+ 1177 F5F6  23          	inc	hl
+ 1178 F5F7  D3 30       	out	(IDEportA),a		;Write the lower byte first (Note early versions had high byte then low byte
+ 1179 F5F9  7E          	ld	a,(hl)			;this made sector data incompatible with other controllers).
+ 1180 F5FA  23          	inc	hl
+ 1181 F5FB  D3 31       	out	(IDEportB),a		;THEN High byte on B
+ 1182 F5FD  3E 08       	ld	a,REGdata
+ 1183 F5FF  F5          	push	af
+ 1184 F600  D3 32       	out	(IDEportC),a		;Send write command
+ 1185 F602  F6 20       	or	IDEwrline		;Send WR pulse
+ 1186 F604  D3 32       	out	(IDEportC),a
+ 1187 F606  F1          	pop	af
+ 1188 F607  D3 32       	out	(IDEportC),a
+ 1189 F609  10 EA       	DJNZ	WRSEC1
+ 1190                   
+ 1191 F60B  3E 92       	ld	a,READcfg8255		;Set 8255 back to read mode
+ 1192 F60D  D3 33       	out	(IDEportCtrl),a
+ 1193                   
+ 1194 F60F  1E 0F       	ld	e,REGstatus
+ 1195 F611  CD F6A7     	call	IDErd8D
+ 1196 F614  7A          	ld	a,D
+ 1197 F615  E6 01       	and	1H
+ 1198 F617  C4 F409     	call	nz,SHOWerrors		;If error display status
+ 1199 F61A  C9          	ret
+ 1200                   
+ 1201                   
+ 1202 F61B              wrlba:					;Write the logical block address to the drive's registers
+ 1203                   					;Note we do not need to set the upper nibble of the LBA
+ 1204                   					;It will always be 0 for these small drives
+ 1205 F61B  3A DF06     	ld	a,(@SEC)		;LBA mode Low sectors go directly
+ 1206 F61E  3C          	inc	A			;Sectors are numbered 1 -- MAXSEC (even in LBA mode)
+ 1207 F61F  32 DF02     	ld	(@DRIVE$SEC),a		;For Diagnostic Display Only
+ 1208 F622  57          	ld	d,A
+ 1209 F623  1E 0B       	ld	e,REGsector		;Send info to drive
+ 1210 F625  CD F6B8     	call	IDEwr8D			;Note: For drive we will have 0 - MAXSEC sectors only
+ 1211                   
+ 1212 F628  2A DF08     	ld	hl,(@TRK)
+ 1213 F62B  7D          	ld	a,L
+ 1214 F62C  32 DF04     	ld	(@DRIVE$TRK),a
+ 1215 F62F  55          	ld	d,L			;Send Low TRK#
+ 1216 F630  1E 0C       	ld	e,REGcylinderLSB
+ 1217 F632  CD F6B8     	call	IDEwr8D
+ 1218                   
+ 1219 F635  7C          	ld	a,H
+ 1220 F636  32 DF05     	ld	(@DRIVE$TRK+1),a
+ 1221 F639  54          	ld	d,H			;Send High TRK#
+ 1222 F63A  1E 0D       	ld	e,REGcylinderMSB
+ 1223 F63C  CD F6B8     	call	IDEwr8D
+ 1224                   
+ 1225 F63F  16 01       	ld	d,1			;For now, one sector at a time
+ 1226 F641  1E 0A       	ld	e,REGseccnt
+ 1227 F643  CD F6B8     	call	IDEwr8D
+ 1228 F646  C9          	ret
+ 1229                   
+ 1230 F647              IDEwaitnotbusy:				;ie Drive READY if 01000000
+ 1231 F647  06 FF       	ld	b,0FFH
+Z80ASM SuperFast Relocating Macro Assembler     	    Z80ASM 1.30 Page  21
+SBC-MONCZ80
+
+ 1232 F649  3E FF       	ld	a,0FFH			;Delay, must be above 80H for 4MHz Z80. Leave longer for slower drives
+ 1233 F64B  32 DF18     	ld	(@DELAYStore),a
+ 1234                   
+ 1235 F64E              MoreWait:
+ 1236 F64E  1E 0F       	ld	e,REGstatus		;wait for RDY bit to be set
+ 1237 F650  CD F6A7     	call	IDErd8D	
+ 1238 F653  7A          	ld	a,D
+ 1239 F654  E6 C0       	and	11000000B
+ 1240 F656  EE 40       	xor	01000000B
+ 1241 F658  CA F66B     	jp	z,DoneNotbusy
+ 1242 F65B  05          	DEC     B
+ 1243 F65C  C2 F64E     	jp	nz,MoreWait
+ 1244 F65F  3A DF18     	ld	a,(@DELAYStore)		;Check timeout delay
+ 1245 F662  3D          	DEC     A
+ 1246 F663  32 DF18     	ld	(@DELAYStore),a
+ 1247 F666  C2 F64E     	jp	nz,MoreWait
+ 1248 F669  37          	scf				;Set carry to indicate an error
+ 1249 F66A  C9          	ret
+ 1250 F66B              DoneNotBusy:
+ 1251 F66B  B7          	or	A			;Clear carry it indicate no error
+ 1252 F66C  C9          	ret
+ 1253                   
+ 1254                   					;Wait for the drive to be ready to transfer data.
+ 1255                   					;Returns the drive's status in Acc
+ 1256 F66D              IDEwaitdrq:
+ 1257 F66D  06 FF       	ld	b,0FFH
+ 1258 F66F  3E FF       	ld	a,0FFH			;Delay, must be above 80H for 4MHz Z80. Leave longer for slower drives
+ 1259 F671  32 DF18     	ld	(@DELAYStore),a
+ 1260                   
+ 1261 F674              MoreDRQ:
+ 1262 F674  1E 0F       	ld	e,REGstatus		;wait for DRQ bit to be set
+ 1263 F676  CD F6A7     	call	IDErd8D
+ 1264 F679  7A          	ld	a,D
+ 1265 F67A  E6 88       	and	10001000B
+ 1266 F67C  FE 08       	cp	00001000B
+ 1267 F67E  CA F691     	jp	z,DoneDRQ
+ 1268 F681  05          	DEC 	B
+ 1269 F682  C2 F674     	jp	nz,MoreDRQ
+ 1270 F685  3A DF18     	ld	a,(@DELAYStore)		;Check timeout delay
+ 1271 F688  3D          	DEC	A
+ 1272 F689  32 DF18     	ld	(@DELAYStore),a
+ 1273 F68C  C2 F674     	jp	nz,MoreDRQ
+ 1274 F68F  37          	scf				;Set carry to indicate error
+ 1275 F690  C9          	ret
+ 1276 F691              DoneDRQ:
+ 1277 F691  B7          	or	A			;Clear carry
+ 1278 F692  C9          	ret
+ 1279                   
+ 1280                   
+ 1281 F693              SET_DMA:
+ 1282 F693  D5          	PUSH	DE
+ 1283 F694  11 FDFB     	LD	DE,DMA_Loc_MSG2		;Enter starting RAM buffer (DMA) location (xxxxH):$'
+ 1284 F697  CD F3F3     	CALL	PSTRING
+ 1285 F69A  D1          	POP	DE
+ 1286 F69B  CD F79E     	CALL	GETHL			;Setup DMA location in [HL]
+ 1287 F69E  22 DF00     	LD	(@DMA),HL
+ 1288 F6A1  CD F76B     	CALL	CRLF
+ 1289 F6A4  C3 F040     	JP	IDE_LOOP
+Z80ASM SuperFast Relocating Macro Assembler     	    Z80ASM 1.30 Page  22
+SBC-MONCZ80
+
+ 1290                   
+ 1291                   ;------------------------------------------------------------------
+ 1292                   ; Low Level 8 bit R/W to the drive controller.  These are the routines that talk
+ 1293                   ; directly to the drive controller registers, via the 8255 chip.  
+ 1294                   ; Note the 16 bit I/O to the drive (which is only for SEC R/W) is done directly 
+ 1295                   ; in the routines READSECTOR & WRITESECTOR for speed reasons.
+ 1296                   ;
+ 1297 F6A7              IDErd8D:				;READ 8 bits from IDE register in [E], return info in [D]
+ 1298 F6A7  7B          	ld	a,E
+ 1299 F6A8  D3 32       	out	(IDEportC),a		;drive address onto control lines
+ 1300                   
+ 1301 F6AA  F6 40       	or	IDErdline		;RD pulse pin (40H)
+ 1302 F6AC  D3 32       	out	(IDEportC),a		;assert read pin
+ 1303                   
+ 1304 F6AE  DB 30       	in	a,(IDEportA)
+ 1305 F6B0  57          	ld	d,A			;return with data in [D]
+ 1306                   
+ 1307 F6B1  7B          	ld	a,E			;<---Ken Robbins suggestion
+ 1308 F6B2  D3 32       	out	(IDEportC),a		;de-assert RD pin
+ 1309                   
+ 1310 F6B4  AF          	xor	A
+ 1311 F6B5  D3 32       	out	(IDEportC),a		;Zero all port C lines
+ 1312 F6B7  C9          	ret
+ 1313                   
+ 1314                   
+ 1315 F6B8              IDEwr8D:				;WRITE Data in [D] to IDE register in [E]
+ 1316 F6B8  3E 80       	ld	a,WRITEcfg8255		;Set 8255 to write mode
+ 1317 F6BA  D3 33       	out	(IDEportCtrl),a
+ 1318                   
+ 1319 F6BC  7A          	ld	a,D			;Get data put it in 8255 A port
+ 1320 F6BD  D3 30       	out	(IDEportA),a
+ 1321                   
+ 1322 F6BF  7B          	ld	a,E			;select IDE register
+ 1323 F6C0  D3 32       	out	(IDEportC),a
+ 1324                   
+ 1325 F6C2  F6 20       	or	IDEwrline		;lower WR line
+ 1326 F6C4  D3 32       	out	(IDEportC),a
+ 1327                   
+ 1328 F6C6  7B          	ld	a,E			;<-- Ken Robbins suggestion, raise WR line
+ 1329 F6C7  D3 32       	out	(IDEportC),a		;de-assert RD pin
+ 1330                   
+ 1331 F6C9  AF          	xor	A			;Deselect all lines including WR line
+ 1332 F6CA  D3 32       	out	(IDEportC),a
+ 1333                   
+ 1334 F6CC  3E 92       	ld	a,READcfg8255		;Config 8255 chip, read mode on return
+ 1335 F6CE  D3 33       	out	(IDEportCtrl),a
+ 1336 F6D0  C9          	ret
+ 1337                   
+ 1338                   
+ 1339                   ;<<<<<<<<<<<<<<<<<<<<<< MAIN CONSOL ROUTINES >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+ 1340                   ;
+ 1341                   
+ 1342 F6D1  DB 36       ZCO:	IN	A,IOBYTE		;Find out where we send data
+ 1343                   ;	BIT	2,A	
+ 1344                   ;	JR	Z,VGA_CO		;To save space no VGA for now
+ 1345 F6D3  CB 47       	BIT	0,A	
+ 1346 F6D5  28 33       	JR	Z,USB_CO		;USB port for output
+ 1347 F6D7  18 00       	JR	PROP_CO			;For now everything else Propeller 	
+Z80ASM SuperFast Relocating Macro Assembler     	    Z80ASM 1.30 Page  23
+SBC-MONCZ80
+
+ 1348                   
+ 1349 F6D9              PROP_CO:
+ 1350 F6D9  DB 00       	IN	A,(S100_CONSOL_STATUS)	;PROPELLER VIDIO BOARD PORT
+ 1351 F6DB  E6 04       	AND	4H
+ 1352 F6DD  28 FA       	JR	Z,PROP_CO		;Not yet ready, try both outputs
+ 1353 F6DF  79          	LD	A,C
+ 1354 F6E0  FE 07       	CP	07H			;IS IT A BELL
+ 1355 F6E2  CA F6EB     	JP	Z,BELL1			;Special case
+ 1356 F6E5  FE 00       	CP	0H			;SD BOARD CANNOT TAKE A NULL!
+ 1357 F6E7  C8          	RET	Z
+ 1358 F6E8  D3 01       	OUT	(S100_CONSOL_OUT),A
+ 1359 F6EA  C9          	RET
+ 1360                   
+ 1361 F6EB  3E 06       BELL1:	LD	A,06H			;SEND A BELL
+ 1362 F6ED  D3 01       	OUT	(S100_CONSOL_OUT),A
+ 1363 F6EF  3E 0F       	LD	A,0FH
+ 1364 F6F1  CD F6F9     	CALL	DELAY
+ 1365 F6F4  3E 07       	LD	A,07H
+ 1366 F6F6  D3 01       	OUT	(S100_CONSOL_OUT),A
+ 1367 F6F8  C9          	RET
+ 1368                   
+ 1369                   
+ 1370 F6F9  3D          DELAY:	DEC	A			;GENERAL COUNT DOWN TIME DELAY
+ 1371 F6FA  C8          	RET	Z			;LENGTH SET IN [A]
+ 1372 F6FB  F5          	PUSH	AF
+ 1373 F6FC  3E 05       	LD	A,05H
+ 1374 F6FE  3D          MORE:	DEC	A
+ 1375 F6FF  F5          	PUSH	AF
+ 1376 F700  AF          	XOR	A
+ 1377 F701  3D          MORE2:	DEC	A
+ 1378 F702  20 FD       	JR	NZ,MORE2
+ 1379 F704  F1          	POP	AF
+ 1380 F705  20 F7       	JR	NZ,MORE
+ 1381 F707  F1          	POP	AF
+ 1382 F708  18 EF       	JR	DELAY
+ 1383                   
+ 1384                   
+ 1385 F70A  DB 34       USB_CO:	IN	A,(USB_STATUS_PORT)	;USB Port for Console OUT
+ 1386 F70C  E6 02       	AND	00000010B
+ 1387 F70E  20 FA       	JR	NZ,USB_CO		;Not yet ready - busy transmitting, try again
+ 1388 F710  79          	LD	A,C
+ 1389 F711  E6 7F       	AND	7FH			;Always 7 bits only.
+ 1390 F713  D3 35       	OUT	(USB_DATA_PORT),A
+ 1391 F715  C9          	RET
+ 1392                   
+ 1393                   
+ 1394                   ;<<<<<<<<<<<<<<<<<<< MAIN CONSOL STATUS ROUTINE >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+ 1395                   
+ 1396 F716  DB 36       ZCSTS:	IN	A,IOBYTE		;Find out where we get data
+ 1397 F718  CB 4F       	BIT	1,A	
+ 1398 F71A  28 1A       	JR	Z,PS2_CSTS
+ 1399                   ;	BIT	2,A			; To save space no VGA console for now
+ 1400                   ;	JR	Z,VGA_CSTS
+ 1401 F71C  CB 47       	BIT	0,A	
+ 1402 F71E  28 0E       	JR	Z,USB_CSTS		;USB port
+ 1403 F720  18 00       	JR	PROP_CSTS		;For now everything else Propeller Console Board
+ 1404                   
+ 1405 F722              PROP_CSTS:
+Z80ASM SuperFast Relocating Macro Assembler     	    Z80ASM 1.30 Page  24
+SBC-MONCZ80
+
+ 1406 F722  DB 00       	IN	A,(S100_CONSOL_STATUS)
+ 1407 F724  E6 02       	AND	02H
+ 1408 F726  CA F72C     	JP	Z,NO_CSTS		;Zero if nothing
+ 1409 F729              GOT_CSTS:
+ 1410 F729  AF          	XOR	A
+ 1411 F72A  3D          	DEC	A			;RETURN WITH 0FFH IN [A] IF SOMETHING
+ 1412 F72B  C9          	RET
+ 1413 F72C              NO_CSTS:
+ 1414 F72C  AF          	XOR	A			
+ 1415 F72D  C9          	RET				;RETURN WITH 0 IN A IF NOTHING THERE
+ 1416                   
+ 1417 F72E              USB_CSTS:
+ 1418 F72E  DB 34       	IN	A,(USB_STATUS_PORT)
+ 1419 F730  E6 01       	AND	01H
+ 1420 F732  28 F8       	JR	Z,NO_CSTS		;Zero if nothing
+ 1421 F734  18 F3       	JR	GOT_CSTS
+ 1422                   
+ 1423 F736              PS2_CSTS:
+ 1424 F736  DB 02       	IN	A,(PS2_STATUS_PORT)
+ 1425 F738  E6 01       	AND	01H
+ 1426 F73A  28 F0       	JR	Z,NO_CSTS		;Zero/Low if nothing
+ 1427 F73C  18 EB       	JR	GOT_CSTS
+ 1428                   
+ 1429                   ;<<<<<<<<<<<<<<<<<<<< MAIN CONSOL INPUT ROUTINE >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+ 1430                   
+ 1431 F73E  DB 36       ZCI:	IN	A,IOBYTE		;Find out where we send data
+ 1432 F740  CB 4F       	BIT	1,A	
+ 1433 F742  28 1C       	JR	Z,PS2_CI
+ 1434                   ;	BIT	2,A			; To save space no VGA Console for now
+ 1435                   ;	JR	Z,VGA_CI
+ 1436 F744  CB 47       	BIT	0,A	
+ 1437 F746  28 0D       	JR	Z,USB_CI		;USB port
+ 1438 F748  18 00       	JR	PROP_CI			;For now everything else Propeller Console Board
+ 1439                   	
+ 1440 F74A              PROP_CI:
+ 1441 F74A  DB 00       	IN 	A,(S100_CONSOL_STATUS)	;NEED CONSTAT TO CLEAN UP SHIFT KEYS ETC
+ 1442 F74C  E6 02       	AND	02H
+ 1443 F74E  28 FA       	JR	Z,PROP_CI		;Wait until something there
+ 1444 F750  DB 01       	IN	A,(S100_CONSOL_IN)
+ 1445 F752  E6 7F       	AND	7FH
+ 1446 F754  C9          	RET
+ 1447                   
+ 1448 F755              USB_CI:
+ 1449 F755  DB 34       	IN 	A,(USB_STATUS_PORT)	;NEED CONSTAT TO CLEAN UP SHIFT KEYS ETC
+ 1450 F757  E6 01       	AND	01H
+ 1451 F759  28 FA       	JR	Z,USB_CI		;Wait until something there
+ 1452 F75B  DB 35       	IN	A,(USB_DATA_PORT)
+ 1453 F75D  E6 7F       	AND	7FH			;Always 7 bits only.
+ 1454 F75F  C9          	RET
+ 1455                   	
+ 1456 F760              PS2_CI:
+ 1457 F760  DB 02       	IN 	A,(PS2_STATUS_PORT)	;NEED CONSTAT TO CLEAN UP SHIFT KEYS ETC
+ 1458 F762  E6 01       	AND	01H
+ 1459 F764  28 FA       	JR	Z,PS2_CI		;Wait until something there
+ 1460 F766  DB 03       	IN	A,(PS2_DATA_PORT)
+ 1461 F768  E6 7F       	AND	7FH			;Always 7 bits only.
+ 1462 F76A  C9          	RET
+ 1463                   
+Z80ASM SuperFast Relocating Macro Assembler     	    Z80ASM 1.30 Page  25
+SBC-MONCZ80
+
+ 1464                   
+ 1465                   ;SEND TO CONSOL CR/LF
+ 1466 F76B  F5          CRLF:	PUSH	AF
+ 1467 F76C  C5          	PUSH	BC
+ 1468 F76D  0E 0D       	LD	C,CR
+ 1469 F76F  CD F6D1     	CALL	ZCO
+ 1470 F772  0E 0A       	LD	C,LF
+ 1471 F774  CD F6D1     	CALL	ZCO
+ 1472 F777  C1          	POP	BC
+ 1473 F778  F1          	POP	AF
+ 1474 F779  C9          	RET
+ 1475                   
+ 1476                   ;Print a space on screen
+ 1477 F77A  C5          BLANK:	PUSH	BC			
+ 1478 F77B  E5          	PUSH	HL
+ 1479 F77C  0E 20       	LD	C,' '
+ 1480 F77E  CD F6D1     	CALL	ZCO
+ 1481 F781  E1          	POP	HL
+ 1482 F782  C1          	POP	BC
+ 1483 F783  C9          	RET
+ 1484                   
+ 1485 F784  F5          LBYTE:	PUSH	AF
+ 1486 F785  0F          	RRCA
+ 1487 F786  0F          	RRCA
+ 1488 F787  0F          	RRCA
+ 1489 F788  0F          	RRCA
+ 1490 F789  CD F78D     	CALL	SF598
+ 1491 F78C  F1          	POP	AF
+ 1492 F78D  CD F791     SF598:	CALL	CONV			;Convert to ASCII AND print it
+ 1493 F790  C9          	RET
+ 1494                   
+ 1495                   ;CONVERT HEX TO ASCII
+ 1496 F791  E6 0F       CONV:	AND	0FH
+ 1497 F793  C6 90       	ADD	A,90H
+ 1498 F795  27          	DAA 
+ 1499 F796  CE 40       	ADC	A,40H
+ 1500 F798  27          	DAA 
+ 1501 F799  4F          	LD	C,A
+ 1502 F79A  CD F6D1     	call	ZCO
+ 1503 F79D  C9          	RET
+ 1504                   
+ 1505 F79E  C5          GETHL:	PUSH	BC			;Return a HEX value in [HL]
+ 1506 F79F  0E 01       	LD	C,1			;1 paramater
+ 1507 F7A1  CD F7A7     	CALL	HEXSP
+ 1508 F7A4  E1          	POP	HL
+ 1509 F7A5  C1          	POP	BC
+ 1510 F7A6  C9          	RET
+ 1511                   
+ 1512 F7A7  21 0000     HEXSP:	LD	HL,0000
+ 1513 F7AA  CD F7D3     EX0:	CALL	TI
+ 1514 F7AD  47          EX1:	LD	B,A
+ 1515 F7AE  CD F7E9     	CALL	NIBBLE
+ 1516 F7B1  38 08       	JR	C,EX2X
+ 1517 F7B3  29          	ADD	HL,HL
+ 1518 F7B4  29          	ADD	HL,HL
+ 1519 F7B5  29          	ADD	HL,HL
+ 1520 F7B6  29          	ADD	HL,HL
+ 1521 F7B7  B5          	OR	L
+Z80ASM SuperFast Relocating Macro Assembler     	    Z80ASM 1.30 Page  26
+SBC-MONCZ80
+
+ 1522 F7B8  6F          	LD	L,A
+ 1523 F7B9  18 EF       	JR	EX0
+ 1524 F7BB  E3          EX2X:	EX	(SP),HL
+ 1525 F7BC  E5          	PUSH	HL
+ 1526 F7BD  78          	LD	A,B
+ 1527 F7BE  CD F7F9     	CALL	QCHK
+ 1528 F7C1  30 02       	JR	NC,SF560
+ 1529 F7C3  0D          	DEC	C
+ 1530 F7C4  C8          	RET	Z
+ 1531 F7C5  C2 F03D     SF560:	JP	NZ,ABORT
+ 1532 F7C8  0D          	DEC	C
+ 1533 F7C9  20 DC       	JR	NZ,HEXSP
+ 1534 F7CB  C9          	RET 
+ 1535 F7CC  0E 01       EXF:	LD	C,01H
+ 1536 F7CE  21 0000     	LD	HL,0000H
+ 1537 F7D1  18 DA       	JR	EX1
+ 1538                   	
+ 1539                   ;KEYBOARD HANDELING ROUTINE (WILL NOT ECHO CR/LF)
+ 1540                   ;IT CONVERTS LOWER CASE TO UPPER CASE FOR LOOKUP COMMANDS
+ 1541                   ;ALL OTHERE CHARACTERS ARE ECHOED ON CONSOL
+ 1542 F7D3  CD F73E     TI:	CALL	ZCI
+ 1543 F7D6  FE 0D       	CP	CR
+ 1544 F7D8  C8          	RET	Z
+ 1545 F7D9  C5          	PUSH	BC
+ 1546 F7DA  4F          	LD	C,A
+ 1547 F7DB  CD F6D1     	CALL	ZCO
+ 1548 F7DE  79          	LD	A,C
+ 1549 F7DF  C1          	POP	BC
+ 1550 F7E0  FE 40       	CP	40H			;LC->UC
+ 1551 F7E2  D8          	RET	C
+ 1552 F7E3  FE 7B       	CP	7BH
+ 1553 F7E5  D0          	RET	NC
+ 1554 F7E6  E6 5F       SF754:	AND	5FH
+ 1555 F7E8  C9          	RET 
+ 1556                   
+ 1557 F7E9  D6 30       NIBBLE:	SUB	30H
+ 1558 F7EB  D8          	RET	C
+ 1559 F7EC  FE 17       	CP	17H
+ 1560 F7EE  3F          	CCF
+ 1561 F7EF  D8          	RET	C
+ 1562 F7F0  FE 0A       	CP	LF
+ 1563 F7F2  3F          	CCF
+ 1564 F7F3  D0          	RET	NC
+ 1565 F7F4  D6 07       	SUB	07H
+ 1566 F7F6  FE 0A       	CP	LF
+ 1567 F7F8  C9          	RET
+ 1568                   
+ 1569                   ;TEST FOR DELIMITERS
+ 1570                   
+ 1571 F7F9  FE 20       QCHK:	CP	SPACE
+ 1572 F7FB  C8          	RET	Z
+ 1573 F7FC  FE 2C       	CP	','
+ 1574 F7FE  C8          	RET	Z
+ 1575 F7FF  FE 0D       	CP	CR
+ 1576 F801  37          	SCF
+ 1577 F802  C8          	RET	Z
+ 1578 F803  3F          	CCF
+ 1579 F804  C9          	RET 
+Z80ASM SuperFast Relocating Macro Assembler     	    Z80ASM 1.30 Page  27
+SBC-MONCZ80
+
+ 1580                   
+ 1581 F805  0D 0A 0A 53 IDE_MENU_MSG: 	DB	CR,LF,LF,'SBC-Z80 ROM MONITOR (@ F000H) V2.0  8/21/2019 SD_CARD MENU',CR,LF,LF
+ 1582 F845  4C 3D 53 65 	 	DB	'L=Set LBA   R=1 Sec to Buffer  W=Buffer to 1 Sec',CR,LF
+ 1583 F877  53 3D 53 68 		DB	'S=Show Sec  V=N Secs to buffer X=Buffer to N Secs',CR,LF
+ 1584 F8AA  4E 3D 4E 65 		DB	'N=Next Sec  M=Previous Sector  P=Boot CPM',CR,LF
+ 1585 F8D5  44 3D 42 75 		DB	'D=Buf Addr  Y=Card Paramerers  (ESC) Main menu',CR,LF,LF,'$'
+ 1586                   
+ 1587 F907  49 4E 49 54 INIT$ERROR:	DB	'INIT. DRIVE ERROR.',CR,LF,'$'
+ 1588 F91C  45 52 52 4F ID$ERROR:	DB	'ERROR FOR DRIVE ID.',CR,LF,'$'
+ 1589 F932  4D 6F 64 65 msgmdl:		DB	'Model: $'
+ 1590 F93A  53 2F 4E 3A msgsn:		DB	'S/N:   $'
+ 1591 F942  52 65 76 3A msgrev:		DB	'Rev:   $'
+ 1592 F94A  43 79 6C 69 msgcy:		DB	'Cylinders: $'
+ 1593 F956  2C 20 48 65 msghd:		DB	', Heads: $'
+ 1594 F960  2C 20 53 65 msgsc:		DB	', Sectors: $'
+ 1595 F96C  42 75 66 66 msgDMA:		DB	'Buffer = $'
+ 1596 F976  48 2C 20 20 msgCPMTRK:	DB	'H,  CPM TRK = $'
+ 1597 F985  2C 20 20 43 msgCPMSEC:	DB	',  CPM SEC = $'
+ 1598 F993  2C 20 20 28 msgLBA:		DB	',  (LBA = 00$'
+ 1599 F9A0  29 24       MSGBRACKET	DB	')$'
+ 1600                   
+ 1601 F9A2  0D 0A 0A 45 Prompt:		DB	CR,LF,LF,'Enter command >$'
+ 1602 F9B5  0D 0A 57 61 msgsure:	DB	CR,LF,'Warning: this will change data on the drive, '
+ 1603 F9E4  61 72 65 20 		DB	'are you sure? (Y/N)...$'
+ 1604 F9FB  0D 0A 53 65 msgrd:		DB	CR,LF,'Sec. Read OK',CR,LF,'$'
+ 1605 FA0C  0D 0A 53 65 msgwr:		DB	CR,LF,'Sec. Write OK',CR,LF,'$'
+ 1606 FA1E  45 4E 54 45 GET$LBA:	DB	'ENTER CPM STYLE TRK & SEC (IN HEX).',CR,LF,'$'
+ 1607 FA44  44 52 49 56 SEC$RW$ERROR	DB	'DRIVE ERROR, Status Register = $'
+ 1608 FA64  44 52 49 56 ERR$REG$DATA	DB	'DRIVE ERROR, Error Register = $'
+ 1609 FA83  53 74 61 72 ENTER$SECL	DB	'Starting sec.#,(xxH) = $'
+ 1610 FA9B  54 72 61 63 ENTER$TRKL	DB	'Track # (LOW byte, xxH) = $'
+ 1611 FAB6  54 72 61 63 ENTER$TRKH	DB	'Track # (HIGH byte, xxH) = $'
+ 1612 FAD2  48 65 61 64 ENTER$HEAD	DB	'Head # (01-0f) = $'
+ 1613 FAE4  4E 75 6D 62 ENTER$COUNT	DB	'Number of sectors to R/W = $'
+ 1614 FB00  44 72 69 76 DRIVE$BUSY	DB	'Drive Busy (bit 7) stuck high.   Status = $'
+ 1615 FB2B  44 72 69 76 DRIVE$NOT$READY	DB	'Drive Ready (bit 6) stuck low.  Status = $'
+ 1616 FB55  44 72 69 76 DRIVE$WR$FAULT	DB	'Drive write fault.    Status = $'
+ 1617 FB75  55 6E 6B 6E UNKNOWN$ERROR	DB	'Unknown error.   Status = $'
+ 1618 FB90  53 65 63 74 BAD$BLOCK	DB	'Sector ID.  Error Register = $'
+ 1619 FBAE  45 72 72 6F UNRECOVER$ERR	DB	'Error Register = $'
+ 1620 FBC0  45 52 52 4F READ$ID$ERROR	DB	'ERROR SETTING UP TO READ DRIVE ID',CR,LF,'$'
+ 1621 FBE4  53 65 63 74 SEC$NOT$FOUND	DB	'Sector not found. Error Register = $'
+ 1622 FC08  49 6E 76 61 INVALID$CMD	DB	'Invalid Command. Error Register = $'
+ 1623 FC2B  54 72 61 63 TRK0$ERR	DB	'Track Zero not found. Error Register = $'
+ 1624 FC53  55 6E 6B 6E UNKNOWN$ERROR1	DB	'Unknown Error. Error Register = $'
+ 1625 FC74  0D 0A 45 53 CONTINUE$MSG	DB	CR,LF,'ESC to Abort. Any other key to continue. $'
+ 1626 FCA0  0D 0A 4D 75 READN$MSG	DB	CR,LF,'Multiple sectors from current disk/CF card to RAM.'
+ 1627 FCD4  0D 0A 48 6F 		DB	CR,LF,'How many 512 byte sectores (xx HEX):$'
+ 1628 FCFB  0D 0A 4D 75 WRITEN$MSG	DB	CR,LF,'Multiple sectors in RAM to current disk/CF card.'
+ 1629 FD2D  0D 0A 48 6F 		DB	CR,LF,'How many 512 byte sectores (xx HEX):$'
+ 1630 FD54  0D 0A 52 65 MultiRD_MSG	DB	CR,LF,'Reading Sec $'
+ 1631 FD63  0D 0A 57 72 MultiWR_MSG	DB	CR,LF,'Writing Sec $'
+ 1632                   
+ 1633 FD72  0D 0A 49 6E MSGERR		DB	CR,LF,'Invalid menu option!$'
+ 1634 FD89  0D 0A 41 74 ATEND		DB	CR,LF,'At end of disk partition!',CR,LF,'$'
+ 1635 FDA7  48 24       H$MSG		DB	'H$'
+ 1636 FDA9  0D 0A 53 65 RANGE$MSG	DB	CR,LF,'Sector out of range.',CR,LF,'$'
+ 1637 FDC2  0D 0A 45 72 CPM$ERROR	DB	CR,LF,'Error reading CPMLDR.',CR,LF,'$'
+Z80ASM SuperFast Relocating Macro Assembler     	    Z80ASM 1.30 Page  28
+SBC-MONCZ80
+
+ 1638 FDDC  0D 0A 44 61 CPM$ERROR1	DB	CR,LF,'Data error reading CPMLDR.',CR,LF,'$'
+ 1639 FDFB  0D 0A 45 6E DMA_Loc_MSG2	DB	CR,LF,'Enter starting RAM buffer (DMA) location (xxxxH):$'
+ 1640 FE2F  0D 0A 42 6F BOOTCPM$MSG	DB	CR,LF,'Booting CPM',CR,LF,'$'
+ 1641                   
+ 1642                   ; -------------------------- RAM usage -----------------------------------------
+ 1643                   
+ 1644         D000      IDBUFFER	EQU	RAM_BASE+ 1000H		;512 Bytes @ (C000H+1000H = D000H) for CF-Card paramaters
+ 1645         C000      buffer		EQU	RAM_BASE		;Default DMA buffer at C000H
+ 1646                   
+ 1647         DF00      @DMA		EQU	RAM_BASE + 1F00H	;Remember Stack is at ~DFF0H
+ 1648         DF02      @DRIVE$SEC	EQU	RAM_BASE + 1F02H
+ 1649         DF04      @DRIVE$TRK	EQU	RAM_BASE + 1F04H
+ 1650         DF06      @SEC		EQU	RAM_BASE + 1F06H
+ 1651         DF08      @TRK		EQU	RAM_BASE + 1F08H
+ 1652         DF10      @STARTLINEHEX	EQU	RAM_BASE + 1F10H
+ 1653         DF12      @STARTLINEASCII	EQU	RAM_BASE + 1F12H
+ 1654         DF14      @BYTE$COUNT	EQU	RAM_BASE + 1F14H
+ 1655         DF16      @SECTOR$COUNT	EQU	RAM_BASE + 1F16H
+ 1656         DF18      @DELAYSTORE	EQU	RAM_BASE + 1F18H
+ 1657                   
+ 1658                   
+ 1659                   
+ 0 Error(s) Detected.
+ 3647 Absolute Bytes. 274 Symbols Detected.
+

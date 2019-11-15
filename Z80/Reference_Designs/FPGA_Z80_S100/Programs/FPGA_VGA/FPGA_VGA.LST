@@ -1,0 +1,346 @@
+Z80ASM SuperFast Relocating Macro Assembler     	    Z80ASM 1.30 Page   1
+FPGA_VGAZ80
+
+    1                   ;	FPGA_VGA.Z80  This is a very simple demo TTY terminal version to work with the V2 FPGA S100 Board
+    2                   ;	using a VGA module.
+    3                   ;	The display can be 80 characters wide, 40 lines deep. I find its best to limit the height to 
+    4                   ;	38 lines high for reasonable VGA displays. This is done below. Adjust if needed.
+    5                     
+    6                   ;	Note there is a "quark" in the VHD code characters in that the lines are numbered 1,2,3...79,0
+    7                   ;	This slightly complicates the cursor positioning code. Normally lines are far shorter than
+    8                   ;       this but things like scrooling at the very bottom line at position 80 will not work. 
+    9                   ;	
+   10                   ;	Note currently CR's are translated to CR+LF. Tabs & LF's are not implemented. FF translates to 
+   11                   ;	clear screen positioning the cursor at top LHS. 
+   12                   ; 
+   13                   ;	Assemble and SLR's Z80ASM Assembler (Can also use the Cromemco Assembler)
+   14                   ;	Use:- Z80ASM SBC-MON FH
+   15                   ;
+   16                   ;	To assemble under windows...
+   17                   ;	Load Altair.EXE in Windows CMD box
+   18                   ;	do cpm3
+   19                   ;	I:
+   20                   ;	I:>Submit FPGA_VGA
+   21                   ;
+   22                   ;	FPGA_VGA.HEX  is written back to the same windows folder that the PC file "altair.exe" is in.
+   23                   ;
+   24                   ;	Recent History...
+   25                   ;
+   26                   ;	V1.0	6/15/2019	Initial code
+   27                   ;
+   28                   ;
+   29         0000      FALSE		EQU	0
+   30         FFFF      TRUE		EQU	NOT FALSE
+   31                   ;
+   32                   ;
+   33                   ;
+   34                   ;
+   35         0100      	ORG	100H
+   36                   	
+   37         8000      VGA_BASE	EQU	08000H		;The VGA text will reside from 8000H to 8FFFH in this demo
+   38         8C7F      VGA_BASE_END	EQU	08C7FH		;Last character at bottom RHS
+   39         0026      TOTAL_VGA_LINES	EQU	38
+   40                   
+   41                   
+   42         0001      SCROLL		EQU	01H		;Set scroll direction UP.
+   43         0007      BELL		EQU	07H
+   44         0020      SPACE		EQU	20H
+   45         0009      TAB		EQU	09H		;TAB ACROSS (8 SPACES FOR SD-BOARD)
+   46         000D      CR		EQU	0DH
+   47         000A      LF		EQU	0AH
+   48         000C      FF		EQU	0CH
+   49         0011      QUIT		EQU	11H		;Turns off any screen enhancements (flashing, underline etc).
+   50         0017      NO_ENH		EQU 	17H		;Turns off whatever is on
+   51         0010      FAST		EQU	10H		;High speed scroll
+   52         001B      ESC		EQU	1BH
+   53         007F      DELETE		EQU	7FH
+   54         0008      BACKS		EQU	08H
+   55         001A      CLEAR		EQU	1AH		;TO CLEAR SCREEN
+   56         0038      RST7		EQU	38H		;RST 7 (LOCATION FOR TRAP)
+   57         0000      NN		EQU	0H		;[I] INITIAL VALUE
+   58         0001      SOH		EQU	1		;For XModem etc.
+Z80ASM SuperFast Relocating Macro Assembler     	    Z80ASM 1.30 Page   2
+FPGA_VGAZ80
+
+   59         0004      EOT		EQU	4
+   60         0006      ACK		EQU	6
+   61         0015      NAK		EQU	15H
+   62                   ;
+   63                   
+   64         0068      CURSOR_X_PORT	EQU	68H		;Port for X cursor positioning (1-4FH, 1-79) 
+   65         0069      CURSOR_Y_PORT	EQU	69H		;Port for Y cursor positioning (0-27H, 0-39)
+   66                   
+   67                   ;-------------- S100Computers PROPELLER CONSOLE_IO (OR SD SYSTEMS VIDIO BOARD) FOR CONSOLE INPUT & OUTPUT
+   68                   
+   69         0000      S100_CONSOL_STATUS	EQU	0H	;Note will utilize this board if IOBYTE bits 0 & 1 are ZERO (or bit 5 is 1).	
+   70         0001      S100_CONSOL_IN		EQU	1H
+   71         0001      S100_CONSOL_OUT		EQU	1H
+   72                   
+   73                   
+   74 0100  31 03FB     START:	LD	SP,STACK
+   75 0103  21 0272     	LD	HL,S100_SIGNON
+   76 0106  CD 020D     	CALL	PRINT_STRING		
+   77                   
+   78                   
+   79                   ;-------THIS IS THE START ON THE MAIN FPGA_VGA LOOP--------------------------------
+   80                   
+   81                   
+   82 0109  DD 21 8000  INIT:	LD	IX,VGA_BASE		;POINT TO RAM SCREEN BUFFER
+   83 010D  FD 21 8000  	LD	IY,VGA_BASE		
+   84                   
+   85 0111  CD 01E4     	CALL	CLEAR_SCREEN
+   86 0114  21 02B9     	LD	HL,VGA_SIGNON
+   87 0117  CD 0220     	CALL	VGA_PRINT_STRING		
+   88                   	
+   89 011A              MAIN_LOOP:	
+   90 011A  CD 0267     	CALL	CI			;Store character in C
+   91 011D  4F          	LD	C,A
+   92 011E  CD 0251     	CALL	CO			;First output to Propeller board
+   93 0121  FE 0D       	CP	A,CR			;Need CR+LF for Propeller Console output
+   94 0123  C2 012D     	JP	NZ,NO_LF
+   95 0126  0E 0A       	LD	C,LF
+   96 0128  CD 0251     	CALL	CO
+   97 012B  0E 0D       	LD	C,CR
+   98 012D  CD 0133     NO_LF:	CALL	VGA_CO			;Now to VGA display (characters in RAM at 8000H)
+   99 0130  C3 011A     	JP	MAIN_LOOP
+  100                   	
+  101                   
+  102 0133  79          VGA_CO:	LD	A,C
+  103 0134  FE 0D       	CP	A,CR			;Is it a CR, will convert to CR/LF
+  104 0136  CA 01BF     	JP	Z,DO_CR
+  105 0139  FE 0A       	CP	A,LF			;Is it a LF, Skip for now
+  106 013B  CA 01E2     	JP	Z,DO_LF	
+  107 013E  FE 0C       	CP	A,FF			;Is it a FF (0CH,^L), if so clear screen 
+  108 0140  CA 01E4     	JP	Z,DO_FF	
+  109 0143  FE 09       	CP	A,TAB			;Is it a TAB, skip for now
+  110 0145  CA 01E3     	JP	Z,DO_TAB
+  111                   
+  112 0148              NORMAL_CHAR:				;All other (real) ASCII characters
+  113 0148  DD 2A 03FD  	LD	IX,(RAM_POSITION)
+  114 014C  DD 71 00    	LD	(IX+0),C		;PLACE CHARACTER IN RAM
+  115 014F  DD 23       	INC	IX			;MOVE TO NEXT POSITION
+  116 0151  DD 22 03FD  	LD	(RAM_POSITION),IX	;Point to next RAM position
+Z80ASM SuperFast Relocating Macro Assembler     	    Z80ASM 1.30 Page   3
+FPGA_VGAZ80
+
+  117                   
+  118 0155  3A 03FB     	LD	A,(X_POSITION)		;Update cursor
+  119 0158  FE 4F       	CP	A,4FH
+  120 015A  28 0B       	JR	Z,SPECIAL_CASE		;X cursor goes 1,2,3...4F,0,1,2,3
+  121 015C  FE 00       	CP	A,0			;If 0 then we are at end of line
+  122 015E  28 0F       	JR	Z,SPECIAL_CASE2		
+  123 0160  3C          	INC	A
+  124 0161  32 03FB     	LD	(X_POSITION),A
+  125 0164  D3 68       	OUT	(CURSOR_X_PORT),A
+  126 0166  C9          	RET
+  127                   
+  128 0167              SPECIAL_CASE:
+  129 0167  3E 00       	LD	A,0			;Char position 80 is actully 0.
+  130 0169  32 03FB     	LD	(X_POSITION),A		;Send to hardware
+  131 016C  D3 68       	OUT	(CURSOR_X_PORT),A
+  132 016E  C9          	RET
+  133                   
+  134 016F              SPECIAL_CASE2:
+  135 016F  3C          	INC	A			;Line position 0 -> 1.
+  136 0170  32 03FB     	LD	(X_POSITION),A		;Back to start of line
+  137 0173  D3 68       	OUT	(CURSOR_X_PORT),A
+  138 0175  3A 03FC     	LD	A,(Y_POSITION)
+  139 0178  3C          	INC	A
+  140 0179  FE 26       	CP	A,38			;My VGA Monitor works best with no more than 38 lines
+  141 017B  CA 0191     	JP	Z,SCROOL
+  142 017E  32 03FC     	LD	(Y_POSITION),A		
+  143 0181  D3 69       	OUT	(CURSOR_Y_PORT),A
+  144 0183  21 8000     	LD	HL,VGA_BASE		;Start from 8000H
+  145 0186  11 0050     	LD	DE,50H
+  146 0189              MORE_LF2:
+  147 0189  19          	ADD	HL,DE
+  148 018A  3D          	DEC	A
+  149 018B  20 FC       	JR	NZ,MORE_LF2
+  150 018D  22 03FD     	LD	(RAM_POSITION),HL	;Save pointer
+  151 0190  C9          	RET
+  152                   
+  153 0191              SCROOL:
+  154 0191  21 8000     	LD	HL,VGA_BASE		;Start from 8000H
+  155 0194  DD 21 8050  	LD	IX,VGA_BASE+50H
+  156 0198  11 0BE0     	LD	DE,0BE0H
+  157 019B              SCROOL2:
+  158 019B  DD 7E 00    	LD	A,(IX+0)
+  159 019E  77          	LD	(HL),A
+  160 019F  DD 23       	INC	IX
+  161 01A1  23          	INC	HL
+  162 01A2  1B          	DEC	DE
+  163 01A3  7A          	LD	A,D
+  164 01A4  B3          	OR	A,E
+  165 01A5  C2 019B     	JP	NZ,SCROOL2
+  166 01A8  2A 03FD     	LD	HL,(RAM_POSITION)	;Set RAM pointer now at start of line	
+  167 01AB  3A 03FB     	LD	A,(X_POSITION)		;Need to adjust RAM pointer to start ioof line
+  168 01AE              SCROOL3:
+  169 01AE  2B          	DEC	HL
+  170 01AF  3D          	DEC	A
+  171 01B0  C2 01AE     	JP	NZ,SCROOL3
+  172 01B3  23          	INC	HL			;Adjust by 1
+  173 01B4  22 03FD     	LD	(RAM_POSITION),HL	;RAM pointer now at start of line	
+  174 01B7  3E 01       	LD	A,1
+Z80ASM SuperFast Relocating Macro Assembler     	    Z80ASM 1.30 Page   4
+FPGA_VGAZ80
+
+  175 01B9  32 03FB     	LD	(X_POSITION),A		;Need to adjust RAM pointer to start of line
+  176 01BC  D3 68       	OUT	(CURSOR_X_PORT),A
+  177 01BE  C9          	RET
+  178                   	
+  179 01BF  3A 03FC     DO_CR:	LD	A,(Y_POSITION)		;NOTE >>>> CR will be CR+LF
+  180 01C2  3C          	INC	A
+  181 01C3  FE 26       	CP	A,TOTAL_VGA_LINES	;My VGA Monitor works best with no more than 38 lines
+  182 01C5  CA 0191     	JP	Z,SCROOL
+  183 01C8  32 03FC     	LD	(Y_POSITION),A		;Do LF first
+  184 01CB  D3 69       	OUT	(CURSOR_Y_PORT),A
+  185 01CD  21 8000     	LD	HL,VGA_BASE		;Start from 8000H
+  186 01D0  11 0050     	LD	DE,50H
+  187 01D3              MORE_CR:
+  188 01D3  19          	ADD	HL,DE
+  189 01D4  3D          	DEC	A
+  190 01D5  20 FC       	JR	NZ,MORE_CR
+  191 01D7  22 03FD     	LD	(RAM_POSITION),HL	
+  192 01DA  3E 01       	LD	A,1
+  193 01DC  32 03FB     	LD	(X_POSITION),A		;Set to start of line
+  194 01DF  D3 68       	OUT	(CURSOR_X_PORT),A
+  195 01E1  C9          	RET
+  196                   
+  197 01E2  C9          DO_LF:	RET				;Ignore 
+  198 01E3  C9          DO_TAB	RET				;Ignore
+  199                   
+  200 01E4              DO_FF:					;For FF just clear screen
+  201 01E4              CLEAR_SCREEN:
+  202 01E4  21 8000     	LD	HL,VGA_BASE
+  203 01E7  11 8C7F     	LD	DE,VGA_BASE_END ;(8C7FH)
+  204 01EA              NEXT_CLR:
+  205 01EA  3E 20       	LD	A,SPACE			;SPACE to clear screen
+  206 01EC  77          	LD	(HL),A
+  207 01ED  23          	INC	HL
+  208 01EE  7C          	LD	A,H
+  209 01EF  BA          	CP	A,D
+  210 01F0  20 F8       	JR	NZ,NEXT_CLR
+  211 01F2  7D          	LD	A,L
+  212 01F3  BB          	CP	A,E
+  213 01F4  20 F4       	JR	NZ,NEXT_CLR
+  214                   	
+  215 01F6  3E 01       	LD	A,1	
+  216 01F8  32 03FB     	LD	(X_POSITION),A		;Cursor at 1,0 (Top LHS)
+  217 01FB  D3 68       	OUT	(CURSOR_X_PORT),A
+  218 01FD  3E 00       	LD	A,0	
+  219 01FF  32 03FC     	LD	(Y_POSITION),A	
+  220 0202  D3 69       	OUT	(CURSOR_Y_PORT),A
+  221 0204  DD 21 8000  	LD	IX,VGA_BASE
+  222 0208  DD 22 03FD  	LD	(RAM_POSITION),IX	;Begin at 8000H
+  223 020C  C9          	RET				;Return when HL reaches 8C7F
+  224                   
+  225                   	
+  226                   	
+  227                   		
+  228                   ;----------------------------------- SUPPORT ROUTINES ---------------------------
+  229                   ;Print a string in [HL] up to '$'
+  230 020D              PRINT_STRING:
+  231 020D  C5          	push	bc
+  232 020E  D5          	push	de
+Z80ASM SuperFast Relocating Macro Assembler     	    Z80ASM 1.30 Page   5
+FPGA_VGAZ80
+
+  233 020F  7E          PSTRX:	ld	a,(hl)
+  234 0210  FE 24       	cp	'$'
+  235 0212  CA 021D     	jp	z,DONEP
+  236 0215  4F          	ld	c,A
+  237 0216  CD 0251     	call	CO
+  238 0219  23          	inc	hl
+  239 021A  C3 020F     	jp	PSTRX
+  240 021D  D1          DONEP:	pop	de
+  241 021E  C1          	pop	bc
+  242 021F  C9          	ret
+  243                   
+  244 0220              VGA_PRINT_STRING:
+  245 0220  C5          	push	bc
+  246 0221  D5          	push	de
+  247 0222  7E          VPSTRX:	ld	a,(hl)
+  248 0223  FE 24       	cp	'$'
+  249 0225  CA 0230     	jp	z,VDONEP
+  250 0228  4F          	ld	c,A
+  251 0229  CD 0133     	call	VGA_CO
+  252 022C  23          	inc	hl
+  253 022D  C3 0222     	jp	VPSTRX
+  254 0230  D1          VDONEP:	pop	de
+  255 0231  C1          	pop	bc
+  256 0232  C9          	ret
+  257                   
+  258                   
+  259                   
+  260                   ;SEND TO CONSOL CR/LF
+  261 0233  F5          CRLF:	PUSH	AF
+  262 0234  C5          	PUSH	BC
+  263 0235  0E 0D       	LD	C,CR
+  264 0237  CD 0251     	CALL	CO
+  265 023A  0E 0A       	LD	C,LF
+  266 023C  CD 0251     	CALL	CO
+  267 023F  C1          	POP	BC
+  268 0240  F1          	POP	AF
+  269 0241  C9          	RET
+  270                   
+  271 0242              VGA_CRLF:
+  272 0242  F5          	PUSH	AF
+  273 0243  C5          	PUSH	BC
+  274 0244  0E 0D       	LD	C,CR
+  275 0246  CD 0133     	CALL	VGA_CO
+  276 0249  0E 0A       	LD	C,LF
+  277 024B  CD 0251     	CALL	CO
+  278 024E  C1          	POP	BC
+  279 024F  F1          	POP	AF
+  280 0250  C9          	RET
+  281                   
+  282                   
+  283                   ;<<<<<<<<<<<<<<<<<<<<<< MAIN CONSOL OUTPUT ROUTINE >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+  284                   ;
+  285 0251  DB 00       CO:	IN	A,(S100_CONSOL_STATUS)	;PROPELLER VIDIO BOARD PORT
+  286 0253  E6 04       	AND	4H
+  287 0255  28 FA       	JR	Z,CO			;Not yet ready, try both outputs
+  288 0257  79          	LD	A,C
+  289 0258  D3 01       	OUT	(S100_CONSOL_OUT),A
+  290 025A  C9          	RET
+Z80ASM SuperFast Relocating Macro Assembler     	    Z80ASM 1.30 Page   6
+FPGA_VGAZ80
+
+  291                   
+  292 025B  DB 00       CSTS:	IN	A,(S100_CONSOL_STATUS)
+  293 025D  E6 02       	AND	02H
+  294 025F  CA 0265     	JP	Z,NO_CSTS		;Zero if nothing
+  295 0262              GOT_CSTS:
+  296 0262  AF          	XOR	A
+  297 0263  3D          	DEC	A			;RETURN WITH 0FFH IN [A] IF SOMETHING
+  298 0264  C9          	RET
+  299 0265              NO_CSTS:
+  300 0265  AF          	XOR	A			
+  301 0266  C9          	RET				;RETURN WITH 0 IN A IF NOTHING THERE
+  302                   
+  303 0267  DB 00       CI:	IN 	A,(S100_CONSOL_STATUS)	;NEED CONSTAT TO CLEAN UP SHIFT KEYS ETC
+  304 0269  E6 02       	AND	02H
+  305 026B  28 FA       	JR	Z,CI			;Wait until something there
+  306 026D  DB 01       	IN	A,(S100_CONSOL_IN)
+  307 026F  E6 7F       	AND	7FH
+  308 0271  C9          	RET
+  309                   	
+  310                   	
+  311                   	
+  312                   ;-------------------------------------------------------------------------------------------------
+  313                   
+  314 0272  0D 0A 0A 46 S100_SIGNON:	DB	CR,LF,LF,'FPGA BOARD VGA DEMO (www.S100Computers.COM  J.Monahan, 6/15/2019)',CR,LF,'$' 	
+  315                   
+  316 02B9  46 50 47 41 VGA_SIGNON:	DB	'FPGA BOARD VGA DEMO (www.S100Computers.COM  J.Monahan, 6/15/2019)$' 	
+  317                   
+  318                   
+  319                   
+  320 02FB    0100      		DS	100H		;Space for stack
+  321         03FB      STACK		EQU	$		
+  322                   
+  323 03FB  01          X_POSITION	DB	1		;Store for cursor position
+  324 03FC  00          Y_POSITION	DB	0
+  325 03FD  8000        RAM_POSITION	DW	8000H		;Store next position for character placement
+ 0 Error(s) Detected.
+ 767 Absolute Bytes. 68 Symbols Detected.
+

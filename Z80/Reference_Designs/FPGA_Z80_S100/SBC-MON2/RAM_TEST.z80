@@ -1,0 +1,172 @@
+;	RAM_TEST.Z80  This is a simple program to test RAM on teh FPGA_Z0 SBC
+;
+;	Assemble and SLR's Z80ASM Assembler (Can also use the Cromemco Assembler)
+;	Use:- Z80ASM SBC-MON FH
+;
+;	To assemble under windows...
+;	Load Altair.EXE in Windows CMD box
+;	do cpm3
+;	I:
+;	I:>Submit SBC-MON
+;
+;	TEST_RAM.HEX  is written back to the same windows folder that the PC file "altair.exe" is in.
+
+;	Programming an EEPROM for the SBC-Z80 Board with a PROM burner is fairly straightfoward. 
+;	Using a 28C64 EEPROM and a Wellon VP-280 or VP290 Programmer
+;	For a monitor at E000H-FFFFH:-
+
+;	Make sure the ORG is F000H (BASE_RAM).
+;	Load the RAM_TEST.HEX file
+;	Clear Buffer Options:- 00
+;	Load Buffer Address : 0000
+;	From File address use:- F000H
+;	File Size use:- 2000H
+;
+;	To save for FPGA ROM it musty reside at 0H in thar ROM
+;	Save File
+;	Intel HEX file format
+;	Clear Buffer Options:- 00
+;	Load Buffer Address : 0000
+;	File Size use:- 2000H
+;	
+;
+;	Recent History...
+;
+;	V1.0	6/27/2019	Started with the modified MASTER.Z80 V5.1 Monitor. Removed the page switching menu option.
+;
+;
+FALSE		EQU	0
+TRUE		EQU	NOT FALSE
+;
+;
+MONITOR_BASE	EQU	0F000H		;Start of monitor after a reset								
+RAM_BASE	EQU	1000H
+
+SCROLL		EQU	01H					
+BELL		EQU	07H
+SPACE		EQU	20H
+TAB		EQU	09H		;TAB ACROSS (8 SPACES FOR SD-BOARD)
+CR		EQU	0DH
+LF		EQU	0AH
+FF		EQU	0CH
+QUIT		EQU	11H		;Turns off any screen enhancements (flashing, underline etc).
+NO_ENH		EQU 	17H		;Turns off whatever is on
+FAST		EQU	10H		;High speed scroll
+ESC		EQU	1BH
+DELETE		EQU	7FH
+BACKS		EQU	08H
+CLEAR		EQU	1AH		;TO CLEAR SCREEN
+RST7		EQU	38H		;RST 7 (LOCATION FOR TRAP)
+NN		EQU	0H		;[I] INITIAL VALUE
+SOH		EQU	1		;For XModem etc.
+EOT		EQU	4
+ACK		EQU	6
+NAK		EQU	15H
+;
+
+; Note on the mapping below: The DIP switches on the physical board connect to GND with pull up resistors 
+; OPEN/OFF switches are '1's and CLOSED/ON DIP switches are '0's
+;
+; BIT MAP OF IOBYTE BASE_PORT + 6H:- X X X X  X X X X  (if xxxxxx11= 11=CONSOLE IN/OUT DATA to Console IO board
+;			             | | | |  | | | |..............  10=will use onboard USB chip for Console I/O
+;			             | | | |  | | |................  01=will use onboard FPGA code for PS2 keyboard & Console IO
+;			             | | | |  | |..................  Unused
+;			             | | | |  |....................  Unused
+;			             | | | |.......................  Unused			
+;			             | | |.........................  Unused							 
+;			             | |...........................  Unused
+;			     	     |.............................  Unused
+;
+;
+;
+
+DIAG_LEDS	EQU	06H		;LED BAR of FPGA Board (and LED Bar on V3 SMB if present)
+RAM_BANK	EQU	36H		;Port to switch Low/High 32K RAM Page
+ROM_PAGE	EQU	07H		;Inactivete part or all of onboard ROM
+
+
+
+;-------------- S100Computers PROPELLER CONSOLE_IO (OR SD SYSTEMS VIDIO BOARD) FOR CONSOLE INPUT & OUTPUT
+
+S100_CONSOL_STATUS	EQU	0H	;Note will utilize this board if IOBYTE bits 0 & 1 are ZERO (or bit 5 is 1).	
+S100_CONSOL_IN		EQU	1H
+S100_CONSOL_OUT		EQU	1H
+
+BASE_PORT	EQU	30H		;Note by using 30H we can use software already on CF-CARDS that
+USB_STATUS_PORT	EQU	BASE_PORT+4H	;Status port for USB console input port
+USB_DATA_PORT	EQU	BASE_PORT+5H	;Status port for USB console data port
+IOBYTE		EQU	BASE_PORT+6H	;See above
+
+
+;///////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+;-------------------------------- START OF RAM TEST @ FOOOH --------------------------------------------------
+;//////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+
+	ORG		MONITOR_BASE	;<--------<<<<<< LOCATION OF START OF TEST >>>>>>>>>>>>>>>>>>>>>>
+
+
+COLD:	LD	A,'#'			;For quick hardware diagnostic test
+	OUT	(S100_CONSOL_OUT),A	;Force a "#" on the CRT if ROM access is active
+							
+BEGIN:					;Can use the next 3 lines initially to debug hardware
+	DI				;No interrupts
+	XOR	A			;SET INTERUPT TO PAGE 0H
+	LD	I,A			;Z80 Interrupt page 0
+
+
+	OUT	(RAM_BANK),A		;Start in default LOW RAM Page
+	OUT	(ROM_PAGE),A		;Start in default ROM F000-FFFFH Z80_MONA
+
+					;Turn all LED's OFF as a diagnostic on SMB V2
+BEGIN1:	LD	A,10000000B		;FLAG PROGRESS VISUALLY FOR DIAGNOSTIC 
+	OUT	(DIAG_LEDS),A		;LED's will go off one at a time
+
+SETUP_STACK:
+	LD	HL,0DF00H		;Setup Stack (Actualy not used here)
+	LD	SP,HL			;[HL] CONTAINS TOP OF RAM - WORK AREA
+	LD	HL,1000H		;Start at 1000H
+
+RAM_TST:	
+	LD	A,'@'			;For quick hardware diagnostic test
+	OUT	(S100_CONSOL_OUT),A	;Force a "@" on the CRT if ROM access is active		
+	LD	(HL),'?'		;Default 3FH
+	LD	B,0FH			;Count 16 times
+
+PROP_CI1:
+	IN 	A,(S100_CONSOL_STATUS)	;Get a character
+	AND	02H
+	JR	Z,PROP_CI1		;Wait until something there
+	IN	A,(S100_CONSOL_IN)
+	AND	7FH
+	LD	(HL),A
+	
+PROP_CSTS1:
+	IN	A,(S100_CONSOL_STATUS)
+	AND	04H
+	JP	Z,PROP_CSTS1		;Z if not ready
+	LD	A,(HL)			;Get stared value from RAM
+	OUT	(S100_CONSOL_OUT),A
+	DJNZ	PROP_CSTS1		;Do 16 times 
+
+PROP_CSTS2:
+	IN	A,(S100_CONSOL_STATUS)	; Send CR/LF
+	AND	04H
+	JP	Z,PROP_CSTS2		;Z if not ready
+	LD	A,CR
+	OUT	(S100_CONSOL_OUT),A
+PROP_CSTS3:
+	IN	A,(S100_CONSOL_STATUS)
+	AND	04H
+	JP	Z,PROP_CSTS3		;Z if not ready
+	LD	A,LF
+	OUT	(S100_CONSOL_OUT),A
+PROP_CSTS4:
+	IN	A,(S100_CONSOL_STATUS)
+	AND	04H
+	JP	Z,PROP_CSTS4		;Z if not ready
+	LD	A,LF
+	OUT	(S100_CONSOL_OUT),A
+	INC	HL			;Next RAM location
+	JP	RAM_TST
+;END

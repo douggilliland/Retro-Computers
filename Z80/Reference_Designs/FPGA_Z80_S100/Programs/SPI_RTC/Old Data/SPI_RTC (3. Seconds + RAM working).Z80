@@ -1,0 +1,419 @@
+;Program for SPI interface to the RTC (U2) on the S100Computers.com Z80_FPGA Board.
+;Will Read or Write to an DS1305 RTC chip 
+;
+;	John Monahan	S100Computers.com	8/2/2019
+;
+;
+;V1.0		7/30/2019	;First version. It is "rough & ready" with little menu etc. error checking etc.
+;				;Note address input Hex values must be 4 digits. Data (byte) values 2 digits
+;	PORT ASSIGNMENTS
+;
+SPI_BASE_PORT	EQU	068H			; Base I/O port fot SPI module
+SPI_ADDRESS_OUT	EQU	SPI_BASE_PORT		; 68H, Data OUT port from SPI module to RTC
+SPI_DATA_OUT	EQU	SPI_BASE_PORT+1		; 69H, Data OUT port from SPI module to RTC
+SPI_DATA_IN	EQU	SPI_BASE_PORT+1		; 69H, Data IN from EEPROM
+SPI_CS		EQU	SPI_BASE_PORT+2		; 6AH, CS Data OUT port to SPI/EEPROM module
+SPI_STATUS	EQU	SPI_BASE_PORT+2		; 6AH, Busy Flag IN port from SPI/EEPROM
+
+SPI_READ	EQU	SPI_BASE_PORT+3		; 6B, Read pulse to SPI module
+SPI_WRITE	EQU	SPI_BASE_PORT+3		; 6B, Write pulse to SPI module
+
+RTC_CS_LOW		EQU	00H		; Bit 0 has CS  (Note, HIGH to select chip)
+RTC_CS_HIGH		EQU	01H			
+
+RTC_SECONDS	EQU	0H			;All registers OR 80H for WRITE Address
+RTC_MINUTES	EQU	1H
+RTC_HOURS	EQU	2H
+RTC_DAY		EQU	3H
+RTC_DATE	EQU	4H
+RTC_MONTH	EQU	5H
+RTC_YEAR	EQU	6H
+
+RTC_CTL_REG	EQU	0FH
+RTC_STATUS_REG	EQU	10H
+RTC_RAM		EQU	20H			;20H -- 7FH
+
+ENABLE_OSC	EQU	80H			;Bit to enable/start the RTC chip (0=start, 1=stop)
+WP		EQU	40H			;Write Protect. Bit must be 0 to alter any other register. 
+						;Note alarms etc are not implemented in this simple example.
+						
+CONSTAT			EQU	0H		; Console Status Port
+CONIN			EQU	1H		; Console IN Port
+CONOUT			EQU	1H		; Console OUT Port
+
+MONITOR			EQU	0F000H		; Location of Z80 ROM monitor when done.
+
+BELL			EQU	07H
+ESC			EQU	1BH
+CR			EQU	0DH
+LF			EQU	0AH
+
+;------------------------------------------------------------------------------------------
+
+	ORG	100H
+	
+START:	LD	SP,STACK
+	LD	HL,SIGNON
+	CALL	PMSG
+
+START2:	LD	A,RTC_CS_LOW			;Deselect RTC chip SPI interface (Note HIGH for CS)
+	OUT	(SPI_CS),A
+	
+	LD	HL,SIGNON1
+	CALL	PMSG
+	CALL	CRLF				;Normal start within menu
+	LD	C,'>'	   
+	CALL	CO
+	CALL	CI
+	CP	A,ESC
+	JP	NZ,START3
+	JP	MONITOR
+	
+START3:	CP	A,'0'
+	JP	Z,ACTIVATE_RTC
+	CP	A,'1'
+	JP	Z,READ_SECONDS
+	CP	A,'2'
+	JP	Z,WRITE_RAM
+	CP	A,'3'
+	JP	Z,READ_RAM
+	CP	A,'4'
+	JP	Z,MENU_ERROR
+	CP	A,'5'
+	JP	Z,MENU_ERROR
+	CALL	MENU_ERROR
+	JP	START2
+
+MENU_ERROR:
+	LD	HL,MENU_MSG		; "Menu error"
+	CALL	PMSG
+	RET
+	
+;-------------------------------------------------------------------------------------------------
+ACTIVATE_RTC:
+	LD	HL,MSG0			; "Activate RTC Chip"
+	CALL	PMSG
+	
+	LD	B,RTC_CTL_REG OR 80H	; RTC Register address + Write
+	LD	C,00000000B		; ENABLE_OSC, Bit 7 to enable/start the RTC chip (0=start, 1=stop)
+	CALL	WRITE_SPI		; <<<< Send Write pulse (Address + DATA)
+	JP	START2
+	
+READ_SECONDS:
+	LD	HL,MSG1			; "1 = Read Seconds Register from RTC Chip"
+	CALL	PMSG
+	
+	LD	B,RTC_SECONDS		; Seconds Register address + READ
+	CALL	READ_SPI		; Send Read pulse (Address, get DATA), return result in [A]
+
+	PUSH	AF			; Save it
+	LD	HL,MSG2			; "RTC Seconds Register = "
+	CALL	PMSG
+	POP	AF
+	CALL	PRINT_A			; Display Returned SPI PROM Byte
+	CALL	CRLF
+	JP	START2
+
+WRITE_RAM:
+	LD	HL,MSG3			; "2 = Byte to RAM at 20H in RTC."
+	CALL	PMSG
+	
+	LD	B,0A0H			; RAM Location 20H write
+	LD	C,80H			; Value to write
+	CALL	WRITE_SPI		; Send Read pulse (Address, get DATA), return result in [A]
+	LD	HL,MSG4			; "Wrote byte to RAM location 20H in RTC"
+	CALL	PMSG
+	JP	START2
+	
+READ_RAM:
+	LD	HL,MSG5			; "1 = Read Seconds Register from RTC Chip"
+	CALL	PMSG
+	
+	LD	B,20H			; RAM Location 20H to read
+	CALL	READ_SPI		; Send Read pulse (Address, get DATA), return result in [A]
+
+	PUSH	AF			; Save it
+	LD	HL,MSG6			; "RTC RAM 20H = "
+	CALL	PMSG
+	POP	AF
+	CALL	PRINT_A			; Display Returned SPI PROM Byte
+	CALL	CRLF
+	JP	START2
+	
+
+;------------------------ SPI CORE ROUTINES ---------------------------------------------------------
+
+WRITE_SPI:				; [C] contains DATA, [B] contains Register address
+	LD	A,RTC_CS_HIGH		; Select RTC
+	OUT	(SPI_CS),A
+		
+	LD	A,C			; <<<---- Send Value
+	OUT	(SPI_ADDRESS_OUT),A
+	LD	A,B			; <<<---- Send address
+	OUT	(SPI_DATA_OUT),A
+	OUT	(SPI_WRITE),A		; (Port 6B) Send Write pulse 
+	CALL	DELAY
+	
+	LD	A,RTC_CS_LOW		; De-select RTC
+	OUT	(SPI_CS),A
+	RET
+
+
+
+READ_SPI:
+	LD	A,RTC_CS_HIGH		; Select RTC
+	OUT	(SPI_CS),A
+READ_SPI1:
+	LD	A,B			; <<<---- Send address 
+	OUT	(SPI_DATA_OUT),A
+	IN	A,(SPI_READ)		; Send Read pulse (Port 6B)
+	CALL	DELAY
+	
+	IN	A,(SPI_DATA_IN)		; <<< Get SPI data returned in [A]
+	PUSH	AF
+	CALL	DELAY
+
+	LD	A,RTC_CS_LOW		; De-select RTC
+	OUT	(SPI_CS),A
+	POP	AF
+	RET
+
+
+DELAY:	PUSH	HL
+	LD	HL,40H			;Extra time required for EEPROM to write multiple data bytes
+DELAY1:	DEC	HL				
+	LD	A,H
+	OR	A,L
+	JR	NZ,DELAY1
+	POP	HL
+DELAY2:	IN	A,(SPI_STATUS)		; Wait until busy is low
+	OR	A,A
+	JR	NZ,DELAY2
+	RET
+
+;<<<<<<<<<<<<<<<<<<<<<<<<< SUPPORT ROUTINES >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+
+PMSG:	PUSH	BC		; Only [A] and [HL] is changed
+PMSG1:	LD	A,(HL)		; A ROUTINE TO PRINT OUT A STRING @ [HL]
+	INC	HL		; UP TO THE FIRST 0.
+	OR	A,A
+	JP	Z,PMSG_DONE
+	LD	C,A
+	CALL	CO
+	JP	PMSG1
+PMSG_DONE:
+	POP	BC
+	RET
+
+CRLF:	PUSH	BC
+	LD	C,CR
+	CALL	CO
+	LD	C,LF
+	CALL	CO
+	POP	BC
+	RET
+
+SPACE:  PUSH	BC
+	LD	C,20H
+	CALL	CO
+	POP	BC
+	RET
+
+
+; GET A CHARACTER, convert to UC, ECHO it
+GETCMD:	CALL	CI		
+	CALL	UCASE
+	CP	A,ESC
+	RET	Z		;Don't echo an ESC
+	PUSH	AF		;Save it
+	PUSH	BC
+	LD	C,A
+	CALL	CO		;Echo it
+	POP	BC
+	POP	AF		;get it back
+	RET
+;				;Convert LC to UC
+UCASE:	CP	A,'a'		;must be >= lowercase a
+	RET	C		; else go back...
+	CP	A,'z'+1		;must be <= lowercase z
+	RET	NC		; else go back...
+	SUB	A,'a'-'A'	;subtract lowercase bias
+	RET
+
+; Check if next character is a ESC
+CHECK_ESC:
+	CALL	CI
+	CP	A,ESC
+	RET			; Return Z if ESC character.
+	
+; Check if next character is a CR
+CHECK_CR:
+	CALL	CI
+	CP	A,CR
+	RET			; Return Z if ESC character.
+	
+; Return with 2 HEX digits in [A]. If abort, Carry flag set + ESC in [A]
+GET_HEX:
+	PUSH	BC			
+	CALL	GETCMD		;Get a character from keyboard & ECHO
+	CP	A,ESC
+	JR	Z,HEX_ABORT
+	CP	'/'		;check 0-9, A-F
+	JR	C,HEX_ABORT
+	CP	'F'+1
+	JR	NC,HEX_ABORT
+	CALL	ASBIN		;Convert to binary
+	SLA	A
+	SLA	A
+	SLA	A
+	SLA	A		;Shift to high nibble	
+	LD	B,A		;Store it
+	CALL	GETCMD		;Get 2nd character from keyboard & ECHO
+	CP	A,ESC
+	JR	Z,HEX_ABORT
+	CP	'/'		;check 0-9, A-F
+	JR	C,HEX_ABORT
+	CP	'F'+1
+	JR	NC,HEX_ABORT
+	CALL	ASBIN		;Convert to binary
+	OR	A,B		;add in the first digit
+	OR	A,A		;To return NC
+	POP	BC
+	RET
+	
+HEX_ABORT:
+	SCF			;Set Carry flag 
+	LD	A,ESC
+	POP	BC
+	RET
+;
+;
+; Put 4 HEX characters in [HL] 
+GET_HEX4:	
+	LD      H,0000H
+	CALL	GET_HEX		;get 2 HEX digits
+	JR	C,SCAN_ABORT
+	LD	H,A
+	CALL	GET_HEX		;get 2 more HEX digits
+	JR	C,SCAN_ABORT
+	LD	L,A
+	OR	A,A		;To return NC
+	RET
+	
+SCAN_ABORT:
+	SCF			;Set Carry flag 
+	RET
+
+; ASCII TO BINARY CONVERSION ROUTINE
+ASBIN:	SUB	30H 
+	CP	0AH 
+	RET	M
+	SUB	07H 
+	RET
+;	
+;
+; PRINT [HL] ON CONSOL
+PRINT_HL:
+	LD	A,H
+	CALL	PRINT_A
+	LD	A,L
+PRINT_A:
+	PUSH	AF
+	RRCA
+	RRCA
+	RRCA
+	RRCA
+	CALL	SF598
+	POP	AF
+SF598:	CALL	CONV
+	JP	CO
+
+; CONVERT HEX TO ASCII
+CONV:	AND	0FH
+	ADD	A,90H
+	DAA 
+	ADC	A,40H
+	DAA 
+	LD	C,A
+	RET
+	
+; DISPLAY 8 BITS OF [A] (No registers changed)
+; DISPLAY BIT PATTERN IN [A]
+ZBITS:	PUSH	AF
+	PUSH	BC
+	PUSH	DE
+	LD	E,A		
+	LD	B,8
+BQ2:	SLA	E	
+	LD	A,18H
+	ADC	A,A
+	LD	C,A
+	CALL	CO
+	DJNZ	BQ2
+	POP	DE
+	POP	BC
+	POP	AF
+	RET
+
+;<<<<<<<<<<<<<<<<<<<<<< MAIN CONSOL OUTPUT ROUTINE >>>>>>>>>>>>>>>>>>>>>>>>>
+;
+CO:	IN	A,(CONSTAT)	; SD SYSTEMS or PROPELLER VIDIO BOARD PORT
+	AND	4H
+	JP	Z,CO
+	LD	A,C
+	OUT	(CONOUT),A
+	RET			; RETURN CHARACTER SENT IN [A]
+ 
+;<<<<<<<<<<<<<<<<<<< MAIN CONSOL STATUS ROUTINE >>>>>>>>>>>>>>>>>>>>>>
+;
+CSTS:	IN	A,(CONSTAT)
+	AND	02H
+	RET	Z
+	XOR	A
+	DEC	A		; RETURN WITH 0FFH IN [A] IF SOMETHING
+	RET
+
+;<<<<<<<<<<<<<<<<<<<< MAIN CONSOL INPUT ROUTINE >>>>>>>>>>>>>>>>>>>>
+;
+CI:	IN 	A,(CONSTAT)	; NEED CONSTAT TO CLEAN UP SHIFT KEYS ETC
+	AND	02H
+	JR	Z,CI
+	IN	A,(CONIN)
+	AND	7FH
+	RET
+
+;---------------------------------------------------------------------------------------
+SIGNON:		DB	CR,LF
+		DB	CR,LF,'SPI interface to the RTC (U2) on Z80_FPGA Board.'
+		DB	CR,LF,'By John Monahan S100Computers.COM  (V1.0)  7/31/2019'
+		DB	CR,LF,'Note: This test is with a Maxim DS1305 RTC chip only.',0
+		
+SIGNON1:	DB	CR,LF,LF,'---------- Main Menu ---------------'
+		DB	CR,LF,'0.   Activate Maxim DS1305 RTC chip.'
+		DB	CR,LF,'1.   Read Seconds Register from RTC Chip.'
+		DB	CR,LF,'2.   Byte to RAM at 20H in RTC.'
+		DB	CR,LF,'3.   Read RAM byte at 20H in RTC.'
+		DB	CR,LF,'4.   .'
+		DB	CR,LF,'5.   .'
+		DB	CR,LF,'ESC  To abort program.',CR,LF,0H
+
+MENU_MSG:	DB	BELL,BELL,CR,LF,'Menu error.',0
+FORMAT_ERR_MSG: DB	BELL,BELL,CR,LF,'Data Format error.',0
+CMD_DONE:	DB	CR,LF,'Command Done.',CR,LF,LF,0
+
+
+MSG0:		DB	'0 = Activate RTC Chip.',0H	
+MSG1:		DB	'1 = Read Seconds Register from RTC Chip.'0H
+MSG2:		DB	CR,LF,'RTC Seconds Register = ',0H	
+MSG3:		DB	'2 = Write byte to RAM at 20H in RTC.',0H
+MSG4:		DB	CR,LF,'Wrote byte to RAM location 20H in RTC',0H
+MSG5:		DB	'3 = Read RAM byte at 20H in RTC.',0H
+MSG6:		DB	CR,LF,'RTC RAM 20H = ',0H
+
+	DS	40H
+STACK:	DB	0H
+; END
+	
+
+
+

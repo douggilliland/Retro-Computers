@@ -1,0 +1,240 @@
+EESchema Schematic File Version 2
+LIBS:power
+LIBS:device
+LIBS:transistors
+LIBS:conn
+LIBS:linear
+LIBS:regul
+LIBS:74xx
+LIBS:cmos4000
+LIBS:adc-dac
+LIBS:memory
+LIBS:xilinx
+LIBS:special
+LIBS:microcontrollers
+LIBS:dsp
+LIBS:microchip
+LIBS:analog_switches
+LIBS:motorola
+LIBS:texas
+LIBS:intel
+LIBS:audio
+LIBS:interface
+LIBS:digital-audio
+LIBS:philips
+LIBS:display
+LIBS:cypress
+LIBS:siliconi
+LIBS:opto
+LIBS:atmel
+LIBS:contrib
+LIBS:valves
+LIBS:Arduno_2560 S100 Board-cache
+EELAYER 27 0
+EELAYER END
+$Descr A4 11693 8268
+encoding utf-8
+Sheet 1 1
+Title "noname.sch"
+Date "2 oct 2018"
+Rev ""
+Comp ""
+Comment1 ""
+Comment2 ""
+Comment3 ""
+Comment4 ""
+$EndDescr
+$Comp
+L LED_DISPLAY_(16_PINS) P1
+U 1 1 5BB2ECEA
+P 3950 2950
+F 0 "P1" H 4350 2950 60  0000 C CNN
+F 1 "LED_DISPLAY_(16_PINS)" V 4550 2900 60  0000 C CNN
+F 2 "~" H 3950 2950 60  0000 C CNN
+F 3 "~" H 3950 2950 60  0000 C CNN
+	1    3950 2950
+	1    0    0    -1  
+$EndComp
+$Comp
+L VCC #PWR4
+U 1 1 5BB2ECF4
+P 3200 3600
+F 0 "#PWR4" H 3200 3700 30  0001 C CNN
+F 1 "VCC" H 3200 3700 30  0000 C CNN
+F 2 "" H 3200 3600 60  0000 C CNN
+F 3 "" H 3200 3600 60  0000 C CNN
+	1    3200 3600
+	1    0    0    -1  
+$EndComp
+$Comp
+L GND #PWR5
+U 1 1 5BB2ECFA
+P 3300 3750
+F 0 "#PWR5" H 3300 3750 30  0001 C CNN
+F 1 "GND" H 3300 3680 30  0001 C CNN
+F 2 "" H 3300 3750 60  0000 C CNN
+F 3 "" H 3300 3750 60  0000 C CNN
+	1    3300 3750
+	1    0    0    -1  
+$EndComp
+$Comp
+L VCC #PWR1
+U 1 1 5BB2ED04
+P 2200 950
+F 0 "#PWR1" H 2200 1050 30  0001 C CNN
+F 1 "VCC" H 2200 1050 30  0000 C CNN
+F 2 "" H 2200 950 60  0000 C CNN
+F 3 "" H 2200 950 60  0000 C CNN
+	1    2200 950 
+	1    0    0    -1  
+$EndComp
+$Comp
+L POT RV1
+U 1 1 5BB2ED0A
+P 2200 1350
+F 0 "RV1" H 2200 1250 50  0000 C CNN
+F 1 "50K" H 2200 1350 50  0000 C CNN
+F 2 "~" H 2200 1350 60  0000 C CNN
+F 3 "~" H 2200 1350 60  0000 C CNN
+	1    2200 1350
+	0    1    1    0   
+$EndComp
+$Comp
+L GND #PWR2
+U 1 1 5BB2ED10
+P 2200 1750
+F 0 "#PWR2" H 2200 1750 30  0001 C CNN
+F 1 "GND" H 2200 1680 30  0001 C CNN
+F 2 "" H 2200 1750 60  0000 C CNN
+F 3 "" H 2200 1750 60  0000 C CNN
+	1    2200 1750
+	1    0    0    -1  
+$EndComp
+Connection ~ 2850 2150
+Wire Wire Line
+	3600 2150 2850 2150
+Wire Wire Line
+	3200 2250 3600 2250
+Wire Wire Line
+	3000 2350 3600 2350
+Wire Wire Line
+	2850 2550 3600 2550
+Wire Wire Line
+	3000 1350 3000 2350
+Wire Wire Line
+	2350 1350 3000 1350
+Wire Wire Line
+	2200 1600 2200 1750
+Wire Wire Line
+	2850 1600 2200 1600
+Wire Wire Line
+	2200 950  2200 1100
+Wire Wire Line
+	3200 1400 3200 2250
+Wire Wire Line
+	2850 1600 2850 2550
+Wire Wire Line
+	3300 3650 3600 3650
+Wire Wire Line
+	3300 3750 3300 3650
+Wire Wire Line
+	3500 3550 3600 3550
+Wire Wire Line
+	3500 3600 3500 3550
+Wire Wire Line
+	3200 3600 3500 3600
+Connection ~ 2500 1350
+Text Notes 3300 3600 0    60   ~ 0
+5V
+$Comp
+L VCC #PWR3
+U 1 1 5BB2ED16
+P 3200 1400
+F 0 "#PWR3" H 3200 1500 30  0001 C CNN
+F 1 "VCC" H 3200 1500 30  0000 C CNN
+F 2 "" H 3200 1400 60  0000 C CNN
+F 3 "" H 3200 1400 60  0000 C CNN
+	1    3200 1400
+	1    0    0    -1  
+$EndComp
+Text Notes 3300 1300 0    60   ~ 0
+5V
+Text Label 2450 3900 2    60   ~ 0
+FPGA_M12 (P15,8)
+Text Label 2450 3750 2    60   ~ 0
+FPGA_L14 (P15,7)
+Text Label 2450 3600 2    60   ~ 0
+FPGA_L11 (P15,6)
+Text Label 2450 3450 2    60   ~ 0
+FPGA_J12 (P15,5)
+Text Label 2450 3300 2    60   ~ 0
+FPGA_J11 (P15,4)
+Text Label 2450 3150 2    60   ~ 0
+FPGA_F11 (P15,3)
+Text Label 2450 3000 2    60   ~ 0
+FPGA_F13 (P15,2)
+Text Label 2450 2850 2    60   ~ 0
+FPGA_D16 (P15,1)
+Text Label 2400 2550 2    60   ~ 0
+FPGA_G15 (P16,4)
+Text Label 2400 2350 2    60   ~ 0
+FPGA_F15 (P16,5)
+Wire Wire Line
+	2400 2350 2700 2350
+Wire Wire Line
+	2700 2350 2700 2450
+Wire Wire Line
+	2700 2450 3600 2450
+Wire Wire Line
+	2400 2550 2400 2650
+Wire Wire Line
+	2400 2650 3600 2650
+Wire Wire Line
+	2450 2850 2500 2850
+Wire Wire Line
+	2500 2850 2500 2750
+Wire Wire Line
+	2500 2750 3600 2750
+Wire Wire Line
+	2450 3000 2600 3000
+Wire Wire Line
+	2600 3000 2600 2850
+Wire Wire Line
+	2600 2850 3600 2850
+Wire Wire Line
+	2450 3150 2700 3150
+Wire Wire Line
+	2700 3150 2700 2950
+Wire Wire Line
+	2700 2950 3600 2950
+Wire Wire Line
+	2450 3300 2750 3300
+Wire Wire Line
+	2750 3300 2750 3050
+Wire Wire Line
+	2750 3050 3600 3050
+Wire Wire Line
+	2450 3450 2800 3450
+Wire Wire Line
+	2800 3450 2800 3150
+Wire Wire Line
+	2800 3150 3600 3150
+Wire Wire Line
+	2450 3600 2850 3600
+Wire Wire Line
+	2850 3600 2850 3250
+Wire Wire Line
+	2850 3250 3600 3250
+Wire Wire Line
+	2450 3750 2900 3750
+Wire Wire Line
+	2900 3750 2900 3350
+Wire Wire Line
+	2900 3350 3600 3350
+Wire Wire Line
+	2450 3900 2950 3900
+Wire Wire Line
+	2950 3900 2950 3450
+Wire Wire Line
+	2950 3450 3600 3450
+$EndSCHEMATC

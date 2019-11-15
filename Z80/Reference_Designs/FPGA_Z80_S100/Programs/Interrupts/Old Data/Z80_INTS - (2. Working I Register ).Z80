@@ -1,0 +1,362 @@
+;Program to test Z80 Interrupts on the S100Computers.com Z80_FPGA Board.
+;
+;	John Monahan	S100Computers.com	8/5/2019
+;
+;
+;V1.0		7/30/2019	;First version. It is "rough & ready" with little menu etc. error checking etc.
+;				;Note address input Hex values must be 4 digits. Data (byte) values 2 digits
+;	PORT ASSIGNMENTS
+;				
+CONSTAT			EQU	0H		; Console Status Port
+CONIN			EQU	1H		; Console IN Port
+CONOUT			EQU	1H		; Console OUT Port
+
+MONITOR			EQU	0F000H		; Location of Z80 ROM monitor when done.
+
+BELL			EQU	07H
+ESC			EQU	1BH
+CR			EQU	0DH
+LF			EQU	0AH
+
+INT_ROUTINES:		EQU	1000H		;Page location of Mode 2 Interrupt Routines
+;------------------------------------------------------------------------------------------
+
+	ORG	100H
+	
+START:	LD	SP,STACK
+	LD	HL,SIGNON
+	CALL	PMSG
+
+START2:	LD	HL,SIGNON1
+	CALL	PMSG
+	CALL	CRLF				;Normal start within menu
+	LD	C,'>'	   
+	CALL	CO
+	CALL	CI
+	CP	A,ESC
+	JP	NZ,START3
+	JP	MONITOR
+	
+START3:	CP	A,'0'
+	JP	Z,DISABLE_INTS
+	CP	A,'1'
+	JP	Z,IM1_MODE
+	CP	A,'2'
+	JP	Z,IM2_MODE
+	CP	A,'3'
+	JP	Z,SET_I_REG
+	CALL	MENU_ERROR
+	JP	START2
+
+SET_I_REG:
+MENU_ERROR:
+	LD	HL,MENU_MSG		; "Menu error"
+	CALL	PMSG
+	RET
+ 
+ DATA_ERROR:
+	LD	HL,FORMAT_ERR_MSG	; "DATA  error"
+	CALL	PMSG
+	JP	START2
+	
+;-------------------------------------------------------------------------------------------------
+DISABLE_INTS:
+	LD	HL,MSG0			; 'All Z80 Interrupts are disabled'
+	CALL	PMSG
+	DI				; Disable all Ints
+	JP	START2
+	
+IM1_MODE:
+	LD	HL,MSG1			; 'Z80 set to IM1 Interrupts Mode.'
+	CALL	PMSG
+	
+	LD	HL,38H			; Pointer to 38H location in RAM
+	LD	(HL),0D3H		; "OUT 38H,Port 00H
+	INC	HL
+	LD	(HL),00H
+	INC	HL
+	LD	(HL),0FBH		; EI
+	INC	HL
+	LD	(HL),0C9H		; RET
+	IM1				; Set IM1 Mode
+	EI
+	LD	HL,MSG1a		; 'Enter any character. You should hear the buzzer. ESC to return to menu.'
+	CALL	PMSG
+IM1_MODE1:
+	CALL	CI
+	LD	C,A
+	CALL	CO
+	CP	A,ESC
+	JP	NZ,IM1_MODE1
+	DI				; Disable all Ints
+	JP	START2	
+
+
+IM2_MODE:
+	LD	HL,MSG2			; 'Z80 set to IM1 Interrupts Mode.'
+	CALL	PMSG
+	
+	LD	A,0H
+	LD	I,A			; Vectors Page =00xxH
+	IM2				; Set IM1 Mode
+	EI
+
+	LD	HL,0080H		;Setup Interrupt pointer for INT at 80H
+	LD	DE,INT_ROUTINE_80H
+	LD	(HL),E
+	INC	HL
+	LD	(HL),D
+	
+	LD	HL,MSG1a		; 'Enter any character. You should hear the buzzer. ESC to return to menu.'
+	CALL	PMSG
+IM2_MODE2:
+	CALL	CI
+	LD	C,A
+	CALL	CO
+	CP	A,ESC
+	JP	NZ,IM2_MODE2
+	DI				; Disable all Ints
+	JP	START2	
+
+
+
+
+;<<<<<<<<<<<<<<<<<<<<<<<<< SUPPORT ROUTINES >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+
+PMSG:	PUSH	BC		; Only [A] and [HL] is changed
+PMSG1:	LD	A,(HL)		; A ROUTINE TO PRINT OUT A STRING @ [HL]
+	INC	HL		; UP TO THE FIRST 0.
+	OR	A,A
+	JP	Z,PMSG_DONE
+	LD	C,A
+	CALL	CO
+	JP	PMSG1
+PMSG_DONE:
+	POP	BC
+	RET
+
+CRLF:	PUSH	BC
+	LD	C,CR
+	CALL	CO
+	LD	C,LF
+	CALL	CO
+	POP	BC
+	RET
+
+SPACE:  PUSH	BC
+	LD	C,20H
+	CALL	CO
+	POP	BC
+	RET
+
+
+; GET A CHARACTER, convert to UC, ECHO it
+GETCMD:	CALL	CI		
+	CALL	UCASE
+	CP	A,ESC
+	RET	Z		;Don't echo an ESC
+	PUSH	AF		;Save it
+	PUSH	BC
+	LD	C,A
+	CALL	CO		;Echo it
+	POP	BC
+	POP	AF		;get it back
+	RET
+;				;Convert LC to UC
+UCASE:	CP	A,'a'		;must be >= lowercase a
+	RET	C		; else go back...
+	CP	A,'z'+1		;must be <= lowercase z
+	RET	NC		; else go back...
+	SUB	A,'a'-'A'	;subtract lowercase bias
+	RET
+
+; Check if next character is a ESC
+CHECK_ESC:
+	CALL	CI
+	CP	A,ESC
+	RET			; Return Z if ESC character.
+	
+; Check if next character is a CR
+CHECK_CR:
+	CALL	CI
+	CP	A,CR
+	RET			; Return Z if ESC character.
+	
+; Return with 2 HEX digits in [A]. If abort, Carry flag set + ESC in [A]
+GET_HEX:
+	PUSH	BC			
+	CALL	GETCMD		;Get a character from keyboard & ECHO
+	CP	A,ESC
+	JR	Z,HEX_ABORT
+	CP	'/'		;check 0-9, A-F
+	JR	C,HEX_ABORT
+	CP	'F'+1
+	JR	NC,HEX_ABORT
+	CALL	ASBIN		;Convert to binary
+	SLA	A
+	SLA	A
+	SLA	A
+	SLA	A		;Shift to high nibble	
+	LD	B,A		;Store it
+	CALL	GETCMD		;Get 2nd character from keyboard & ECHO
+	CP	A,ESC
+	JR	Z,HEX_ABORT
+	CP	'/'		;check 0-9, A-F
+	JR	C,HEX_ABORT
+	CP	'F'+1
+	JR	NC,HEX_ABORT
+	CALL	ASBIN		;Convert to binary
+	OR	A,B		;add in the first digit
+	OR	A,A		;To return NC
+	POP	BC
+	RET
+	
+HEX_ABORT:
+	SCF			;Set Carry flag 
+	LD	A,ESC
+	POP	BC
+	RET
+;
+;
+; Put 4 HEX characters in [HL] 
+GET_HEX4:	
+	LD      H,0000H
+	CALL	GET_HEX		;get 2 HEX digits
+	JR	C,SCAN_ABORT
+	LD	H,A
+	CALL	GET_HEX		;get 2 more HEX digits
+	JR	C,SCAN_ABORT
+	LD	L,A
+	OR	A,A		;To return NC
+	RET
+	
+SCAN_ABORT:
+	SCF			;Set Carry flag 
+	RET
+
+; ASCII TO BINARY CONVERSION ROUTINE
+ASBIN:	SUB	30H 
+	CP	0AH 
+	RET	M
+	SUB	07H 
+	RET
+;	
+;
+; PRINT [HL] ON CONSOL
+PRINT_HL:
+	LD	A,H
+	CALL	PRINT_A
+	LD	A,L
+PRINT_A:
+	PUSH	AF
+	RRCA
+	RRCA
+	RRCA
+	RRCA
+	CALL	SF598
+	POP	AF
+SF598:	CALL	CONV
+	JP	CO
+
+; CONVERT HEX TO ASCII
+CONV:	AND	0FH
+	ADD	A,90H
+	DAA 
+	ADC	A,40H
+	DAA 
+	LD	C,A
+	RET
+	
+; DISPLAY 8 BITS OF [A] (No registers changed)
+; DISPLAY BIT PATTERN IN [A]
+ZBITS:	PUSH	AF
+	PUSH	BC
+	PUSH	DE
+	LD	E,A		
+	LD	B,8
+BQ2:	SLA	E	
+	LD	A,18H
+	ADC	A,A
+	LD	C,A
+	CALL	CO
+	DJNZ	BQ2
+	POP	DE
+	POP	BC
+	POP	AF
+	RET
+
+;<<<<<<<<<<<<<<<<<<<<<< MAIN CONSOL OUTPUT ROUTINE >>>>>>>>>>>>>>>>>>>>>>>>>
+;
+CO:	IN	A,(CONSTAT)	; SD SYSTEMS or PROPELLER VIDIO BOARD PORT
+	AND	4H
+	JP	Z,CO
+	LD	A,C
+	OUT	(CONOUT),A
+	RET			; RETURN CHARACTER SENT IN [A]
+ 
+;<<<<<<<<<<<<<<<<<<< MAIN CONSOL STATUS ROUTINE >>>>>>>>>>>>>>>>>>>>>>
+;
+CSTS:	IN	A,(CONSTAT)
+	AND	02H
+	RET	Z
+	XOR	A
+	DEC	A		; RETURN WITH 0FFH IN [A] IF SOMETHING
+	RET
+
+;<<<<<<<<<<<<<<<<<<<< MAIN CONSOL INPUT ROUTINE >>>>>>>>>>>>>>>>>>>>
+;
+CI:	IN 	A,(CONSTAT)	; NEED CONSTAT TO CLEAN UP SHIFT KEYS ETC
+	AND	02H
+	JR	Z,CI
+	IN	A,(CONIN)
+	AND	7FH
+	RET
+
+;---------------------------------------------------------------------------------------
+SIGNON:		DB	CR,LF
+		DB	CR,LF,'Test Z80 Interrupts on Z80_FPGA Board.'
+		DB	CR,LF,'By John Monahan S100Computers.COM  (V1.0)  8/5/2019',0
+		
+SIGNON1:	DB	CR,LF,LF,'---------- Main Menu ---------------'
+		DB	CR,LF,'0.   Disable all Z80 Interrupts.'
+		DB	CR,LF,'1.   Set Z80 to IM1 Interrupts Mode.'
+		DB	CR,LF,'2.   Set Z80 to IM2 Interrupts Mode.'
+		DB	CR,LF,'3.   Set Z80 I register.'
+		DB	CR,LF,'ESC  To abort program.',CR,LF,0H
+
+MENU_MSG:	DB	BELL,BELL,CR,LF,'Menu error.',0
+FORMAT_ERR_MSG: DB	BELL,BELL,CR,LF,'Data Format error.',0
+CMD_DONE:	DB	CR,LF,'Command Done.',CR,LF,LF,0
+
+
+MSG0:		DB	'0',CR,LF,'All Z80 Interrupts are disabled.',0	
+MSG1:		DB	'1',CR,LF,'Z80 set to IM1 Interrupts Mode.',0
+MSG1a:		DB	CR,LF,'Enter any character. You should hear the buzzer. ESC to return to menu.',CR,LF,0
+MSG2:		DB	'2',CR,LF,'Z80 set to IM2 Interrupts Mode.',0	
+MSG3:		DB	'3',CR,LF,'Enter Interrupt I register value (XXH) ',0
+MSG4:		DB	CR,LF,'Entering any keyboard character forces an Interrupt to 38H in RAM.',0
+MSG5:		DB	CR,LF,'Entering any keyboard character forces an Interrupt vector location.',0 
+INT_80H_MSG:	DB	'Interrupt vectored from 80H in RAM (I=0H).',BELL,CR,LF,0
+
+
+	DS	40H
+STACK:	DB	0H
+
+
+	ORG	INT_ROUTINES		;Currently at 1000H
+	
+INT_ROUTINE_80H:
+	EX	AF,AF'
+	EXX
+	LD	HL,INT_80H_MSG		; "Menu error"
+	CALL	PMSG
+	EX	AF,AF'
+	EXX
+	EI
+	RET
+
+; END
+	
+
+
+

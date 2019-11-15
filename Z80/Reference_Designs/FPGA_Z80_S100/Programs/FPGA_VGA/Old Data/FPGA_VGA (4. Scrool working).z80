@@ -1,0 +1,332 @@
+;	FPGA_VGA.Z80  This is a simple demo version to work with the V2 FPGA S100 Board
+;	using a VGA module
+; 
+;	Assemble and SLR's Z80ASM Assembler (Can also use the Cromemco Assembler)
+;	Use:- Z80ASM SBC-MON FH
+;
+;	To assemble under windows...
+;	Load Altair.EXE in Windows CMD box
+;	do cpm3
+;	I:
+;	I:>Submit FPGA_VGA
+;
+;	FPGA_VGA.HEX  is written back to the same windows folder that the PC file "altair.exe" is in.
+;
+;	Recent History...
+;
+;	V1.0	6/15/2019	Initial code
+;
+;
+FALSE		EQU	0
+TRUE		EQU	NOT FALSE
+;
+;
+;
+;
+	ORG	100H
+	
+VGA_BASE	EQU	08000H		;The VGA text will reside from 8000H to 8FFFH in this demo
+VGA_BASE_END	EQU	08C7FH		;Last character at bottom RHS
+
+SCROLL		EQU	01H		;Set scroll direction UP.
+BELL		EQU	07H
+SPACE		EQU	20H
+TAB		EQU	09H		;TAB ACROSS (8 SPACES FOR SD-BOARD)
+CR		EQU	0DH
+LF		EQU	0AH
+FF		EQU	0CH
+QUIT		EQU	11H		;Turns off any screen enhancements (flashing, underline etc).
+NO_ENH		EQU 	17H		;Turns off whatever is on
+FAST		EQU	10H		;High speed scroll
+ESC		EQU	1BH
+DELETE		EQU	7FH
+BACKS		EQU	08H
+CLEAR		EQU	1AH		;TO CLEAR SCREEN
+RST7		EQU	38H		;RST 7 (LOCATION FOR TRAP)
+NN		EQU	0H		;[I] INITIAL VALUE
+SOH		EQU	1		;For XModem etc.
+EOT		EQU	4
+ACK		EQU	6
+NAK		EQU	15H
+;
+
+CURSOR_X_PORT	EQU	68H		;Port for X cursor positioning (1-4FH, 1-79) 
+CURSOR_Y_PORT	EQU	69H		;Port for Y cursor positioning (0-27H, 0-39)
+
+;-------------- S100Computers PROPELLER CONSOLE_IO (OR SD SYSTEMS VIDIO BOARD) FOR CONSOLE INPUT & OUTPUT
+
+S100_CONSOL_STATUS	EQU	0H	;Note will utilize this board if IOBYTE bits 0 & 1 are ZERO (or bit 5 is 1).	
+S100_CONSOL_IN		EQU	1H
+S100_CONSOL_OUT		EQU	1H
+
+
+START:	LD	SP,STACK
+	LD	HL,S100_SIGNON
+	CALL	PRINT_STRING		
+
+
+;-------THIS IS THE START ON THE MAIN FPGA_VGA LOOP--------------------------------
+
+
+INIT:	LD	IX,VGA_BASE		;POINT TO RAM SCREEN BUFFER
+	LD	IY,VGA_BASE		
+
+	CALL	CLEAR_SCREEN
+	LD	HL,VGA_SIGNON
+	CALL	VGA_PRINT_STRING		
+	
+MAIN_LOOP:	
+	CALL	CI			;Store character in C
+	LD	C,A
+	CALL	CO
+	PUSH	BC
+	CALL	BITS
+	POP	BC
+	CALL	VGA_CO
+	JP	MAIN_LOOP
+	
+
+VGA_CO:	LD	A,C
+	CP	A,CR			;Is it a CR, will convert to CR/LF
+	JP	Z,DO_CR
+	CP	A,LF			;Is it a LF, Skip for now
+	JP	Z,DO_LF	
+	CP	A,FF			;Is it a FF (0CH,^L), if so clear screen 
+	JP	Z,DO_FF	
+	CP	A,TAB			;Is it a TAB, skip for now
+	JP	Z,DO_TAB
+
+NORMAL_CHAR:				;All other (real) ASCII characters
+	LD	IX,(RAM_POSITION)
+	LD	(IX+0),C		;PLACE CHARACTER IN RAM
+	INC	IX			;MOVE TO NEXT POSITION
+	LD	(RAM_POSITION),IX	;Point to next RAM position
+
+	LD	A,(X_POSITION)		;Update cursor
+	CP	A,4FH
+	JR	Z,SPECIAL_CASE		;X cursor goes 1,2,3...4F,0,1,2,3
+	CP	A,0			;If 0 then we are at end of line
+	JR	Z,SPECIAL_CASE2		
+	INC	A
+	LD	(X_POSITION),A
+	OUT	(CURSOR_X_PORT),A
+	RET
+
+SPECIAL_CASE:
+	LD	A,0			;Char position 80 is actully 0.
+	LD	(X_POSITION),A		;Send to hardware
+	OUT	(CURSOR_X_PORT),A
+	RET
+
+SPECIAL_CASE2:
+	INC	A			;Line position 0 -> 1.
+	LD	(X_POSITION),A		;Back to start of line
+	OUT	(CURSOR_X_PORT),A
+	LD	A,(Y_POSITION)
+	INC	A
+	CP	A,38			;My VGA Monitor works best with no more than 38 lines
+	JP	Z,SCROOL
+	LD	(Y_POSITION),A		
+	OUT	(CURSOR_Y_PORT),A
+	LD	HL,VGA_BASE		;Start from 8000H
+	LD	DE,50H
+MORE_LF2:
+	ADD	HL,DE
+	DEC	A
+	JR	NZ,MORE_LF2
+	LD	(RAM_POSITION),HL	;Save pointer
+	RET
+
+SCROOL:
+	LD	HL,VGA_BASE		;Start from 8000H
+	LD	IX,VGA_BASE+50H
+	LD	DE,0BE0H
+SCROOL2:
+	LD	A,(IX+0)
+	LD	(HL),A
+	INC	IX
+	INC	HL
+	DEC	DE
+	LD	A,D
+	OR	A,E
+	JP	NZ,SCROOL2
+	LD	HL,(RAM_POSITION)	;Set RAM pointer now at start of line	
+	LD	A,(X_POSITION)		;Need to adjust RAM pointer to start ioof line
+SCROOL3:
+	DEC	HL
+	DEC	A
+	JP	NZ,SCROOL3
+	INC	HL			;Adjust by 1
+	LD	(RAM_POSITION),HL	;RAM pointer now at start of line	
+	LD	A,1
+	LD	(X_POSITION),A		;Need to adjust RAM pointer to start of line
+	OUT	(CURSOR_X_PORT),A
+	RET
+	
+DO_CR:	LD	A,(Y_POSITION)		;NOTE >>>> CR will be CR+LF
+	INC	A
+	CP	A,38			;My VGA Monitor works best with no more than 38 lines
+	JP	Z,SCROOL
+	LD	(Y_POSITION),A		;Do LF first
+	OUT	(CURSOR_Y_PORT),A
+	LD	HL,VGA_BASE		;Start from 8000H
+	LD	DE,50H
+MORE_CR:
+	ADD	HL,DE
+	DEC	A
+	JR	NZ,MORE_CR
+	LD	(RAM_POSITION),HL	
+	LD	A,1
+	LD	(X_POSITION),A		;Set to start of line
+	OUT	(CURSOR_X_PORT),A
+	RET
+
+DO_LF:	RET				;Ignore 
+DO_TAB	RET				;Ignore
+
+DO_FF:					;For FF just clear screen
+CLEAR_SCREEN:
+	LD	HL,VGA_BASE
+	LD	DE,VGA_BASE_END ;(8C7FH)
+NEXT_CLR:
+	LD	A,SPACE			;SPACE to clear screen
+	LD	(HL),A
+	INC	HL
+	LD	A,H
+	CP	A,D
+	JR	NZ,NEXT_CLR
+	LD	A,L
+	CP	A,E
+	JR	NZ,NEXT_CLR
+	
+	LD	A,1	
+	LD	(X_POSITION),A		;Cursor at 1,0 (Top LHS)
+	OUT	(CURSOR_X_PORT),A
+	LD	A,0	
+	LD	(Y_POSITION),A	
+	OUT	(CURSOR_Y_PORT),A
+	LD	IX,VGA_BASE
+	LD	(RAM_POSITION),IX	;Begin at 8000H
+	RET				;Return when HL reaches 8C7F
+
+	
+	
+		
+;----------------------------------- SUPPORT ROUTINES ---------------------------
+;Print a string in [HL] up to '$'
+PRINT_STRING:
+	push	bc
+	push	de
+PSTRX:	ld	a,(hl)
+	cp	'$'
+	jp	z,DONEP
+	ld	c,A
+	call	CO
+	inc	hl
+	jp	PSTRX
+DONEP:	pop	de
+	pop	bc
+	ret
+
+VGA_PRINT_STRING:
+	push	bc
+	push	de
+VPSTRX:	ld	a,(hl)
+	cp	'$'
+	jp	z,VDONEP
+	ld	c,A
+	call	VGA_CO
+	inc	hl
+	jp	VPSTRX
+VDONEP:	pop	de
+	pop	bc
+	ret
+
+
+
+;SEND TO CONSOL CR/LF
+CRLF:	PUSH	AF
+	PUSH	BC
+	LD	C,CR
+	CALL	CO
+	LD	C,LF
+	CALL	CO
+	POP	BC
+	POP	AF
+	RET
+
+VGA_CRLF:
+	PUSH	AF
+	PUSH	BC
+	LD	C,CR
+	CALL	VGA_CO
+	LD	C,LF
+	CALL	CO
+	POP	BC
+	POP	AF
+	RET
+
+;DISPLAY 8 BITS OF [A] (No registers changed)
+
+BITS:	PUSH	DE			
+	PUSH	BC
+	LD	E,A
+	CALL	BITS1
+	POP	BC
+	POP	DE
+	RET
+
+;DISPLAY 8 BITS OF [A] (B & C registers changed)
+BITS1:	LD	B,08H			
+SF76E:	SLA	E
+	LD	A,18H
+	ADC	A,A
+	LD	C,A
+	CALL	CO
+	DJNZ	SF76E
+	RET 
+
+
+;<<<<<<<<<<<<<<<<<<<<<< MAIN CONSOL OUTPUT ROUTINE >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+;
+CO:	IN	A,(S100_CONSOL_STATUS)	;PROPELLER VIDIO BOARD PORT
+	AND	4H
+	JR	Z,CO			;Not yet ready, try both outputs
+	LD	A,C
+	OUT	(S100_CONSOL_OUT),A
+	RET
+
+CSTS:	IN	A,(S100_CONSOL_STATUS)
+	AND	02H
+	JP	Z,NO_CSTS		;Zero if nothing
+GOT_CSTS:
+	XOR	A
+	DEC	A			;RETURN WITH 0FFH IN [A] IF SOMETHING
+	RET
+NO_CSTS:
+	XOR	A			
+	RET				;RETURN WITH 0 IN A IF NOTHING THERE
+
+CI:	IN 	A,(S100_CONSOL_STATUS)	;NEED CONSTAT TO CLEAN UP SHIFT KEYS ETC
+	AND	02H
+	JR	Z,CI		;Wait until something there
+	IN	A,(S100_CONSOL_IN)
+	AND	7FH
+	RET
+	
+	
+	
+;-------------------------------------------------------------------------------------------------
+
+S100_SIGNON:	DB	CR,LF,LF,'FPGA BOARD VGA DEMO (www.S100Computers.COM  J.Monahan, 6/15/2019)',CR,LF,'$' 	
+
+VGA_SIGNON:	DB	'FPGA BOARD VGA DEMO (www.S100Computers.COM  J.Monahan, 6/15/2019)$' 	
+
+
+
+		DS	100H		;Space for stack
+STACK		EQU	$		
+
+X_POSITION	DB	1		;Store for cursor position
+Y_POSITION	DB	0
+RAM_POSITION	DW	8000H		;Store next position for character placement

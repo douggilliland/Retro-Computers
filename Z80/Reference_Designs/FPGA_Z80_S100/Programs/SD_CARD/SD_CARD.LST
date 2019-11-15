@@ -1,0 +1,1289 @@
+Z80ASM SuperFast Relocating Macro Assembler     	    Z80ASM 1.30 Page   1
+SD_CARD Z80
+
+    1                   ;Test program for SD_CARD interface of S100Computers.com FPGA Prototype board.
+    2                   ;
+    3                   ;	John Monahan	S100Computers.com	8/9/2019
+    4                   ;
+    5                   ;
+    6                   ;V0.1		8/9/2019			; First version. It is "rough & ready" with little menu etc. error checking etc.
+    7                   ;V0.2		8/15/2019			; Added High speed SPI option
+    8                   ;V0.3		8/15/2019			; Work only with Type 2 cards (Reject Type 1 cards)
+    9                   ;
+   10                   ;	PORT ASSIGNMENTS
+   11                   ;
+   12                   
+   13         0000      FALSE		EQU	0
+   14         FFFF      TRUE		EQU	NOT FALSE
+   15                   
+   16         FFFF      DEBUG		EQU	TRUE			; If TRUE all sector reads will display the actual 512 bytes of data read
+   17         FFFF      SPI_SPEED	EQU	TRUE			; If TRUE all sector Reads/Writes will switch the SPI interface from 40Khz to 10MHz
+   18                   
+   19                   
+   20                   
+   21         006C      SD_CARD_BASE	EQU	06CH
+   22                   
+   23         006C      SD_DATA_OUT	EQU	SD_CARD_BASE		; (6CH) Data TO port to SD CONTRROLLER
+   24         006C      SD_DATA_IN	EQU	SD_CARD_BASE		; (6CH) Data TO port to SD CONTRROLLER
+   25         006D      SPEED_PORT	EQU	SD_CARD_BASE+1		; (6DH) HIGH TO READ/WRITE SECTORS WITH HIGH SPEED SPI CLOCK
+   26         006E      SD_CS_PORT	EQU	SD_CARD_BASE+2		; (6EH) SD Select Port
+   27         006E      SD_STATUS	EQU	SD_CARD_BASE+2		; (6EH) SD Status Port
+   28         006F      SD_RW		EQU	SD_CARD_BASE+3		; (6FH) Port to pulse SPI Read/Write
+   29                   
+   30         0001      HIGH_SPEED	EQU	01H;			; Select SPI 10MHz CLK
+   31         0000      LOW_SPEED	EQU	00H			; Select SPI 4KHz CLK (Default on startup)
+   32         00FE      SD_CS_A		EQU	0FEH			; CS* select bit for SD Card drive A
+   33         00FD      SD_CS_B		EQU	0FDH			; CS* select bit for SD Card drive B 
+   34         0001      SD_BUSY		EQU	01H;
+   35         0080      SD_CS_READ_A	EQU	80H;			; Bit to test if Drive A CS* pin is low (not currently used)
+   36         0040      SD_CS_READ_B	EQU	40H;			; Bit to test if Drive B CS* pin is low (not currently used)
+   37                   					
+   38         0000      CONSTAT		EQU	0H			; Console Status Port
+   39         0001      CONIN		EQU	1H			; Console IN Port
+   40         0001      CONOUT		EQU	1H			; Console OUT Port
+   41                   
+   42         F000      MONITOR		EQU	0F000H			; Location of Z80 ROM monitor when done.
+   43         2000      DEFAULT_BUFFER	EQU	2000H			; Default Sector buffer location ("DMA address")
+   44                   
+   45         0020      SPACE		EQU	20H
+   46         0007      BELL		EQU	07H
+   47         001B      ESC		EQU	1BH
+   48         000D      CR		EQU	0DH
+   49         000A      LF		EQU	0AH
+   50                   
+   51                   						; SD CARD Interface Status:-
+   52                   
+   53                   
+   54                   
+   55         0100      	ORG	100H				;<<<<<<<< LOAD AT 100H
+   56 0100              START:
+   57 0100  31 12BE     	LD	SP,STACK
+   58 0103  21 0800     	LD	HL,SIGNON
+Z80ASM SuperFast Relocating Macro Assembler     	    Z80ASM 1.30 Page   2
+SD_CARD Z80
+
+   59 0106  CD 0664     	CALL	PMSG
+   60 0109  CD 0648     	CALL	ALL_CS_OFF			; Turn off CS on both SD Cards
+   61 010C  21 2000     	LD	HL,DEFAULT_BUFFER		; Default to 2000H
+   62 010F  22 1227     	LD	(DMA_ADDRESS),HL
+   63 0112  AF          	XOR	A,A
+   64 0113  32 1226     	LD	(CARD_TYPE),A			; Unknown Card Type so far
+   65 0116  32 1225     	LD	(CURRENT_DRIVE),A		; Startup with Drive A as current drive	
+   66                   	
+   67 0119  21 08D0     START1:	LD	HL,SIGNON1			; '-------- Main Menu ------Buffer = '
+   68 011C  CD 0664     	CALL	PMSG
+   69 011F  2A 1227     	LD	HL,(DMA_ADDRESS)
+   70 0122  CD 070D     	CALL	PRINT_HL
+   71 0125  21 08F2     	LD	HL,SIGNON2			; 'H, Drive = '
+   72 0128  CD 0664     	CALL	PMSG
+   73 012B  3A 1225     	LD	A,(CURRENT_DRIVE)
+   74 012E  FE 01       	CP	A,01
+   75 0130  CA 013B     	JP	Z,IS_DRIVE_B
+   76 0133  0E 41       	LD	C,'A'
+   77 0135  CD 07A8     	CALL	CO
+   78 0138  C3 0140     	JP	DONE_DRIVE
+   79 013B              IS_DRIVE_B:
+   80 013B  0E 42       	LD	C,'B'				; Must be Drive B
+   81 013D  CD 07A8     	CALL	CO
+   82 0140              DONE_DRIVE:
+   83 0140  21 08FD     	LD	HL,SIGNON3			; ')'
+   84 0143  CD 0664     	CALL	PMSG
+   85                   
+   86                   
+   87                   		
+   88 0146  CD 0674     START2:	CALL	CRLF
+   89 0149  0E 3E       	LD	C,'>'	   
+   90 014B  CD 07A8     	CALL	CO
+   91 014E  CD 07BB     	CALL	CI
+   92 0151  FE 1B       	CP	A,ESC
+   93 0153  CA F000     	JP	Z,MONITOR				; ESC drop back to Z80 monitor
+   94 0156  FE 30       	CP	A,'0'				; Check range (0-6)
+   95 0158  DA 0189     	JP	C,DATA_ERROR
+   96 015B  FE 37       	CP	A,'7'				; Check range (0-6)
+   97 015D  D2 0189     	JP	NC,DATA_ERROR
+   98 0160  C3 0163     	JP	START3
+   99                   
+  100 0163  FE 30       START3:	CP	A,'0'
+  101 0165  CC 0192     	CALL	Z,INITILIZE_SD_CARD		; Note: all CALLs will return 0 or 1 so lower
+  102 0168  FE 31       	CP	A,'1'				; down calls will not also be activated
+  103 016A  CC 030D     	CALL	Z,READ_SECTOR
+  104 016D  FE 32       	CP	A,'2'
+  105 016F  CC 03BC     	CALL	Z,READ_BUFFER
+  106 0172  FE 33       	CP	A,'3'
+  107 0174  CC 03DE     	CALL	Z,WRITE_SECTOR
+  108 0177  FE 34       	CP	A,'4'
+  109 0179  CC 04CE     	CALL	Z,SET_DMA
+  110 017C  FE 35       	CP	A,'5'
+  111 017E  CC 04E5     	CALL	Z,TEST_BOOT
+  112 0181  FE 36       	CP	A,'6'
+  113 0183  CC 058F     	CALL	Z,GET_DRIVE
+  114 0186  C3 0119     	JP	START1
+  115                   
+  116 0189              DATA_ERROR:
+Z80ASM SuperFast Relocating Macro Assembler     	    Z80ASM 1.30 Page   3
+SD_CARD Z80
+
+  117 0189  21 0A1B     	LD	HL,DATA_ERROR_MSG		; "Data error"
+  118 018C  CD 0664     	CALL	PMSG
+  119 018F  C3 0119     	JP	START1
+  120                   
+  121                   ;------------------------------------------------ RESET CARD INTERFACE -----------------------------
+  122 0192              INITILIZE_SD_CARD:     
+  123 0192  3E 00       	LD	A,0
+  124 0194  32 1226     	LD	(CARD_TYPE),A			; Unknown Card Type so far
+  125 0197  21 0A38     	LD	HL,RESET_MSG
+  126 019A  CD 0664     	CALL	PMSG
+  127 019D  CD 0656     	CALL	LOW_SPEED_CLK			; SPI CLK at 40KHz unless told otherewise
+  128                   
+  129 01A0  CD 01F5     	CALL	SEND_SD_RESET			;  Repeatidly send the RESET,  CMD0 (Up to 256 times)
+  130 01A3  21 0A7E     	LD	HL,RESET_ERR_MSG		;  'SD_CARD Interface could NOT be Reset (Status = 
+  131 01A6  C4 0620     	CALL	NZ,CMD_FAIL
+  132 01A9  C0          	RET	NZ
+  133 01AA  21 0A56     	LD	HL,RESET_OK_MSG			; "SD_CARD was reset OK"
+  134 01AD  CD 0664     	CALL	PMSG
+  135                   	
+  136 01B0  CD 0241     	CALL	SEND_GET_TYPE			; Will put card type in (CARD_TYPE)
+  137                   	
+  138 01B3  CD 0241     	CALL	SEND_GET_TYPE			; Initilize a Type 2 Card, Get Card Type CMD8. Required for SDHC cards
+  139 01B6  21 0AB1     	LD	HL,CF_TYPE_ERR_MSG		; 'Sorry, SD Card Type 2 was NOT detected. (Status =
+  140 01B9  C4 0620     	CALL	NZ,CMD_FAIL
+  141 01BC  C0          	RET	NZ
+  142 01BD  21 11A7     	LD	HL,CARD_TYPE2_MSG		; "SD Card Type 2 detected."
+  143 01C0  CD 0664     	CALL	PMSG
+  144                   	
+  145 01C3  CD 0284     	CALL	TYPE_2_ACTIVATE			; Type 2 needs special activation
+  146 01C6  21 0B73     	LD	HL,CMD55_FAIL_MSG		; SD Card Type 2 Initilization failed (CMD55 or CMD41).
+  147 01C9  C4 0620     	CALL	NZ,CMD_FAIL
+  148 01CC  C0          	RET	NZ
+  149 01CD  21 0BB3     	LD	HL,CMD41_55_OK_MSG		; 'CMD41 & CMD55 accepted OK. SD Card is now initilized.'
+  150 01D0  CD 0664     	CALL	PMSG
+  151                   
+  152                   
+  153 01D3  CD 02B9     	CALL	STOP_CRC_CHECK			; Turn off CRC Checking
+  154 01D6  21 0C03     	LD	HL,CRC_ERROR_MSG		; "Got error trying to turn off CRC checking."
+  155 01D9  C4 0620     	CALL	NZ,CMD_FAIL
+  156 01DC  C0          	RET	NZ
+  157 01DD  21 0C3C     	LD	HL,CRC_OFF_MSG			; "Card CRC data checking is now turned off."
+  158 01E0  CD 0664     	CALL	PMSG
+  159                   
+  160 01E3  CD 02CE     	CALL	SET_SEC_SIZE			; <<<<<<<<<<< Set Sector size to 512 bytes
+  161 01E6  21 0C68     	LD	HL,SIZE_ERROR_MSG		; "Got error trying set sector size to 512 bytes. (Status = "
+  162 01E9  C4 0620     	CALL	NZ,CMD_FAIL
+  163 01EC  C0          	RET	NZ
+  164 01ED  21 0AE6     	LD	HL,SIZE_OK_MSG			; "SD card size set to 512 bytes/sector."
+  165 01F0  CD 0664     	CALL	PMSG
+  166 01F3  AF          	XOR	A,A				; Back to main menu
+  167 01F4  C9          	RET
+  168                   
+  169                   	
+  170                   ;-------------------------------------------SD CARD RESET -----------------------------------------------------------
+  171                   
+  172 01F5              SEND_SD_RESET:					; Send Card Reset CMD
+  173 01F5  06 00       	LD	B,0				; Repeatidly send the RESET CMD0 (256 times)
+  174 01F7  CD 0634     INIT2:	CALL	DRIVE_CS_ON			; Lower CS on current SD card
+Z80ASM SuperFast Relocating Macro Assembler     	    Z80ASM 1.30 Page   4
+SD_CARD Z80
+
+  175 01FA  0E 0C       	LD	C,12				; Send 12 empty clock cycles
+  176 01FC  CD 05BE     INIT1:	CALL	SPI_DUMMY_CLOCKS		; Clear SPI circuit/SD card
+  177 01FF  0D          	DEC	C
+  178 0200  C2 01FC     	JP	NZ,INIT1
+  179                   	
+  180 0203  21 1231     	LD	HL,CMD_0			; (CMD0 OR 40H) 
+  181 0206  CD 05CF     	CALL	SEND_SD_CMD			
+  182 0209  CD 060A     	CALL	READ_SPI			; Value returned in [A]
+  183                   	
+  184 020C  CD 0648     	CALL	ALL_CS_OFF			; -- Turn off CS on both SD Cards
+  185 020F  FE 01       	CP	A,01H				; Is it OK
+  186 0211  C8          	RET	Z				; All OK ret Z set
+  187 0212  10 E3       	DJNZ	INIT2				; Try 256 times
+  188 0214  AF          	XOR	A
+  189 0215  3D          	DEC	A
+  190 0216  C9          	RET					; Error RET NZ
+  191                   
+  192                   
+  193                   
+  194                   ;------------------------------------------------ SEND_IDLE_STATE --------------------------------------
+  195                   
+  196 0217              SEND_IDLE_STATE:				; Wait until card is in Idle state		
+  197 0217  06 28       	LD	B,40				; Try several times
+  198 0219  CD 0634     	CALL	DRIVE_CS_ON			; Lower CS on current SD card
+  199 021C              SEND_IDLE1:
+  200 021C  21 1238     	LD	HL,CMD_1			; <<<<<<<< SEND CMD1 
+  201 021F  CD 05CF     	CALL	SEND_SD_CMD	
+  202 0222  CD 060A     	CALL	READ_SPI
+  203                   
+  204 0225  FE 00       	CP	A,0
+  205 0227  CA 0232     	JP	Z,SEND_IDLE2			
+  206 022A  10 F0       	DJNZ	SEND_IDLE1			; Need to retry several times.
+  207 022C  CD 0648     	CALL	ALL_CS_OFF			; -- Turn off CS on both SD Cards
+  208 022F  AF          	XOR	A
+  209 0230  3D          	DEC	A
+  210 0231  C9          	RET					; Error RET NZ
+  211 0232              SEND_IDLE2:
+  212 0232  3E FF       	LD	A,0FFH				; Flush with extra 0FF's
+  213 0234  CD 05F2     	CALL	WRITE_SPI
+  214 0237  3E FF       	LD	A,0FFH				; Flush with extra 0FF's
+  215 0239  CD 05F2     	CALL	WRITE_SPI
+  216                   
+  217 023C  CD 0648     	CALL	ALL_CS_OFF			; -- Turn off CS on both SD Cards
+  218 023F  AF          	XOR	A
+  219 0240  C9          	RET					; Error RET Z
+  220                   	
+  221                   ;------------------------------------------------ GET CARD VOLTAGE/TYPE --------------------------------------
+  222                   
+  223 0241              SEND_GET_TYPE:					; Get Card Voltage/Type
+  224 0241  06 28       	LD	B,40				; Try several times
+  225 0243  CD 0634     	CALL	DRIVE_CS_ON			; Lower CS on current SD card
+  226 0246              GET_TYPE1:
+  227 0246  21 123F     	LD	HL,CMD_8			; SEND CMD8 to get Card Voltage
+  228 0249  CD 05CF     	CALL	SEND_SD_CMD	
+  229 024C  CD 060A     	CALL	READ_SPI
+  230                   	 
+  231 024F  FE 01       	CP	A,01H				; If 01 then Type 2
+  232 0251  CA 0261     	JP	Z,SD_TYPE_2			; If CMD8 is Illegal Cmd, then probably CARD_TYPE=1
+Z80ASM SuperFast Relocating Macro Assembler     	    Z80ASM 1.30 Page   5
+SD_CARD Z80
+
+  233 0254  10 F0       	DJNZ	GET_TYPE1
+  234 0256  CD 0648     	CALL	ALL_CS_OFF			; Turn off CS on both SD Cards
+  235 0259  3E 01       	LD	A,1				; Probably Type 1 card
+  236 025B  32 1226     	LD	(CARD_TYPE),A			; Type 1 or Type 2 Card
+  237 025E  AF          	XOR	A,A
+  238 025F  3D          	DEC	A
+  239 0260  C9          	RET					; SD CARD not Type 2, Return NZ
+  240                   
+  241 0261              SD_TYPE_2:					; Confirm type 2
+  242 0261  CD 060A     	CALL	READ_SPI			; value returned in [A] is 00H
+  243 0264  CD 060A     	CALL	READ_SPI			; value returned in [A] is 00H
+  244 0267  CD 060A     	CALL	READ_SPI			; value returned in [A] is 01H
+  245 026A  CD 060A     	CALL	READ_SPI			; value returned in [A] is 87H
+  246                   	
+  247 026D  CD 0648     	CALL	ALL_CS_OFF			; Turn off CS on both SD Cards
+  248 0270  FE AA       	CP	A,0AAH				; Must be 0AAH for Type 2 cards
+  249 0272  C2 027C     	JP	NZ,NOT_2			; SD CARD UNKNOWN_TYPE, Return NZ
+  250 0275  3E 02       	LD	A,2				 
+  251 0277  32 1226     	LD	(CARD_TYPE),A			; Definately Type 2 card
+  252 027A  AF          	XOR	A,A				
+  253 027B  C9          	RET					; RET Z
+  254                   
+  255 027C  3E 00       NOT_2:	LD	A,0				; Unknown card
+  256 027E  32 1226     	LD	(CARD_TYPE),A			; Not Type 1 or Type 2 Card
+  257 0281  AF          	XOR	A,A
+  258 0282  3D          	DEC	A
+  259 0283  C9          	RET					; Return NZ
+  260                   	
+  261                   	
+  262                   ;  ------------------------------------- AVCTIVATE TYPE 2 CARDS  ---------------------------------
+  263                   
+  264 0284              TYPE_2_ACTIVATE:				; Initilize the SD card Type 2 cards with CMD55 & CMD44 Commands
+  265 0284  06 28       	LD	B,40				; Will try 40 times
+  266 0286  CD 0634     ACT1:	CALL	DRIVE_CS_ON			; Lower CS on current SD card
+  267 0289  21 1269     	LD	HL,CMD_55			; Application specific command next
+  268 028C  CD 05CF     	CALL	SEND_SD_CMD			
+  269 028F  CD 060A     	CALL	READ_SPI			; value returned in [A]
+  270 0292  FE 01       	CP	A,01H				; Correct response is 01H
+  271 0294  CA 029F     	JP	Z,ACT2				; Got correct response try CMD41		
+  272 0297  10 ED       	DJNZ	ACT1
+  273 0299  CD 0648     	CALL	ALL_CS_OFF			; -- Turn off CS on both SD Cards
+  274 029C  AF          	XOR	A
+  275 029D  3D          	DEC	A
+  276 029E  C9          	RET					; Error RET NZ
+  277                   
+  278 029F  CD 0648     ACT2:	CALL	ALL_CS_OFF			; Turn off CS on both SD Cards
+  279 02A2  CD 0634     	CALL	DRIVE_CS_ON			; Turn back on, Lower CS on current SD card (required!)
+  280 02A5  21 1262     	LD	HL,CMD_41			
+  281 02A8  CD 05CF     	CALL	SEND_SD_CMD			
+  282 02AB  CD 060A     	CALL	READ_SPI			; Value returned in [A]
+  283 02AE  CD 0648     	CALL	ALL_CS_OFF			; -- Turn off CS on both SD Cards
+  284 02B1  FE 00       	CP	A,0
+  285 02B3  C8          	RET	Z				; RET Z
+  286 02B4  10 D0       	DJNZ	ACT1
+  287 02B6  AF          	XOR	A
+  288 02B7  3D          	DEC	A
+  289 02B8  C9          	RET					; Error RET NZ
+  290                   
+Z80ASM SuperFast Relocating Macro Assembler     	    Z80ASM 1.30 Page   6
+SD_CARD Z80
+
+  291                   
+  292                   ;  ----------------------------------------------  DEACTIVATE CRC CHECKING  ----------------
+  293                   	
+  294 02B9              STOP_CRC_CHECK:					; Will now stop CRC checking
+  295 02B9  CD 0634     	CALL	DRIVE_CS_ON			; Lower CS on current SD card
+  296 02BC  21 1277     	LD	HL,CMD_59
+  297 02BF  CD 05CF     	CALL	SEND_SD_CMD			; SEND CMD59 Turn off CRC checking
+  298 02C2  CD 060A     	CALL	READ_SPI			; Value returned in [A]
+  299 02C5  CD 0648     	CALL	ALL_CS_OFF			; Turn off CS on both SD Cards
+  300 02C8  FE 00       	CP	A,0H
+  301 02CA  C8          	RET	Z				; RET Z
+  302 02CB  AF          	XOR	A
+  303 02CC  3D          	DEC	A
+  304 02CD  C9          	RET					; Error RET NZ
+  305                   	
+  306                   
+  307                   ;  ---------------------------------------------- SET SECTOR SIZE FOR TYPE 1 & 2 CARDS  ----------------
+  308                   
+  309 02CE              SET_SEC_SIZE:					; Will now set the sector size to 512 bytes
+  310 02CE  CD 0634     	CALL	DRIVE_CS_ON			; Lower CS on current SD card
+  311 02D1  21 1254     	LD	HL,CMD_16
+  312 02D4  CD 05CF     	CALL	SEND_SD_CMD			; SEND CMD16 to set sector size (512 Bytes)
+  313 02D7  CD 060A     	CALL	READ_SPI			; Value returned in [A]
+  314 02DA  CD 0648     	CALL	ALL_CS_OFF			; Turn off CS on both SD Cards
+  315 02DD  FE 00       	CP	A,0H				; Should be 00000000B
+  316 02DF  C8          	RET	Z				; RET Z
+  317 02E0  AF          	XOR	A
+  318 02E1  3D          	DEC	A
+  319 02E2  C9          	RET					; Error RET NZ
+  320                   
+  321                   
+  322                   ;------------------------------------------------ SEND CARD STATUS --------------------------------------
+  323                   
+  324 02E3              GET_CARD_STATUS:				; Get card status		
+  325 02E3  06 28       	LD	B,40				; Try several times
+  326 02E5  CD 0634     	CALL	DRIVE_CS_ON			; Lower CS on current SD card
+  327 02E8              CARD_STATUS_1:
+  328 02E8  21 124D     	LD	HL,CMD_13			; <<<<<<<< SEND CMD13 
+  329 02EB  CD 05CF     	CALL	SEND_SD_CMD	
+  330 02EE  CD 060A     	CALL	READ_SPI
+  331 02F1  FE 00       	CP	A,0
+  332 02F3  CA 02FE     	JP	Z,CARD_STATUS_2			
+  333 02F6  10 F0       	DJNZ	CARD_STATUS_1			; Need to retry several times.
+  334 02F8  CD 0648     	CALL	ALL_CS_OFF			; -- Turn off CS on both SD Cards
+  335 02FB  AF          	XOR	A
+  336 02FC  3D          	DEC	A
+  337 02FD  C9          	RET					; Error RET NZ
+  338 02FE              CARD_STATUS_2:
+  339 02FE  3E FF       	LD	A,0FFH				; Flush with extra 0FF's
+  340 0300  CD 05F2     	CALL	WRITE_SPI
+  341 0303  3E FF       	LD	A,0FFH				; Flush with extra 0FF's
+  342 0305  CD 05F2     	CALL	WRITE_SPI
+  343 0308  CD 0648     	CALL	ALL_CS_OFF			; -- Turn off CS on both SD Cards
+  344 030B  AF          	XOR	A
+  345 030C  C9          	RET					; Error RET Z
+  346                   
+  347                   ;==========================================  READ A SECTOR  =====================================================
+  348                   
+Z80ASM SuperFast Relocating Macro Assembler     	    Z80ASM 1.30 Page   7
+SD_CARD Z80
+
+  349 030D              READ_SECTOR:
+  350 030D  21 0B15     	LD	HL,READ_SEC_MSG1		; '1,  Will read a sector from SD Card.',CR,LF,0H
+  351 0310  CD 0664     	CALL	PMSG
+  352 0313  3A 1226     	LD	A,(CARD_TYPE)			; Flag to check if SD card type has been determined 
+  353 0316  B7          	OR	A,A
+  354 0317  C2 0323     	JP	NZ,READ_SEC_OK
+  355 031A  21 0B3C     	LD	HL,READ_ERR_MSG1		; 'Sorry, SD Card must first be initilized (Menu 0).
+  356 031D  CD 0664     	CALL	PMSG
+  357 0320  C3 0119     	JP	START1				; Back to main menu
+  358                   
+  359 0323              READ_SEC_OK:
+  360 0323  21 0DA6     	LD	HL,ENTER_SEC_NUM		; 'Please enter Sector Number (XXXXH):
+  361 0326  CD 0664     	CALL	PMSG
+  362 0329  CD 06F1     	CALL	GET_HEX4
+  363 032C  DA 0189     	JP	C,DATA_ERROR
+  364 032F  22 1229     	LD	(SEC_ADDRESS),HL		; Store for later
+  365                   
+  366         FFFF      IF SPI_SPEED
+  367 0332  CD 064F     	CALL	HIGH_SPEED_CLK			; Run SPI at 10MHz
+  368                   ELSE
+  370                   ENDIF
+  371                   
+  372 0335  CD 0634     	CALL	DRIVE_CS_ON			; Lower CS on current SD card
+  373 0338  06 00       	LD	B,0H				; Try up to 255 times!
+  374 033A              READ_SEC1:
+  375 033A  3E 51       	LD	A,51H				; <<<<<<<< SEND CMD17  OR bits 40H added
+  376 033C  CD 05F2     	CALL	WRITE_SPI
+  377 033F  3E 00       	LD	A,0				; Second byte of CMD
+  378 0341  CD 05F2     	CALL	WRITE_SPI
+  379 0344  3E 00       	LD	A,0				; Third byte of CMD
+  380 0346  CD 05F2     	CALL	WRITE_SPI
+  381 0349  2A 1229     	LD	HL,(SEC_ADDRESS)											
+  382 034C  7D          	LD	A,L				; Forth byte of CMD 
+  383 034D  CD 05F2     	CALL	WRITE_SPI
+  384 0350  7C          	LD	A,H				; Fifth byte of CMD
+  385 0351  CD 05F2     	CALL	WRITE_SPI
+  386 0354  3E FF       	LD	A,0FFH				; CRC byte of CMD
+  387 0356  CD 05F2     	CALL	WRITE_SPI
+  388 0359  3E FF       	LD	A,0FFH				; Flush with extra 0FF's
+  389 035B  CD 05F2     	CALL	WRITE_SPI
+  390                   
+  391 035E  CD 060A     	CALL	READ_SPI
+  392                   	
+  393 0361  FE 00       	CP	A,0H				; Should be 00000000B
+  394 0363  CA 036E     	JP	Z,READ_SEC_OK1
+  395 0366  21 0CA5     	LD	HL,SEC_RD_ERR0_MSG		; Got error with Read Sector command CMD17. (Status = "
+  396 0369  C3 0620     	JP	CMD_FAIL			; Deselect CS, Low speed CLK, send error Message
+  397                   
+  398 036C  06 00       	LD	B,0H
+  399 036E              READ_SEC_OK1:
+  400 036E  CD 060A     	CALL	READ_SPI
+  401 0371  FE FF       	CP	A,0FFH
+  402 0373  CA 036E     	JP	Z,READ_SEC_OK1
+  403 0376  FE FE       	CP	A,0FEH				; Should be 0FEH (Start Token)
+  404 0378  CA 0383     	JP	Z,READ_SEC_OK2
+  405 037B  10 F1       	DJNZ	READ_SEC_OK1			; Keep trying until we see 0FEH
+  406 037D  21 0D1B     	LD	HL,SEC_RD_ERR1_MSG		; Got error with Read Sector command CMD17. (Status = "
+  407 0380  C3 0620     	JP	CMD_FAIL			; Deselect CS, Low speed CLK, send error Message
+Z80ASM SuperFast Relocating Macro Assembler     	    Z80ASM 1.30 Page   8
+SD_CARD Z80
+
+  408                   
+  409 0383              READ_SEC_OK2:
+  410 0383  2A 1227     	LD	HL,(DMA_ADDRESS)
+  411 0386  06 00       	LD	B,0
+  412 0388              READ_256:
+  413 0388  CD 060A     	CALL	READ_SPI
+  414 038B  77          	LD	(HL),A
+  415 038C  23          	INC	HL
+  416 038D  10 F9       	DJNZ	READ_256
+  417 038F  06 00       	LD	B,0
+  418 0391              READ_512:
+  419 0391  CD 060A     	CALL	READ_SPI
+  420 0394  77          	LD	(HL),A
+  421 0395  23          	INC	HL
+  422 0396  10 F9       	DJNZ	READ_512
+  423                   
+  424 0398  CD 060A     	CALL	READ_SPI			; Read 16 bit CRC 
+  425 039B  CD 060A     	CALL	READ_SPI
+  426                   	
+  427 039E  CD 060A     	CALL	READ_SPI			; Need one extra!
+  428                   
+  429 03A1  CD 0648     	CALL	ALL_CS_OFF			; Turn off CS on both SD Cards
+  430 03A4  CD 0656     	CALL	LOW_SPEED_CLK
+  431 03A7  21 0DCD     	LD	HL,SEC_RD_OK_MSG		; Sector Read OK
+  432 03AA  CD 0664     	CALL	PMSG
+  433 03AD  2A 1229     	LD	HL,(SEC_ADDRESS)
+  434 03B0  CD 070D     	CALL	PRINT_HL			; Sector #
+  435 03B3  21 0DD7     	LD	HL,SEC_RD1_OK_MSG		; 'H was read correctly.'
+  436 03B6  CD 0664     	CALL	PMSG
+  437                   
+  438         FFFF      IF	DEBUG					;If required to display buffer contents
+  439 03B9  C3 03BC     	JP	READ_BUFFER			; <--- CAN SKIP DISPLAYING BUFFER HERE
+  440                   ELSE	
+  442                   ENDIF
+  443                   
+  444                   ;------------------------------------------------------------------------------------------------------
+  445                   
+  446 03BC              READ_BUFFER:					;  ROUTINE TO DISPLAY DMA/BUFFER  CONTENTS 
+  447 03BC  21 0E0F     	LD	HL,RAM_DATA			; '512 Bytes of RAM buffer data. (Starting at RAM location '
+  448 03BF  CD 0664     	CALL	PMSG
+  449 03C2  2A 1227     	LD	HL,(DMA_ADDRESS)
+  450 03C5  CD 070D     	CALL	PRINT_HL
+  451 03C8  21 0A79     	LD	HL,BITS_END_MSG			; "'B)',CR,LF,0"
+  452 03CB  CD 0664     	CALL	PMSG
+  453                   	
+  454 03CE  2A 1227     	LD	HL,(DMA_ADDRESS)		; Get pointer
+  455 03D1  CD 0740     	CALL	HEXDUMP				; Display buffer contents
+  456 03D4  21 0E4B     	LD	HL,CONTINUE_MSG			; 'Type any character to continue.
+  457 03D7  CD 0664     	CALL	PMSG
+  458 03DA  CD 07BB     	CALL	CI
+  459 03DD  C9          	RET
+  460                   
+  461                   	
+  462                   
+  463                   ;==========================================  WRITE A SECTOR  =====================================================
+  464                   
+  465 03DE              WRITE_SECTOR:
+  466 03DE  21 0E95     	LD	HL,WRITE_SEC_MSG1		; '3,  Will read a sector from SD Card.',CR,LF,0H
+Z80ASM SuperFast Relocating Macro Assembler     	    Z80ASM 1.30 Page   9
+SD_CARD Z80
+
+  467 03E1  CD 0664     	CALL	PMSG
+  468                   
+  469 03E4  3A 1226     	LD	A,(CARD_TYPE)			; Flag to check if SD card type has been determined
+  470 03E7  B7          	OR	A,A
+  471 03E8  C2 03F4     	JP	NZ,WRITE_SEC_OK
+  472 03EB  21 0B3C     	LD	HL,READ_ERR_MSG1		; 'Sorry, SD Card must first be initilized (Menu 0).
+  473 03EE  CD 0664     	CALL	PMSG
+  474 03F1  C3 0119     	JP	START1				; Back to main menu
+  475                   
+  476 03F4              WRITE_SEC_OK:
+  477 03F4  21 0DA6     	LD	HL,ENTER_SEC_NUM		; 'Please enter Sector Number (XXXXH):
+  478 03F7  CD 0664     	CALL	PMSG
+  479 03FA  CD 06F1     	CALL	GET_HEX4
+  480 03FD  DA 0189     	JP	C,DATA_ERROR
+  481 0400  22 1229     	LD	(SEC_ADDRESS),HL		; Store for later
+  482                   	
+  483         FFFF      IF SPI_SPEED
+  484 0403  CD 064F     	CALL	HIGH_SPEED_CLK			; Run SPI at 10MHz
+  485                   ELSE
+  487                   ENDIF
+  488                   
+  489 0406  CD 0634     	CALL	DRIVE_CS_ON			; Lower CS on current SD card
+  490                   
+  491 0409  3E 58       	LD	A,58H				; <<<<<<<< SEND CMD24  OR bits 40H added
+  492 040B  CD 05F2     	CALL	WRITE_SPI
+  493 040E  3E 00       	LD	A,0				; Second byte of CMD
+  494 0410  CD 05F2     	CALL	WRITE_SPI
+  495 0413  3E 00       	LD	A,0				; Third byte of CMD
+  496 0415  CD 05F2     	CALL	WRITE_SPI
+  497 0418  2A 1229     	LD	HL,(SEC_ADDRESS)											
+  498 041B  7D          	LD	A,L				; Forth byte of CMD 
+  499 041C  CD 05F2     	CALL	WRITE_SPI
+  500 041F  7C          	LD	A,H				; Fifth byte of CMD
+  501 0420  CD 05F2     	CALL	WRITE_SPI
+  502 0423  3E FF       	LD	A,0FFH				; CRC byte of CMD
+  503 0425  CD 05F2     	CALL	WRITE_SPI
+  504 0428  3E FF       	LD	A,0FFH				; Flush with extra 0FF's
+  505 042A  CD 05F2     	CALL	WRITE_SPI
+  506                   
+  507 042D  CD 060A     	CALL	READ_SPI
+  508                   	
+  509 0430  FE 00       	CP	A,0H				; Should be 00000000B
+  510 0432  CA 043B     	JP	Z,WRITE_SEC_OK1
+  511                   
+  512 0435  21 0ECB     	LD	HL,SEC_WR_ERR0_MSG		; 'Got error with Write Sector command CMD24. (Status = 
+  513 0438  C3 0620     	JP	CMD_FAIL			; Deselect CS, Low speed CLK, send error Message
+  514                   
+  515 043B              WRITE_SEC_OK1:
+  516 043B  3E FE       	LD	A,0FEH				; Start Block write flag
+  517 043D  CD 05F2     	CALL	WRITE_SPI
+  518                   
+  519 0440  2A 1227     	LD	HL,(DMA_ADDRESS)
+  520 0443  06 00       	LD	B,0
+  521 0445              WRITE_256:
+  522 0445  7E          	LD	A,(HL)
+  523 0446  CD 05F2     	CALL	WRITE_SPI
+  524 0449  23          	INC	HL
+  525 044A  10 F9       	DJNZ	WRITE_256
+Z80ASM SuperFast Relocating Macro Assembler     	    Z80ASM 1.30 Page  10
+SD_CARD Z80
+
+  526 044C  06 00       	LD	B,0
+  527 044E              WRITE_512:
+  528 044E  7E          	LD	A,(HL)
+  529 044F  CD 05F2     	CALL	WRITE_SPI
+  530 0452  23          	INC	HL
+  531 0453  10 F9       	DJNZ	WRITE_512
+  532                   
+  533 0455  3E FF       	LD	A,0FFH				; Send 16 bit CRC
+  534 0457  CD 05F2     	CALL	WRITE_SPI
+  535 045A  CD 05F2     	CALL	WRITE_SPI
+  536                   
+  537 045D  CD 060A     	CALL	READ_SPI			; Check all is OK
+  538                   
+  539 0460  E6 1F       	AND	A,1FH
+  540 0462  FE 05       	CP	A,05H				; Should be xxx0AAA1H (AAA = 010)
+  541 0464  CA 0476     	JP	Z,WRITE_SEC_OK2
+  542 0467  CD 0648     	CALL	ALL_CS_OFF			; Turn off CS on both SD Cards
+  543 046A  CD 0656     	CALL	LOW_SPEED_CLK
+  544 046D  21 0F29     	LD	HL,SEC_WR_ERR1_MSG		; Got error with Read Sector command CMD24. (Status = "
+  545 0470  C3 0620     	JP	CMD_FAIL			; Deselect CS, Low speed CLK, send error Message
+  546                   
+  547 0473  21 0000     	LD	HL,0000H			; Wait until writing is done
+  548 0476              WRITE_SEC_OK2:
+  549 0476  CD 060A     	CALL	READ_SPI			; Wait for SD card to complete writing, (64K times)
+  550 0479  FE 00       	CP	A,0
+  551 047B  CA 0490     	JP	Z,WRITE_SEC_OK3
+  552 047E  2B          	DEC	HL
+  553 047F  7D          	LD	A,L
+  554 0480  B4          	OR	A,H
+  555 0481  C2 0476     	JP	NZ,WRITE_SEC_OK2
+  556 0484               WRITE_ERR:	
+  557 0484  CD 0648     	CALL	ALL_CS_OFF			; Turn off CS on both SD Cards
+  558 0487  CD 0656     	CALL	LOW_SPEED_CLK
+  559 048A  21 0F64     	LD	HL,SEC_WR_ERR2_MSG		; Error waiting for SD Card to complete sector write. (Status = "
+  560 048D  C3 0620     	JP	CMD_FAIL			; Deselect CS, Low speed CLK, send error Message
+  561                   
+  562                   
+  563                   						; >>> NOT CLEAR WHAT IS WRONG WITH THIS WRITE SECTOR CODE
+  564                   						; >>> I NEED TO RESET THE CARD AFTER EACH SECTOR WRITE
+  565                   						; >>> OTHEREWISE THE NEXT SEC READ GIVES ERROROUS DATA
+  566 0490              WRITE_SEC_OK3:
+  567 0490  CD 01F5     	CALL	SEND_SD_RESET			; CMD0
+  568 0493  C2 04BC     	JP	NZ,WRITE_RESET_ERR3		; Error resetting SD Card after sector write, CMD0. (Status =
+  569                   
+  570 0496  CD 0241     	CALL	SEND_GET_TYPE			; CMD8	
+  571 0499  C2 04C2     	JP	NZ,WRITE_RESET_ERR4		; Error getting SD Card type after sector write, CMD8. (Status = 
+  572                   
+  573 049C  CD 0284     	CALL	TYPE_2_ACTIVATE			; CMD55+CMD41	 
+  574 049F  C2 04C8     	JP	NZ,WRITE_RESET_ERR5
+  575                   
+  576 04A2  CD 0648     	CALL	ALL_CS_OFF			; Turn off CS on both SD Cards
+  577 04A5  CD 0656     	CALL	LOW_SPEED_CLK
+  578 04A8  21 0F04     	LD	HL,SEC_WR_OK_MSG		; 'Sector'
+  579 04AB  CD 0664     	CALL	PMSG
+  580 04AE  2A 1229     	LD	HL,(SEC_ADDRESS)
+  581 04B1  CD 070D     	CALL	PRINT_HL			; Sector #
+  582 04B4  21 0F0E     	LD	HL,SEC_WR1_OK_MSG		; 'H was written correctly.'
+  583 04B7  CD 0664     	CALL	PMSG
+Z80ASM SuperFast Relocating Macro Assembler     	    Z80ASM 1.30 Page  11
+SD_CARD Z80
+
+  584 04BA  AF          	XOR	A,A
+  585 04BB  C9          	RET
+  586                   	
+  587 04BC              WRITE_RESET_ERR3:	
+  588 04BC  21 0FA6     	LD	HL,SEC_WR_ERR3_MSG		; Error resetting SD Card after sector write, CMD0. (Status = 
+  589 04BF  C3 0620     	JP	CMD_FAIL			; Deselect CS, Low speed CLK, send error Message
+  590                   	
+  591 04C2              WRITE_RESET_ERR4:	
+  592 04C2  21 0FE6     	LD	HL,SEC_WR_ERR4_MSG		; Error getting SD Card type after sector write. (Status = 
+  593 04C5  C3 0620     	JP	CMD_FAIL			; Deselect CS, Low speed CLK, send error Message
+  594                   
+  595 04C8              WRITE_RESET_ERR5:	
+  596 04C8  21 1029     	LD	HL,SEC_WR_ERR5_MSG		; Error re-activating Type 2 Card after sector write. (Status = 
+  597 04CB  C3 0620     	JP	CMD_FAIL			; Deselect CS, Low speed CLK, send error Message
+  598                   	
+  599                      
+  600                   ;==================================================================================================================
+  601                   
+  602 04CE              SET_DMA:	
+  603 04CE  21 0D53     	LD	HL,ENTER_RAM_LOC		; '4,  Set Sector RAM  Buffer.'
+  604 04D1  CD 0664     	CALL	PMSG
+  605 04D4  21 0D79     	LD	HL,ENTER_RAM_LOC1		; 'Please enter RAM buffer location (XXXXH): 
+  606 04D7  CD 0664     	CALL	PMSG
+  607 04DA  CD 06F1     	CALL	GET_HEX4
+  608 04DD  DA 0189     	JP	C,DATA_ERROR
+  609 04E0  22 1227     	LD	(DMA_ADDRESS),HL		; Store for later
+  610 04E3  AF          	XOR	A,A
+  611 04E4  C9          	RET
+  612                   	
+  613                   	
+  614                   ;========================================== READ BOOT SECTOR ====================================================
+  615                   
+  616 04E5              TEST_BOOT:
+  617 04E5  21 0000     	LD	HL,0H				; Will read sector 0 to DMA address
+  618 04E8  22 1229     	LD	(SEC_ADDRESS),HL
+  619 04EB  21 2000     	LD	HL,DEFAULT_BUFFER		; Default buffer is (for testing) 2000H to DMA address
+  620 04EE  22 1227     	LD	(DMA_ADDRESS),HL
+  621 04F1  3E 00       	LD	A,0				; Need to get card type
+  622 04F3  32 1226     	LD	(CARD_TYPE),A			; Flag to indicate SD card type has not yet been determined
+  623                   
+  624 04F6  CD 01F5     	CALL	SEND_SD_RESET	
+  625 04F9  C2 0577     	JP	NZ,BOOT_READ_ERR1		; Error resetting SD Card before boot sector read, CMD0. (Status = 
+  626                   	
+  627 04FC  CD 0241     	CALL	SEND_GET_TYPE
+  628 04FF  C2 057D     	JP	NZ,BOOT_READ_ERR2		; Error getting SD card Type before boot sector read, CMD8. (Status = '
+  629                   	
+  630 0502  CD 0284     	CALL	TYPE_2_ACTIVATE			; Initilize a Type 2 Card
+  631 0505  C2 0583     	JP	NZ,BOOT_READ_ERR3		; Error activating SD Card Type 2 before boot sector read, CMD55+CMD41. (Status =
+  632 0508  C3 050B     	JP	DO_BOOT
+  633                   
+  634 050B              DO_BOOT:
+  635                   	
+  636         FFFF      IF SPI_SPEED
+  637 050B  CD 064F     	CALL	HIGH_SPEED_CLK			; Run SPI at 10MHz
+  638                   ELSE
+  640                   ENDIF
+  641                   
+  642 050E  CD 0634     	CALL	DRIVE_CS_ON			; Lower CS on current SD card
+Z80ASM SuperFast Relocating Macro Assembler     	    Z80ASM 1.30 Page  12
+SD_CARD Z80
+
+  643 0511  06 00       	LD	B,0H				; Try up to 255 times!
+  644 0513              BOOT_SEC1:
+  645 0513  21 125B     	LD	HL,CMD_17			; Read sector (NOTE >>> Sector 0000H)
+  646 0516  CD 05CF     	CALL	SEND_SD_CMD			
+  647 0519  CD 060A     	CALL	READ_SPI			; value returned in [A]
+  648                   
+  649 051C  FE 00       	CP	A,0H				; Should be 00000000B
+  650 051E  CA 0529     	JP	Z,BOOT_SEC_OK1
+  651 0521  21 0CA5     	LD	HL,SEC_RD_ERR0_MSG		; Got error with Read Sector command CMD17. (Status = "
+  652 0524  C3 0620     	JP	CMD_FAIL			; Deselect CS, Low speed CLK, send error Message
+  653                   
+  654 0527  06 00       	LD	B,0H
+  655 0529              BOOT_SEC_OK1:
+  656 0529  CD 060A     	CALL	READ_SPI
+  657 052C  FE FF       	CP	A,0FFH
+  658 052E  CA 0529     	JP	Z,BOOT_SEC_OK1
+  659 0531  FE FE       	CP	A,0FEH				; Should be 0FEH (Start Token)
+  660 0533  CA 053E     	JP	Z,BOOT_SEC_OK2
+  661 0536  10 F1       	DJNZ	BOOT_SEC_OK1			; Keep trying until we see 0FEH
+  662                   	
+  663 0538  21 0D1B     	LD	HL,SEC_RD_ERR1_MSG		; Got error with Read Sector. No 0FEH Flag. (Status = 
+  664 053B  C3 0620     	JP	CMD_FAIL			; Deselect CS, Low speed CLK, send error Message
+  665                   
+  666 053E              BOOT_SEC_OK2:
+  667 053E  2A 1227     	LD	HL,(DMA_ADDRESS)
+  668 0541  06 00       	LD	B,0
+  669 0543              BOOT_256:
+  670 0543  CD 060A     	CALL	READ_SPI
+  671 0546  77          	LD	(HL),A
+  672 0547  23          	INC	HL
+  673 0548  10 F9       	DJNZ	BOOT_256
+  674 054A  06 00       	LD	B,0
+  675 054C              BOOT_512:
+  676 054C  CD 060A     	CALL	READ_SPI
+  677 054F  77          	LD	(HL),A
+  678 0550  23          	INC	HL
+  679 0551  10 F9       	DJNZ	BOOT_512
+  680                   
+  681 0553  CD 060A     	CALL	READ_SPI			; Read 16 bit CRC 
+  682 0556  CD 060A     	CALL	READ_SPI
+  683                   	
+  684 0559  CD 060A     	CALL	READ_SPI			; Need one extra!
+  685                   
+  686 055C  CD 0648     	CALL	ALL_CS_OFF			; Turn off CS on both SD Cards
+  687 055F  CD 0656     	CALL	LOW_SPEED_CLK
+  688 0562  21 0DCD     	LD	HL,SEC_RD_OK_MSG		; Sector Read OK
+  689 0565  CD 0664     	CALL	PMSG
+  690 0568  2A 1229     	LD	HL,(SEC_ADDRESS)
+  691 056B  CD 070D     	CALL	PRINT_HL			; Sector #
+  692 056E  21 0DD7     	LD	HL,SEC_RD1_OK_MSG		; 'H was read correctly.'
+  693 0571  CD 0664     	CALL	PMSG
+  694                   
+  695         FFFF      IF	DEBUG					;If required to display buffer contents
+  696 0574  C3 03BC     	JP	READ_BUFFER			; <--- CAN SKIP DISPLAYING BUFFER HERE
+  697                   ELSE	
+  699                   ENDIF
+  700                   
+  701                   
+Z80ASM SuperFast Relocating Macro Assembler     	    Z80ASM 1.30 Page  13
+SD_CARD Z80
+
+  702 0577              BOOT_READ_ERR1:	
+  703 0577  21 1078     	LD	HL,BOOT_ERR1_MSG		; Error resetting SD Card before boot sector read, CMD0. (Status = 
+  704 057A  C3 0620     	JP	CMD_FAIL			; Deselect CS, Low speed CLK, send error Message
+  705                   	
+  706 057D              BOOT_READ_ERR2:	
+  707 057D  21 10BD     	LD	HL,BOOT_ERR2_MSG		; Error getting SD card Type before boot sector read, CMD8. (Status = 
+  708 0580  C3 0620     	JP	CMD_FAIL			; Deselect CS, Low speed CLK, send error Message
+  709                   
+  710 0583              BOOT_READ_ERR3:	
+  711 0583  21 1105     	LD	HL,BOOT_ERR3_MSG		; Error activating SD Card Type 2 before boot sector read, CMD55+CMD41. (Status = 
+  712 0586  C3 0620     	JP	CMD_FAIL			; Deselect CS, Low speed CLK, send error Message
+  713                   
+  714 0589              BOOT_READ_ERR4:	
+  715 0589  21 1159     	LD	HL,BOOT_ERR4_MSG		; Error activating SD Card Type 1 before boot sector reade, CMD1. (Status = 
+  716 058C  C3 0620     	JP	CMD_FAIL			; Deselect CS, Low speed CLK, send error Message
+  717                   	
+  718                   ;---------------------------------------------------------------------------------------------------------------------
+  719                   
+  720 058F              GET_DRIVE:
+  721 058F  21 11CE     	LD	HL,GET_DRIVE_MSG		; '6, Get Drive.'
+  722 0592  CD 0664     	CALL	PMSG
+  723 0595  21 11DE     	LD	HL,GET_DRIVE_MSG1		; 'Please enter current drive (A/B) '
+  724 0598  CD 0664     	CALL	PMSG
+  725 059B  CD 07BB     	CALL	CI
+  726 059E  CD 069F     	CALL	UCASE				; Convert to upper case
+  727 05A1  FE 1B       	CP	A,ESC
+  728 05A3  C8          	RET	Z
+  729 05A4  4F          	LD	C,A
+  730 05A5  CD 07A8     	CALL	CO				; Echo it
+  731 05A8  FE 42       	CP	A,'B'
+  732 05AA  CA 05B5     	JP	Z,SET_B
+  733 05AD  AF          	XOR	A,A
+  734 05AE  32 1225     	LD	(CURRENT_DRIVE),A		; Default to drive A
+  735 05B1  CD 0674     	CALL	CRLF
+  736 05B4  C9          	RET
+  737 05B5  3E 01       SET_B:	LD	A,1
+  738 05B7  32 1225     	LD	(CURRENT_DRIVE),A		; Set to drive B
+  739 05BA  CD 0674     	CALL	CRLF
+  740 05BD  C9          	RET
+  741                   
+  742                   	
+  743                   	
+  744                   ;------------------------- SPI COMMANDS -------------------------------------------------
+  745                   
+  746 05BE              SPI_DUMMY_CLOCKS:			; Only [A] register altered
+  747 05BE  3E FF       	LD	A,0FFH
+  748 05C0  D3 6C       	OUT	(SD_DATA_OUT),A
+  749 05C2  D3 6F       	OUT	(SD_RW),A
+  750 05C4  CD 065D     	CALL	SHORT_DELAY		; Seems to require time for busy signal to become valid
+  751 05C7  DB 6E       DUMMY1:	IN	A,(SD_STATUS)
+  752 05C9  E6 80       	AND	A,80H
+  753 05CB  C2 05C7     	JP	NZ,DUMMY1
+  754 05CE  C9          	RET
+  755                   
+  756                   
+  757                   
+  758 05CF              SEND_SD_CMD:				; Generalized CMD to send SD Card 6 commands. Only [A] & [HL] registers altered
+  759 05CF  7E          	LD	A,(HL)			; Get first byte from CMD table (Note already has OR bits 40H added)
+Z80ASM SuperFast Relocating Macro Assembler     	    Z80ASM 1.30 Page  14
+SD_CARD Z80
+
+  760 05D0  CD 05F2     	CALL	WRITE_SPI
+  761 05D3  23          	INC	HL
+  762 05D4  7E          	LD	A,(HL)			; Get second byte from CMD table 
+  763 05D5  CD 05F2     	CALL	WRITE_SPI
+  764 05D8  23          	INC	HL
+  765 05D9  7E          	LD	A,(HL)			; Get third byte from CMD table 
+  766 05DA  CD 05F2     	CALL	WRITE_SPI
+  767 05DD  23          	INC	HL
+  768 05DE  7E          	LD	A,(HL)			; Get forth byte from CMD table 
+  769 05DF  CD 05F2     	CALL	WRITE_SPI
+  770 05E2  23          	INC	HL
+  771 05E3  7E          	LD	A,(HL)			; Get fifth byte from CMD table 
+  772 05E4  CD 05F2     	CALL	WRITE_SPI
+  773 05E7  23          	INC	HL
+  774 05E8  7E          	LD	A,(HL)			; Get sixth byte from CMD table 
+  775 05E9  CD 05F2     	CALL	WRITE_SPI
+  776                   
+  777 05EC  23          	INC	HL
+  778 05ED  7E          	LD	A,(HL)			; Send dummy byte to get returned message (Required!)
+  779 05EE  CD 05F2     	CALL	WRITE_SPI
+  780 05F1  C9          	RET
+  781                   
+  782                   	
+  783                   	
+  784 05F2              WRITE_SPI:				; Only [A] register altered
+  785 05F2  F5          	PUSH	AF
+  786 05F3  DB 6E       WRITE1:	IN	A,(SD_STATUS)
+  787 05F5  E6 80       	AND	A,80H
+  788 05F7  C2 05F3     	JP	NZ,WRITE1
+  789 05FA  F1          	POP	AF
+  790 05FB  D3 6C       	OUT	(SD_DATA_OUT),A
+  791 05FD  D3 6F       	OUT	(SD_RW),A
+  792 05FF  CD 065D     	CALL	SHORT_DELAY		; Seems to require time for busy signal to become valid
+  793 0602  DB 6E       WRITE2:	IN	A,(SD_STATUS)
+  794 0604  E6 80       	AND	A,80H
+  795 0606  C2 0602     	JP	NZ,WRITE2
+  796 0609  C9          	RET
+  797                   
+  798                   
+  799 060A              READ_SPI:				; Only [A] register altered
+  800 060A  DB 6E       	IN	A,(SD_STATUS)		; Wait until SD card is ready.
+  801 060C  E6 80       	AND	A,80H
+  802 060E  C2 060A     	JP	NZ,READ_SPI
+  803 0611  DB 6F       	IN	A,(SD_RW)		; Send Read pulse
+  804 0613  CD 065D     	CALL	SHORT_DELAY		; Seems to require time for busy signal to become valid
+  805 0616  DB 6E       READ1:	IN	A,(SD_STATUS)
+  806 0618  E6 80       	AND	A,80H
+  807 061A  C2 0616     	JP	NZ,READ1
+  808 061D  DB 6C       	IN	A,(SD_DATA_IN)		; Return data in [A]
+  809 061F  C9          	RET
+  810                   
+  811                   
+  812 0620              CMD_FAIL:				; Generalized failure message routine (Message in [HL])
+  813 0620  CD 0648     	CALL	ALL_CS_OFF		; Always, turn off CS on both SD Cards
+  814 0623  CD 0664     	CALL	PMSG
+  815 0626  DB 6C       	IN	A,(SD_DATA_IN)		; Return data in [A] (Is latched in FPGA port)
+  816 0628  CD 072B     	CALL	ZBITS
+  817 062B  21 0A79     	LD	HL,BITS_END_MSG		; "B) "
+Z80ASM SuperFast Relocating Macro Assembler     	    Z80ASM 1.30 Page  15
+SD_CARD Z80
+
+  818 062E  CD 0664     	CALL	PMSG
+  819 0631  AF          	XOR	A
+  820 0632  3D          	DEC	A
+  821 0633  C9          	RET				; Return NZ			
+  822                   
+  823                   					
+  824 0634              DRIVE_CS_ON:				; Lower CS on current SD card	
+  825 0634  F5          	PUSH	AF			; Note no registers altered
+  826 0635  3A 1225     	LD	A,(CURRENT_DRIVE)
+  827 0638  B7          	OR	A,A
+  828 0639  C2 0642     	JP	NZ,DRIVE_B_CS
+  829 063C  3E FE       	LD	A,SD_CS_A		; Drive A select bit	
+  830 063E  D3 6E       	OUT	(SD_CS_PORT),A
+  831 0640  F1          	POP	AF
+  832 0641  C9          	RET
+  833 0642              DRIVE_B_CS
+  834 0642  3E FD       	LD	A,SD_CS_B		; Drive B select bit		
+  835 0644  D3 6E       	OUT	(SD_CS_PORT),A
+  836 0646  F1          	POP	AF
+  837 0647  C9          	RET
+  838                   
+  839                   
+  840                   					
+  841 0648              ALL_CS_OFF:				; Raise CS on both SD cards	
+  842 0648  F5          	PUSH	AF			; Note no registers altered
+  843 0649  3E FF       	LD	A,0FFH			
+  844 064B  D3 6E       	OUT	(SD_CS_PORT),A
+  845 064D  F1          	POP	AF
+  846 064E  C9          	RET
+  847                   
+  848                   	
+  849 064F              HIGH_SPEED_CLK:				; Switch SPI Clock to 10MHz
+  850 064F  F5          	PUSH	AF
+  851 0650  3E 01       	LD	A,HIGH_SPEED
+  852 0652  D3 6D       	OUT	(SPEED_PORT),A
+  853 0654  F1          	POP	AF
+  854 0655  C9          	RET
+  855                   
+  856 0656              LOW_SPEED_CLK:				; Switch SPI Clock to 40KHz
+  857 0656  F5          	PUSH	AF
+  858 0657  3E 00       	LD	A,LOW_SPEED
+  859 0659  D3 6D       	OUT	(SPEED_PORT),A
+  860 065B  F1          	POP	AF
+  861 065C  C9          	RET
+  862                   		
+  863                   			
+  864 065D              SHORT_DELAY:				; Note no registers altered
+  865 065D  C5          	PUSH	BC
+  866 065E  06 0F       	LD	B,0FH
+  867 0660  10 FE       DELAY1:	DJNZ	DELAY1
+  868 0662  C1          	POP	BC
+  869 0663  C9          	RET
+  870                   
+  871                   
+  872                   ;<<<<<<<<<<<<<<<<<<<<<<<<< SUPPORT ROUTINES >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+  873                   
+  874 0664  C5          PMSG:	PUSH	BC		; Only [A] and [HL] is changed
+  875 0665  7E          PMSG1:	LD	A,(HL)		; A ROUTINE TO PRINT OUT A STRING @ [HL]
+Z80ASM SuperFast Relocating Macro Assembler     	    Z80ASM 1.30 Page  16
+SD_CARD Z80
+
+  876 0666  23          	INC	HL		; UP TO THE FIRST 0.
+  877 0667  B7          	OR	A,A
+  878 0668  CA 0672     	JP	Z,PMSG_DONE
+  879 066B  4F          	LD	C,A
+  880 066C  CD 07A8     	CALL	CO
+  881 066F  C3 0665     	JP	PMSG1
+  882 0672              PMSG_DONE:
+  883 0672  C1          	POP	BC
+  884 0673  C9          	RET
+  885                   
+  886 0674  F5          CRLF:	PUSH	AF
+  887 0675  C5          	PUSH	BC
+  888 0676  0E 0D       	LD	C,CR
+  889 0678  CD 07A8     	CALL	CO
+  890 067B  0E 0A       	LD	C,LF
+  891 067D  CD 07A8     	CALL	CO
+  892 0680  C1          	POP	BC
+  893 0681  F1          	POP	AF
+  894 0682  C9          	RET
+  895                   
+  896 0683  F5          BLANK:	PUSH	AF		; Send one space to console
+  897 0684  C5          	PUSH	BC
+  898 0685  0E 20       	LD	C,' '
+  899 0687  CD 07A8     	CALL	CO
+  900 068A  C1          	POP	BC
+  901 068B  F1          	POP	AF
+  902 068C  C9          	RET
+  903                   
+  904                   
+  905                   ; GET A CHARACTER, convert to UC, ECHO it
+  906 068D  CD 07BB     GETCMD:	CALL	CI		
+  907 0690  CD 069F     	CALL	UCASE
+  908 0693  FE 1B       	CP	A,ESC
+  909 0695  C8          	RET	Z		;Don't echo an ESC
+  910 0696  F5          	PUSH	AF		;Save it
+  911 0697  C5          	PUSH	BC
+  912 0698  4F          	LD	C,A
+  913 0699  CD 07A8     	CALL	CO		;Echo it
+  914 069C  C1          	POP	BC
+  915 069D  F1          	POP	AF		;get it back
+  916 069E  C9          	RET
+  917                   ;				;Convert LC to UC
+  918 069F  FE 61       UCASE:	CP	A,'a'		;must be >= lowercase a
+  919 06A1  D8          	RET	C		; else go back...
+  920 06A2  FE 7B       	CP	A,'z'+1		;must be <= lowercase z
+  921 06A4  D0          	RET	NC		; else go back...
+  922 06A5  D6 20       	SUB	A,'a'-'A'	;subtract lowercase bias
+  923 06A7  C9          	RET
+  924                   
+  925                   ; Check if next character is a ESC
+  926 06A8              CHECK_ESC:
+  927 06A8  CD 07BB     	CALL	CI
+  928 06AB  FE 1B       	CP	A,ESC
+  929 06AD  C9          	RET			; Return Z if ESC character.
+  930                   	
+  931                   ; Check if next character is a CR
+  932 06AE              CHECK_CR:
+  933 06AE  CD 07BB     	CALL	CI
+Z80ASM SuperFast Relocating Macro Assembler     	    Z80ASM 1.30 Page  17
+SD_CARD Z80
+
+  934 06B1  FE 0D       	CP	A,CR
+  935 06B3  C9          	RET			; Return Z if ESC character.
+  936                   	
+  937                   ; Return with 2 HEX digits in [A]. If abort, Carry flag set + ESC in [A]
+  938 06B4              GET_HEX:
+  939 06B4  C5          	PUSH	BC			
+  940 06B5  CD 068D     	CALL	GETCMD		;Get a character from keyboard & ECHO
+  941 06B8  FE 1B       	CP	A,ESC
+  942 06BA  CA 06EC     	JP	Z,HEX_ABORT
+  943 06BD  FE 2F       	CP	'/'		;check 0-9, A-F
+  944 06BF  DA 06EC     	JP	C,HEX_ABORT
+  945 06C2  FE 47       	CP	'F'+1
+  946 06C4  D2 06EC     	JP	NC,HEX_ABORT
+  947 06C7  CD 0705     	CALL	ASBIN		;Convert to binary
+  948 06CA  CB 27       	SLA	A
+  949 06CC  CB 27       	SLA	A
+  950 06CE  CB 27       	SLA	A
+  951 06D0  CB 27       	SLA	A		;Shift to high nibble	
+  952 06D2  47          	LD	B,A		;Store it
+  953 06D3  CD 068D     	CALL	GETCMD		;Get 2nd character from keyboard & ECHO
+  954 06D6  FE 1B       	CP	A,ESC
+  955 06D8  CA 06EC     	JP	Z,HEX_ABORT
+  956 06DB  FE 2F       	CP	'/'		;check 0-9, A-F
+  957 06DD  DA 06EC     	JP	C,HEX_ABORT
+  958 06E0  FE 47       	CP	'F'+1
+  959 06E2  D2 06EC     	JP	NC,HEX_ABORT
+  960 06E5  CD 0705     	CALL	ASBIN		;Convert to binary
+  961 06E8  B0          	OR	A,B		;add in the first digit
+  962 06E9  B7          	OR	A,A		;To return NC
+  963 06EA  C1          	POP	BC
+  964 06EB  C9          	RET
+  965                   	
+  966 06EC              HEX_ABORT:
+  967 06EC  37          	SCF			;Set Carry flag 
+  968 06ED  3E 1B       	LD	A,ESC
+  969 06EF  C1          	POP	BC
+  970 06F0  C9          	RET
+  971                   ;
+  972                   ;
+  973                   ; Put 4 HEX characters in [HL] 
+  974 06F1              GET_HEX4:	
+  975 06F1  26 00       	LD      H,0000H
+  976 06F3  CD 06B4     	CALL	GET_HEX		;get 2 HEX digits
+  977 06F6  DA 0703     	JP	C,SCAN_ABORT
+  978 06F9  67          	LD	H,A
+  979 06FA  CD 06B4     	CALL	GET_HEX		;get 2 more HEX digits
+  980 06FD  DA 0703     	JP	C,SCAN_ABORT
+  981 0700  6F          	LD	L,A
+  982 0701  B7          	OR	A,A		;To return NC
+  983 0702  C9          	RET
+  984                   	
+  985 0703              SCAN_ABORT:
+  986 0703  37          	SCF			;Set Carry flag 
+  987 0704  C9          	RET
+  988                   
+  989                   ; ASCII TO BINARY CONVERSION ROUTINE
+  990 0705  D6 30       ASBIN:	SUB	30H 
+  991 0707  FE 0A       	CP	0AH 
+Z80ASM SuperFast Relocating Macro Assembler     	    Z80ASM 1.30 Page  18
+SD_CARD Z80
+
+  992 0709  F8          	RET	M
+  993 070A  D6 07       	SUB	07H 
+  994 070C  C9          	RET
+  995                   ;	
+  996                   ;
+  997                   ; PRINT [HL] ON CONSOL
+  998 070D              PRINT_HL:
+  999 070D  7C          	LD	A,H
+ 1000 070E  CD 0712     	CALL	PRINT_A
+ 1001 0711  7D          	LD	A,L
+ 1002 0712              PRINT_A:
+ 1003 0712  F5          	PUSH	AF
+ 1004 0713  0F          	RRCA
+ 1005 0714  0F          	RRCA
+ 1006 0715  0F          	RRCA
+ 1007 0716  0F          	RRCA
+ 1008 0717  CD 071B     	CALL	SF598B
+ 1009 071A  F1          	POP	AF
+ 1010 071B  CD 0721     SF598B:	CALL	CONV
+ 1011 071E  C3 07A8     	JP	CO
+ 1012                   
+ 1013                   ; CONVERT HEX TO ASCII
+ 1014 0721  E6 0F       CONV:	AND	0FH
+ 1015 0723  C6 90       	ADD	A,90H
+ 1016 0725  27          	DAA 
+ 1017 0726  CE 40       	ADC	A,40H
+ 1018 0728  27          	DAA 
+ 1019 0729  4F          	LD	C,A
+ 1020 072A  C9          	RET
+ 1021                   	
+ 1022                   ; DISPLAY 8 BITS OF [A] (No registers changed)
+ 1023                   ; DISPLAY BIT PATTERN IN [A]
+ 1024 072B  F5          ZBITS:	PUSH	AF
+ 1025 072C  C5          	PUSH	BC
+ 1026 072D  D5          	PUSH	DE
+ 1027 072E  5F          	LD	E,A		
+ 1028 072F  06 08       	LD	B,8
+ 1029 0731  CB 23       BQ2:	SLA	E	
+ 1030 0733  3E 18       	LD	A,18H
+ 1031 0735  8F          	ADC	A,A
+ 1032 0736  4F          	LD	C,A
+ 1033 0737  CD 07A8     	CALL	CO
+ 1034 073A  10 F5       	DJNZ	BQ2
+ 1035 073C  D1          	POP	DE
+ 1036 073D  C1          	POP	BC
+ 1037 073E  F1          	POP	AF
+ 1038 073F  C9          	RET
+ 1039                   
+ 1040                   	
+ 1041 0740              HEXDUMP:				;Print a hexdump of the data in the 512 byte buffer @[HL]
+ 1042 0740  16 20       	LD	D,32			;Print 32 lines total
+ 1043 0742  06 10       	LD	B,16			;16 characters across
+ 1044 0744  22 122B     	LD	(@StartLineHex),HL	;Save the buffer location for ASCII display below
+ 1045 0747  21 0000     	LD	HL,0
+ 1046 074A  22 122D     	LD	(@BYTE$COUNT),HL
+ 1047                   
+ 1048 074D  CD 0674     SF172:	CALL	CRLF
+ 1049 0750  2A 122D     	LD	HL,(@BYTE$COUNT)
+Z80ASM SuperFast Relocating Macro Assembler     	    Z80ASM 1.30 Page  19
+SD_CARD Z80
+
+ 1050 0753  7C          	LD	A,H
+ 1051 0754  CD 0712     	CALL	PRINT_A			;Print byte count in sector
+ 1052 0757  7D          	LD	A,L
+ 1053 0758  CD 0712     	CALL	PRINT_A
+ 1054 075B  D5          	PUSH	DE
+ 1055 075C  11 0010     	LD	DE,16
+ 1056 075F  19          	ADD	HL,DE
+ 1057 0760  D1          	POP	DE
+ 1058 0761  22 122D     	LD	(@BYTE$COUNT),HL	;store for next time
+ 1059 0764  CD 0683     	CALL	BLANK
+ 1060 0767  2A 122B     	LD	HL,(@StartLineHex)
+ 1061 076A  22 122F     	LD	(@StartLineASCII),HL	;Store for ASCII display below
+ 1062 076D  7E          SF175:	LD	A,(HL)
+ 1063 076E  CD 0712     	CALL	PRINT_A			;Display [A] on CRT/LCD
+ 1064 0771  23          	INC	HL
+ 1065 0772  10 F9       	DJNZ	SF175
+ 1066 0774  22 122B     	LD	(@StartLineHex),HL	;Save for next line later
+ 1067 0777  CD 0784     	CALL	ShowAscii		;Now translate to ASCII and display
+ 1068 077A  06 10       	LD	B,16			;16 characters across for next line
+ 1069 077C  15          	DEC	D
+ 1070 077D  C2 074D     	JP	NZ,SF172		;Have we done all 32 lines
+ 1071 0780  CD 0674     	CALL	CRLF
+ 1072 0783  C9          	ret
+ 1073                   
+ 1074 0784              ShowAscii:				;Now show as ascii info
+ 1075 0784  2A 122F     	LD	HL,(@StartLineASCII)
+ 1076 0787  06 10       	LD	B,16			;16 ASCII characters across
+ 1077 0789  CD 0683     XF172:	CALL	BLANK			;send a space character
+ 1078 078C  CD 0683     	CALL	BLANK
+ 1079 078F  7E          XF175:	LD	A,(hl)
+ 1080 0790  E6 7F       	AND	7FH
+ 1081 0792  FE 20       	CP	' '			;FILTER OUT CONTROL CHARACTERS
+ 1082 0794  D2 0799     	JP	NC,XT33
+ 1083 0797  3E 2E       XT22:	LD	A,'.'
+ 1084 0799  FE 7C       XT33:	CP	07CH
+ 1085 079B  D2 0797     	JP	NC,XT22
+ 1086 079E  4F          	LD	C,A			;SET UP TO SEND
+ 1087 079F  C5          	push	bc
+ 1088 07A0  CD 07A8     	CALL	CO
+ 1089 07A3  C1          	pop	bc
+ 1090 07A4  23          	inc	hl			;Next position in buffer
+ 1091 07A5  10 E8       	DJNZ	XF175
+ 1092 07A7  C9          	ret
+ 1093                   
+ 1094                   
+ 1095                   
+ 1096                   
+ 1097                   ;<<<<<<<<<<<<<<<<<<<<<< MAIN CONSOL OUTPUT ROUTINE >>>>>>>>>>>>>>>>>>>>>>>>>
+ 1098                   ;
+ 1099 07A8  DB 00       CO:	IN	A,(CONSTAT)	; SD SYSTEMS or PROPELLER VIDIO BOARD PORT
+ 1100 07AA  E6 04       	AND	4H
+ 1101 07AC  CA 07A8     	JP	Z,CO
+ 1102 07AF  79          	LD	A,C
+ 1103 07B0  D3 01       	OUT	(CONOUT),A
+ 1104 07B2  C9          	RET			; RETURN CHARACTER SENT IN [A]
+ 1105                    
+ 1106                   ;<<<<<<<<<<<<<<<<<<< MAIN CONSOL STATUS ROUTINE >>>>>>>>>>>>>>>>>>>>>>
+ 1107                   ;
+Z80ASM SuperFast Relocating Macro Assembler     	    Z80ASM 1.30 Page  20
+SD_CARD Z80
+
+ 1108 07B3  DB 00       CSTS:	IN	A,(CONSTAT)
+ 1109 07B5  E6 02       	AND	02H
+ 1110 07B7  C8          	RET	Z
+ 1111 07B8  AF          	XOR	A
+ 1112 07B9  3D          	DEC	A		; RETURN WITH 0FFH IN [A] IF SOMETHING
+ 1113 07BA  C9          	RET
+ 1114                   
+ 1115                   ;<<<<<<<<<<<<<<<<<<<< MAIN CONSOL INPUT ROUTINE >>>>>>>>>>>>>>>>>>>>
+ 1116                   ;
+ 1117 07BB  DB 00       CI:	IN 	A,(CONSTAT)	; NEED CONSTAT TO CLEAN UP SHIFT KEYS ETC
+ 1118 07BD  E6 02       	AND	02H
+ 1119 07BF  CA 07BB     	JP	Z,CI
+ 1120 07C2  DB 01       	IN	A,(CONIN)
+ 1121 07C4  E6 7F       	AND	7FH
+ 1122 07C6  C9          	RET
+ 1123                   
+ 1124                   
+ 1125         0800      			ORG	800H
+ 1126                   ;---------------------------------------------------------------------------------------
+ 1127 0800  0D 0A       SIGNON:		DB	CR,LF
+ 1128 0802  0D 0A 54 65 		DB	CR,LF,'Test program for SD CARD interface of S100Computers.com FPGA Prototype board'
+ 1129 0850  0D 0A 42 79 		DB	CR,LF,'By John Monahan S100Computers.COM  (V0.2)  8/17/2019',
+ 1130 0886  0D 0A 4E 6F 		DB	CR,LF,'Note: The test is for Type 2 SD Cards only. (e.g. Transcend 2GB Type 2)',0
+ 1131                   		
+ 1132 08D0  0D 0A 0A 2D SIGNON1:	DB	CR,LF,LF,'----- Main Menu ---- Buffer = ',0
+ 1133 08F2  2C 20 44 72 SIGNON2:	DB	', Drive = ',0
+ 1134 08FD  0D 0A 0A 30 SIGNON3:	DB	CR,LF,LF,'0.   Initilize the SD CARD SPI Interface.'
+ 1135 0929  0D 0A 31 2E 		DB	CR,LF,'1.   Read a SD Sector'
+ 1136 0940  0D 0A 32 2E 		DB	CR,LF,'2.   Display data in RAM sector buffer'
+ 1137 0968  0D 0A 33 2E 		DB	CR,LF,'3.   Write 512 Bytes of S100 Bus RAM data to a Sector.'
+ 1138 09A0  0D 0A 34 2E 		DB	CR,LF,'4.   Set sector RAM buffer location.'
+ 1139 09C6  0D 0A 35 2E 		DB	CR,LF,'5.   Read Boot Sector (0000H).'
+ 1140 09E6  0D 0A 36 2E 		DB	CR,LF,'6.   Select Drive (A/B) '
+ 1141 0A00  0D 0A 45 53 		DB	CR,LF,'ESC  To abort program.',CR,LF,0H
+ 1142                   
+ 1143 0A1B  07 0D 0A 4D DATA_ERROR_MSG:	DB	BELL,CR,LF,'Menu or Data entry error.',0
+ 1144 0A38  30 2C 20 20 RESET_MSG:	DB	'0,  Will Initilize CF Card.',CR,LF,0H
+ 1145 0A56  0D 0A 53 44 RESET_OK_MSG:	DB	CR,LF,'SD_CARD Interface was Reset OK',CR,LF,0
+ 1146 0A79  42 29 0D 0A BITS_END_MSG:	DB	'B)',CR,LF,0
+ 1147 0A7E  0D 0A 07 53 RESET_ERR_MSG:	DB	CR,LF,BELL,'SD_CARD Interface could NOT be Reset (Status = ',0
+ 1148 0AB1  0D 0A 07 53 CF_TYPE_ERR_MSG: DB	CR,LF,BELL,'Sorry, SD Card Type 2 was NOT detected. (Status =' ,0
+ 1149 0AE6  53 44 20 63 SIZE_OK_MSG:	DB	'SD card sector size set to 512 bytes/sector.',CR,LF,0
+ 1150 0B15  31 2C 20 20 READ_SEC_MSG1:	DB	'1,  Will read a sector from CF Card.',CR,LF,0H
+ 1151 0B3C  0D 0A 07 53 READ_ERR_MSG1:	DB	CR,LF,BELL,'Sorry, SD Card must first be initilized (Menu 0).',CR,LF,0
+ 1152 0B73  0D 0A 07 53 CMD55_FAIL_MSG:	DB	CR,LF,BELL,'SD Card Type 2 Initilization failed (CMD55/CMD41) (Status = ',0
+ 1153 0BB3  43 4D 44 35 CMD41_55_OK_MSG: DB	'CMD55 & CMD41 Commands accepted OK.',CR,LF
+ 1154 0BD8  54 68 65 20                 DB	'The SD Card is now initilized correctly.',CR,LF,0
+ 1155 0C03  0D 0A 07 47 CRC_ERROR_MSG:	DB	CR,LF,BELL,'Got error trying to turn off CRC checking. (Status = ',0
+ 1156 0C3C  43 61 72 64 CRC_OFF_MSG:	DB	'Card CRC data checking is now turned off.',CR,LF,0
+ 1157 0C68  0D 0A 07 47 SIZE_ERROR_MSG:	DB	CR,LF,BELL,'Got error trying set sector size to 512 bytes. (Status = ',0	
+ 1158 0CA5  0D 0A 07 47 SEC_RD_ERR0_MSG: DB	CR,LF,BELL,'Got error with Read Sector command CMD17. (Status = ',0
+ 1159 0CDD  0D 0A 07 45 SEC_RD_ERR2_MSG: DB	CR,LF,BELL,'Error with Read Sector command CMD17. Timed out (Status = ',0
+ 1160 0D1B  0D 0A 07 47 SEC_RD_ERR1_MSG: DB	CR,LF,BELL,'Got error with Read Sector. No 0FEH Flag. (Status = ',0
+ 1161 0D53  34 2C 20 20 ENTER_RAM_LOC:	DB	'4,  Set Sector RAM buffer location.',CR,LF,0H
+ 1162 0D79  0D 0A 50 6C ENTER_RAM_LOC1:	DB	CR,LF,'Please enter RAM buffer location (XXXXH): ',0
+ 1163 0DA6  0D 0A 50 6C ENTER_SEC_NUM:	DB	CR,LF,'Please enter Sector Number (XXXXH): ',0
+ 1164 0DCD  0D 0A 53 65 SEC_RD_OK_MSG: DB	CR,LF,'Sector ',0
+ 1165 0DD7  48 20 77 61 SEC_RD1_OK_MSG: DB	'H was read correctly.',0
+Z80ASM SuperFast Relocating Macro Assembler     	    Z80ASM 1.30 Page  21
+SD_CARD Z80
+
+ 1166 0DED  32 2C 20 20 RD_BUFFER_MSG:	DB	'2,  Will read a RAM data buffer',CR,LF,0H
+ 1167 0E0F  0D 0A 0A 35 RAM_DATA:	DB	CR,LF,LF,'512 Bytes of RAM buffer data. (Starting at RAM location ',0
+ 1168 0E4B  0D 0A 54 79 CONTINUE_MSG:	DB	CR,LF,'Type any character to continue.',0
+ 1169 0E6D  0D 0A 44 6F WANT_TO_SHOW:	DB	CR,LF,'Do you want to display buffer? (Y/N) ',0
+ 1170                   
+ 1171                   
+ 1172 0E95  33 2C 20 20 WRITE_SEC_MSG1:	DB	'3,  Will write a sector from RAM buffer to CF Card.',CR,LF,0H
+ 1173 0ECB  0D 0A 07 47 SEC_WR_ERR0_MSG: DB	CR,LF,BELL,'Got error with Write Sector command CMD24. (Status = ',0
+ 1174 0F04  0D 0A 53 65 SEC_WR_OK_MSG: DB	CR,LF,'Sector ',0
+ 1175 0F0E  48 20 77 61 SEC_WR1_OK_MSG: DB	'H was written correctly.',CR,LF,0
+ 1176                   
+ 1177 0F29  0D 0A 07 47 SEC_WR_ERR1_MSG: DB	CR,LF,BELL,'Got error after writing Sector bytes, CMD24. (Status = ',0
+ 1178 0F64  0D 0A 07 45 SEC_WR_ERR2_MSG: DB	CR,LF,BELL,'Error waiting for SD Card to complete sector write. (Status = ',0
+ 1179 0FA6  0D 0A 07 45 SEC_WR_ERR3_MSG: DB	CR,LF,BELL,'Error resetting SD Card after sector write, CMD0. (Status = ',0
+ 1180 0FE6  0D 0A 07 45 SEC_WR_ERR4_MSG: DB	CR,LF,BELL,'Error getting SD Card type after sector write, CMD8. (Status = ',0
+ 1181 1029  0D 0A 07 45 SEC_WR_ERR5_MSG: DB	CR,LF,BELL,'Error re-activating Type 2 Card after sector write, CMD55+CMD41. (Status = ',0
+ 1182                   
+ 1183 1078  0D 0A 07 45 BOOT_ERR1_MSG:	DB	CR,LF,BELL,'Error resetting SD Card before boot sector read, CMD0. (Status = ',0
+ 1184 10BD  0D 0A 07 45 BOOT_ERR2_MSG: DB	CR,LF,BELL,'Error getting SD card Type before boot sector read, CMD8. (Status = ',0
+ 1185 1105  0D 0A 07 45 BOOT_ERR3_MSG: DB	CR,LF,BELL,'Error activating SD Card Type 2 before boot sector read, CMD55+CMD41. (Status = ',0
+ 1186 1159  0D 0A 07 45 BOOT_ERR4_MSG: DB	CR,LF,BELL,'Error activating SD Card Type 1 before boot sector reade, CMD1. (Status = ',0
+ 1187                   
+ 1188 11A7  44 65 74 65 CARD_TYPE2_MSG:	DB	'Detected a Type 2 SD card correctly.',CR,LF,0
+ 1189 11CE  36 2C 20 47 GET_DRIVE_MSG:	DB	'6, Get Drive.',CR,LF,0H
+ 1190 11DE  50 6C 65 61 GET_DRIVE_MSG1:	DB	'Please enter current drive (A/B) ',0
+ 1191                   
+ 1192                   
+ 1193 1200  3E 3E 3E 3E 		DB	'>>>>>>>>>>>> DATA STORE >>>>>>>>>>>>>'
+ 1194 1225  00          CURRENT_DRIVE	DB	0H					; Default to drive A, (1= Drive B)	
+ 1195 1226  00          CARD_TYPE:	DB	00H
+ 1196 1227  0020        DMA_ADDRESS:	DW	0020H
+ 1197 1229  0000        SEC_ADDRESS:	DW	0000H
+ 1198                   
+ 1199 122B  0000        @StartLineHex	DW	0000H
+ 1200 122D  0000        @BYTE$COUNT	DW	0000H
+ 1201 122F  0000        @StartLineASCII	DW	0000H
+ 1202                   
+ 1203                   
+ 1204                   				
+ 1205 1231  40 00 00 00 CMD_0:		DB	40H,00H,00H,00H,00H,95H,0FFH		; (0+64)  To Reset the SD Card interface,
+ 1206 1238  41 00 00 00 CMD_1:		DB	41H,00H,00H,00H,00H,0F9H,0FFH		; (1+64)  Activate Init Process
+ 1207 123F  48 00 00 01 CMD_8:		DB	48H,00H,00H,01H,0AAH,87H,0FFH		; (8+64)  To check Card Voltage
+ 1208 1246  49 00 00 00 CMD_9:		DB	49H,00H,00H,00H,00H,8FH,0FFH		; (9+64)  Read SD Register (CSD)
+ 1209 124D  4D 00 00 00 CMD_13:		DB	4DH,00H,00H,00H,00H,081H,0FFH		; (13+64) get SD card status
+ 1210 1254  50 00 00 02 CMD_16:		DB	50H,00H,00H,02H,00H,081H,0FFH		; (16+64) Set Sector size to 512 Bytes
+ 1211 125B  51 00 00 00 CMD_17:		DB	51H,00H,00H,00H,00H,0FFH,0FFH		; (17+64) Read a single block (Block 0, Used to load boot sector only)
+ 1212 1262  69 40 00 00 CMD_41:		DB	69H,40H,00H,00H,00H,077H,0FFH		; (41+64) Activates the card's init. process.
+ 1213                   ;CMD_41:	DB	69H,00H,00H,00H,000H,0E5H,0FFH		; (41+64) Activates the card's init. process.
+ 1214 1269  77 00 00 00 CMD_55:		DB	77H,00H,00H,00H,00H,065H,0FFH		; (55+64) Application specific command NEXT
+ 1215 1270  7A 00 00 00 CMD_58:		DB	7AH,00H,00H,00H,00H,0FDH,0FFH		; (58+64) Read SD Cards OCR register
+ 1216 1277  7B 00 00 00 CMD_59:		DB	7BH,00H,00H,00H,00H,0FDH,0FFH		; (59+64) Turn off CRC checking
+ 1217 127E    0040      		DS	40H
+ 1218 12BE  00          STACK:		DB	0H
+ 1219                   
+ 1220                   
+ 1221                   ; END
+ 1222                   	
+ 1223                   
+Z80ASM SuperFast Relocating Macro Assembler     	    Z80ASM 1.30 Page  22
+SD_CARD Z80
+
+ 1224                   
+ 1225                   
+ 0 Error(s) Detected.
+ 4543 Absolute Bytes. 199 Symbols Detected.
+

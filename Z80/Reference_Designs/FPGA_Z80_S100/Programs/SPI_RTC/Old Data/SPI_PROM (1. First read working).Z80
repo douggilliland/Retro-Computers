@@ -1,0 +1,521 @@
+;Test program for SPI interface of S100Computers.com FPGA Prototype board.
+;Will Read or Write to a AT25128 EEPROM
+;
+;	John Monahan	S100Computers.com	1/5/2019
+;
+;
+;V1.0		1/5/2019	;First version. It is "rough & ready" with little menu etc. error checking etc.
+
+;	PORT ASSIGNMENTS
+;
+SPI_BASE_PORT	EQU	068H				; Base I/O port fot SPI module
+SPI_DATA_OUT	EQU	SPI_BASE_PORT			; 68, Data OUT port from SPI module
+SPI_STATUS	EQU	SPI_BASE_PORT+1			; 69, Busy Flag IN port from SPI module
+SPI_CS		EQU	SPI_BASE_PORT+2			; 6A, CS Data OUT port to SPI module
+
+SPI_READ	EQU	SPI_BASE_PORT+3			; 6B, Read pulse to SPI module
+SPI_WRITE	EQU	SPI_BASE_PORT+3			; 6B, Write pulse to SPI module
+
+EEPROM_CS_LOW		EQU	00H			; Bit 0 has CS*
+EEPROM_CS_HIGH		EQU	01H			
+
+INST_WREN	EQU	 00000110B;			;Set Write Enable latch
+INST_WRDI	EQU	 00000100B;			;Set Write Disable latch
+INST_READ	EQU	 00000011B;			;Read EEPROM instruction
+INST_WRITE	EQU	 00000101B;			;Write EEPROM instruction
+INST_READ_STAT	EQU	 00000011B;			;Read Status Register
+INST_WRITE_STAT	EQU	 00000010B;			;Write Status Register
+
+CONSTAT			EQU	0H		; Console Status Port
+CONIN			EQU	1H		; Console IN Port
+CONOUT			EQU	1H		; Console OUT Port
+
+MONITOR			EQU	0F000H		;Location of Z80 ROM monitor when done.
+
+SPACE			EQU	20H
+BELL			EQU	07H
+ESC			EQU	1BH
+CR			EQU	0DH
+LF			EQU	0AH
+
+	ORG	100H
+START:
+	LD	SP,STACK
+	LD	HL,SIGNON
+	CALL	PMSG
+	LD	A,EEPROM_CS_HIGH		;Deselect EEPROM
+	OUT	(SPI_CS),A
+	JP	START2
+	
+START1:	LD	HL,SIGNON1
+	CALL	PMSG
+START2:	CALL	CRLF				;Normal start within menu
+	LD	C,'>'	   
+	CALL	CO
+	CALL	CI
+	CP	A,ESC
+	JP	NZ,START3
+	JP	MONITOR
+	
+START3:	CP	A,'0'
+	JP	Z,READ_BYTE_EEPROM
+	CP	A,'1'
+	JP	Z,FILL_EEPROM
+	CP	A,'2'
+	JP	Z,WRITE_EEPROM
+	CP	A,'3'
+	JP	Z,READ_EEPROM
+	CP	A,'4'
+	JP	Z,MOVE_EEPROM
+	CP	A,'5'
+	JP	Z,COPY_EEPROM
+	CALL	MENU_ERROR
+	JP	START1
+
+READ_BYTE_EEPROM:
+FILL_EEPROM:
+MOVE_EEPROM:
+COPY_EEPROM:
+MENU_ERROR:
+	LD	HL,MENU_MSG		; "Menu error"
+	CALL	PMSG
+	RET
+	
+;-------------------------------------------------------------------------------------------------
+
+WRITE_EEPROM:
+	LD	HL,MSG0			; "Enter EEPROM Address (000-1FFH)"
+	CALL	PMSG
+	CALL	GET_HEX4		; Put 16 Bit Paramater in HL
+	JP	C,DATA_READ_ERROR	; Carry set, there was a problem
+	LD	(START_STORE),HL
+	
+	LD	HL,WRITE_MSG2		; "Will Read byte from EEPROM at "
+	CALL	PMSG
+
+	LD	HL,(START_STORE)
+	CALL	PRINT_HL		; <--- START
+	LD	HL,WRITE_MSG3		; "H,/n Press any keyboard character to display. ESC to return to the main menu.'"
+	CALL	PMSG
+	CALL	CHECK_ESC
+	JP	NZ,BEGIN_BYTE_WRITE
+	JP	START
+
+BEGIN_BYTE_WRITE:			; >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+	LD	A,EEPROM_CS_LOW		;Select EEPROM leave low
+	OUT	(SPI_CS),A
+
+	LD	A,0A0H			;Address + Write
+	OUT	(SPI_DATA_OUT),A
+	CALL	WRITE_SPI		;Send Write pulse (Port 6B)
+	
+	LD	HL,(START_STORE)
+	LD	A,H
+	OUT	(SPI_DATA_OUT),A
+	CALL	WRITE_SPI		;Send Write pulse
+	
+	LD	HL,(START_STORE)
+	LD	A,L
+	OUT	(SPI_DATA_OUT),A
+	CALL	WRITE_SPI		;Send Write pulse
+	
+	LD	A,33H			;Send 33H for now
+	OUT	(SPI_DATA_OUT),A
+	CALL	WRITE_SPI		;Send Write pulse
+
+	LD	A,EEPROM_CS_HIGH	;Deselect EEPROM
+	OUT	(SPI_CS),A
+	JP	START
+	
+WRITE_SPI:
+	IN	A,(SPI_STATUS)		;Wait until busy is low
+	BIT	0,A
+	JR	NZ,WRITE_SPI
+	OUT	(SPI_WRITE),A		;Send Write pulse (Port 6B)
+;	PUSH	HL
+;	LD	HL,20
+;DELAY:	DEC	HL			;Allow time for Bust to rise
+;	LD	A,H
+;	OR	A,L
+;	JR	NZ,DELAY
+;WAIT1:	IN	A,(SPI_STATUS)		;Wait for busy to go back low
+;	BIT	0,A
+;	JR	NZ,WAIT1
+;	POP	HL
+	RET
+	
+DATA_READ_ERROR:
+	LD	HL,FORMAT_ERR_MSG	; "Format error"
+	CALL	PMSG
+
+
+DELAYX	LD	HL,4
+DELAY4:	DEC	HL			;Allow time for Bust to rise
+	LD	A,H
+	OR	A,L
+	JR	NZ,DELAY4
+	RET
+
+
+;-------------------------------------------------------------------------------------------------
+
+READ_EEPROM:
+	LD	HL,MSG0			; "Enter EEPROM Address (000-1FFH)"
+	CALL	PMSG
+	CALL	GET_HEX4		; Put 16 Bit Paramater in HL
+	JP	C,DATA_READ_ERROR	; Carry set, there was a problem
+	LD	(START_STORE),HL
+	
+	LD	HL,READ_MSG2		; "Will Read byte from EEPROM at "
+	CALL	PMSG
+
+	LD	HL,(START_STORE)
+	CALL	PRINT_HL		; <--- START
+	LD	HL,READ_MSG3		; "H,/n Press any keyboard character to display. ESC to return to the main menu.'"
+	CALL	PMSG
+	CALL	CHECK_ESC
+	JP	NZ,BEGIN_BYTE_READ
+	JP	START
+
+
+BEGIN_BYTE_READ:			; >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+	LD	A,EEPROM_CS_LOW		;Select EEPROM leave low
+	OUT	(SPI_CS),A
+
+	LD	A,INST_WRDI		;Set Disable Wr latch
+	OUT	(SPI_DATA_OUT),A
+	CALL	WRITE_SPI		;Send Write pulse (Port 6B)
+	CALL	DELAYX
+		
+	LD	A,EEPROM_CS_HIGH	;Select EEPROM leave low
+	OUT	(SPI_CS),A
+
+	LD	A,EEPROM_CS_LOW		;Select EEPROM leave low
+	OUT	(SPI_CS),A
+
+	LD	A,INST_READ		;Read EEPROM instruction
+	OUT	(SPI_DATA_OUT),A
+	CALL	WRITE_SPI		;Send Write pulse (Port 6B)
+	CALL	DELAYX
+
+	LD	HL,(START_STORE)
+	LD	A,H
+	OUT	(SPI_DATA_OUT),A
+	CALL	WRITE_SPI		;Send High Address
+	CALL	DELAYX
+
+	LD	HL,(START_STORE)
+	LD	A,L
+	OUT	(SPI_DATA_OUT),A
+	CALL	WRITE_SPI		;Send Low Address
+	CALL	DELAYX
+
+	LD	A,0H
+	OUT	(SPI_DATA_OUT),A
+	CALL	WRITE_SPI		;Dummy data
+	CALL	DELAYX
+	
+;;	LD	A,0FFH
+;;	OUT	(SPI_DATA_OUT),A
+;;	CALL	WRITE_SPI		;Dummy data
+;;	CALL	DELAYX
+
+	LD	A,EEPROM_CS_HIGH	;Deselect EEPROM
+	OUT	(SPI_CS),A
+	JP	START
+	
+READ_SPI:
+	IN	A,(SPI_STATUS)		;Wait until busy is low
+	BIT	0,A
+	JR	NZ,READ_SPI
+	IN	A,(SPI_READ)		;Send Write pulse (Port 6B)
+	PUSH	HL
+	LD	HL,2
+DELAY2:	DEC	HL			;Allow time for Bust to rise
+	LD	A,H
+	OR	A,L
+	JR	NZ,DELAY2
+WAIT2:	IN	A,(SPI_STATUS)		;Wait for busy to go back low
+	BIT	0,A
+	JR	NZ,WAIT2
+	POP	HL
+	RET
+	
+;<<<<<<<<<<<<<<<<<<<<<<<<< SUPPORT ROUTINES >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+
+PMSG:	PUSH	BC		; Only [A] and [HL] is changed
+PMSG1:	LD	A,(HL)		; A ROUTINE TO PRINT OUT A STRING @ [HL]
+	INC	HL		; UP TO THE FIRST 0.
+	OR	A,A
+	JP	Z,PMSG_DONE
+	LD	C,A
+	CALL	CO
+	JP	PMSG1
+PMSG_DONE:
+	POP	BC
+	RET
+
+CRLF:	PUSH	BC
+	LD	C,CR
+	CALL	CO
+	LD	C,LF
+	CALL	CO
+	POP	BC
+	RET
+
+; GET A CHARACTER, convert to UC, ECHO it
+GETCMD:	CALL	CI		
+	CALL	UCASE
+	CP	A,ESC
+	RET	Z		;Don't echo an ESC
+	PUSH	AF		;Save it
+	PUSH	BC
+	LD	C,A
+	CALL	CO		;Echo it
+	POP	BC
+	POP	AF		;get it back
+	RET
+;				;Convert LC to UC
+UCASE:	CP	A,'a'		;must be >= lowercase a
+	RET	C		; else go back...
+	CP	A,'z'+1		;must be <= lowercase z
+	RET	NC		; else go back...
+	SUB	A,'a'-'A'	;subtract lowercase bias
+	RET
+
+; Check if next character is a ESC
+CHECK_ESC:
+	CALL	CI
+	CP	A,ESC
+	RET			; Return Z if ESC character.
+	
+; Check if next character is a CR
+CHECK_CR:
+	CALL	CI
+	CP	A,CR
+	RET			; Return Z if ESC character.
+	
+; Return with 2 HEX digits in [A]. If abort, Carry flag set + ESC in [A]
+GET_HEX:
+	PUSH	BC			
+	CALL	GETCMD		;Get a character from keyboard & ECHO
+	CP	A,ESC
+	JR	Z,HEX_ABORT
+	CP	'/'		;check 0-9, A-F
+	JR	C,HEX_ABORT
+	CP	'F'+1
+	JR	NC,HEX_ABORT
+	CALL	ASBIN		;Convert to binary
+	SLA	A
+	SLA	A
+	SLA	A
+	SLA	A		;Shift to high nibble	
+	LD	B,A		;Store it
+	CALL	GETCMD		;Get 2nd character from keyboard & ECHO
+	CP	A,ESC
+	JR	Z,HEX_ABORT
+	CP	'/'		;check 0-9, A-F
+	JR	C,HEX_ABORT
+	CP	'F'+1
+	JR	NC,HEX_ABORT
+	CALL	ASBIN		;Convert to binary
+	OR	A,B		;add in the first digit
+	OR	A,A		;To return NC
+	POP	BC
+	RET
+	
+HEX_ABORT:
+	SCF			;Set Carry flag 
+	LD	A,ESC
+	POP	BC
+	RET
+;
+;
+; Put 4 HEX characters in [HL] 
+GET_HEX4:	
+	LD      H,0000H
+	CALL	GET_HEX		;get 2 HEX digits
+	JR	C,SCAN_ABORT
+	LD	H,A
+	CALL	GET_HEX		;get 2 more HEX digits
+	JR	C,SCAN_ABORT
+	LD	L,A
+	OR	A,A		;To return NC
+	RET
+	
+SCAN_ABORT:
+	SCF			;Set Carry flag 
+	RET
+
+; ASCII TO BINARY CONVERSION ROUTINE
+ASBIN:	SUB	30H 
+	CP	0AH 
+	RET	M
+	SUB	07H 
+	RET
+;	
+;
+; PRINT [HL] ON CONSOL
+PRINT_HL:
+	LD	A,H
+	CALL	PRINT_A
+	LD	A,L
+PRINT_A:
+	PUSH	AF
+	RRCA
+	RRCA
+	RRCA
+	RRCA
+	CALL	SF598
+	POP	AF
+SF598:	CALL	CONV
+	JP	CO
+
+; CONVERT HEX TO ASCII
+CONV:	AND	0FH
+	ADD	A,90H
+	DAA 
+	ADC	A,40H
+	DAA 
+	LD	C,A
+	RET
+	
+; DISPLAY 8 BITS OF [A] (No registers changed)
+; DISPLAY BIT PATTERN IN [A]
+ZBITS:	PUSH	AF
+	PUSH	BC
+	PUSH	DE
+	LD	E,A		
+	LD	B,8
+BQ2:	SLA	E	
+	LD	A,18H
+	ADC	A,A
+	LD	C,A
+	CALL	CO
+	DJNZ	BQ2
+	POP	DE
+	POP	BC
+	POP	AF
+	RET
+
+;<<<<<<<<<<<<<<<<<<<<<< MAIN CONSOL OUTPUT ROUTINE >>>>>>>>>>>>>>>>>>>>>>>>>
+;
+CO:	IN	A,(CONSTAT)	; SD SYSTEMS or PROPELLER VIDIO BOARD PORT
+	AND	4H
+	JP	Z,CO
+	LD	A,C
+	OUT	(CONOUT),A
+	RET			; RETURN CHARACTER SENT IN [A]
+ 
+;<<<<<<<<<<<<<<<<<<< MAIN CONSOL STATUS ROUTINE >>>>>>>>>>>>>>>>>>>>>>
+;
+CSTS:	IN	A,(CONSTAT)
+	AND	02H
+	RET	Z
+	XOR	A
+	DEC	A		; RETURN WITH 0FFH IN [A] IF SOMETHING
+	RET
+
+;<<<<<<<<<<<<<<<<<<<< MAIN CONSOL INPUT ROUTINE >>>>>>>>>>>>>>>>>>>>
+;
+CI:	IN 	A,(CONSTAT)	; NEED CONSTAT TO CLEAN UP SHIFT KEYS ETC
+	AND	02H
+	JR	Z,CI
+	IN	A,(CONIN)
+	AND	7FH
+	RET
+
+;---------------------------------------------------------------------------------------
+SIGNON:		DB	CR,LF
+		DB	CR,LF,'Test program for SPI_8 interface of S100Computers.com FPGA Prototype board'
+		DB	CR,LF,'By John Monahan S100Computers.COM  (V1.0)  1/21/2019'
+		DB	CR,LF,'Note: 1. The test is with an SPI ATS5128 EEPROM'
+		
+SIGNON1:	DB	CR,LF,LF,'---------- Main Menu ---------------------------------------'
+		DB	CR,LF,'0.   Read a single byte from a location in the SPI EEPROM.'
+		DB	CR,LF,'1.   Fill up to a page of the SPI EEPROM with a Byte value.'
+		DB	CR,LF,'2.   Write bytes to the EEPROM.'
+		DB	CR,LF,'3.   Read bytes from the EEPROM.'
+		DB	CR,LF,'4.   Move up to a page of the EEPROM to S100 bus RAM.'
+		DB	CR,LF,'5.   Copy up to a page of S100 bus RAM to the EEPROM.'
+		DB	CR,LF,'ESC  To abort program.',CR,LF,0H
+
+MENU_MSG:	DB	BELL,BELL,CR,LF,'Menu error.',0
+FORMAT_ERR_MSG: DB	BELL,BELL,CR,LF,'Data Format error.',0
+
+;-----		
+FILL_MSG:	DB	CR,LF,'Enter EEPROM Fill Start Address (0000-01FFH): ',0H		
+MSG0:		DB	CR,LF,'Enter EEPROM Address (0000-01FFH): ',0H		
+FILL_MSG1:	DB	CR,LF,'Enter Number of Fill Bytes (00-7FH): ',0H		
+FILL_MSG2:	DB	CR,LF,'Enter Fill Value (00-FFH): ',0H		
+
+FILL_MSG3:	DB	CR,LF,LF,'Fill EEPROM starting at ',0H		
+FILL_MSG4:	DB	'H for ',0H		
+FILL_MSG5:	DB	'H bytes with a fill value of ',0H	
+FILL_MSG6:	DB	'H.'
+		DB	CR,LF,'Press any character to continue. ESC to return to the main menu.',0H	
+FILL_MSG7:	DB	CR,LF,'EEPROM Filled.',CR,LF,0H
+FILL_MSG8:	DB	CR,LF,BELL,'ERROR, FIFO is Full!',CR,LF,0H
+FILL_MSG9:	DB	CR,LF,BELL,'ERROR writing to I2C Port!',CR,LF,0H
+	
+ERROR_MSG:	DB	BELL,BELL,CR,LF,'Data format error',0
+ERROR_MSG2:	DB	BELL,BELL,CR,LF,'Data range error',0
+
+
+WRITE_MSG:	DB	CR,LF,'Enter EEPROM Write Start Address (0000-01FFH): ',0H		
+WRITE_MSG1:	DB	CR,LF,'Enter bytes in form:- xx,xx,xx..., CR to stop',CR,LF,0H		
+WRITE_MSG2:	DB	CR,LF,LF,'Will write to EEPROM starting at ',0H		
+WRITE_MSG3:	DB	'H with ',0H
+WRITE_MSG4:	DB	'H Bytes of data.',0H		
+WRITE_MSG5:	DB	CR,LF,'Press any character to continue. ESC to return to the main menu.',0H	
+WRITE_MSG6:	DB	'H bytes with a fill value of ',0H	
+WRITE_MSG7:	DB	'Bytes written to EEPROM OK',0H	
+
+READ_MSG:	DB	CR,LF,'Enter EEPROM Read Start Address (0000-01FFH): ',0H		
+READ_MSG1:	DB	CR,LF,'Enter Number of Bytes to Display (00-7FH): ',0H		
+READ_MSG2:	DB	CR,LF,LF,'Will Read bytes from EEPROM starting at ',0H		
+READ_MSG2A:	DB	CR,LF,LF,'Will Read Byte from EEPROM at ',0H		
+READ_MSG2B:	DB	CR,LF,LF,'Byte = ',0H		
+READ_MSG3:	DB	'H',CR,LF
+		DB	'Press any keyboard to display. Press ESC to return to the main menu.',CR,LF,LF,0H	
+READ_MSG3A:	DB	'H',CR,LF,0H
+READ_MSG4:	DB	CR,LF,BELL,'ERROR. FIFO is not empty after loading start address!',CR,LF,0H
+READ_MSG5:	DB	CR,LF,BELL,'FIFO I2C Read error!',CR,LF,0H
+
+
+MOVE_MSG:	DB	CR,LF,'Enter S100 Bus RAM Read Start Address (0000-FFFH): ',0H		
+MOVE_MSG0:	DB	CR,LF,'Enter EEPROM Read Start Address (0000-01FFH): ',0H
+MOVE_MSG1:	DB	CR,LF,'Enter Number of Bytes to Move (00-7FH): ',0H		
+MOVE_MSG2:	DB	CR,LF,LF,'Will Move bytes from S100 Bus RAM starting at ',0H		
+MOVE_MSG2B:	DB	'H',
+		DB	CR,LF,'To the EEPROM starting at ',0H		
+MOVE_MSG3:	DB	'H',CR,LF
+		DB	'Press any keyboard to start. Press ESC to return to the main menu.',CR,LF,LF,0H
+
+COPY_MSG:	DB	CR,LF,'Enter S100 Bus RAM Read Start Address (0000-FFFH): ',0H		
+COPY_MSG0:	DB	CR,LF,'Enter EEPROM Read Start Address (0000-01FFH): ',0H
+COPY_MSG1:	DB	CR,LF,'Enter Number of Bytes to Move (00-7FH): ',0H		
+COPY_MSG2:	DB	CR,LF,LF,'Will Copy bytes from S100 Bus starting at ',0H		
+COPY_MSG2B:	DB	'H',
+		DB	CR,LF,'To the EEPROM starting at ',0H		
+COPY_MSG3:	DB	'H',CR,LF
+		DB	'Press any keyboard to start. Press ESC to return to the main menu.',CR,LF,LF,0H
+COPY_MSG7:	DB	'Bytes written to EEPROM OK',0H	
+
+
+START_OF_STORE:	DB	'>>>>>>>>>>>>>>>>>>>>>>>>>'		
+START_STORE:	DW	0H   ;<--- Note:- Low Byte,High Byte
+RANGE_STORE:	DB	0H
+DATA_STORE:	DB	0H
+S100_STORE:	DW	0H
+END_OF_STORE:	DB	'<<<<<<<<<<<<<<<<<<<<<<<<<'
+		
+BYTE_STRING:	DS	80H
+;
+	DS	40H
+STACK:	DB	0H
+; END
+	
+
+
+

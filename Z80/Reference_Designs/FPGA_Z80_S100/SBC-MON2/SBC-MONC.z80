@@ -1,0 +1,1659 @@
+;	SBC-MON2.Z80  This is a stripped down version of the main MASTER-Z80 (and SBC-MON.Z80 monitor) programs 
+;	for use with the S100 bus Z80-FPGA SBC. It will not work with other Z80 CPU Boards without modifications.
+; 
+;	Assemble and SLR's Z80ASM Assembler (Can also use the Cromemco Assembler)
+;	Use:- Z80ASM SBC-MON FH
+;
+;	NOTE. This board utilizes an 8K 28C64 EEPROM (or 27C64 UV-ROM). 
+;
+;	To assemble under windows...
+;	Load Altair.EXE in Windows CMD box
+;	do cpm3
+;	I:
+;	I:>Submit SBC-MON
+;
+;	SBC-MON2.HEX  is written back to the same windows folder that the PC file "altair.exe" is in.
+
+;	Programming an EEPROM for the SBC-Z80 Board with a PROM burner is fairly straightfoward. 
+;	Using a 28C64 EEPROM and a Wellon VP-280 or VP290 Programmer
+;	For a monitor at E000H-FFFFH:-
+
+;	Make sure the ORG is F000H (BASE_ROM).
+;	Load the SBC-MON2.HEX file
+;	Clear Buffer Options:- 00
+;	Load Buffer Address : 0000
+;	From File address use:- E000H
+;	File Size use:- 2000H
+;
+;	Recent History...
+;
+;	V1.0	4/30/2019	Started with the modified MASTER.Z80 V5.1 Monitor. Removed the page switching menu option.
+;	V1.01	7/20/2019	Added printer output
+;
+;
+FALSE		EQU	0
+TRUE		EQU	NOT FALSE
+;
+;--------------------------------------------------------
+;        IDE Routines           E000-EFFFH
+;        MONITOR Routines       F000-FFFFH
+;        Start Monitor by jumping to F000H (not E000H)
+;--------------------------------------------------------
+;
+;
+MONITOR_BASE	EQU	0F000H		;Start of monitor after a reset								
+RAM_BASE	EQU	0C000H		;Default location of RAM buffer area for IDE/CF card diagnostic routines
+					;Can be changed with "D" IDE menu command
+					
+SCROLL		EQU	01H		;Set scroll direction UP.
+BELL		EQU	07H
+SPACE		EQU	20H
+TAB		EQU	09H		;TAB ACROSS (8 SPACES FOR SD-BOARD)
+CR		EQU	0DH
+LF		EQU	0AH
+FF		EQU	0CH
+QUIT		EQU	11H		;Turns off any screen enhancements (flashing, underline etc).
+NO_ENH		EQU 	17H		;Turns off whatever is on
+FAST		EQU	10H		;High speed scroll
+ESC		EQU	1BH
+DELETE		EQU	7FH
+BACKS		EQU	08H
+CLEAR		EQU	1AH		;TO CLEAR SCREEN
+RST7		EQU	38H		;RST 7 (LOCATION FOR TRAP)
+NN		EQU	0H		;[I] INITIAL VALUE
+SOH		EQU	1		;For XModem etc.
+EOT		EQU	4
+ACK		EQU	6
+NAK		EQU	15H
+;
+
+; BIT MAP OF IOBYTE BASE_PORT + 6H:- X X X X  X X X X  (if xxxxx111= 111 = CONSOLE IN/OUT DATA for all Console IO board
+;			             | | | |  | | | |..............  110 = will use onboard USB chip for ALL Console I/O
+;			             | | | |  | | |................  x0x = will force/override onboard FPGA code to PS2 keyboard input 
+;			             | | | |  | |..................  0xx = will force/override VGA for Console output
+;			             | | | |  |....................  Unused
+;			             | | | |.......................  Unused			
+;			             | | |.........................  Unused						
+;			             | |...........................  Unused
+;			     	     |.............................  Unused
+;
+;
+
+BASE_PORT	EQU	30H		;Note by using 30H we can use software already on CF-CARDS that
+USB_STATUS_PORT	EQU	BASE_PORT+4H	;Status port for USB console input port
+USB_DATA_PORT	EQU	BASE_PORT+5H	;Status port for USB console data port
+IOBYTE		EQU	BASE_PORT+6H	;See above
+
+PS2_STATUS_PORT	EQU	02H		;PS2 Keyboard input port
+PS2_DATA_PORT	EQU	03H
+
+DIAG_LEDS	EQU	06H		;LED BAR of FPGA Board (and LED Bar on V3 SMB if present)
+SW_TMAX		EQU	0EEH		;OUTPUT BIT 0 HIGH FROM THIS PORT LOWERS DMA0* on V3 SMB (if present)
+					;OUTPUT BIT 1 HIGH FROM THIS PORT LOWERS DMA1* on V3 SMB (if present)
+					;OUTPUT BIT 2 HIGH FROM THIS PORT LOWERS DMA2* on V3 SMB (if present)
+					;OUTPUT BIT 3 HIGH FROM THIS PORT LOWERS DMA3* on V3 SMB (if present) 
+SW_TMA0	EQU	0EDH			;INPUT FROM THIS PORT LOWERS DMA0* (SWITCHES IN THE 8088,8086,80286 or 80386 boards)
+
+
+					;Note these DMA lines are only used in master/slave changes. Not normally used here.
+
+RAM_BANK	EQU	36H		;Port to switch Low/High 32K RAM Page
+ROM_PAGE	EQU	07H		;Inactivete part or all of onboard ROM
+
+PRINTER_STROBE	EQU	4		;PORT OUT
+PRINTER_STATUS	EQU	5		;PORT IN, IMSAI PIO Board PARRELL PORT
+PRINTER_OUT	EQU	5		;PORT OUT
+
+VGA_CURSOR_X	EQU	0C0H		;Port to set VGA video cursor
+VGA_CURSOR_Y	EQU	0C1H
+VGA_COLOR	EQU	0C2H		;Port to set text color
+
+					;FOR S100 BUS 8259A (If Present)
+MASTER_PIC_PORT	EQU	20h		;Hardware port the 8259A (two ports 20H & 21H)
+MasterICW1	equ	00010111B	;EDGE triggered, 4 bytes, single Master,ICW4 needed
+MasterICW2	equ	8H		;Base address for 8259A Int Table (IBM-PC uses 8X4 = 20H)
+MasterICW3	equ	0H		;No slave
+MasterICW4	equ	00000011B	;No special mode, non buffer, Auto EOI, 8086.  ;<<<<,
+
+MODEM_SEND_MASK	EQU	4
+SEND_READY	EQU	4		;VALUE WHEN READY
+MODEM_RECV_MASK	EQU	1
+RECV_READY	EQU	1		;BIT ON WHEN READY
+MODEM_ERR_LIMIT	EQU	8		;Max number of Modem serial port re-reads aborting
+MODEM_RTS_DELAY	EQU	1		;Time to check Modem RTS line (See XMODEM_LOAD & P_XMODEM_LOAD). Not critical.
+
+RECVD_SECT_NO	EQU	0H		;IX Offset for XModem Recieved Sector Number
+SECTNO		EQU	1H		;IX Offset for XModem CURRENT SECTOR NUMBER 
+ERRCT		EQU	2H		;IX Offset for XModem ERROR COUNT
+					
+;****************************************************************************************************************
+;
+;		 EQUATES FOR OTHER POSSIBLE BOARDS IN THE S100 BUS SYSTEM
+;               (Note. If the board is not present the code will ignore the hardware)
+;
+;****************************************************************************************************************
+
+
+;-------------- S100Computers PROPELLER CONSOLE_IO (OR SD SYSTEMS VIDIO BOARD) FOR CONSOLE INPUT & OUTPUT
+
+S100_CONSOL_STATUS	EQU	0H	;Note will utilize this board if IOBYTE bits 0 & 1 are ZERO (or bit 5 is 1).	
+S100_CONSOL_IN		EQU	1H
+S100_CONSOL_OUT		EQU	1H
+
+;-------------- S100Computers IDE HARD DISK CONTROLLER COMMANDS ETC. (for Z80_MONB.Z80) -------------------------------------
+
+IDEPORTA	EQU	030H		;Lower 8 bits of IDE interface (8255)
+IDEPORTB	EQU	031H		;Upper 8 bits of IDE interface
+IDEPORTC	EQU	032H		;Control lines for IDE interface
+IDEPORTCTRL	EQU	033H		;8255 configuration port
+
+READCFG8255	EQU	10010010b	;Set 8255 IDEportC to output, IDEportA/B input
+WRITECFG8255	EQU	10000000b	;Set all three 8255 ports to output mode
+
+;IDE control lines for use with IDEportC.  
+
+IDEA0LINE	EQU	01H		;direct from 8255 to IDE interface
+IDEA1LINE	EQU	02H		;direct from 8255 to IDE interface
+IDEA2LINE	EQU	04H		;direct from 8255 to IDE interface
+IDECS0LINE	EQU	08H		;inverter between 8255 and IDE interface
+IDECS1LINE	EQU	10H		;inverter between 8255 and IDE interface
+IDEWRLINE	EQU	20H		;inverter between 8255 and IDE interface
+IDERDLINE	EQU	40H		;inverter between 8255 and IDE interface
+IDERSTLINE	EQU	80H		;inverter between 8255 and IDE interface
+
+;Symbolic constants for the IDE Drive registers, which makes the
+;code more readable than always specifying the address bits
+
+REGDATA	EQU	IDEcs0line
+REGERR	EQU	IDEcs0line + IDEa0line
+REGSECCNT	EQU	IDEcs0line + IDEa1line
+REGSECTOR	EQU	IDEcs0line + IDEa1line + IDEa0line
+REGCYLINDERLSB	EQU	IDEcs0line + IDEa2line
+REGCYLINDERMSB	EQU	IDEcs0line + IDEa2line + IDEa0line
+REGSHD	EQU	IDEcs0line + IDEa2line + IDEa1line			;(0EH)
+REGCOMMAND	EQU	IDEcs0line + IDEa2line + IDEa1line + IDEa0line	;(0FH)
+REGSTATUS	EQU	IDEcs0line + IDEa2line + IDEa1line + IDEa0line
+REGCONTROL	EQU	IDEcs1line + IDEa2line + IDEa1line
+REGASTATUS	EQU	IDEcs1line + IDEa2line + IDEa1line + IDEa0line
+
+;IDE Command Constants.  These should never change.
+
+COMMANDrecal	EQU	10H
+COMMANDread	EQU	20H
+COMMANDwrite	EQU	30H
+COMMANDinit	EQU	91H
+COMMANDid	EQU	0ECH
+COMMANDspindown	EQU	0E0H
+COMMANDspinup	EQU	0E1H
+
+
+; IDE Status Register:
+;  bit 7: Busy	1=busy, 0=not busy
+;  bit 6: Ready 1=ready for command, 0=not ready yet
+;  bit 5: DF	1=fault occured insIDE drive
+;  bit 4: DSC	1=seek complete
+;  bit 3: DRQ	1=data request ready, 0=not ready to xfer yet
+;  bit 2: CORR	1=correctable error occured
+;  bit 1: IDX	vendor specific
+;  bit 0: ERR	1=error occured
+
+SEC$SIZE	EQU	512		;Assume sector size as 512. (Not tested for other sizes)
+MAXSEC		EQU	3DH		;Sectors per track for CF my Memory drive, Kingston CF 8G. (For CPM format, 0-3CH)
+					;This translates to LBA format of 1 to 3D sectors, for a total of 61 sectors/track.
+					;This CF card actully has 3F sectors/track. Will use 3D for my CPM3 system because
+					;my Seagate drive has 3D sectors/track. Don't want different CPM3.SYS files around
+					;so this program as is will also work with a Seagate 6531 IDE drive
+
+MAXTRK		EQU	0FFH		;CPM3 allows up to 8MG so 0-256 "tracks"
+BUFFER$ORG	EQU	3000H		;<----- Will place all sector data here
+
+CPM$BOOT$COUNT	EQU	12		;Allow up to 12 CPM sectors for CPMLDR
+CPMLDR$ADDRESS	EQU	100H		;Load the CPMLDR at 100H in RAM 
+
+DEBUG EQU FALSE				;For a display of error codes returned from CF-Card drive
+
+
+
+;///////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+;-------------------------------- START OF ACTUAL MONITOR @ FOOOH  --------------------------------------------------
+;//////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+
+ORG		MONITOR_BASE		;<--------<<<<<< LOCATION OF START OF MONITOR, F000H >>>>>>>>>>>>>>>>>>>>>>
+
+	JP	IDE_LOOP
+
+;----------------->>> THIS CODE MUST BE AT THE SAME LOCATION AS FOR THE LOW PAGE ROM CODE <<<---------
+;
+ACTIVATE_1_HIGH_PAGE:			; SWITCH TO HIGH PAGE of ROM 
+	NOP
+	NOP
+	NOP
+	NOP
+	JP	INVALID_MENU_ERROR
+	
+	
+ACTIVATE_2_HIGH_PAGE:			; SWITCH TO HIGH PAGE #2 of ROM
+	NOP
+	NOP
+	NOP
+	NOP
+	JP	HIGH_MENU_2_OPTION	
+	
+ACTIVATE_LOW_PAGE:			; RETURN BACK TO LOW PAGE (00) OF ROM
+	LD	A,00H			
+	OUT	(ROM_PAGE),A	
+	HALT				; Will arrive here only IF no address line switch 
+;
+;----------------------->>> END OF COMMON CODE LOACTIONS <<<----------------------------------
+;
+;
+HIGH_MENU_2_OPTION:
+	LD	A,D			; HIGH PAGE code with 1 in [D] for XMODEM
+	CP	A,3
+	JP	Z,SD_CARD_MENU
+;	CP	A,2
+;	JP	Z,CPM_BOOT
+	JP	INVALID_MENU_ERROR	; The only menu options so far
+	
+INVALID_MENU_ERROR:
+	LD      DE,MSGERR		; Point Error Message
+	CALL	PSTRING			; Print string
+	JP	ACTIVATE_LOW_PAGE
+
+SD_CARD_MENU:
+	JP	IDE_LOOP
+	
+	call	IDEinit			;initialize the board and drive. If there is no drive abort
+	jp	z,IDE_LOOP		;Setup for main menu commands
+	ld	de,INIT$ERROR
+	call	PSTRING
+	call	SHOWerrors
+	jp	ABORT
+
+ABORT: 	jp	ACTIVATE_LOW_PAGE	;Else jump to start of monitor
+
+
+IDE_LOOP:				;A 1 line prompt
+	ld	de,IDE_MENU_MSG		;List command options
+	call	PSTRING
+
+	call	wrlba			;Update LBA on drive
+	call	DISPLAYposition		;Display current Track,sector,head#
+
+	ld	de,Prompt		;'Please enter a command >'
+	call	PSTRING
+
+	call	GETCMD			;Simple UC character Input (Note, no fancy checking)
+	cp	ESC			;ESC back to main menu
+	jp	z,ABORT
+	call	upper
+	call	CRLF
+	
+	cp	a,'D'
+	jp	z,SET_DMA		; "D"  SET BUFFER ADDRESS
+	cp	a,'L'
+	jp	z,SET$LBA		; "L"  Set LBA value (Set Track,sector) 
+	cp	a,'M'
+	jp	z,PREV$SEC		; "M"  Previous sector
+	cp	a,'N'
+	jp	z,NEXT$SECT		; "N"  Next Sector
+	cp	a,'P'
+	JP	Z,CPM_BOOT		; "P"  Boot CPM
+	cp	a,'R'
+	jp	z,READ$SEC		; "R"  Read sector to data buffer
+	cp	a,'S'
+	jp	z,SEQ$RD		; "S"  Sequental sec read and display contents
+	cp	a,'V'
+	jp	z,N$RD$SEC		; "V"  Read N sectors
+	cp	a,'W'
+	jp	z,WRITE$SEC		; "W"  Write data buffer to current sector
+	cp	a,'X'
+	jp	z,N$WR$SEC		; "X"  Write N sectors
+	cp	a,'Y'
+	JP	Z,SHOW$ID		; "y" Show CF Card Paramaters
+	JP	IDE_ERROR
+	
+
+READ$SEC:				;Read Sector @ LBA to the RAM buffer
+	ld	hl,(@DMA)		;Point to buffer
+	call	READSECTOR
+	jp	z,main1b		;Z means the sector read was OK
+	call	CRLF
+	jp	IDE_LOOP
+main1b:	ld	de, msgrd		;Sector read OK
+	call	PSTRING
+
+	ld	HL,(@DMA)		;Point to buffer.
+	call	HEXDUMP			;Show sector data
+	jp	IDE_LOOP
+
+WRITE$SEC:				;Write data in RAM buffer to sector @ LBA
+	ld	de,msgsure		;Are you sure?
+	call	PSTRING
+	call	ZCI
+	call	upper
+	LD	C,A			;Print response
+	CALL	ZCO
+	CP	'Y'
+	PUSH	AF
+	CALL	CRLF
+	POP	AF
+	jp	nz,IDE_LOOP
+	CALL	CRLF
+
+	ld	HL,(@DMA)
+
+	call	WRITESECTOR
+
+	jp	z,IDE_LOOP		;Z means the sector write was OK
+	call	CRLF
+	jp	IDE_LOOP
+main2b:	ld	de, msgwr		;Sector written OK
+	call	PSTRING
+	jp	IDE_LOOP
+
+
+SET$LBA:				;Set the logical block address
+	ld	de,GET$LBA
+	call	PSTRING
+	call	ghex32lba		;Get new CPM style Track & Sector number and put them in RAM at @SEC & @TRK
+	jp	c,main3b		;Ret C set if abort/error
+	call	wrlba			;Update LBA on drive
+main3b:	call	CRLF
+	jp	IDE_LOOP
+
+NEXT$SECT:
+	ld	a,(@SEC)
+	inc	A
+	cp	MAXSEC-1
+	jp	nc,RANGE$ERROR
+	ld	(@SEC),a
+	call	wrlba			;Update LBA on drive
+	call	CRLF
+	jp	IDE_LOOP
+RANGE$ERROR:
+	ld	de,RANGE$MSG
+	call	PSTRING
+	jp	IDE_LOOP
+
+PREV$SEC:
+	ld	a,(@SEC)
+	or	A
+	jp	z,RANGE$ERROR
+	dec	A
+	ld	(@SEC),a
+	call	wrlba			;Update LBA on drive
+	call	CRLF
+	jp	IDE_LOOP
+
+
+
+CPM_BOOT:				;Boot CPM from IDE system tracks -- if present
+	IN	A,(DIAG_LEDS)
+	OR	A,00010000B		;FLAG PROGRESS (Ready to go, 4 LED's On)
+	OUT	(DIAG_LEDS),A
+
+	ld	de,BOOTCPM$MSG
+	call	PSTRING
+	ld	a,0
+	out	(RAM_BANK),a		;<<<<<<<<<< make sure that RAM bank is 0 before we start loading CPM  >>>>>>>>>>>
+	call	IDEinit			;initialize the board and drive. If there is no drive abort
+	ld	a,0			;Load from track 0,sec 1, head 0 (Always)
+	ld	(@SEC),a		;Remember sectors are numbered +1
+	xor	A
+	ld	(@TRK+1),a
+	ld	(@TRK),a
+
+	ld	a,CPM$BOOT$COUNT	;Count of CPMLDR sectors  (12)
+	ld	(@SECTOR$COUNT),a
+	ld	hl,CPMLDR$ADDRESS	;DMA address where the CPMLDR resides in RAM (100H)
+	ld	(@DMA),hl
+
+NextRCPM:
+	call	wrlba			;Update LBA on drive
+	call	DISPLAYposition		;Display current Track,sector,head#
+	call	CRLF
+
+	ld	hl,(@DMA)
+	call	READSECTOR		;read a sector
+	ld	(@DMA),hl
+
+	ld	a,(@SECTOR$COUNT)
+	DEC     A
+	ld	(@SECTOR$COUNT),a
+	jp	z,LOAD$DONE
+
+	ld	hl,(@SEC)
+	inc	hl
+	ld	(@SEC),hl		;Note we assume we alway will stay on tarck 0 in this special case
+	jp	NextRCPM
+
+LOAD$DONE:
+	ld	e,REGstatus		;Check the R/W status when done
+	call	IDErd8D
+	BIT	0,D
+	jp	nz,CPMLoadErr		;Z if no errors
+	ld	hl,CPMLDR$ADDRESS
+	ld	a,(hl)
+	cp	31H			;EXPECT TO HAVE 31H @80H IE. LD SP,80H
+	jp	nz,CPMLoadErr1		;Z if no errors
+
+	IN	A,(DIAG_LEDS)
+	OR	A,00001000B		;FLAG PROGRESS (Ready to go, 5 LED's On)
+	OUT	(DIAG_LEDS),A
+	jp	100H			;Now jump here where the code for the CPMLDR resides
+
+CPMLoadErr1:
+	ld	de,CPM$ERROR1		;Drive data error
+	call	PSTRING
+	jp	IDE_LOOP
+
+CPMLoadErr:
+	ld	de,CPM$ERROR		;Drive Read Error
+	call	PSTRING
+	jp	IDE_LOOP
+
+
+N$RD$SEC:				;Read N sectors >>>> NOTE no check is made to not overwrite 
+	ld	de,ReadN$MSG		;CPM etc. in high RAM
+	call	PSTRING
+	call	GETHEX
+	jp	c,IDE_LOOP		;Abort if ESC (C flag set)
+	CALL	CRLF
+	CALL	CRLF
+	
+	ld	(@SECTOR$COUNT),a	;store sector count
+	ld	HL,(@DMA)		;Point to buffer
+
+NextRSec:	
+	ld	de,MultiRD_MSG
+	call	PSTRING
+	call	wrlba			;Update LBA on drive
+	call	DISPLAYposition		;Display current Track,sector,head#
+
+	ld	hl,(@DMA)
+	call	READSECTOR
+	ld	(@DMA),hl
+
+	ld	a,(@SECTOR$COUNT)
+	DEC     A
+	ld	(@SECTOR$COUNT),a
+	jp	z,IDE_LOOP
+
+	ld	hl,(@SEC)
+	inc	hl
+	ld	(@SEC),hl
+	ld	a,L			;0 to 62 CPM Sectors
+	cp	MAXSEC-1
+	jp	nz,NextRSec
+
+	ld	hl,0			;Back to CPM sector 0
+	ld	(@SEC),hl
+	ld	hl,(@TRK)		;Bump to next track
+	inc	hl
+	ld	(@TRK),hl
+	ld	a,L			;0-FFH tracks (only)
+	jp	nz,NextRSec
+
+	ld	de,AtEnd		;Tell us we are at end of disk
+	call	PSTRING
+	jp	IDE_LOOP
+
+
+N$WR$SEC:				;Write N sectors 
+	ld	de,WriteN$MSG		;How many sectors
+	call	PSTRING
+	call	GETHEX	
+	jp	c,IDE_LOOP		;Abort if ESC (C flag set)
+	ld	(@SECTOR$COUNT),a	;store sector count
+	
+	ld	de,msgsure		;Are you sure?
+	call	PSTRING
+	call	ZCI
+	call	upper
+	LD	C,A			;Print response
+	CALL	ZCO
+	CP	'Y'
+	PUSH	AF
+	CALL	CRLF
+	POP	AF
+	jp	nz,IDE_LOOP
+	CALL	CRLF
+
+	ld	HL,(@DMA)		;Point to current DMA buffer
+
+NextWSec:	
+	ld	de,MultiWR_MSG
+	call	PSTRING
+	call	wrlba			;Update LBA on drive
+	call	DISPLAYposition		;Display current Track,sector,head#
+
+	ld	hl,(@DMA)
+	call	WRITESECTOR		;Actully, Sector/track values are already updated
+	ld	(@DMA),hl		;above in wrlba, but WRITESECTOR is used in multiple places.
+					;A repeat does no harm -- speed is not an issue here
+	ld	a,(@SECTOR$COUNT)
+	DEC     A
+	ld	(@SECTOR$COUNT),a
+	jp	z,IDE_LOOP
+
+	ld	hl,(@SEC)
+	inc	hl
+	ld	(@SEC),hl
+	ld	a,L			;0 to 62 CPM Sectors
+	cp	MAXSEC-1
+	jp	nz,NextWSec
+
+	ld	hl,0			;Back to CPM sector 0
+	ld	(@SEC),hl
+	ld	hl,(@TRK)		;Bump to next track
+	inc	hl
+	ld	(@TRK),hl
+	ld	a,L			;0-FFH tracks (only)
+	or	A
+	jp	nz,NextWSec
+
+	ld	de,AtEnd		;Tell us we are at end of disk
+	call	PSTRING
+	jp	IDE_LOOP
+
+
+
+
+IDE_ERROR:
+	ld	de, msgErr		;CMD error msg
+	call	PSTRING
+	jp	ABORT
+
+
+;---------------- Support Routines -------------------------------------------
+
+driveid:
+	call	IDEwaitnotbusy		;Do the IDEntify drive command, and return with the buffer
+					;filled with info about the drive
+	ret	c			;If Busy return NZ
+	ld	d,COMMANDid
+	ld	e,REGcommand
+	call	IDEwr8D			;issue the command
+
+	call	IDEwaitdrq		;Wait for Busy=0, DRQ=1
+	jp	c,SHOWerrors
+
+	ld	b,0			;256 words
+	ld	hl,IDbuffer		;Store data here
+	call	MoreRD16		;Get 256 words of data from REGdata port to [HL]
+	ret
+
+
+
+
+SEQ$RD:				
+	call	IDEwaitnotbusy		;Sequentially read sectors one at a time from current position
+	jp	c,SHOWerrors
+	call	CRLF
+NEXTSEC:
+	ld	HL,(@DMA)
+
+	call	READSECTOR		;If there are errors they will show up in READSECTOR
+
+	jp	z,SEQOK
+	ld	de,CONTINUE$MSG		;To Abort enter ESC. Any other key to continue.
+	call	PSTRING
+	call	ZCI
+	cp	ESC			;Abort if ESC
+	jp	Z,IDE_LOOP
+
+SEQOK:	CALL	CRLF
+	call	DISPLAYposition		;Display current Track,sector,head#
+
+	ld	HL,(@DMA)		;Point to buffer
+
+	call	HEXDUMP			;Display sector contents
+	call	CRLF
+	call	CRLF
+	call	CRLF
+
+	ld	de,CONTINUE$MSG		;To Abort enter ESC. Any other key to continue.
+	call	PSTRING
+	call	ZCI
+	cp	ESC
+	JP	Z,IDE_LOOP
+	call	CRLF
+NEXTSEC1:
+	
+	ld	hl,(@SEC)
+	inc	hl
+	ld	(@SEC),hl
+	ld	a,L			;0 to 62 CPM Sectors
+	cp	MAXSEC-1
+	jp	nz,NEXTSEC
+
+	ld	hl,0			;Back to CPM sector 0
+	ld	(@SEC),hl
+	ld	hl,(@TRK)		;Bump to next track
+	inc	hl
+	ld	(@TRK),hl
+	jp	NEXTSEC			;Note will go to last sec on disk unless stopped
+
+
+DISPLAYposition:			;Display current DMA, track,sector & head position
+	LD	DE,msgDMA		;Show current DMA Address
+	CALL	PSTRING
+	ld	a,(@DMA+1)		;High DMA byte
+	call	phex
+	ld	a,(@DMA)		;Low DMA byte
+	call	phex
+	
+	ld	de,msgCPMTRK		;Display in LBA format
+	call	PSTRING			;---- CPM FORMAT ----
+	ld	a,(@TRK+1)		;High TRK byte
+	call	phex
+	ld	a,(@TRK)		;Low TRK byte
+	call	phex
+
+	ld	de,msgCPMSEC
+	call	PSTRING			;SEC = (16 bits)
+	ld	a,(@SEC+1)		;High Sec
+	call	phex
+	ld	a,(@SEC)		;Low sec
+	call	phex
+					;---- LBA FORMAT ----
+	ld	de, msgLBA
+	call	PSTRING			;(LBA = 00 (<-- Old "Heads" = 0 for these drives).
+	ld	a,(@DRIVE$TRK+1)	;High "cylinder" byte
+	call	phex
+	ld	a,(@DRIVE$TRK)		;Low "cylinder" byte
+	call	phex
+	ld	a,(@DRIVE$SEC)
+	call	phex
+	ld	de, MSGBracket		;)$
+	call	PSTRING
+	ret
+
+
+SHOW$ID:			
+	call	driveid			;Get the drive ID info. If there is no drive, abort
+	jp	z,ID$OK1
+	ld	de,ID$ERROR
+	call	PSTRING
+	call	SHOWerrors
+	jp	ABORT
+
+ID$OK1:					;print the drive's model number
+	ld	de, msgmdl
+	call	PSTRING
+	ld	hl,IDbuffer + 54
+	ld	b,10			;character count in words
+	call	printname		;Print [HL], [B] X 2 characters
+	call	CRLF
+					;print the drive's serial number
+	ld	de, msgsn
+	call	PSTRING
+	ld	hl,IDbuffer + 20
+	ld	b, 5			;Character count in words
+	call	printname
+	call	CRLF
+					;Print the drive's firmware revision string
+	ld	de, msgrev
+	call	PSTRING
+	ld	hl,IDbuffer + 46
+	ld	b, 2
+	call	printname		;Character count in words
+	call	CRLF
+					;print the drive's cylinder, head, and sector specs
+	ld	de, msgcy
+	call	PSTRING
+	ld	hl,IDbuffer + 2
+	call	printparm
+	ld	de,msghd
+	call	PSTRING
+	ld	hl,IDbuffer + 6
+	call	printparm
+	ld	de, msgsc
+	call	PSTRING
+	ld	hl,IDbuffer + 12
+	call	printparm
+	call	CRLF
+					;Default position will be first block 
+	ld	hl,0
+	ld	(@SEC),hl		;Default to Track 0, Sec 0
+	ld	(@TRK),hl
+	ld	hl,buffer		;Set DMA address to buffer
+	ld	(@DMA),hl
+
+	call	IDEinit			;For some reason this need to be here after getting the drive ID.
+	jp	IDE_LOOP		;otherewise sector #'s are off by one!
+
+
+
+
+printname:				;Send text up to [B]	
+	inc	hl			;Text is low byte high byte format
+	ld	c,(hl)
+	call	ZCO
+	dec	bc
+	ld	c,(hl)
+	call	ZCO
+	inc	hl
+	inc	hl
+	DEC     B
+	jp	nz,printname
+	ret
+
+
+;	Print a string in [DE] up to '$'
+
+PSTRING:
+	push	bc
+	push	de
+	push	hl
+	ex	de,hl
+PSTRX:	ld	a,(hl)
+	cp	'$'
+	jp	z,DONEP
+	ld	c,A
+	call	ZCO
+	inc	hl
+	jp	PSTRX
+DONEP:	pop	hl
+	pop	de
+	pop	bc
+	ret
+
+
+SHOWerrors:
+   IF	NOT DEBUG
+	or	A			;Set NZ flag
+	scf				;Set Carry Flag
+	ret
+   ELSE
+	call	CRLF
+	ld	e,REGstatus		;Get status in status register
+	call	IDErd8D
+	ld	a,D
+	and	1H
+	jp	nz,MoreError		;Go to  REGerr register for more info
+					;All OK if 01000000
+	push	af			;save for return below
+	and	80H
+	jp	z,NOT7
+	ld	de,DRIVE$BUSY		;Drive Busy (bit 7) stuck high.   Status =
+	call	PSTRING
+	jp	DONEERR
+NOT7:	and	40H
+	jp	nz,NOT6
+	ld	de,DRIVE$NOT$READY	;Drive Not Ready (bit 6) stuck low.  Status =
+	call	PSTRING
+	jp	DONEERR
+NOT6:	and	20H
+	jp	nz,NOT5
+	ld	de,DRIVE$WR$FAULT	;Drive write fault.    Status =
+	call	PSTRING
+	jp	DONEERR
+NOT5	LD	DE,UNKNOWN$ERROR
+	call	PSTRING
+	jp	DONEERR
+
+MoreError:				;Get here if bit 0 of the status register indicted a problem
+	ld	e,REGerr		;Get error code in REGerr
+	call	IDErd8D
+	ld	a,D
+	push	af
+
+	and	10H
+	jp	z,NOTE4
+	ld	de,SEC$NOT$FOUND
+	call	PSTRING
+	jp	DONEERR
+
+NOTE4:	and	80H
+	jp	z,NOTE7
+	ld	de,BAD$BLOCK
+	call	PSTRING
+	jp	DONEERR
+NOTE7:	and	40H
+	jp	z,NOTE6
+	ld	de,UNRECOVER$ERR
+	call	PSTRING
+	jp	DONEERR
+NOTE6:	and	4H
+	jp	z,NOTE2
+	ld	de,INVALID$CMD
+	call	PSTRING
+	jp	DONEERR
+NOTE2:	and	2H
+	jp	z,NOTE1
+	ld	de,TRK0$ERR
+	call	PSTRING
+	jp	DONEERR
+NOTE1:	ld	de,UNKNOWN$ERROR1
+	call	PSTRING
+	jp	DONEERR
+
+DONEERR:pop	af
+	push	af
+	call	BITS1
+	call	CRLF
+	pop	af
+	or	A			;Set Z flag
+	scf				;Set Carry flag
+	ret
+   ENDIF
+
+
+;------------------------------------------------------------------
+; Print a 16 bit number in RAM located @ [HL] 
+; (Note Special Low Byte First. Used only for Drive ID)
+
+printparm:
+	inc	hl			;Index to high byte first
+	ld	a,(hl)
+	call	PHEX
+	dec	bc			;Now low byte
+	ld	a,(hl)
+	call	PHEX
+	ret
+
+; Print an 8 bit number, located in [A]
+PHEX:	push	af
+	push	bc
+	push	af
+	rrca
+	rrca
+	rrca
+	rrca
+	call	ZCONV
+	pop	af
+	call	ZCONV
+	pop	bc
+	pop	af
+	ret
+
+ZCONV:	and	0FH			;HEX to ASCII and print it
+	add	a,90H
+	daa
+	adc	a,40H
+	daa
+	ld	c,A
+	call	ZCO
+	ret
+
+ghex32lba:				;get CPM style Track# & Sector# data and convert to LBA format
+	ld	de,ENTER$SECL		;Enter sector number
+	call	PSTRING
+	call	GETHEX			;get 2 HEX digits
+	ret	c
+	ld	(@SEC),a		;Note: no check data is < MAXSEC, sectors start 0,1,2,3....
+	call	CRLF
+
+	ld	de,ENTER$TRKL		;Enter low byte track number
+	call	PSTRING
+	call	GETHEX			;get 2 more HEX digits
+	ret	c
+	ld	(@TRK),a
+	call	CRLF
+
+	ld	de,ENTER$TRKH		;Enter high byte track number
+	call	PSTRING
+	call	GETHEX			;get 2 more HEX digits
+	ret	c
+	ld	(@TRK+1),a
+	call	CRLF
+	xor	A
+	or	A			;To return NC
+	ret
+
+
+GETHEX:
+	call	GETCMD			;Get a character from keyboard & ECHO
+	cp	ESC
+	jp	z,HEXABORT
+	cp	'/'			;check 0-9, A-F
+	jp	c,HEXABORT
+	cp	'F'+1
+	jp	nc,HEXABORT
+	call	ASBIN			;Convert to binary
+	rlca				;Shift to high nibble
+	rlca
+	rlca
+	rlca
+	ld	b,A			;Store it
+	call	GETCMD			;Get 2nd character from keyboard & ECHO
+	cp	ESC
+	jp	z,HEXABORT
+	cp	'/'			;check 0-9, A-F
+	jp	c,HEXABORT
+	cp	'F'+1
+	jp	nc,HEXABORT
+	call	ASBIN			;Convert to binary
+	or	B			;add in the first digit
+	or	A			;To return NC
+	ret
+HEXABORT:
+	scf				;Set Carry flag
+	ret
+
+
+GETCMD:	call	ZCI			;GET A CHARACTER, convert to UC, ECHO it
+	call	UPPER
+	cp	ESC
+	ret	z			;Don't echo an ESC
+	push	af			;Save it
+	push	bc
+ 	ld	c,A
+	call	ZCO			;Echo it
+	pop	bc
+	pop	af			;get it back
+	ret
+
+					;Convert LC to UC
+UPPER:	cp	'a'			;must be >= lowercase a
+	ret	c			; else go back...
+	cp	'z'+1			;must be <= lowercase z
+	ret	nc			; else go back...
+	sub	'a'-'A'			;subtract lowercase bias
+	ret
+
+					;ASCII TO BINARY CONVERSION ROUTINE
+ASBIN:	sub	30H
+	cp	0AH
+	ret	m
+	sub	07H
+	ret
+
+
+HEXDUMP:				;Print a hexdump of the data in the 512 byte buffer @[HL]
+	push	af			;Save everything
+	push	bc
+	push	de
+	push	hl
+
+	call	CRLF			;CR/LF first
+	ld	d,32			;Print 32 lines total
+	ld	b,16			;16 characters across
+	ld	(@StartLineHex),hl	;Save the buffer location for ASCII display below
+	ld	hl,0
+	ld	(@BYTE$COUNT),hl
+
+SF172:	call	CRLF
+	ld	hl,(@BYTE$COUNT)
+	ld	a,H
+	call	PHEX			;Print byte count in sector
+	ld	a,L
+	call	PHEX
+	push	de
+	ld	de,16
+	add	hl,de
+	pop	de
+	ld	(@BYTE$COUNT),hl	;store for next time
+	call	BLANK
+	ld	hl,(@StartLineHex)
+	ld	(@StartLineASCII),hl	;Store for ASCII display below
+SF175:	ld	a,(hl)
+	call	LBYTE			;Display [A] on CRT/LCD
+	inc	hl
+	DJNZ	SF175
+	ld	(@StartLineHex),hl	;Save for next line later
+	call	ShowAscii		;Now translate to ASCII and display
+	ld	b,16			;16 characters across for next line
+	dec	D
+	jp	nz,SF172		;Have we done all 32 lines
+;
+	call	CRLF
+	pop	hl			;Get back origional registers
+	pop	de
+	pop	bc
+	pop	af
+	ret
+
+ShowAscii:				;Now show as ascii info
+	ld	hl,(@StartLineASCII)
+	ld	b,16			;16 ASCII characters across
+XF172:	call	BLANK			;send a space character
+	call	BLANK
+XF175:	ld	a,(hl)
+	and	7FH
+	cp	' '			;FILTER OUT CONTROL CHARACTERS
+	jp	nc,XT33
+XT22:	ld	a,'.'
+XT33:	cp	07CH
+	jp	nc,XT22
+	ld	c,A			;SET UP TO SEND
+	push	bc
+	call	ZCO
+	pop	bc
+	inc	hl			;Next position in buffer
+	DJNZ	XF175
+	ret
+;
+;
+;================================================================================================
+;
+;      IDE Drive BIOS Routines written in a format that can be used directly with CPM3 
+;
+;================================================================================================
+;
+IDEinit:				;Initilze the 8255 and drive then do a hard reset on the drive, 
+	ld	a,READcfg8255		;Config 8255 chip (10010010B), read mode on return
+	out	(IDEportCtrl),a		;Config 8255 chip, READ mode
+
+					;Hard reset the disk drive 
+					;For some reason some CF cards need to the RESET line 
+					;pulsed very carefully. You may need to play around   
+	ld	a,IDErstline		;with the pulse length. Symptoms are: incorrect data comming
+	out	(IDEportC),a		;back from a sector read (often due to the wrong sector being read)
+					;I have a (negative)pulse of 2.7uSec. (10Mz Z80, two IO wait states).
+	ld	b,20H			;Which seem to work for the 5 different CF cards I have.
+ResetDelay:
+	DEC     B
+	jp	nz,ResetDelay		;Delay (reset pulse width)
+
+	xor	A
+	out	(IDEportC),a		;No IDE control lines asserted (just bit 7 of port C)
+	call	DELAY$32
+
+	;**** A. Bingham - 7-April-2018 - from D. Fry ****
+	CALL	IDEwaitnotbusy
+	JP	C,InitError
+	;****
+
+	ld	d,11100000b		;Data for IDE SDH reg (512bytes, LBA mode,single drive,head 0000)
+					;For Trk,Sec,head (non LBA) use 10100000
+					;Note. Cannot get LBA mode to work with an old Seagate Medalist 6531 drive.
+					;have to use teh non-LBA mode. (Common for old hard disks).
+
+	ld	e,REGshd		;00001110,(0EH) for CS0,A2,A1,
+	call	IDEwr8D			;Write byte to select the MASTER device
+;
+	ld	b,0FFH			;<<< May need to adjust delay time for hard disks
+WaitInit:	
+	ld	e,REGstatus		;Get status after initialization
+	call	IDErd8D			;Check Status (info in [D])
+	ld	a,D
+	and	80H
+	jp	z,DoneInit		;Return if ready bit is zero
+	ld	a,2
+	call	DELAYX			;Long delay, drive has to get up to speed
+	DEC     B
+	jp	nz,WaitInit
+	call	SHOWerrors		;Ret with NZ flag set if error (probably no drive)
+	ret
+DoneInit:
+	xor	A
+	ret
+
+
+DELAYX:	ld	(@DELAYStore),a
+	push	bc
+	ld	bc,0FFFFH		;<<< May need to adjust delay time to allow cold drive to
+DELAY2:	ld	a,(@DELAYStore)		;get up to speed.
+DELAY1:	DEC     A
+	jp	nz,DELAY1
+	dec	bc
+	ld	a,C
+	or	B
+	jp	nz,DELAY2
+	pop	bc
+	ret
+
+
+DELAY$32: ld	a,40			;DELAY ~32 MS (DOES NOT SEEM TO BE CRITICAL)
+DELAY3:	ld	b,0
+M0:	DJNZ	M0
+	DEC     A
+	jp	nz,DELAY3
+	ret
+
+InitError:
+	LD DE,INIT$ERROR
+	CALL PSTRING
+	JP ABORT
+
+					;Read a sector, specified by the 3 bytes in LBA
+					;Z on success, NZ call error routine if problem
+READSECTOR:
+	call	wrlba			;Tell which sector we want to read from.
+					;Note: Translate first in case of an error otherwise we 
+					;will get stuck on bad sector 
+	call	IDEwaitnotbusy		;make sure drive is ready
+	jp	c,SHOWerrors		;Returned with NZ set if error
+
+	ld	d,COMMANDread
+	ld	e,REGcommand
+	call	IDEwr8D			;Send sec read command to drive.
+	call	IDEwaitdrq		;wait until it's got the data
+	jp	c,SHOWerrors
+
+	LD  	HL,(@DMA)		;DMA address
+	ld	b,0			;Read 512 bytes to [HL] (256X2 bytes)
+MoreRD16:
+	ld	a,REGdata		;REG register address
+	out	(IDEportC),a
+
+	or	IDErdline		;08H+40H, Pulse RD line
+	out	(IDEportC),a
+
+	in	a,(IDEportA)		;Read the lower byte first (Note very early versions had high byte then low byte
+	ld	(hl),A			;this made sector data incompatible with other controllers).
+	inc	hl
+	in	a,(IDEportB)		;THEN read the upper byte
+	ld	(hl),A
+	inc	hl
+
+	ld	a,REGdata		;De-assert RD line
+	out	(IDEportC),a
+	DJNZ	MoreRD16
+
+	ld	e,REGstatus
+	call	IDErd8D
+	ld	a,D
+	and	1H
+	call	nz,SHOWerrors		;If error display status
+	ret
+
+					;Write a sector, specified by the 3 bytes in LBA 
+					;Z on success, NZ to error routine if problem
+WRITESECTOR:
+	call	wrlba			;Tell which sector we want to read from.
+					;Note: Translate first in case of an error otherwise we 
+					;will get stuck on bad sector 
+	call	IDEwaitnotbusy		;make sure drive is ready
+	jp	c,SHOWerrors
+
+	ld	d,COMMANDwrite
+	ld	e,REGcommand
+	call	IDEwr8D			;tell drive to write a sector
+	call	IDEwaitdrq		;wait unit it wants the data
+	jp	c,SHOWerrors
+
+	ld	hl,(@DMA)
+	ld	b,0			;256X2 bytes
+
+	ld	a,WRITEcfg8255
+	out	(IDEportCtrl),a
+
+WRSEC1:	ld	a,(hl)
+	inc	hl
+	out	(IDEportA),a		;Write the lower byte first (Note early versions had high byte then low byte
+	ld	a,(hl)			;this made sector data incompatible with other controllers).
+	inc	hl
+	out	(IDEportB),a		;THEN High byte on B
+	ld	a,REGdata
+	push	af
+	out	(IDEportC),a		;Send write command
+	or	IDEwrline		;Send WR pulse
+	out	(IDEportC),a
+	pop	af
+	out	(IDEportC),a
+	DJNZ	WRSEC1
+
+	ld	a,READcfg8255		;Set 8255 back to read mode
+	out	(IDEportCtrl),a
+
+	ld	e,REGstatus
+	call	IDErd8D
+	ld	a,D
+	and	1H
+	call	nz,SHOWerrors		;If error display status
+	ret
+
+
+wrlba:					;Write the logical block address to the drive's registers
+					;Note we do not need to set the upper nibble of the LBA
+					;It will always be 0 for these small drives
+	ld	a,(@SEC)		;LBA mode Low sectors go directly
+	inc	A			;Sectors are numbered 1 -- MAXSEC (even in LBA mode)
+	ld	(@DRIVE$SEC),a		;For Diagnostic Display Only
+	ld	d,A
+	ld	e,REGsector		;Send info to drive
+	call	IDEwr8D			;Note: For drive we will have 0 - MAXSEC sectors only
+
+	ld	hl,(@TRK)
+	ld	a,L
+	ld	(@DRIVE$TRK),a
+	ld	d,L			;Send Low TRK#
+	ld	e,REGcylinderLSB
+	call	IDEwr8D
+
+	ld	a,H
+	ld	(@DRIVE$TRK+1),a
+	ld	d,H			;Send High TRK#
+	ld	e,REGcylinderMSB
+	call	IDEwr8D
+
+	ld	d,1			;For now, one sector at a time
+	ld	e,REGseccnt
+	call	IDEwr8D
+	ret
+
+IDEwaitnotbusy:				;ie Drive READY if 01000000
+	ld	b,0FFH
+	ld	a,0FFH			;Delay, must be above 80H for 4MHz Z80. Leave longer for slower drives
+	ld	(@DELAYStore),a
+
+MoreWait:
+	ld	e,REGstatus		;wait for RDY bit to be set
+	call	IDErd8D	
+	ld	a,D
+	and	11000000B
+	xor	01000000B
+	jp	z,DoneNotbusy
+	DEC     B
+	jp	nz,MoreWait
+	ld	a,(@DELAYStore)		;Check timeout delay
+	DEC     A
+	ld	(@DELAYStore),a
+	jp	nz,MoreWait
+	scf				;Set carry to indicate an error
+	ret
+DoneNotBusy:
+	or	A			;Clear carry it indicate no error
+	ret
+
+					;Wait for the drive to be ready to transfer data.
+					;Returns the drive's status in Acc
+IDEwaitdrq:
+	ld	b,0FFH
+	ld	a,0FFH			;Delay, must be above 80H for 4MHz Z80. Leave longer for slower drives
+	ld	(@DELAYStore),a
+
+MoreDRQ:
+	ld	e,REGstatus		;wait for DRQ bit to be set
+	call	IDErd8D
+	ld	a,D
+	and	10001000B
+	cp	00001000B
+	jp	z,DoneDRQ
+	DEC 	B
+	jp	nz,MoreDRQ
+	ld	a,(@DELAYStore)		;Check timeout delay
+	DEC	A
+	ld	(@DELAYStore),a
+	jp	nz,MoreDRQ
+	scf				;Set carry to indicate error
+	ret
+DoneDRQ:
+	or	A			;Clear carry
+	ret
+
+
+SET_DMA:
+	PUSH	DE
+	LD	DE,DMA_Loc_MSG2		;Enter starting RAM buffer (DMA) location (xxxxH):$'
+	CALL	PSTRING
+	POP	DE
+	CALL	GETHL			;Setup DMA location in [HL]
+	LD	(@DMA),HL
+	CALL	CRLF
+	JP	IDE_LOOP
+
+;------------------------------------------------------------------
+; Low Level 8 bit R/W to the drive controller.  These are the routines that talk
+; directly to the drive controller registers, via the 8255 chip.  
+; Note the 16 bit I/O to the drive (which is only for SEC R/W) is done directly 
+; in the routines READSECTOR & WRITESECTOR for speed reasons.
+;
+IDErd8D:				;READ 8 bits from IDE register in [E], return info in [D]
+	ld	a,E
+	out	(IDEportC),a		;drive address onto control lines
+
+	or	IDErdline		;RD pulse pin (40H)
+	out	(IDEportC),a		;assert read pin
+
+	in	a,(IDEportA)
+	ld	d,A			;return with data in [D]
+
+	ld	a,E			;<---Ken Robbins suggestion
+	out	(IDEportC),a		;de-assert RD pin
+
+	xor	A
+	out	(IDEportC),a		;Zero all port C lines
+	ret
+
+
+IDEwr8D:				;WRITE Data in [D] to IDE register in [E]
+	ld	a,WRITEcfg8255		;Set 8255 to write mode
+	out	(IDEportCtrl),a
+
+	ld	a,D			;Get data put it in 8255 A port
+	out	(IDEportA),a
+
+	ld	a,E			;select IDE register
+	out	(IDEportC),a
+
+	or	IDEwrline		;lower WR line
+	out	(IDEportC),a
+
+	ld	a,E			;<-- Ken Robbins suggestion, raise WR line
+	out	(IDEportC),a		;de-assert RD pin
+
+	xor	A			;Deselect all lines including WR line
+	out	(IDEportC),a
+
+	ld	a,READcfg8255		;Config 8255 chip, read mode on return
+	out	(IDEportCtrl),a
+	ret
+
+
+;<<<<<<<<<<<<<<<<<<<<<< MAIN CONSOL ROUTINES >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+;
+
+ZCO:	IN	A,IOBYTE		;Find out where we send data
+;	BIT	2,A	
+;	JR	Z,VGA_CO		;To save space no VGA for now
+	BIT	0,A	
+	JR	Z,USB_CO		;USB port for output
+	JR	PROP_CO			;For now everything else Propeller 	
+
+PROP_CO:
+	IN	A,(S100_CONSOL_STATUS)	;PROPELLER VIDIO BOARD PORT
+	AND	4H
+	JR	Z,PROP_CO		;Not yet ready, try both outputs
+	LD	A,C
+	CP	07H			;IS IT A BELL
+	JP	Z,BELL1			;Special case
+	CP	0H			;SD BOARD CANNOT TAKE A NULL!
+	RET	Z
+	OUT	(S100_CONSOL_OUT),A
+	RET
+
+BELL1:	LD	A,06H			;SEND A BELL
+	OUT	(S100_CONSOL_OUT),A
+	LD	A,0FH
+	CALL	DELAY
+	LD	A,07H
+	OUT	(S100_CONSOL_OUT),A
+	RET
+
+
+DELAY:	DEC	A			;GENERAL COUNT DOWN TIME DELAY
+	RET	Z			;LENGTH SET IN [A]
+	PUSH	AF
+	LD	A,05H
+MORE:	DEC	A
+	PUSH	AF
+	XOR	A
+MORE2:	DEC	A
+	JR	NZ,MORE2
+	POP	AF
+	JR	NZ,MORE
+	POP	AF
+	JR	DELAY
+
+
+USB_CO:	IN	A,(USB_STATUS_PORT)	;USB Port for Console OUT
+	AND	00000010B
+	JR	NZ,USB_CO		;Not yet ready - busy transmitting, try again
+	LD	A,C
+	AND	7FH			;Always 7 bits only.
+	OUT	(USB_DATA_PORT),A
+	RET
+
+
+;<<<<<<<<<<<<<<<<<<< MAIN CONSOL STATUS ROUTINE >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+
+ZCSTS:	IN	A,IOBYTE		;Find out where we get data
+	BIT	1,A	
+	JR	Z,PS2_CSTS
+;	BIT	2,A			; To save space no VGA console for now
+;	JR	Z,VGA_CSTS
+	BIT	0,A	
+	JR	Z,USB_CSTS		;USB port
+	JR	PROP_CSTS		;For now everything else Propeller Console Board
+
+PROP_CSTS:
+	IN	A,(S100_CONSOL_STATUS)
+	AND	02H
+	JP	Z,NO_CSTS		;Zero if nothing
+GOT_CSTS:
+	XOR	A
+	DEC	A			;RETURN WITH 0FFH IN [A] IF SOMETHING
+	RET
+NO_CSTS:
+	XOR	A			
+	RET				;RETURN WITH 0 IN A IF NOTHING THERE
+
+USB_CSTS:
+	IN	A,(USB_STATUS_PORT)
+	AND	01H
+	JR	Z,NO_CSTS		;Zero if nothing
+	JR	GOT_CSTS
+
+PS2_CSTS:
+	IN	A,(PS2_STATUS_PORT)
+	AND	01H
+	JR	Z,NO_CSTS		;Zero/Low if nothing
+	JR	GOT_CSTS
+
+;<<<<<<<<<<<<<<<<<<<< MAIN CONSOL INPUT ROUTINE >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+
+ZCI:	IN	A,IOBYTE		;Find out where we send data
+	BIT	1,A	
+	JR	Z,PS2_CI
+;	BIT	2,A			; To save space no VGA Console for now
+;	JR	Z,VGA_CI
+	BIT	0,A	
+	JR	Z,USB_CI		;USB port
+	JR	PROP_CI			;For now everything else Propeller Console Board
+	
+PROP_CI:
+	IN 	A,(S100_CONSOL_STATUS)	;NEED CONSTAT TO CLEAN UP SHIFT KEYS ETC
+	AND	02H
+	JR	Z,PROP_CI		;Wait until something there
+	IN	A,(S100_CONSOL_IN)
+	AND	7FH
+	RET
+
+USB_CI:
+	IN 	A,(USB_STATUS_PORT)	;NEED CONSTAT TO CLEAN UP SHIFT KEYS ETC
+	AND	01H
+	JR	Z,USB_CI		;Wait until something there
+	IN	A,(USB_DATA_PORT)
+	AND	7FH			;Always 7 bits only.
+	RET
+	
+PS2_CI:
+	IN 	A,(PS2_STATUS_PORT)	;NEED CONSTAT TO CLEAN UP SHIFT KEYS ETC
+	AND	01H
+	JR	Z,PS2_CI		;Wait until something there
+	IN	A,(PS2_DATA_PORT)
+	AND	7FH			;Always 7 bits only.
+	RET
+
+
+;SEND TO CONSOL CR/LF
+CRLF:	PUSH	AF
+	PUSH	BC
+	LD	C,CR
+	CALL	ZCO
+	LD	C,LF
+	CALL	ZCO
+	POP	BC
+	POP	AF
+	RET
+
+;Print a space on screen
+BLANK:	PUSH	BC			
+	PUSH	HL
+	LD	C,' '
+	CALL	ZCO
+	POP	HL
+	POP	BC
+	RET
+
+LBYTE:	PUSH	AF
+	RRCA
+	RRCA
+	RRCA
+	RRCA
+	CALL	SF598
+	POP	AF
+SF598:	CALL	CONV			;Convert to ASCII AND print it
+	RET
+
+;CONVERT HEX TO ASCII
+CONV:	AND	0FH
+	ADD	A,90H
+	DAA 
+	ADC	A,40H
+	DAA 
+	LD	C,A
+	call	ZCO
+	RET
+
+GETHL:	PUSH	BC			;Return a HEX value in [HL]
+	LD	C,1			;1 paramater
+	CALL	HEXSP
+	POP	HL
+	POP	BC
+	RET
+
+HEXSP:	LD	HL,0000
+EX0:	CALL	TI
+EX1:	LD	B,A
+	CALL	NIBBLE
+	JR	C,EX2X
+	ADD	HL,HL
+	ADD	HL,HL
+	ADD	HL,HL
+	ADD	HL,HL
+	OR	L
+	LD	L,A
+	JR	EX0
+EX2X:	EX	(SP),HL
+	PUSH	HL
+	LD	A,B
+	CALL	QCHK
+	JR	NC,SF560
+	DEC	C
+	RET	Z
+SF560:	JP	NZ,ABORT
+	DEC	C
+	JR	NZ,HEXSP
+	RET 
+EXF:	LD	C,01H
+	LD	HL,0000H
+	JR	EX1
+	
+;KEYBOARD HANDELING ROUTINE (WILL NOT ECHO CR/LF)
+;IT CONVERTS LOWER CASE TO UPPER CASE FOR LOOKUP COMMANDS
+;ALL OTHERE CHARACTERS ARE ECHOED ON CONSOL
+TI:	CALL	ZCI
+	CP	CR
+	RET	Z
+	PUSH	BC
+	LD	C,A
+	CALL	ZCO
+	LD	A,C
+	POP	BC
+	CP	40H			;LC->UC
+	RET	C
+	CP	7BH
+	RET	NC
+SF754:	AND	5FH
+	RET 
+
+NIBBLE:	SUB	30H
+	RET	C
+	CP	17H
+	CCF
+	RET	C
+	CP	LF
+	CCF
+	RET	NC
+	SUB	07H
+	CP	LF
+	RET
+
+;TEST FOR DELIMITERS
+
+QCHK:	CP	SPACE
+	RET	Z
+	CP	','
+	RET	Z
+	CP	CR
+	SCF
+	RET	Z
+	CCF
+	RET 
+
+IDE_MENU_MSG: 	DB	CR,LF,LF,'SBC-Z80 ROM MONITOR (@ F000H) V2.0  8/21/2019 SD_CARD MENU',CR,LF,LF
+	 	DB	'L=Set LBA   R=1 Sec to Buffer  W=Buffer to 1 Sec',CR,LF
+		DB	'S=Show Sec  V=N Secs to buffer X=Buffer to N Secs',CR,LF
+		DB	'N=Next Sec  M=Previous Sector  P=Boot CPM',CR,LF
+		DB	'D=Buf Addr  Y=Card Paramerers  (ESC) Main menu',CR,LF,LF,'$'
+
+INIT$ERROR:	DB	'INIT. DRIVE ERROR.',CR,LF,'$'
+ID$ERROR:	DB	'ERROR FOR DRIVE ID.',CR,LF,'$'
+msgmdl:		DB	'Model: $'
+msgsn:		DB	'S/N:   $'
+msgrev:		DB	'Rev:   $'
+msgcy:		DB	'Cylinders: $'
+msghd:		DB	', Heads: $'
+msgsc:		DB	', Sectors: $'
+msgDMA:		DB	'Buffer = $'
+msgCPMTRK:	DB	'H,  CPM TRK = $'
+msgCPMSEC:	DB	',  CPM SEC = $'
+msgLBA:		DB	',  (LBA = 00$'
+MSGBRACKET	DB	')$'
+
+Prompt:		DB	CR,LF,LF,'Enter command >$'
+msgsure:	DB	CR,LF,'Warning: this will change data on the drive, '
+		DB	'are you sure? (Y/N)...$'
+msgrd:		DB	CR,LF,'Sec. Read OK',CR,LF,'$'
+msgwr:		DB	CR,LF,'Sec. Write OK',CR,LF,'$'
+GET$LBA:	DB	'ENTER CPM STYLE TRK & SEC (IN HEX).',CR,LF,'$'
+SEC$RW$ERROR	DB	'DRIVE ERROR, Status Register = $'
+ERR$REG$DATA	DB	'DRIVE ERROR, Error Register = $'
+ENTER$SECL	DB	'Starting sec.#,(xxH) = $'
+ENTER$TRKL	DB	'Track # (LOW byte, xxH) = $'
+ENTER$TRKH	DB	'Track # (HIGH byte, xxH) = $'
+ENTER$HEAD	DB	'Head # (01-0f) = $'
+ENTER$COUNT	DB	'Number of sectors to R/W = $'
+DRIVE$BUSY	DB	'Drive Busy (bit 7) stuck high.   Status = $'
+DRIVE$NOT$READY	DB	'Drive Ready (bit 6) stuck low.  Status = $'
+DRIVE$WR$FAULT	DB	'Drive write fault.    Status = $'
+UNKNOWN$ERROR	DB	'Unknown error.   Status = $'
+BAD$BLOCK	DB	'Sector ID.  Error Register = $'
+UNRECOVER$ERR	DB	'Error Register = $'
+READ$ID$ERROR	DB	'ERROR SETTING UP TO READ DRIVE ID',CR,LF,'$'
+SEC$NOT$FOUND	DB	'Sector not found. Error Register = $'
+INVALID$CMD	DB	'Invalid Command. Error Register = $'
+TRK0$ERR	DB	'Track Zero not found. Error Register = $'
+UNKNOWN$ERROR1	DB	'Unknown Error. Error Register = $'
+CONTINUE$MSG	DB	CR,LF,'ESC to Abort. Any other key to continue. $'
+READN$MSG	DB	CR,LF,'Multiple sectors from current disk/CF card to RAM.'
+		DB	CR,LF,'How many 512 byte sectores (xx HEX):$'
+WRITEN$MSG	DB	CR,LF,'Multiple sectors in RAM to current disk/CF card.'
+		DB	CR,LF,'How many 512 byte sectores (xx HEX):$'
+MultiRD_MSG	DB	CR,LF,'Reading Sec $'
+MultiWR_MSG	DB	CR,LF,'Writing Sec $'
+
+MSGERR		DB	CR,LF,'Invalid menu option!$'
+ATEND		DB	CR,LF,'At end of disk partition!',CR,LF,'$'
+H$MSG		DB	'H$'
+RANGE$MSG	DB	CR,LF,'Sector out of range.',CR,LF,'$'
+CPM$ERROR	DB	CR,LF,'Error reading CPMLDR.',CR,LF,'$'
+CPM$ERROR1	DB	CR,LF,'Data error reading CPMLDR.',CR,LF,'$'
+DMA_Loc_MSG2	DB	CR,LF,'Enter starting RAM buffer (DMA) location (xxxxH):$'
+BOOTCPM$MSG	DB	CR,LF,'Booting CPM',CR,LF,'$'
+
+; -------------------------- RAM usage -----------------------------------------
+
+IDBUFFER	EQU	RAM_BASE+ 1000H		;512 Bytes @ (C000H+1000H = D000H) for CF-Card paramaters
+buffer		EQU	RAM_BASE		;Default DMA buffer at C000H
+
+@DMA		EQU	RAM_BASE + 1F00H	;Remember Stack is at ~DFF0H
+@DRIVE$SEC	EQU	RAM_BASE + 1F02H
+@DRIVE$TRK	EQU	RAM_BASE + 1F04H
+@SEC		EQU	RAM_BASE + 1F06H
+@TRK		EQU	RAM_BASE + 1F08H
+@STARTLINEHEX	EQU	RAM_BASE + 1F10H
+@STARTLINEASCII	EQU	RAM_BASE + 1F12H
+@BYTE$COUNT	EQU	RAM_BASE + 1F14H
+@SECTOR$COUNT	EQU	RAM_BASE + 1F16H
+@DELAYSTORE	EQU	RAM_BASE + 1F18H
+
+
+

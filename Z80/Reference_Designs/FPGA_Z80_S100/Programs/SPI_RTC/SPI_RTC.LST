@@ -1,0 +1,703 @@
+Z80ASM SuperFast Relocating Macro Assembler     	    Z80ASM 1.30 Page   1
+SPI_RTC Z80
+
+    1                   ;Program for SPI interface to the RTC (U2) on the S100Computers.com Z80_FPGA Board.
+    2                   ;Will Read or Write to an DS1305 RTC chip 
+    3                   ;
+    4                   ;	John Monahan	S100Computers.com	8/2/2019
+    5                   ;
+    6                   ;
+    7                   ;V1.0		7/30/2019	;First version. It is "rough & ready" with little menu etc. error checking etc.
+    8                   ;				;Note address input Hex values must be 4 digits. Data (byte) values 2 digits
+    9                   ;	PORT ASSIGNMENTS
+   10                   ;
+   11         0068      SPI_BASE_PORT	EQU	068H			; Base I/O port fot SPI module
+   12         0068      SPI_ADDRESS_OUT	EQU	SPI_BASE_PORT		; 68H, Data OUT port from SPI module to RTC
+   13         0069      SPI_DATA_OUT	EQU	SPI_BASE_PORT+1		; 69H, Data OUT port from SPI module to RTC
+   14         0069      SPI_DATA_IN	EQU	SPI_BASE_PORT+1		; 69H, Data IN from EEPROM
+   15         006A      SPI_CS		EQU	SPI_BASE_PORT+2		; 6AH, CS Data OUT port to SPI/EEPROM module
+   16         006A      SPI_STATUS	EQU	SPI_BASE_PORT+2		; 6AH, Busy Flag IN port from SPI/EEPROM
+   17                   
+   18         006B      SPI_READ	EQU	SPI_BASE_PORT+3		; 6B, Read pulse to SPI module
+   19         006B      SPI_WRITE	EQU	SPI_BASE_PORT+3		; 6B, Write pulse to SPI module
+   20                   
+   21         0000      RTC_CS_LOW		EQU	00H		; Bit 0 has CS  (Note, HIGH to select chip)
+   22         0001      RTC_CS_HIGH		EQU	01H			
+   23                   
+   24         0000      RTC_SECONDS	EQU	0H			;All registers OR 80H for WRITE Address
+   25         0001      RTC_MINUTES	EQU	1H
+   26         0002      RTC_HOURS	EQU	2H
+   27         0003      RTC_DAY		EQU	3H
+   28         0004      RTC_DATE	EQU	4H
+   29         0005      RTC_MONTH	EQU	5H
+   30         0006      RTC_YEAR	EQU	6H
+   31                   
+   32         000F      RTC_CTL_REG	EQU	0FH
+   33         0010      RTC_STATUS_REG	EQU	10H
+   34         0020      RTC_RAM		EQU	20H			;20H -- 7FH
+   35                   
+   36         0080      ENABLE_OSC	EQU	80H			;Bit to enable/start the RTC chip (0=start, 1=stop)
+   37         0040      WP		EQU	40H			;Write Protect. Bit must be 0 to alter any other register. 
+   38                   						;Note alarms etc are not implemented in this simple example.
+   39                   						
+   40         0000      CONSTAT			EQU	0H		; Console Status Port
+   41         0001      CONIN			EQU	1H		; Console IN Port
+   42         0001      CONOUT			EQU	1H		; Console OUT Port
+   43                   
+   44         F000      MONITOR			EQU	0F000H		; Location of Z80 ROM monitor when done.
+   45                   
+   46         0007      BELL			EQU	07H
+   47         001B      ESC			EQU	1BH
+   48         000D      CR			EQU	0DH
+   49         000A      LF			EQU	0AH
+   50                   
+   51                   ;------------------------------------------------------------------------------------------
+   52                   
+   53         0100      	ORG	100H
+   54                   	
+   55 0100  31 0925     START:	LD	SP,STACK
+   56 0103  21 04A8     	LD	HL,SIGNON
+   57 0106  CD 03BA     	CALL	PMSG
+   58                   
+Z80ASM SuperFast Relocating Macro Assembler     	    Z80ASM 1.30 Page   2
+SPI_RTC Z80
+
+   59 0109  3E 00       START2:	LD	A,RTC_CS_LOW			;Deselect RTC chip SPI interface (Note HIGH for CS)
+   60 010B  D3 6A       	OUT	(SPI_CS),A
+   61                   	
+   62 010D  21 0549     	LD	HL,SIGNON1
+   63 0110  CD 03BA     	CALL	PMSG
+   64 0113  CD 03CA     	CALL	CRLF				;Normal start within menu
+   65 0116  0E 3E       	LD	C,'>'	   
+   66 0118  CD 048A     	CALL	CO
+   67 011B  CD 049D     	CALL	CI
+   68 011E  FE 1B       	CP	A,ESC
+   69 0120  C2 0126     	JP	NZ,START3
+   70 0123  C3 F000     	JP	MONITOR
+   71                   	
+   72 0126  FE 30       START3:	CP	A,'0'
+   73 0128  CA 015F     	JP	Z,ACTIVATE_RTC
+   74 012B  FE 31       	CP	A,'1'
+   75 012D  CA 016F     	JP	Z,READ_SECONDS
+   76 0130  FE 32       	CP	A,'2'
+   77 0132  CA 018B     	JP	Z,WRITE_RAM
+   78 0135  FE 33       	CP	A,'3'
+   79 0137  CA 01CE     	JP	Z,READ_RAM
+   80 013A  FE 34       	CP	A,'4'
+   81 013C  CA 0200     	JP	Z,SET_TIME
+   82 013F  FE 35       	CP	A,'5'
+   83 0141  CA 02C8     	JP	Z,READ_TIME
+   84 0144  FE 36       	CP	A,'6'
+   85 0146  CA 031E     	JP	Z,DISPLAY_RGS
+   86 0149  CD 014F     	CALL	MENU_ERROR
+   87 014C  C3 0109     	JP	START2
+   88                   
+   89 014F              MENU_ERROR:
+   90 014F  21 069D     	LD	HL,MENU_MSG		; "Menu error"
+   91 0152  CD 03BA     	CALL	PMSG
+   92 0155  C9          	RET
+   93                    
+   94 0156               DATA_ERROR:
+   95 0156  21 06AD     	LD	HL,FORMAT_ERR_MSG	; "DATA  error"
+   96 0159  CD 03BA     	CALL	PMSG
+   97 015C  C3 0109     	JP	START2
+   98                   	
+   99                   ;-------------------------------------------------------------------------------------------------
+  100 015F              ACTIVATE_RTC:
+  101 015F  21 06D7     	LD	HL,MSG0			; "Activate RTC Chip"
+  102 0162  CD 03BA     	CALL	PMSG
+  103                   	
+  104 0165  06 8F       	LD	B,RTC_CTL_REG OR 80H	; RTC Register address + Write
+  105 0167  0E 00       	LD	C,00000000B		; ENABLE_OSC, Bit 7 to enable/start the RTC chip (0=start, 1=stop)
+  106 0169  CD 037E     	CALL	WRITE_SPI		; <<<< Send Write pulse (Address + DATA)
+  107 016C  C3 0109     	JP	START2
+  108                   	
+  109 016F              READ_SECONDS:
+  110 016F  21 06EE     	LD	HL,MSG1			; "1 = Read Seconds Register from RTC Chip"
+  111 0172  CD 03BA     	CALL	PMSG
+  112                   	
+  113 0175  06 00       	LD	B,RTC_SECONDS		; Seconds Register address + READ
+  114 0177  CD 0392     	CALL	READ_SPI		; <<< Send Read pulse (Address, get DATA), return result in [A]
+  115                   
+  116 017A  F5          	PUSH	AF			; Save it
+Z80ASM SuperFast Relocating Macro Assembler     	    Z80ASM 1.30 Page   3
+SPI_RTC Z80
+
+  117 017B  21 0717     	LD	HL,MSG2			; "RTC Seconds Register = "
+  118 017E  CD 03BA     	CALL	PMSG
+  119 0181  F1          	POP	AF
+  120 0182  CD 045C     	CALL	PRINT_A			; Display Returned SPI PROM Byte
+  121 0185  CD 03CA     	CALL	CRLF
+  122 0188  C3 0109     	JP	START2
+  123                   
+  124 018B              WRITE_RAM:
+  125 018B  21 0731     	LD	HL,MSG3			; "2",CR,LF,Enter RAM location (20H-7FH) "
+  126 018E  CD 03BA     	CALL	PMSG
+  127                   	
+  128 0191  CD 0406     	CALL	GET_HEX
+  129 0194  DA 0156     	JP	C,DATA_ERROR
+  130 0197  F6 80       	OR	A,80H			; Add write bit
+  131 0199  57          	LD	D,A			; RAM Location to D (with Write bit)
+  132 019A  21 0752     	LD	HL,MSG4			; 'Enter Byte value " 
+  133 019D  CD 03BA     	CALL	PMSG
+  134 01A0  CD 0406     	CALL	GET_HEX
+  135 01A3  DA 0156     	JP	C,DATA_ERROR
+  136 01A6  5F          	LD	E,A			; Save above values in DE
+  137                   
+  138 01A7  4F          	LD	C,A			; Value to write to RAM
+  139 01A8  42          	LD	B,D			; Get the above saved address			
+  140 01A9  CD 037E     	CALL	WRITE_SPI		; <<<  Send Write pulse (Address in B, data in C)
+  141                   
+  142 01AC  21 0766     	LD	HL,MSG5			; "Wrote" 
+  143 01AF  CD 03BA     	CALL	PMSG
+  144 01B2  7B          	LD	A,E
+  145 01B3  CD 045C     	CALL	PRINT_A
+  146 01B6  21 076F     	LD	HL,MSG6			; " to RAM location 	
+  147 01B9  CD 03BA     	CALL	PMSG
+  148 01BC  7A          	LD	A,D
+  149 01BD  E6 7F       	AND	A,7FH			; Strip Write bit
+  150 01BF  CD 045C     	CALL	PRINT_A
+  151 01C2  21 0782     	LD	HL,MSG7			; "  in RTC"	
+  152 01C5  CD 03BA     	CALL	PMSG
+  153 01C8  CD 03CA     	CALL	CRLF
+  154 01CB  C3 0109     	JP	START2
+  155                   	
+  156 01CE              READ_RAM:
+  157 01CE  21 078B     	LD	HL,MSG8			; "3 CR,LF,Enter RAM location (20H-7FH) "
+  158 01D1  CD 03BA     	CALL	PMSG
+  159                   
+  160 01D4  CD 0406     	CALL	GET_HEX
+  161 01D7  DA 0156     	JP	C,DATA_ERROR
+  162 01DA  57          	LD	D,A			; Save RAM Location to D
+  163                   
+  164 01DB  47          	LD	B,A			; RAM Location to B
+  165 01DC  CD 0392     	CALL	READ_SPI		; <<< Send Read pulse (Address, get DATA), return result in [A]
+  166                   
+  167 01DF  F5          	PUSH	AF			; Save data
+  168 01E0  21 07AC     	LD	HL,MSG9			; "RAM location "
+  169 01E3  CD 03BA     	CALL	PMSG
+  170 01E6  7A          	LD	A,D
+  171 01E7  CD 045C     	CALL	PRINT_A
+  172 01EA  21 07BC     	LD	HL,MSG10		; " H = "	
+  173 01ED  CD 03BA     	CALL	PMSG
+  174 01F0  F1          	POP	AF
+Z80ASM SuperFast Relocating Macro Assembler     	    Z80ASM 1.30 Page   4
+SPI_RTC Z80
+
+  175 01F1  CD 045C     	CALL	PRINT_A
+  176 01F4  21 07C1     	LD	HL,MSG11		; "  in RTC"	
+  177 01F7  CD 03BA     	CALL	PMSG
+  178 01FA  CD 03CA     	CALL	CRLF
+  179 01FD  C3 0109     	JP	START2
+  180                   	
+  181 0200              SET_TIME:
+  182 0200  21 07CA     	LD	HL,MSG12		; "4",CR,LF,'Enter Year (00-99) '
+  183 0203  CD 03BA     	CALL	PMSG
+  184 0206  CD 0406     	CALL	GET_HEX
+  185 0209  DA 0156     	JP	C,DATA_ERROR
+  186 020C  32 08DF     	LD	(YEAR),A	
+  187 020F  06 86       	LD	B,RTC_YEAR OR 80H	; RTC Register address + Write
+  188 0211  4F          	LD	C,A		
+  189 0212  CD 037E     	CALL	WRITE_SPI		; <<<< Send Write pulse (Address + DATA)
+  190                   
+  191 0215  21 07E1     	LD	HL,MSG13		; CR,LF,'Enter Month (01-12) '
+  192 0218  CD 03BA     	CALL	PMSG
+  193 021B  CD 0406     	CALL	GET_HEX
+  194 021E  DA 0156     	JP	C,DATA_ERROR
+  195 0221  32 08E0     	LD	(MONTH),A
+  196 0224  06 85       	LD	B,RTC_MONTH OR 80H	; RTC Register address + Write
+  197 0226  4F          	LD	C,A		
+  198 0227  CD 037E     	CALL	WRITE_SPI		; <<<< Send Write pulse (Address + DATA)
+  199                   
+  200 022A  21 07F8     	LD	HL,MSG14		; CR,LF,'Enter Date (01-31) '
+  201 022D  CD 03BA     	CALL	PMSG
+  202 0230  CD 0406     	CALL	GET_HEX
+  203 0233  DA 0156     	JP	C,DATA_ERROR
+  204 0236  32 08E1     	LD	(DATE),A
+  205 0239  06 84       	LD	B,RTC_DATE OR 80H	; RTC Register address + Write
+  206 023B  4F          	LD	C,A		
+  207 023C  CD 037E     	CALL	WRITE_SPI		; <<<< Send Write pulse (Address + DATA)
+  208                   	
+  209 023F  21 080E     	LD	HL,MSG15		; CR,LF,'Enter Hours (00-23) '
+  210 0242  CD 03BA     	CALL	PMSG
+  211 0245  CD 0406     	CALL	GET_HEX
+  212 0248  DA 0156     	JP	C,DATA_ERROR
+  213 024B  32 08E2     	LD	(HOURS),A
+  214 024E  06 82       	LD	B,RTC_HOURS OR 80H	; RTC Register address + Write
+  215 0250  4F          	LD	C,A		
+  216 0251  CD 037E     	CALL	WRITE_SPI		; <<<< Send Write pulse (Address + DATA)
+  217                   
+  218 0254  21 0825     	LD	HL,MSG16		; CR,LF,'Enter Minutes (00-59) '
+  219 0257  CD 03BA     	CALL	PMSG
+  220 025A  CD 0406     	CALL	GET_HEX
+  221 025D  DA 0156     	JP	C,DATA_ERROR
+  222 0260  32 08E3     	LD	(MINUTES),A
+  223 0263  06 81       	LD	B,RTC_MINUTES OR 80H	; RTC Register address + Write
+  224 0265  4F          	LD	C,A		
+  225 0266  CD 037E     	CALL	WRITE_SPI		; <<<< Send Write pulse (Address + DATA)
+  226                   	
+  227 0269  21 083E     	LD	HL,MSG17		; CR,LF,'Enter Seconds (00-59) '
+  228 026C  CD 03BA     	CALL	PMSG
+  229 026F  CD 0406     	CALL	GET_HEX
+  230 0272  DA 0156     	JP	C,DATA_ERROR
+  231 0275  32 08E4     	LD	(SECONDS),A
+  232 0278  06 80       	LD	B,RTC_SECONDS OR 80H	; RTC Register address + Write
+Z80ASM SuperFast Relocating Macro Assembler     	    Z80ASM 1.30 Page   5
+SPI_RTC Z80
+
+  233 027A  4F          	LD	C,A		
+  234 027B  CD 037E     	CALL	WRITE_SPI		; <<<< Send Write pulse (Address + DATA)
+  235                   	
+  236 027E  21 0857     	LD	HL,MSG18		; CR,LF,'Entered:- 20'
+  237 0281  CD 03BA     	CALL	PMSG
+  238 0284  3A 08DF     	LD	A,(YEAR)
+  239 0287  CD 045C     	CALL	PRINT_A
+  240 028A  0E 2F       	LD	C,'/'
+  241 028C  CD 048A     	CALL	CO
+  242 028F  3A 08E0     	LD	A,(MONTH)
+  243 0292  CD 045C     	CALL	PRINT_A
+  244 0295  0E 2F       	LD	C,'/'
+  245 0297  CD 048A     	CALL	CO
+  246 029A  3A 08E1     	LD	A,(DATE)
+  247 029D  CD 045C     	CALL	PRINT_A
+  248 02A0  21 0867     	LD	HL,MSG19		; '  Time= '
+  249 02A3  CD 03BA     	CALL	PMSG
+  250 02A6  3A 08E2     	LD	A,(HOURS)
+  251 02A9  CD 045C     	CALL	PRINT_A
+  252 02AC  0E 2F       	LD	C,'/'
+  253 02AE  CD 048A     	CALL	CO
+  254 02B1  3A 08E3     	LD	A,(MINUTES)
+  255 02B4  CD 045C     	CALL	PRINT_A
+  256 02B7  0E 2F       	LD	C,'/'
+  257 02B9  CD 048A     	CALL	CO
+  258 02BC  3A 08E4     	LD	A,(SECONDS)
+  259 02BF  CD 045C     	CALL	PRINT_A
+  260 02C2  CD 03CA     	CALL	CRLF
+  261 02C5  C3 0109     	JP	START2
+  262                   	
+  263                   	
+  264 02C8              READ_TIME:
+  265 02C8  21 0871     	LD	HL,MSG20		; "5",CR,LF,'Date = '
+  266 02CB  CD 03BA     	CALL	PMSG
+  267                   
+  268 02CE  06 06       	LD	B,RTC_YEAR		; Year Register address + READ
+  269 02D0  CD 0392     	CALL	READ_SPI		; <<< Send Read pulse (Address, get DATA), return result in [A]
+  270 02D3  CD 045C     	CALL	PRINT_A
+  271 02D6  0E 2F       	LD	C,'/'
+  272 02D8  CD 048A     	CALL	CO
+  273                   
+  274 02DB  06 05       	LD	B,RTC_MONTH		; Month Register address + READ
+  275 02DD  CD 0392     	CALL	READ_SPI		; <<< Send Read pulse (Address, get DATA), return result in [A]
+  276 02E0  CD 045C     	CALL	PRINT_A
+  277 02E3  0E 2F       	LD	C,'/'
+  278 02E5  CD 048A     	CALL	CO
+  279                   
+  280 02E8  06 04       	LD	B,RTC_DATE		; Date Register address + READ
+  281 02EA  CD 0392     	CALL	READ_SPI		; <<< Send Read pulse (Address, get DATA), return result in [A]
+  282 02ED  CD 045C     	CALL	PRINT_A
+  283                   
+  284 02F0  21 0867     	LD	HL,MSG19		; '  Time= '
+  285 02F3  CD 03BA     	CALL	PMSG
+  286                   
+  287 02F6  06 02       	LD	B,RTC_HOURS		; Hours Register address + READ
+  288 02F8  CD 0392     	CALL	READ_SPI		; <<< Send Read pulse (Address, get DATA), return result in [A]
+  289 02FB  CD 045C     	CALL	PRINT_A
+  290 02FE  0E 2F       	LD	C,'/'
+Z80ASM SuperFast Relocating Macro Assembler     	    Z80ASM 1.30 Page   6
+SPI_RTC Z80
+
+  291 0300  CD 048A     	CALL	CO
+  292                   
+  293 0303  06 01       	LD	B,RTC_MINUTES		; Minutes Register address + READ
+  294 0305  CD 0392     	CALL	READ_SPI		; <<< Send Read pulse (Address, get DATA), return result in [A]
+  295 0308  CD 045C     	CALL	PRINT_A
+  296 030B  0E 2F       	LD	C,'/'
+  297 030D  CD 048A     	CALL	CO
+  298                   
+  299 0310  06 00       	LD	B,RTC_SECONDS		; Seconds Register address + READ
+  300 0312  CD 0392     	CALL	READ_SPI		; <<< Send Read pulse (Address, get DATA), return result in [A]
+  301 0315  CD 045C     	CALL	PRINT_A
+  302                   
+  303 0318  CD 03CA     	CALL	CRLF
+  304 031B  C3 0109     	JP	START2
+  305                   
+  306                   
+  307 031E              DISPLAY_RGS:
+  308 031E  21 087E     	LD	HL,MSG21		; "6",CR,LF,'Register Dump:-'
+  309 0321  CD 03BA     	CALL	PMSG
+  310 0324  21 0891     	LD	HL,MSG22		; 'Register (00H - 06H)  '
+  311 0327  CD 03BA     	CALL	PMSG
+  312                   
+  313 032A  16 07       	LD	D,07H			;Count
+  314 032C  06 00       	LD	B,00H			;Register pointer
+  315 032E  CD 0392     REGS_1:	CALL	READ_SPI		; <<< Send Read pulse (Address, get DATA), return result in [A]
+  316 0331  CD 045C     	CALL	PRINT_A
+  317 0334  0E 20       	LD	C,' '
+  318 0336  CD 048A     	CALL	CO
+  319 0339  04          	INC	B																				
+  320 033A  15          	DEC	D
+  321 033B  7A          	LD	A,D
+  322 033C  B7          	OR	A,A
+  323 033D  C2 032E     	JP	NZ,REGS_1
+  324                   
+  325 0340  21 08AB     	LD	HL,MSG23		; 'Register (07H - 0EH)  '
+  326 0343  CD 03BA     	CALL	PMSG
+  327                   
+  328 0346  16 08       	LD	D,08H			;Count
+  329 0348  06 09       	LD	B,09H			;Register pointer
+  330 034A  CD 0392     REGS_2:	CALL	READ_SPI		; <<< Send Read pulse (Address, get DATA), return result in [A]
+  331 034D  CD 045C     	CALL	PRINT_A
+  332 0350  0E 20       	LD	C,' '
+  333 0352  CD 048A     	CALL	CO
+  334 0355  04          	INC	B																				
+  335 0356  15          	DEC	D
+  336 0357  7A          	LD	A,D
+  337 0358  B7          	OR	A,A
+  338 0359  C2 034A     	JP	NZ,REGS_2
+  339                   
+  340 035C  21 08C5     	LD	HL,MSG24		; 'Register (0FH - 11H)  '
+  341 035F  CD 03BA     	CALL	PMSG
+  342                   
+  343 0362  16 03       	LD	D,03H			;Count
+  344 0364  06 0F       	LD	B,0FH			;Register pointer
+  345 0366  CD 0392     REGS_3:	CALL	READ_SPI		; <<< Send Read pulse (Address, get DATA), return result in [A]
+  346 0369  CD 045C     	CALL	PRINT_A
+  347 036C  0E 20       	LD	C,' '
+  348 036E  CD 048A     	CALL	CO
+Z80ASM SuperFast Relocating Macro Assembler     	    Z80ASM 1.30 Page   7
+SPI_RTC Z80
+
+  349 0371  04          	INC	B																				
+  350 0372  15          	DEC	D
+  351 0373  7A          	LD	A,D
+  352 0374  B7          	OR	A,A
+  353 0375  C2 0366     	JP	NZ,REGS_3
+  354 0378  CD 03CA     	CALL	CRLF
+  355 037B  C3 0109     	JP	START2
+  356                   
+  357                   
+  358                   
+  359                   
+  360                   
+  361                   ;------------------------ SPI CORE ROUTINES ---------------------------------------------------------
+  362                   
+  363 037E              WRITE_SPI:				; [C] contains DATA, [B] contains Register address
+  364 037E  3E 01       	LD	A,RTC_CS_HIGH		; Select RTC
+  365 0380  D3 6A       	OUT	(SPI_CS),A
+  366                   		
+  367 0382  79          	LD	A,C			; <<<---- Send data first
+  368 0383  D3 68       	OUT	(SPI_ADDRESS_OUT),A
+  369 0385  78          	LD	A,B			; <<<---- Then send address  (the two are flipped in the module)
+  370 0386  D3 69       	OUT	(SPI_DATA_OUT),A
+  371 0388  D3 6B       	OUT	(SPI_WRITE),A		; (Port 6B) Send Write pulse 
+  372 038A  CD 03AA     	CALL	DELAY
+  373                   	
+  374 038D  3E 00       	LD	A,RTC_CS_LOW		; De-select RTC
+  375 038F  D3 6A       	OUT	(SPI_CS),A
+  376 0391  C9          	RET
+  377                   
+  378                   
+  379                   
+  380 0392              READ_SPI:
+  381 0392  3E 01       	LD	A,RTC_CS_HIGH		; Select RTC
+  382 0394  D3 6A       	OUT	(SPI_CS),A
+  383 0396              READ_SPI1:
+  384 0396  78          	LD	A,B			; <<<---- Send address (only)
+  385 0397  D3 69       	OUT	(SPI_DATA_OUT),A
+  386 0399  DB 6B       	IN	A,(SPI_READ)		; Send Read pulse (Port 6B)
+  387 039B  CD 03AA     	CALL	DELAY
+  388                   	
+  389 039E  DB 69       	IN	A,(SPI_DATA_IN)		; <<< Get SPI data returned in [A]
+  390 03A0  F5          	PUSH	AF
+  391 03A1  CD 03AA     	CALL	DELAY
+  392                   
+  393 03A4  3E 00       	LD	A,RTC_CS_LOW		; De-select RTC
+  394 03A6  D3 6A       	OUT	(SPI_CS),A
+  395 03A8  F1          	POP	AF
+  396 03A9  C9          	RET				;Return with value in [A]
+  397                   
+  398                   
+  399 03AA  E5          DELAY:	PUSH	HL
+  400 03AB  21 0040     	LD	HL,40H			;Extra time required for RTC to write multiple data bytes
+  401 03AE  2B          DELAY1:	DEC	HL			;before Status is valid	
+  402 03AF  7C          	LD	A,H
+  403 03B0  B5          	OR	A,L
+  404 03B1  20 FB       	JR	NZ,DELAY1
+  405 03B3  E1          	POP	HL
+  406 03B4  DB 6A       DELAY2:	IN	A,(SPI_STATUS)		; Wait until busy is low
+Z80ASM SuperFast Relocating Macro Assembler     	    Z80ASM 1.30 Page   8
+SPI_RTC Z80
+
+  407 03B6  B7          	OR	A,A
+  408 03B7  20 FB       	JR	NZ,DELAY2
+  409 03B9  C9          	RET
+  410                   
+  411                   ;<<<<<<<<<<<<<<<<<<<<<<<<< SUPPORT ROUTINES >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+  412                   
+  413 03BA  C5          PMSG:	PUSH	BC		; Only [A] and [HL] is changed
+  414 03BB  7E          PMSG1:	LD	A,(HL)		; A ROUTINE TO PRINT OUT A STRING @ [HL]
+  415 03BC  23          	INC	HL		; UP TO THE FIRST 0.
+  416 03BD  B7          	OR	A,A
+  417 03BE  CA 03C8     	JP	Z,PMSG_DONE
+  418 03C1  4F          	LD	C,A
+  419 03C2  CD 048A     	CALL	CO
+  420 03C5  C3 03BB     	JP	PMSG1
+  421 03C8              PMSG_DONE:
+  422 03C8  C1          	POP	BC
+  423 03C9  C9          	RET
+  424                   
+  425 03CA  C5          CRLF:	PUSH	BC
+  426 03CB  0E 0D       	LD	C,CR
+  427 03CD  CD 048A     	CALL	CO
+  428 03D0  0E 0A       	LD	C,LF
+  429 03D2  CD 048A     	CALL	CO
+  430 03D5  C1          	POP	BC
+  431 03D6  C9          	RET
+  432                   
+  433 03D7  C5          SPACE:  PUSH	BC
+  434 03D8  0E 20       	LD	C,20H
+  435 03DA  CD 048A     	CALL	CO
+  436 03DD  C1          	POP	BC
+  437 03DE  C9          	RET
+  438                   
+  439                   
+  440                   ; GET A CHARACTER, convert to UC, ECHO it
+  441 03DF  CD 049D     GETCMD:	CALL	CI		
+  442 03E2  CD 03F1     	CALL	UCASE
+  443 03E5  FE 1B       	CP	A,ESC
+  444 03E7  C8          	RET	Z		;Don't echo an ESC
+  445 03E8  F5          	PUSH	AF		;Save it
+  446 03E9  C5          	PUSH	BC
+  447 03EA  4F          	LD	C,A
+  448 03EB  CD 048A     	CALL	CO		;Echo it
+  449 03EE  C1          	POP	BC
+  450 03EF  F1          	POP	AF		;get it back
+  451 03F0  C9          	RET
+  452                   ;				;Convert LC to UC
+  453 03F1  FE 61       UCASE:	CP	A,'a'		;must be >= lowercase a
+  454 03F3  D8          	RET	C		; else go back...
+  455 03F4  FE 7B       	CP	A,'z'+1		;must be <= lowercase z
+  456 03F6  D0          	RET	NC		; else go back...
+  457 03F7  D6 20       	SUB	A,'a'-'A'	;subtract lowercase bias
+  458 03F9  C9          	RET
+  459                   
+  460                   ; Check if next character is a ESC
+  461 03FA              CHECK_ESC:
+  462 03FA  CD 049D     	CALL	CI
+  463 03FD  FE 1B       	CP	A,ESC
+  464 03FF  C9          	RET			; Return Z if ESC character.
+Z80ASM SuperFast Relocating Macro Assembler     	    Z80ASM 1.30 Page   9
+SPI_RTC Z80
+
+  465                   	
+  466                   ; Check if next character is a CR
+  467 0400              CHECK_CR:
+  468 0400  CD 049D     	CALL	CI
+  469 0403  FE 0D       	CP	A,CR
+  470 0405  C9          	RET			; Return Z if ESC character.
+  471                   	
+  472                   ; Return with 2 HEX digits in [A]. If abort, Carry flag set + ESC in [A]
+  473 0406              GET_HEX:
+  474 0406  C5          	PUSH	BC			
+  475 0407  CD 03DF     	CALL	GETCMD		;Get a character from keyboard & ECHO
+  476 040A  FE 1B       	CP	A,ESC
+  477 040C  28 2A       	JR	Z,HEX_ABORT
+  478 040E  FE 2F       	CP	'/'		;check 0-9, A-F
+  479 0410  38 26       	JR	C,HEX_ABORT
+  480 0412  FE 47       	CP	'F'+1
+  481 0414  30 22       	JR	NC,HEX_ABORT
+  482 0416  CD 044F     	CALL	ASBIN		;Convert to binary
+  483 0419  CB 27       	SLA	A
+  484 041B  CB 27       	SLA	A
+  485 041D  CB 27       	SLA	A
+  486 041F  CB 27       	SLA	A		;Shift to high nibble	
+  487 0421  47          	LD	B,A		;Store it
+  488 0422  CD 03DF     	CALL	GETCMD		;Get 2nd character from keyboard & ECHO
+  489 0425  FE 1B       	CP	A,ESC
+  490 0427  28 0F       	JR	Z,HEX_ABORT
+  491 0429  FE 2F       	CP	'/'		;check 0-9, A-F
+  492 042B  38 0B       	JR	C,HEX_ABORT
+  493 042D  FE 47       	CP	'F'+1
+  494 042F  30 07       	JR	NC,HEX_ABORT
+  495 0431  CD 044F     	CALL	ASBIN		;Convert to binary
+  496 0434  B0          	OR	A,B		;add in the first digit
+  497 0435  B7          	OR	A,A		;To return NC
+  498 0436  C1          	POP	BC
+  499 0437  C9          	RET
+  500                   	
+  501 0438              HEX_ABORT:
+  502 0438  37          	SCF			;Set Carry flag 
+  503 0439  3E 1B       	LD	A,ESC
+  504 043B  C1          	POP	BC
+  505 043C  C9          	RET
+  506                   ;
+  507                   ;
+  508                   ; Put 4 HEX characters in [HL] 
+  509 043D              GET_HEX4:	
+  510 043D  26 00       	LD      H,0000H
+  511 043F  CD 0406     	CALL	GET_HEX		;get 2 HEX digits
+  512 0442  38 09       	JR	C,SCAN_ABORT
+  513 0444  67          	LD	H,A
+  514 0445  CD 0406     	CALL	GET_HEX		;get 2 more HEX digits
+  515 0448  38 03       	JR	C,SCAN_ABORT
+  516 044A  6F          	LD	L,A
+  517 044B  B7          	OR	A,A		;To return NC
+  518 044C  C9          	RET
+  519                   	
+  520 044D              SCAN_ABORT:
+  521 044D  37          	SCF			;Set Carry flag 
+  522 044E  C9          	RET
+Z80ASM SuperFast Relocating Macro Assembler     	    Z80ASM 1.30 Page  10
+SPI_RTC Z80
+
+  523                   
+  524                   ; ASCII TO BINARY CONVERSION ROUTINE
+  525 044F  D6 30       ASBIN:	SUB	30H 
+  526 0451  FE 0A       	CP	0AH 
+  527 0453  F8          	RET	M
+  528 0454  D6 07       	SUB	07H 
+  529 0456  C9          	RET
+  530                   ;	
+  531                   ;
+  532                   ; PRINT [HL] ON CONSOL
+  533 0457              PRINT_HL:
+  534 0457  7C          	LD	A,H
+  535 0458  CD 045C     	CALL	PRINT_A
+  536 045B  7D          	LD	A,L
+  537 045C              PRINT_A:
+  538 045C  F5          	PUSH	AF
+  539 045D  0F          	RRCA
+  540 045E  0F          	RRCA
+  541 045F  0F          	RRCA
+  542 0460  0F          	RRCA
+  543 0461  CD 0465     	CALL	SF598
+  544 0464  F1          	POP	AF
+  545 0465  CD 046B     SF598:	CALL	CONV
+  546 0468  C3 048A     	JP	CO
+  547                   
+  548                   ; CONVERT HEX TO ASCII
+  549 046B  E6 0F       CONV:	AND	0FH
+  550 046D  C6 90       	ADD	A,90H
+  551 046F  27          	DAA 
+  552 0470  CE 40       	ADC	A,40H
+  553 0472  27          	DAA 
+  554 0473  4F          	LD	C,A
+  555 0474  C9          	RET
+  556                   	
+  557                   ; DISPLAY 8 BITS OF [A] (No registers changed)
+  558                   ; DISPLAY BIT PATTERN IN [A]
+  559 0475  F5          ZBITS:	PUSH	AF
+  560 0476  C5          	PUSH	BC
+  561 0477  D5          	PUSH	DE
+  562 0478  5F          	LD	E,A		
+  563 0479  06 08       	LD	B,8
+  564 047B  CB 23       BQ2:	SLA	E	
+  565 047D  3E 18       	LD	A,18H
+  566 047F  8F          	ADC	A,A
+  567 0480  4F          	LD	C,A
+  568 0481  CD 048A     	CALL	CO
+  569 0484  10 F5       	DJNZ	BQ2
+  570 0486  D1          	POP	DE
+  571 0487  C1          	POP	BC
+  572 0488  F1          	POP	AF
+  573 0489  C9          	RET
+  574                   
+  575                   ;<<<<<<<<<<<<<<<<<<<<<< MAIN CONSOL OUTPUT ROUTINE >>>>>>>>>>>>>>>>>>>>>>>>>
+  576                   ;
+  577 048A  DB 00       CO:	IN	A,(CONSTAT)	; SD SYSTEMS or PROPELLER VIDIO BOARD PORT
+  578 048C  E6 04       	AND	4H
+  579 048E  CA 048A     	JP	Z,CO
+  580 0491  79          	LD	A,C
+Z80ASM SuperFast Relocating Macro Assembler     	    Z80ASM 1.30 Page  11
+SPI_RTC Z80
+
+  581 0492  D3 01       	OUT	(CONOUT),A
+  582 0494  C9          	RET			; RETURN CHARACTER SENT IN [A]
+  583                    
+  584                   ;<<<<<<<<<<<<<<<<<<< MAIN CONSOL STATUS ROUTINE >>>>>>>>>>>>>>>>>>>>>>
+  585                   ;
+  586 0495  DB 00       CSTS:	IN	A,(CONSTAT)
+  587 0497  E6 02       	AND	02H
+  588 0499  C8          	RET	Z
+  589 049A  AF          	XOR	A
+  590 049B  3D          	DEC	A		; RETURN WITH 0FFH IN [A] IF SOMETHING
+  591 049C  C9          	RET
+  592                   
+  593                   ;<<<<<<<<<<<<<<<<<<<< MAIN CONSOL INPUT ROUTINE >>>>>>>>>>>>>>>>>>>>
+  594                   ;
+  595 049D  DB 00       CI:	IN 	A,(CONSTAT)	; NEED CONSTAT TO CLEAN UP SHIFT KEYS ETC
+  596 049F  E6 02       	AND	02H
+  597 04A1  28 FA       	JR	Z,CI
+  598 04A3  DB 01       	IN	A,(CONIN)
+  599 04A5  E6 7F       	AND	7FH
+  600 04A7  C9          	RET
+  601                   
+  602                   ;---------------------------------------------------------------------------------------
+  603 04A8  0D 0A       SIGNON:		DB	CR,LF
+  604 04AA  0D 0A 53 50 		DB	CR,LF,'SPI interface to the RTC (U2) on Z80_FPGA Board.'
+  605 04DC  0D 0A 42 79 		DB	CR,LF,'By John Monahan S100Computers.COM  (V1.0)  8/3/2019'
+  606 0511  0D 0A 4E 6F 		DB	CR,LF,'Note: This test is with a Maxim DS1305 RTC chip only.',0
+  607                   		
+  608 0549  0D 0A 0A 2D SIGNON1:	DB	CR,LF,LF,'---------- Main Menu ---------------'
+  609 0570  0D 0A 30 2E 		DB	CR,LF,'0.   Activate Maxim DS1305 RTC chip.'
+  610 0596  0D 0A 31 2E 		DB	CR,LF,'1.   Read Seconds Register from RTC Chip.'
+  611 05C1  0D 0A 32 2E 		DB	CR,LF,'2.   Write byte to RAM at a specified location in RTC.'
+  612 05F9  0D 0A 33 2E 		DB	CR,LF,'3.   Read byte from RAM at a specified location in RTC.'
+  613 0632  0D 0A 34 2E 		DB	CR,LF,'4.   Set Time & Date.'
+  614 0649  0D 0A 35 2E 		DB	CR,LF,'5.   Read Time & Date.'
+  615 0661  0D 0A 36 2E 		DB	CR,LF,'6.   Display all RTC Registers.'
+  616 0682  0D 0A 45 53 		DB	CR,LF,'ESC  To abort program.',CR,LF,0H
+  617                   
+  618 069D  07 07 0D 0A MENU_MSG:	DB	BELL,BELL,CR,LF,'Menu error.',0
+  619 06AD  07 07 0D 0A FORMAT_ERR_MSG: DB	BELL,BELL,CR,LF,'Data Format error.',0
+  620 06C4  0D 0A 43 6F CMD_DONE:	DB	CR,LF,'Command Done.',CR,LF,LF,0
+  621                   
+  622                   
+  623 06D7  30 20 3D 20 MSG0:		DB	'0 = Activate RTC Chip.',0	
+  624 06EE  31 20 3D 20 MSG1:		DB	'1 = Read Seconds Register from RTC Chip.'0
+  625 0717  0D 0A 52 54 MSG2:		DB	CR,LF,'RTC Seconds Register = ',0	
+  626 0731  32 0D 0A 45 MSG3:		DB	'2',CR,LF,'Enter RAM location (20H-7FH) ',0
+  627 0752  0D 0A 45 6E MSG4:		DB	CR,LF,'Enter Byte value ',0
+  628 0766  0D 0A 57 72 MSG5:		DB	CR,LF,'Wrote ',0 
+  629 076F  48 20 74 6F MSG6:		DB	'H to RAM location ',0
+  630 0782  48 20 69 6E MSG7:		DB	'H in RTC',0
+  631 078B  33 0D 0A 45 MSG8:		DB	'3',CR,LF,'Enter RAM location (20H-7FH) ',0
+  632 07AC  0D 0A 52 41 MSG9:		DB	CR,LF,'RAM location ',0
+  633 07BC  48 20 3D 20 MSG10:		DB	'H = ',0
+  634 07C1  48 20 69 6E MSG11:		DB	'H in RTC',0
+  635 07CA  34 0D 0A 45 MSG12:		DB	'4',CR,LF,'Enter Year (00-99) ',0
+  636 07E1  0D 0A 45 6E MSG13:		DB	CR,LF,'Enter Month (01-12) ',0
+  637 07F8  0D 0A 45 6E MSG14:		DB	CR,LF,'Enter Date (01-31) ',0
+  638 080E  0D 0A 45 6E MSG15:		DB	CR,LF,'Enter Hours (00-23) ',0
+Z80ASM SuperFast Relocating Macro Assembler     	    Z80ASM 1.30 Page  12
+SPI_RTC Z80
+
+  639 0825  0D 0A 45 6E MSG16:		DB	CR,LF,'Enter Minutes (00-59) ',0
+  640 083E  0D 0A 45 6E MSG17:		DB	CR,LF,'Enter Seconds (00-59) ',0
+  641 0857  0D 0A 0A 45 MSG18:		DB	CR,LF,LF,'Entered:- 20',0
+  642 0867  20 20 54 69 MSG19:		DB	'  Time = ',0
+  643 0871  35 0D 0A 44 MSG20:		DB	'5',CR,LF,'Date = 20',0
+  644 087E  36 0D 0A 52 MSG21		DB	'6',CR,LF,'Register Dump:-',0
+  645 0891  0D 0A 52 65 MSG22		DB	CR,LF,'Registers (00H - 06H)  ',0
+  646 08AB  0D 0A 52 65 MSG23		DB	CR,LF,'Registers (07H - 0EH)  ',0
+  647 08C5  0D 0A 52 65 MSG24		DB	CR,LF,'Registers (0FH - 11H)  ',0
+  648                   
+  649 08DF  00          YEAR:	DB	00H
+  650 08E0  00          MONTH:	DB	00H
+  651 08E1  00          DATE:	DB	00H
+  652 08E2  00          HOURS:	DB	00H
+  653 08E3  00          MINUTES: DB	00H
+  654 08E4  00          SECONDS: DB	00H
+  655                   
+  656                   
+  657 08E5    0040      	DS	40H
+  658 0925  00          STACK:	DB	0H
+  659                   
+  660                   ; END
+  661                   	
+  662                   
+  663                   
+  664                   
+ 0 Error(s) Detected.
+ 2086 Absolute Bytes. 111 Symbols Detected.
+

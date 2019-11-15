@@ -1,0 +1,1031 @@
+;Test program for SD_CARD interface of S100Computers.com FPGA Prototype board.
+;
+;	John Monahan	S100Computers.com	8/9/2019
+;
+;
+;V0.1		8/9/2019			;First version. It is "rough & ready" with little menu etc. error checking etc.
+
+;	PORT ASSIGNMENTS
+;
+SD_CARD_BASE	EQU	06CH
+
+SD_DATA_OUT	EQU	SD_CARD_BASE		; (6CH) Data TO port to SD CONTRROLLER
+SD_DATA_IN	EQU	SD_CARD_BASE		; (6CH) Data TO port to SD CONTRROLLER
+LOGIC_PROBE	EQU	SD_CARD_BASE+1		; (6DH) HIGH TO START LOGIC PROBE TRACKING
+SD_CS		EQU	SD_CARD_BASE+2		; (6EH) SD Select Port
+SD_STATUS	EQU	SD_CARD_BASE+2		; (6EH) SD Status Port
+SD_RW		EQU	SD_CARD_BASE+3		; (6FH) Port to pulse SPI Read/Write
+
+LOGIC_ON		EQU	01H;
+SD_CS_F			EQU	0FEH		; CS for Front SD Card
+SD_CS_B			EQU	0FDH		; CS for Back SD Card
+SD_BUSY			EQU	01H;
+SD_SLAVE_1		EQU	40H;
+SD_SLAVE_0		EQU	80H;
+					
+CONSTAT		EQU	0H			; Console Status Port
+CONIN		EQU	1H			; Console IN Port
+CONOUT		EQU	1H			; Console OUT Port
+
+MONITOR		EQU	0F000H			; Location of Z80 ROM monitor when done.
+DEFAULT_BUFFER	EQU	2000H			; Default Sector buffer location ("DMA address")
+
+SPACE		EQU	20H
+BELL		EQU	07H
+ESC		EQU	1BH
+CR		EQU	0DH
+LF		EQU	0AH
+
+						; SD CARD Interface Status:-
+
+
+
+	ORG	100H				;<<<<<<<< LOAD AT 100H
+START:
+	LD	SP,STACK
+	LD	HL,SIGNON
+	CALL	PMSG
+	CALL	ALL_CS_OFF			; Turn off CS on both SD Cards
+	XOR	A,A
+	LD	(SD_CARD_TYPE),A		; Unknown Card Type so far
+	LD	(CARD_STATUS),A			; Flag to indicate when SD card has been initilized
+	LD	HL,DEFAULT_BUFFER		; Default to 2000H
+	LD	(DMA_ADDRESS),HL
+	
+	
+START1:	LD	HL,SIGNON1			; '-------- Main Menu ------Buffer = '
+	CALL	PMSG
+	LD	HL,(DMA_ADDRESS)
+	CALL	PRINT_HL
+	LD	HL,SIGNON2			; 'H ----------'
+	CALL	PMSG
+		
+START2:	CALL	CRLF
+	LD	C,'>'	   
+	CALL	CO
+	CALL	CI
+	CP	A,ESC
+	JP	NZ,START3
+	JP	MONITOR
+
+START3:	CP	A,'0'
+	JP	Z,INITILIZE_SD_CARD
+	CP	A,'1'
+	JP	Z,READ_SECTOR
+	CP	A,'2'
+	JP	Z,READ_BUFFER
+	CP	A,'3'
+	JP	Z,WRITE_SECTOR
+	CP	A,'4'
+	JP	Z,SET_DMA
+	CP	A,'5'
+	JP	Z,TEST_BOOT
+	JP	DATA_ERROR
+	JP	START1
+
+GET_S100_SECTOR_DATA:
+PUT_S100_SECTOR_DATA:
+DATA_ERROR:
+	LD	HL,DATA_ERROR_MSG		; "Data error"
+	CALL	PMSG
+	JP	START1
+	
+
+;------------------------------------------------ RESET CARD INTERFACE -----------------------------
+INITILIZE_SD_CARD:     
+	LD	A,0
+	LD	(SD_CARD_TYPE),A		; Unknown Card Type so far
+	LD	HL,RESET_MSG
+	CALL	PMSG
+
+	CALL	SEND_SD_RESET			; <<<<<<<<  Repeatidly send the RESET CMD0 (Up to 256 times)
+	LD	HL,RESET_ERR_MSG		; "SD_CARD was NOT initilized OK"
+	JP	NZ,CMD_FAIL
+	LD	HL,RESET_OK_MSG			; "SD_CARD was initilized OK"
+	CALL	PMSG
+
+	
+	CALL	SEND_GET_TYPE			; <<<<<<<<<<  Get Card Type
+	LD	HL,CF_TYPE_ERR_MSG		; "Unknown SD_CARD detected"
+	JP	NZ,CMD_FAIL
+	LD	HL,CARD_TYPE_MSG		; "SD Card Type = "
+	CALL	PMSG
+	LD	A,(SD_CARD_TYPE)		; Type 1 or 2
+	CALL	PRINT_A
+	CALL	CRLF
+	LD	A,(SD_CARD_TYPE)		
+	CP	A,2				; Is it a Type 2 Card
+	JP	NZ,SKIP_TYPE_2
+	
+	CALL	TYPE_2_ACTIVATE			; <<<<<<<<<<< Type 2 needs special activation
+	LD	HL,CMD55_FAIL_MSG		; SD Card Type 2 Initilization failed (CMD55 or CMD41).
+	JP	NZ,CMD_FAIL
+	LD	HL,CMD41_55_OK_MSG		; 'CMD41 & CMD55 accepted OK. SD Card is now initilized.'
+	CALL	PMSG
+
+SKIP_TYPE_2:	
+	CALL	STOP_CRC_CHECK			; <<<<<<<<<<< Turn off CRC Checking
+	LD	HL,CRC_ERROR_MSG		; "Got error trying to turn off CRC checking."
+	JP	NZ,CMD_FAIL
+	LD	HL,CRC_OFF_MSG			; "Card CRC data checking is now turned off."
+	
+	
+	CALL	SET_SEC_SIZE			; <<<<<<<<<<< Set Sector size to 512 bytes
+	LD	HL,SIZE_ERROR_MSG		; "Got error trying set sector size to 512 bytes. (Status = "
+	JP	NZ,CMD_FAIL
+	LD	HL,SIZE_OK_MSG			; "SD card size set to 512 bytes/sector."
+	CALL	PMSG
+	LD	A,0FFH
+	LD	(CARD_STATUS),A			; Flag card was initilized OK
+	JP	START1				; Back to main menu
+
+
+	
+;-------------------------------------------SD CARD RESET -----------------------------------------------------------
+
+SEND_SD_RESET:					; Send Card Reset CMD
+	LD	B,0				; Repeatidly send the RESET CMD0 (256 times)
+INIT2:	CALL	FRONT_CS_ON			; -- Select (front) SD Card
+	LD	C,12				; Send 12 empty clock cycles
+INIT1:	CALL	SPI_DUMMY_CLOCKS		; Clear SPI circuit/SD card
+	DEC	C
+	JP	NZ,INIT1
+	
+	LD	HL,CMD_0			; (CMD0 OR 40H) 
+	CALL	SEND_SD_CMD			
+	CALL	READ_SPI			; Value returned in [A]
+	
+	CALL	ALL_CS_OFF			; -- Turn off CS on both SD Cards
+	CP	A,01H				; Is it OK
+	RET	Z				; All OK ret Z set
+	DJNZ	INIT2				; Try 256 times
+	XOR	A
+	DEC	A
+	RET					; Error RET NZ
+
+;------------------------------------------------ GET CARD VOLTAGE/TYPE --------------------------------------
+
+SEND_GET_TYPE:					; Get Card Voltage/Type
+	CALL	FRONT_CS_ON			; -- Select (front) SD Card
+
+	LD	HL,CMD_8			; SEND CMD8 to get Card Voltage
+	CALL	SEND_SD_CMD	
+	CALL	READ_SPI
+	 
+	CP	A,01H				; If 01 then Type 2
+	JP	Z,SD_TYPE_2			; If CMD8 is Illegal Cmd, then probably CARD_TYPE=1
+	
+	LD	B,40				; Try several times
+TYPE_1_MORE:
+	LD	HL,CMD_1			; <<<<<<<< SEND CMD1 to check if it really is a Type 1 card
+	CALL	SEND_SD_CMD	
+	CALL	READ_SPI
+
+	CP	A,0
+	JP	Z,SD_TYPE_1			; If 0 then really is type 1
+	DJNZ	TYPE_1_MORE			; Need to retry several times.
+	CALL	ALL_CS_OFF			; -- Turn off CS on both SD Cards
+	XOR	A
+	DEC	A
+	RET					; Error RET NZ
+	
+SD_TYPE_1:	
+	CALL	ALL_CS_OFF			; -- Turn off CS on both SD Cards
+	LD	A,1				
+	LD	(SD_CARD_TYPE),A
+	XOR	A,A				; RET Z
+	RET
+	
+SD_TYPE_2:
+	CALL	READ_SPI			; value returned in [A] is 00H
+	CALL	READ_SPI			; value returned in [A] is 00H
+	CALL	READ_SPI			; value returned in [A] is 01H
+	CALL	READ_SPI			; value returned in [A] is 87H
+	
+	CALL	ALL_CS_OFF			; Turn off CS on both SD Cards
+	CP	A,0AAH				; Must be 0AAH for type 2 cards
+	RET	NZ				; SD CARD UNKNOWN_TYPE, Return NZ
+	LD	A,2
+	LD	(SD_CARD_TYPE),A
+	XOR	A,A				; RET Z
+	RET
+	
+	
+	
+;  ------------------------------------- AVCTIVATE TYPE 2 CARDS  ---------------------------------
+
+TYPE_2_ACTIVATE:				; Initilize the SD card Type 2 cards with CMD55 & CMD44 Commands
+	LD	B,40				; Will try 40 times
+ACT1:	CALL	FRONT_CS_ON			; Select (front) SD Card
+
+	LD	HL,CMD_55			; Application specific command next
+	CALL	SEND_SD_CMD			
+	CALL	READ_SPI			; value returned in [A]
+
+	CP	A,01H				; Correct response is 01H
+	JP	Z,ACT2				; Got correct response try CMD41		
+	DJNZ	ACT1
+	CALL	ALL_CS_OFF			; -- Turn off CS on both SD Cards
+	XOR	A
+	DEC	A
+	RET					; Error RET NZ
+	
+	
+ACT2:	CALL	ALL_CS_OFF			; Turn off CS on both SD Cards
+	CALL	FRONT_CS_ON			; Turn back on, Select (front) SD Card (required!)
+
+	LD	HL,CMD_41			
+	CALL	SEND_SD_CMD			
+
+	CALL	READ_SPI			; Value returned in [A]
+	CALL	ALL_CS_OFF			; -- Turn off CS on both SD Cards
+
+	CP	A,0
+	RET	Z				; RET Z
+	DJNZ	ACT1
+	XOR	A
+	DEC	A
+	RET					; Error RET NZ
+
+
+;  ----------------------------------------------  DEACTIVATE CRC CHECKING  ----------------
+	
+STOP_CRC_CHECK:					; Will now stop CRC checking
+	CALL	FRONT_CS_ON			; -- Select (front) SD Card
+
+	LD	HL,CMD_59
+	CALL	SEND_SD_CMD			; SEND CMD59 Turn off CRC checking
+
+	CALL	READ_SPI			; Value returned in [A]
+	CALL	ALL_CS_OFF			; -- Turn off CS on both SD Cards
+
+	CP	A,0H
+	RET	Z				; RET Z
+	XOR	A
+	DEC	A
+	RET					; Error RET NZ
+	
+
+;  ---------------------------------------------- SET SECTOR SIZE FOR TYPE 1 & 2 CARDS  ----------------
+
+SET_SEC_SIZE:					; Will now set the sector size to 512 bytes
+	CALL	FRONT_CS_ON			; Select (front) SD Card
+
+	LD	HL,CMD_16
+	CALL	SEND_SD_CMD			; SEND CMD16 to set sector size (512 Bytes)
+
+	CALL	READ_SPI			; Value returned in [A]
+	CALL	ALL_CS_OFF			; Turn off CS on both SD Cards
+
+	CP	A,0H				; Should be 00000000B
+	RET	Z				; RET Z
+	XOR	A
+	DEC	A
+	RET					; Error RET NZ
+
+
+;==================================================================================================================
+
+READ_SECTOR:
+	LD	HL,READ_SEC_MSG1		; '1,  Will read a sector from SD Card.',CR,LF,0H
+	CALL	PMSG
+
+	LD	A,(CARD_STATUS)			; Flag to indicate when SD card has been initilized
+	CP	A,0FFH
+	JP	Z,READ_SEC_OK
+	LD	HL,READ_ERR_MSG1		; 'Sorry, SD Card must first be initilized (Menu 0).
+	CALL	PMSG
+	JP	START1				; Back to main menu
+
+READ_SEC_OK:
+	LD	HL,ENTER_SEC_NUM		; 'Please enter Sector Number (XXXXH):
+	CALL	PMSG
+	CALL	GET_HEX4
+	JP	C,DATA_ERROR
+	LD	(SEC_ADDRESS),HL		; Store for later
+	
+	CALL	FRONT_CS_ON			; Select (front) SD Card
+
+	LD	B,0				; Try up to 255 times!
+READ_SEC1:
+	LD	A,51H				; <<<<<<<< SEND CMD17  OR bits 40H added
+	CALL	WRITE_SPI
+	LD	A,0				; Second byte of CMD
+	CALL	WRITE_SPI
+	LD	A,0				; Third byte of CMD
+	CALL	WRITE_SPI
+	LD	HL,(SEC_ADDRESS)											
+	LD	A,H				; Forth byte of CMD 
+	CALL	WRITE_SPI
+	LD	A,L				; Fifth byte of CMD
+	CALL	WRITE_SPI
+	LD	A,0FFH				; CRC byte of CMD
+	CALL	WRITE_SPI
+	LD	A,0FFH				; Flush with extra 0FF's
+	CALL	WRITE_SPI
+
+	CALL	READ_SPI
+	
+	CP	A,0H				; Should be 00000000B
+	JP	Z,READ_SEC_OK1
+
+	LD	HL,SEC_RD_ERR0_MSG		; Got error with Read Sector command CMD17. (Status = "
+	JP	CMD_FAIL
+
+	LD	B,0H
+READ_SEC_OK1:
+	CALL	READ_SPI
+	CP	A,0FFH
+	JP	Z,READ_SEC_OK1
+	CP	A,0FEH				; Should be 0FEH (Start Token)
+	JP	READ_SEC_OK2
+	DJNZ	READ_SEC_OK1			; Keep trying until we see 0FEH
+	
+	LD	HL,SEC_RD_ERR1_MSG		; Got error with Read Sector command CMD17. (Status = "
+	JP	CMD_FAIL
+
+READ_SEC_OK2:
+	LD	HL,(DMA_ADDRESS)
+	LD	B,0
+READ_256:
+	CALL	READ_SPI
+	LD	(HL),A
+	INC	HL
+	DJNZ	READ_256
+	LD	B,0
+READ_512:
+	CALL	READ_SPI
+	LD	(HL),A
+	INC	HL
+	DJNZ	READ_512
+
+	CALL	READ_SPI			; Read 16 bit CRC 
+	CALL	READ_SPI
+	
+	CALL	READ_SPI			; Need one extra!
+
+	CALL	ALL_CS_OFF			; Turn off CS on both SD Cards
+	LD	HL,SEC_RD_OK_MSG		; Sector Read OK
+	CALL	PMSG
+	LD	HL,(SEC_ADDRESS)
+	CALL	PRINT_HL			; Sector #
+	LD	HL,SEC_RD1_OK_MSG		; 'H was read correctly.'
+	CALL	PMSG
+	JP	READ_BUFFER
+	
+	
+
+READ_BUFFER:
+	LD	HL,RAM_DATA			; '512 Bytes of RAM buffer data. (Starting at RAM location '
+	CALL	PMSG
+	LD	HL,(DMA_ADDRESS)
+	CALL	PRINT_HL
+	LD	HL,BITS_END_MSG			; "'B)',CR,LF,0"
+	CALL	PMSG
+	
+	LD	HL,(DMA_ADDRESS)		; Get pointer
+	CALL	HEXDUMP				; Display buffer contents
+	LD	HL,CONTINUE_MSG			; 'Type any character to continue.
+	CALL	PMSG
+	CALL	CI
+	JP	START1
+
+	
+
+;==================================================================================================================
+
+WRITE_SECTOR:
+	LD	HL,WRITE_SEC_MSG1		; '3,  Will read a sector from SD Card.',CR,LF,0H
+	CALL	PMSG
+
+	LD	A,(CARD_STATUS)			; Flag to indicate when SD card has been initilized
+	CP	A,0FFH
+	JP	Z,WRITE_SEC_OK
+	LD	HL,READ_ERR_MSG1		; 'Sorry, SD Card must first be initilized (Menu 0).
+	CALL	PMSG
+	JP	START1				; Back to main menu
+
+WRITE_SEC_OK:
+	LD	HL,ENTER_SEC_NUM		; 'Please enter Sector Number (XXXXH):
+	CALL	PMSG
+	CALL	GET_HEX4
+	JP	C,DATA_ERROR
+	LD	(SEC_ADDRESS),HL		; Store for later
+	
+	CALL	FRONT_CS_ON			; Select (front) SD Card
+
+	LD	A,58H				; <<<<<<<< SEND CMD24  OR bits 40H added
+	CALL	WRITE_SPI
+	LD	A,0				; Second byte of CMD
+	CALL	WRITE_SPI
+	LD	A,0				; Third byte of CMD
+	CALL	WRITE_SPI
+	LD	HL,(SEC_ADDRESS)											
+	LD	A,H				; Forth byte of CMD 
+	CALL	WRITE_SPI
+	LD	A,L				; Fifth byte of CMD
+	CALL	WRITE_SPI
+	LD	A,0FFH				; CRC byte of CMD
+	CALL	WRITE_SPI
+	LD	A,0FFH				; Flush with extra 0FF's
+	CALL	WRITE_SPI
+
+	CALL	READ_SPI
+	
+	CP	A,0H				; Should be 00000000B
+	JP	Z,WRITE_SEC_OK1
+
+	LD	HL,SEC_WR_ERR0_MSG		; 'Got error with Write Sector command CMD24. (Status = 
+	JP	CMD_FAIL
+
+WRITE_SEC_OK1:
+	LD	A,0FEH				; Start Block write flag
+	CALL	WRITE_SPI
+
+	LD	HL,(DMA_ADDRESS)
+	LD	B,0
+WRITE_256:
+	LD	A,(HL)
+	CALL	WRITE_SPI
+	INC	HL
+	DJNZ	WRITE_256
+	LD	B,0
+WRITE_512:
+	LD	A,(HL)
+	CALL	WRITE_SPI
+	INC	HL
+	DJNZ	WRITE_512
+
+	LD	A,0FFH				; Send 16 bit CRC
+	CALL	WRITE_SPI
+	CALL	WRITE_SPI
+
+	CALL	READ_SPI			; Check all is OK
+
+	AND	A,1FH
+	CP	A,05H				; Should be xxx0AAA1H (AAA = 010)
+	JP	Z,WRITE_SEC_OK2
+	
+	CALL	ALL_CS_OFF			; Turn off CS on both SD Cards
+	LD	HL,SEC_WR_ERR1_MSG		; Got error with Read Sector command CMD24. (Status = "
+	JP	CMD_FAIL
+
+WRITE_SEC_OK2:
+	LD	BC,0
+WRITE_SEC_OK3:
+	CALL	READ_SPI			; Wait for SD card to complete writing, (64K times)
+	CP	A,0
+	JP	Z,WRITE_SEC_OK4
+	DEC	BC
+	LD	A,C
+	OR	A,B
+	JP	NZ,WRITE_SEC_OK3
+ 
+ WRITE_ERR:	
+	CALL	ALL_CS_OFF			; Turn off CS on both SD Cards
+	LD	HL,SEC_WR_ERR2_MSG		; Error waiting for SD Card to complete sector write. (Status = "
+	JP	CMD_FAIL
+	
+WRITE_SEC_OK4:
+	CALL	ALL_CS_OFF			; Turn off CS on both SD Cards
+	LD	A,0FFH				; Send one flush 0FFH
+	CALL	WRITE_SPI
+	CALL	FRONT_CS_ON			; Turn back on. Select (front) SD Card
+	
+	LD	BC,0
+WRITE_SEC_OK5:
+	CALL	READ_SPI			; Wait for SD card to complete writing, (64K times)
+	CP	A,0
+	JP	Z,WRITE_SEC_OK6
+	DEC	BC
+	LD	A,C
+	OR	A,B
+	JP	NZ,WRITE_SEC_OK5
+	JP	WRITE_ERR
+	
+WRITE_SEC_OK6:
+	CALL	ALL_CS_OFF			; Turn off CS on both SD Cards
+	LD	HL,SEC_WR_OK_MSG		; 'Sector'
+	CALL	PMSG
+	LD	HL,(SEC_ADDRESS)
+	CALL	PRINT_HL			; Sector #
+	LD	HL,SEC_WR1_OK_MSG		; 'H was written correctly.'
+	CALL	PMSG
+	JP	START1	
+	
+	
+	
+	   
+;==================================================================================================================
+
+SET_DMA:	
+	LD	HL,ENTER_RAM_LOC		; '4,  Set Sector RAM  Buffer.'
+	CALL	PMSG
+	LD	HL,ENTER_RAM_LOC1		; 'Please enter RAM buffer location (XXXXH): 
+	CALL	PMSG
+	CALL	GET_HEX4
+	JP	C,DATA_ERROR
+	LD	(DMA_ADDRESS),HL		; Store for later
+	JP	START1	
+	
+	
+;==================================================================================================================
+
+TEST_BOOT:	
+	LD	B,0				; Repeatidly send the RESET CMD0 (256 times)Try 255 times
+BOOT2:	CALL	FRONT_CS_ON			; Select (front) SD Card
+	LD	C,12
+BOOT1:	CALL	SPI_DUMMY_CLOCKS		; Clear SPI circuit/SD card
+	DEC	C
+	JP	NZ,BOOT1
+
+	LD	HL,CMD_0			; <<<<<<<<<< GO_IDLE_STATE (OR 40H) >>>>>>>>>>>>>>>>>
+	CALL	SEND_SD_CMD			
+	CALL	READ_SPI			; Value returned in [A]
+
+	CALL	ALL_CS_OFF			; Turn off CS on both SD Cards
+	CP	A,01H				; Is it OK
+	JP	Z,BOOT3 
+	DJNZ	BOOT2				; Try 256 times
+BOOT_FAIL:					; After that, fall through to error
+	LD	HL,RESET_ERR_MSG		; "SD_CARD was NOT initilized OK"
+	JP	CMD_FAIL
+BOOT3:
+	LD	HL,CMD_8			; <<<<<<<< SEND CMD8 to get Card Voltage
+	CALL	SEND_SD_CMD	
+	CALL	READ_SPI
+
+	LD	HL,CMD_1			; <<<<<<<< SEND CMD1 to check if it really is a Type 1 card
+	CALL	SEND_SD_CMD	
+	CALL	READ_SPI
+
+	CALL	READ_SPI			; value returned in [A] is 00H
+	CALL	READ_SPI			; value returned in [A] is 00H
+	CALL	READ_SPI			; value returned in [A] is 01H
+	CALL	READ_SPI			; value returned in [A] is 87H
+	
+	LD	HL,CMD_55			;  Application specific command next
+	CALL	SEND_SD_CMD			
+	CALL	READ_SPI			; value returned in [A]
+
+	LD	HL,CMD_41			
+	CALL	SEND_SD_CMD			
+
+	CALL	READ_SPI			; Value returned in [A]
+	
+	LD	HL,CMD_59
+	CALL	SEND_SD_CMD			; <<<<<<<< SEND CMD59 Turn off CRC checking
+
+	CALL	READ_SPI			; Value returned in [A]
+	
+	LD	HL,CMD_16
+	CALL	SEND_SD_CMD			; <<<<<<<< SEND CMD16 to set sector size (512 Bytes)
+
+	CALL	READ_SPI			; Value returned in [A]
+	CALL	ALL_CS_OFF			; Turn off CS on both SD Cards
+
+	LD	A,0FFH
+	LD	(CARD_STATUS),A			; Flag card was initilized OK
+	JP	START1
+	
+	
+;------------------------- SPI COMMANDS -------------------------------------------------
+
+SPI_DUMMY_CLOCKS:			; Only [A] register altered
+	LD	A,0FFH
+	OUT	(SD_DATA_OUT),A
+	OUT	(SD_RW),A
+	CALL	SHORT_DELAY		; Seems to require time for busy signal to become valid
+DUMMY1:	IN	A,(SD_STATUS)
+	BIT	7,A
+	JR	NZ,DUMMY1
+	RET
+
+
+
+SEND_SD_CMD:				; Generalized CMD to send SD Card 6 commands. Only [A] & [HL] registers altered
+	LD	A,(HL)			; Get first byte from CMD table (Note already has OR bits 40H added)
+	CALL	WRITE_SPI
+	INC	HL
+	LD	A,(HL)			; Get second byte from CMD table 
+	CALL	WRITE_SPI
+	INC	HL
+	LD	A,(HL)			; Get third byte from CMD table 
+	CALL	WRITE_SPI
+	INC	HL
+	LD	A,(HL)			; Get forth byte from CMD table 
+	CALL	WRITE_SPI
+	INC	HL
+	LD	A,(HL)			; Get fifth byte from CMD table 
+	CALL	WRITE_SPI
+	INC	HL
+	LD	A,(HL)			; Get sixth byte from CMD table 
+	CALL	WRITE_SPI
+
+	INC	HL
+	LD	A,(HL)			; Send dummy byte to get returned message (Required!)
+	CALL	WRITE_SPI
+	RET
+
+	
+	
+WRITE_SPI:				; Only [A] register altered
+	PUSH	AF
+WRITE1:	IN	A,(SD_STATUS)
+	BIT	7,A
+	JR	NZ,WRITE1
+	POP	AF
+	OUT	(SD_DATA_OUT),A
+	OUT	(SD_RW),A
+	CALL	SHORT_DELAY		; Seems to require time for busy signal to become valid
+WRITE2:	IN	A,(SD_STATUS)
+	BIT	7,A
+	JR	NZ,WRITE2
+	RET
+
+
+READ_SPI:				; Only [A] register altered
+	IN	A,(SD_STATUS)		; Wait until SD card is ready.
+	BIT	7,A
+	JR	NZ,READ_SPI
+	IN	A,(SD_RW)		; Send Read pulse
+	CALL	SHORT_DELAY		; Seems to require time for busy signal to become valid
+READ1:	IN	A,(SD_STATUS)
+	BIT	7,A
+	JR	NZ,READ1
+	IN	A,(SD_DATA_IN)		; Return data in [A]
+	RET
+
+
+CMD_FAIL:				; Generalized failure message routine (Message in [HL])
+	CALL	ALL_CS_OFF		; Always, turn off CS on both SD Cards
+	CALL	PMSG
+	IN	A,(SD_DATA_IN)		; Return data in [A] (Is latched in FPGA port)
+	CALL	ZBITS
+	LD	HL,BITS_END_MSG		; "B) "
+	CALL	PMSG
+	JP	START1
+
+					
+FRONT_CS_ON:				; Lower CS on front SD card		
+	PUSH	AF			; Note no registers altered
+	LD	A,SD_CS_F		
+	OUT	(SD_CS),A
+	POP	AF
+	RET
+
+					
+ALL_CS_OFF:				; Raise CS on both SD cards	
+	PUSH	AF			; Note no registers altered
+	LD	A,0FFH			
+	OUT	(SD_CS),A
+	POP	AF
+	RET
+			
+SHORT_DELAY:				; Note no registers altered
+	PUSH	BC
+	LD	B,0FH
+DELAY1:	DJNZ	DELAY1
+	POP	BC
+	RET
+
+
+;<<<<<<<<<<<<<<<<<<<<<<<<< SUPPORT ROUTINES >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+
+PMSG:	PUSH	BC		; Only [A] and [HL] is changed
+PMSG1:	LD	A,(HL)		; A ROUTINE TO PRINT OUT A STRING @ [HL]
+	INC	HL		; UP TO THE FIRST 0.
+	OR	A,A
+	JP	Z,PMSG_DONE
+	LD	C,A
+	CALL	CO
+	JP	PMSG1
+PMSG_DONE:
+	POP	BC
+	RET
+
+CRLF:	PUSH	AF
+	PUSH	BC
+	LD	C,CR
+	CALL	CO
+	LD	C,LF
+	CALL	CO
+	POP	BC
+	POP	AF
+	RET
+
+BLANK:	PUSH	AF		; Send one space to console
+	PUSH	BC
+	LD	C,' '
+	CALL	CO
+	POP	BC
+	POP	AF
+	RET
+
+
+; GET A CHARACTER, convert to UC, ECHO it
+GETCMD:	CALL	CI		
+	CALL	UCASE
+	CP	A,ESC
+	RET	Z		;Don't echo an ESC
+	PUSH	AF		;Save it
+	PUSH	BC
+	LD	C,A
+	CALL	CO		;Echo it
+	POP	BC
+	POP	AF		;get it back
+	RET
+;				;Convert LC to UC
+UCASE:	CP	A,'a'		;must be >= lowercase a
+	RET	C		; else go back...
+	CP	A,'z'+1		;must be <= lowercase z
+	RET	NC		; else go back...
+	SUB	A,'a'-'A'	;subtract lowercase bias
+	RET
+
+; Check if next character is a ESC
+CHECK_ESC:
+	CALL	CI
+	CP	A,ESC
+	RET			; Return Z if ESC character.
+	
+; Check if next character is a CR
+CHECK_CR:
+	CALL	CI
+	CP	A,CR
+	RET			; Return Z if ESC character.
+	
+; Return with 2 HEX digits in [A]. If abort, Carry flag set + ESC in [A]
+GET_HEX:
+	PUSH	BC			
+	CALL	GETCMD		;Get a character from keyboard & ECHO
+	CP	A,ESC
+	JR	Z,HEX_ABORT
+	CP	'/'		;check 0-9, A-F
+	JR	C,HEX_ABORT
+	CP	'F'+1
+	JR	NC,HEX_ABORT
+	CALL	ASBIN		;Convert to binary
+	SLA	A
+	SLA	A
+	SLA	A
+	SLA	A		;Shift to high nibble	
+	LD	B,A		;Store it
+	CALL	GETCMD		;Get 2nd character from keyboard & ECHO
+	CP	A,ESC
+	JR	Z,HEX_ABORT
+	CP	'/'		;check 0-9, A-F
+	JR	C,HEX_ABORT
+	CP	'F'+1
+	JR	NC,HEX_ABORT
+	CALL	ASBIN		;Convert to binary
+	OR	A,B		;add in the first digit
+	OR	A,A		;To return NC
+	POP	BC
+	RET
+	
+HEX_ABORT:
+	SCF			;Set Carry flag 
+	LD	A,ESC
+	POP	BC
+	RET
+;
+;
+; Put 4 HEX characters in [HL] 
+GET_HEX4:	
+	LD      H,0000H
+	CALL	GET_HEX		;get 2 HEX digits
+	JR	C,SCAN_ABORT
+	LD	H,A
+	CALL	GET_HEX		;get 2 more HEX digits
+	JR	C,SCAN_ABORT
+	LD	L,A
+	OR	A,A		;To return NC
+	RET
+	
+SCAN_ABORT:
+	SCF			;Set Carry flag 
+	RET
+
+; ASCII TO BINARY CONVERSION ROUTINE
+ASBIN:	SUB	30H 
+	CP	0AH 
+	RET	M
+	SUB	07H 
+	RET
+;	
+;
+; PRINT [HL] ON CONSOL
+PRINT_HL:
+	LD	A,H
+	CALL	PRINT_A
+	LD	A,L
+PRINT_A:
+	PUSH	AF
+	RRCA
+	RRCA
+	RRCA
+	RRCA
+	CALL	SF598B
+	POP	AF
+SF598B:	CALL	CONV
+	JP	CO
+
+; CONVERT HEX TO ASCII
+CONV:	AND	0FH
+	ADD	A,90H
+	DAA 
+	ADC	A,40H
+	DAA 
+	LD	C,A
+	RET
+	
+; DISPLAY 8 BITS OF [A] (No registers changed)
+; DISPLAY BIT PATTERN IN [A]
+ZBITS:	PUSH	AF
+	PUSH	BC
+	PUSH	DE
+	LD	E,A		
+	LD	B,8
+BQ2:	SLA	E	
+	LD	A,18H
+	ADC	A,A
+	LD	C,A
+	CALL	CO
+	DJNZ	BQ2
+	POP	DE
+	POP	BC
+	POP	AF
+	RET
+
+	
+HEXDUMP:				;Print a hexdump of the data in the 512 byte buffer @[HL]
+	LD	D,32			;Print 32 lines total
+	LD	B,16			;16 characters across
+	LD	(@StartLineHex),HL	;Save the buffer location for ASCII display below
+	LD	HL,0
+	LD	(@BYTE$COUNT),HL
+
+SF172:	CALL	CRLF
+	LD	HL,(@BYTE$COUNT)
+	LD	A,H
+	CALL	PRINT_A			;Print byte count in sector
+	LD	A,L
+	CALL	PRINT_A
+	PUSH	DE
+	LD	DE,16
+	ADD	HL,DE
+	POP	DE
+	LD	(@BYTE$COUNT),HL	;store for next time
+	CALL	BLANK
+	LD	HL,(@StartLineHex)
+	LD	(@StartLineASCII),HL	;Store for ASCII display below
+SF175:	LD	A,(HL)
+	CALL	PRINT_A			;Display [A] on CRT/LCD
+	INC	HL
+	DJNZ	SF175
+	LD	(@StartLineHex),HL	;Save for next line later
+	CALL	ShowAscii		;Now translate to ASCII and display
+	LD	B,16			;16 characters across for next line
+	DEC	D
+	JP	NZ,SF172		;Have we done all 32 lines
+	CALL	CRLF
+	ret
+
+ShowAscii:				;Now show as ascii info
+	LD	HL,(@StartLineASCII)
+	LD	B,16			;16 ASCII characters across
+XF172:	CALL	BLANK			;send a space character
+	CALL	BLANK
+XF175:	LD	A,(hl)
+	AND	7FH
+	CP	' '			;FILTER OUT CONTROL CHARACTERS
+	JP	NC,XT33
+XT22:	LD	A,'.'
+XT33:	CP	07CH
+	JP	NC,XT22
+	LD	C,A			;SET UP TO SEND
+	push	bc
+	CALL	CO
+	pop	bc
+	inc	hl			;Next position in buffer
+	DJNZ	XF175
+	ret
+
+
+
+
+;<<<<<<<<<<<<<<<<<<<<<< MAIN CONSOL OUTPUT ROUTINE >>>>>>>>>>>>>>>>>>>>>>>>>
+;
+CO:	IN	A,(CONSTAT)	; SD SYSTEMS or PROPELLER VIDIO BOARD PORT
+	AND	4H
+	JP	Z,CO
+	LD	A,C
+	OUT	(CONOUT),A
+	RET			; RETURN CHARACTER SENT IN [A]
+ 
+;<<<<<<<<<<<<<<<<<<< MAIN CONSOL STATUS ROUTINE >>>>>>>>>>>>>>>>>>>>>>
+;
+CSTS:	IN	A,(CONSTAT)
+	AND	02H
+	RET	Z
+	XOR	A
+	DEC	A		; RETURN WITH 0FFH IN [A] IF SOMETHING
+	RET
+
+;<<<<<<<<<<<<<<<<<<<< MAIN CONSOL INPUT ROUTINE >>>>>>>>>>>>>>>>>>>>
+;
+CI:	IN 	A,(CONSTAT)	; NEED CONSTAT TO CLEAN UP SHIFT KEYS ETC
+	AND	02H
+	JR	Z,CI
+	IN	A,(CONIN)
+	AND	7FH
+	RET
+
+;---------------------------------------------------------------------------------------
+SIGNON:		DB	CR,LF
+		DB	CR,LF,'Test program for SD CARD interface of S100Computers.com FPGA Prototype board'
+		DB	CR,LF,'By John Monahan S100Computers.COM  (V0.1)  8/13/2019'
+		DB	CR,LF,'Note: The test is with a Type 1 & Type 2 SD Cards (e.g. Transcend 2GB Type 2)',0
+		
+SIGNON1:	DB	CR,LF,LF,'-------- Main Menu ------ (Buffer = ',0
+SIGNON2:	DB      'H) ----------'
+		DB	CR,LF,'0.   Initilize the SD CARD SPI Interface.'
+		DB	CR,LF,'1.   Read a SD Sector'
+		DB	CR,LF,'2.   Display data in RAM sector buffer'
+		DB	CR,LF,'3.   Write 512 Bytes of S100 Bus RAM data to a Sector.'
+		DB	CR,LF,'4.   Set sector RAM buffer location.'
+		DB	CR,LF,'5.   Test Boot.'
+		DB	CR,LF,'ESC  To abort program.',CR,LF,0H
+
+DATA_ERROR_MSG:	DB	BELL,CR,LF,'Menu or Data entry error.',0
+RESET_MSG:	DB	'0,  Will Initilize CF Card.',CR,LF,0H
+RESET_OK_MSG:	DB	CR,LF,'SD_CARD Interface was Reset OK',CR,LF,0
+BITS_END_MSG:	DB	'B)',CR,LF,0
+RESET_ERR_MSG:	DB	CR,LF,BELL,'SD_CARD Interface could NOT be Reset (Status = ',0
+CARD_TYPE_MSG:	DB	'SD Card Type = ',0
+CF_TYPE_ERR_MSG: DB	CR,LF,BELL,'Sorry, could not determine SD card type. (Status =' ,0
+SIZE_OK_MSG:	DB	'SD card sector size now set to 512 bytes/sector.',CR,LF,0
+READ_SEC_MSG1:	DB	'1,  Will read a sector from CF Card.',CR,LF,0H
+READ_ERR_MSG1:	DB	CR,LF,BELL,'Sorry, SD Card must first be initilized (Menu 0).',CR,LF,0
+CMD55_FAIL_MSG:	DB	CR,LF,BELL,'SD Card Type 2 Initilization failed (CMD55/CMD41) (Status = ',0
+CMD41_55_OK_MSG: DB	'CMD55 & CMD41 Commands accepted OK.',CR,LF
+                DB	'The SD Card is now initilized correctly.',CR,LF,0
+CRC_ERROR_MSG:	DB	CR,LF,BELL,'Got error trying to turn off CRC checking. (Status = ',0
+CRC_OFF_MSG:	DB	'Card CRC data checking is now turned off.',CR,LF,0
+SIZE_ERROR_MSG:	DB	CR,LF,BELL,'Got error trying set sector size to 512 bytes. (Status = ',0	
+SEC_RD_ERR0_MSG: DB	CR,LF,BELL,'Got error with Read Sector command CMD17. (Status = ',0
+SEC_RD_ERR2_MSG: DB	CR,LF,BELL,'Error with Read Sector command CMD17. Timed out (Status = ',0
+SEC_RD_ERR1_MSG: DB	CR,LF,BELL,'Got error with Read Sector. No 0FEH Flag. (Status = ',0
+ENTER_RAM_LOC:	DB	'4,  Set Sector RAM buffer location.',CR,LF,0H
+ENTER_RAM_LOC1:	DB	CR,LF,'Please enter RAM buffer location (XXXXH): ',0
+ENTER_SEC_NUM:	DB	CR,LF,'Please enter Sector Number (XXXXH): ',0
+SEC_RD_OK_MSG: DB	CR,LF,'Sector ',0
+SEC_RD1_OK_MSG: DB	'H was read correctly.',0
+RD_BUFFER_MSG:	DB	'2,  Will read a RAM data buffer',CR,LF,0H
+RAM_DATA:	DB	CR,LF,LF,'512 Bytes of RAM buffer data. (Starting at RAM location ',0
+CONTINUE_MSG:	DB	CR,LF,'Type any character to continue.',0
+WANT_TO_SHOW:	DB	CR,LF,'Do you want to display buffer? (Y/N) ',0
+
+
+WRITE_SEC_MSG1:	DB	'1,  Will write a sector from RAM buffer to CF Card.',CR,LF,0H
+SEC_WR_ERR0_MSG: DB	CR,LF,BELL,'Got error with Write Sector command CMD24. (Status = ',0
+SEC_WR_ERR1_MSG: DB	CR,LF,BELL,'Got error after writing Sector bytes. (Status = ',0
+SEC_WR_OK_MSG: DB	CR,LF,'Sector ',0
+SEC_WR1_OK_MSG: DB	'H was written correctly.',CR,LF,0
+SEC_WR_ERR2_MSG: DB	CR,LF,BELL,'Error waiting for SD Card to complete sector write. (Status = ',0
+
+
+
+START_OF_STORE:	DB	'>>>>>>>>>>>>>>>>>>>>>>>>>'	
+CARD_STATUS:	DB	00H
+SD_CARD_TYPE:	DB	00H
+DMA_ADDRESS:	DW	0020H
+SEC_ADDRESS:	DW	0000H
+
+@StartLineHex	DW	0000H
+@BYTE$COUNT	DW	0000H
+@StartLineASCII	DW	0000H
+
+
+				
+CMD_0:		DB	40H,00H,00H,00H,00H,95H,0FFH		; (0+64)  To Reset the SD Card interface,
+CMD_1:		DB	41H,00H,00H,00H,00H,0F9H,0FFH		; (1+64)  Activate Init Process
+CMD_8:		DB	48H,00H,00H,01H,0AAH,87H,0FFH		; (8+64)  To check Card Voltage
+CMD_9:		DB	49H,00H,00H,00H,00H,8FH,0FFH		; (9+64)  Read CSD Register
+CMD_16:		DB	50H,00H,00H,02H,00H,081H,0FFH		; (16+64) Set Sector size to 512 Bytes
+;CMD_17:	DB	51H,00H,00H,00H,00H,0FFH,0FFH		; (17+64) Read a single block
+CMD_41:		DB	69H,40H,00H,00H,00H,077H,0FFH		; (41+64) Activates the card's init. process.
+;CMD_41:	DB	69H,00H,00H,00H,000H,0E5H,0FFH		; (41+64) Activates the card's init. process.
+CMD_55:		DB	77H,00H,00H,00H,00H,065H,0FFH		; (55+64) Application specific command NEXT
+CMD_58:		DB	7AH,00H,00H,00H,00H,0FDH,0FFH		; (58+64) Read SD Cards OCR register
+CMD_59:		DB	7BH,00H,00H,00H,00H,0FDH,0FFH		; (59+64) Turn off CRC checking
+		DS	40H
+STACK:		DB	0H
+
+
+; END
+	
+
+
+

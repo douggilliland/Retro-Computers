@@ -1,0 +1,925 @@
+Z80ASM SuperFast Relocating Macro Assembler     	    Z80ASM 1.30 Page   1
+SPI     Z80
+
+    1                   ;Test program for SPI interface of S100Computers.com FPGA Prototype board.
+    2                   ;Will Read or Write to a AT25128 EEPROM
+    3                   ;
+    4                   ;	John Monahan	S100Computers.com	1/5/2019
+    5                   ;
+    6                   ;
+    7                   ;V1.0		1/5/2019	;First version. It is "rough & ready" with little menu etc. error checking etc.
+    8                   
+    9                   ;	PORT ASSIGNMENTS
+   10                   ;
+   11         0068      SPI_BASE_PORT	EQU	068H			; Base I/O port fot SPI module
+   12         006D      SPI_OUT_DATA_7_0	EQU	SPI_BASE_PORT+5		; 6D, Data In/Out port to SPI module (6 Bytes wide)
+   13         006C      SPI_OUT_DATA_15_8	EQU	SPI_BASE_PORT+4		; 6C, Data In/Out port to SPI module
+   14         006B      SPI_OUT_DATA_23_16	EQU	SPI_BASE_PORT+3		; 6B, Data In/Out port to SPI module
+   15         006A      SPI_OUT_DATA_31_24	EQU	SPI_BASE_PORT+2		; 6A, Data In/Out port to SPI module
+   16         0069      SPI_OUT_DATA_39_22	EQU	SPI_BASE_PORT+1		; 69, Data In/Out port to SPI module
+   17         0068      SPI_OUT_DATA_47_40	EQU	SPI_BASE_PORT		; 68, Data In/Out port to SPI module
+   18         006E      SPI_OUT_PARMS_PORT	EQU	SPI_BASE_PORT+6		; 6E, Port for module Byte Count & Slave number etc.
+   19                   
+   20         006F      SPI_RW_PORT		EQU	SPI_BASE_PORT+7		; 6F, Port begin Read/Write process. 
+   21         0068      SPI_IN_STATUS_PORT	EQU	SPI_BASE_PORT		; 68, Input status port, Bit 0H contains SPI_BUSY_FLAG
+   22                   
+   23         0000      EEPROM_CS_LOW		EQU	00H			; Bit 7 has CS*, BITS 2,1,0 LOW so Byte Count (000 = 8 bit SPI)
+   24         0080      EEPROM_CS_HIGH		EQU	80H			
+   25                   
+   26         0000      SPI_8_BITS		EQU	00000000B		; Send/Recieve 1 Byte SPI info (Default)
+   27         0001      SPI_16_BITS		EQU	00000001B		; Send/Recieve 2 Byte SPI info
+   28         0002      SPI_24_BITS		EQU	00000010B		; Send/Recieve 3 Byte SPI info
+   29         0004      SPI_32_BITS		EQU	00000100B		; Send/Recieve 4 Byte SPI info
+   30         0008      SPI_48_BITS		EQU	00001000B		; Send/Recieve 6 Byte SPI info
+   31                   
+   32         0006      SET_WRITE_ENABLE	EQU	00000110B		; Set EEPROM Write Enable Latch
+   33         0004      RESET_WRITE_ENABLE	EQU	00000100B		; Reset EEPROM Write Enable Latch
+   34         0005      READ_STATUS		EQU	00000101B		; Read Status Register
+   35         0001      WRITE_STATUS		EQU	00000001B		; Write Status Register
+   36         0003      READ_MEMORY		EQU	00000011B		; Read Memory
+   37         0002      WRITE_MEMORY		EQU	00000010B		; Write Memory
+   38                   
+   39         0000      CONSTAT			EQU	0H		; Console Status Port
+   40         0001      CONIN			EQU	1H		; Console IN Port
+   41         0001      CONOUT			EQU	1H		; Console OUT Port
+   42                   
+   43         F000      MONITOR			EQU	0F000H		;Location of Z80 ROM monitor when done.
+   44                   
+   45         0020      SPACE			EQU	20H
+   46         0007      BELL			EQU	07H
+   47         001B      ESC			EQU	1BH
+   48         000D      CR			EQU	0DH
+   49         000A      LF			EQU	0AH
+   50                   
+   51         0100      	ORG	100H
+   52 0100              START:
+   53 0100  31 0F53     	LD	SP,STACK
+   54 0103  21 0591     	LD	HL,SIGNON
+   55 0106  CD 04AB     	CALL	PMSG
+   56 0109  3E 80       	LD	A,EEPROM_CS_HIGH	;Deselect EEPROM, Default to 6 bytes
+   57 010B  D3 6E       	OUT	(SPI_OUT_PARMS_PORT),A
+   58 010D  C3 0116     	JP	START2
+Z80ASM SuperFast Relocating Macro Assembler     	    Z80ASM 1.30 Page   2
+SPI     Z80
+
+   59                   	
+   60 0110  21 0645     START1:	LD	HL,SIGNON1
+   61 0113  CD 04AB     	CALL	PMSG
+   62 0116  CD 04BB     START2:	CALL	CRLF			;Normal start within menu
+   63 0119  0E 3E       	LD	C,'>'	   
+   64 011B  CD 0573     	CALL	CO
+   65 011E  CD 0586     	CALL	CI
+   66 0121  FE 1B       	CP	A,ESC
+   67 0123  C2 0129     	JP	NZ,START3
+   68 0126  C3 F000     	JP	MONITOR
+   69                   	
+   70 0129  FE 30       START3:	CP	A,'0'
+   71 012B  CA 0154     	JP	Z,READ_BYTE_EEPROM
+   72 012E  FE 31       	CP	A,'1'
+   73 0130  CA 01BF     	JP	Z,FILL_EEPROM
+   74 0133  FE 32       	CP	A,'2'
+   75 0135  CA 0266     	JP	Z,WRITE_EEPROM
+   76 0138  FE 33       	CP	A,'3'
+   77 013A  CA 0321     	JP	Z,READ_EEPROM
+   78 013D  FE 34       	CP	A,'4'
+   79 013F  CA 03A8     	JP	Z,MOVE_EEPROM
+   80 0142  FE 35       	CP	A,'5'
+   81 0144  CA 0421     	JP	Z,COPY_EEPROM
+   82 0147  CD 014D     	CALL	MENU_ERROR
+   83 014A  C3 0110     	JP	START1
+   84                   
+   85 014D              MENU_ERROR:
+   86 014D  21 07C9     	LD	HL,MENU_MSG		; "Menu error"
+   87 0150  CD 04AB     	CALL	PMSG
+   88 0153  C9          	RET
+   89                   	
+   90                   ;-------------------------------------------------------------------------------------------------
+   91                   
+   92 0154              READ_BYTE_EEPROM:
+   93 0154  21 080A     	LD	HL,MSG0			; "Enter EEPROM Address (000-1FFH)"
+   94 0157  CD 04AB     	CALL	PMSG
+   95 015A  CD 0526     	CALL	GET_HEX4		; Put 16 Bit Paramater in HL
+   96 015D  DA 038D     	JP	C,DATA_READ_ERROR	; Carry set, there was a problem
+   97 0160  22 0E74     	LD	(START_STORE),HL
+   98                   	
+   99                   					; >>>> Display what will be done <<<<
+  100 0163  21 0B1D     	LD	HL,READ_MSG2A		; "Will Read byte from EEPROM at "
+  101 0166  CD 04AB     	CALL	PMSG
+  102 0169  2A 0E74     	LD	HL,(START_STORE)	; Print the value in HL
+  103 016C  CD 0540     	CALL	PRINT_HL		; <--- START
+  104 016F  21 0B4A     	LD	HL,READ_MSG3		; "H,/n Press any keyboard character to display. ESC to return to the main menu.'"
+  105 0172  CD 04AB     	CALL	PMSG
+  106 0175  CD 04E3     	CALL	CHECK_ESC
+  107 0178  C2 017E     	JP	NZ,BEGIN_BYTE_READ
+  108 017B  C3 0110     	JP	START1
+  109                   
+  110 017E              BEGIN_BYTE_READ:			;>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+  111 017E  3E 00       	LD	A,EEPROM_CS_LOW		; Select EEPROM and 32 bits
+  112 0180  F6 02       	OR	A,SPI_24_BITS
+  113 0182  D3 6E       	OUT	(SPI_OUT_PARMS_PORT),A
+  114 0184  CD 055E     	CALL	ZBITS
+  115 0187  CD 04BB     	CALL	CRLF
+  116                   	
+Z80ASM SuperFast Relocating Macro Assembler     	    Z80ASM 1.30 Page   3
+SPI     Z80
+
+  117 018A  3E 03       	LD	A,READ_MEMORY
+  118 018C  D3 68       	OUT	(SPI_OUT_DATA_47_40),A  ; Send read CMD
+  119 018E  2A 0E74     	LD	HL,(START_STORE)
+  120 0191  7C          	LD	A,H
+  121 0192  D3 69       	OUT	(SPI_OUT_DATA_39_22),A	; Send High Byte
+  122 0194  7D          	LD	A,L
+  123 0195  D3 6A       	OUT	(SPI_OUT_DATA_31_24),A	; Send Low Byte
+  124                   
+  125 0197  D3 6F       	OUT	(SPI_RW_PORT),A		; <--- Trigger WRITE 3 bytes
+  126                   	
+  127 0199  CD 0586     	CALL	CI
+  128                   	
+  129 019C  3E 00       	LD	A,EEPROM_CS_LOW		; Keep EEPROM selected 
+  130 019E  F6 00       	OR	A,SPI_8_BITS		; Will send 1 bytes
+  131 01A0  D3 6E       	OUT	(SPI_OUT_PARMS_PORT),A
+  132                   
+  133 01A2  CD 0586     	CALL	CI
+  134                   
+  135                   ;	CALL	DELAY	
+  136                   	
+  137 01A5  DB 6F       	IN	A,(SPI_RW_PORT)		; <--- Trigger READ 1 Byte
+  138 01A7  47          	LD	B,A			; store in B
+  139                   	
+  140 01A8  3E 80       	LD	A,EEPROM_CS_HIGH	; Deselect EEPROM, back to default 6 bytes
+  141 01AA  D3 6E       	OUT	(SPI_OUT_PARMS_PORT),A
+  142                   
+  143 01AC  21 0B3F     	LD	HL,READ_MSG2B		; "Byte = "
+  144 01AF  CD 04AB     	CALL	PMSG
+  145 01B2  78          	LD	A,B
+  146 01B3  CD 0545     	CALL	PRINT_A			; Print hex value on CRT
+  147 01B6  21 0B95     	LD	HL,READ_MSG3A		; "H. CRLF"
+  148 01B9  CD 04AB     	CALL	PMSG
+  149 01BC  C3 0110     	JP	START1
+  150                   
+  151                   
+  152                   ;-----------------------------------------------------------------------------
+  153 01BF              FILL_EEPROM:
+  154 01BF  21 07D9     	LD	HL,FILL_MSG		; "Enter EEPROM Fill Start Address (000-1FFH)"
+  155 01C2  CD 04AB     	CALL	PMSG
+  156 01C5  CD 0526     	CALL	GET_HEX4		; Put 16 Bit Paramater in HL
+  157 01C8  DA 024B     	JP	C,DATA_FILL_ERROR	; Carry set, there was a problem
+  158 01CB  7C          	LD	A,H
+  159 01CC  E6 01       	AND	A,01H			; Range is 000-1FFH for 512 Byre EEPROM
+  160 01CE  67          	LD	H,A 
+  161 01CF  22 0E74     	LD	(START_STORE),HL
+  162                   
+  163 01D2  21 0830     	LD	HL,FILL_MSG1		; "Enter Number of Fill Bytes (00-7FH)"
+  164 01D5  CD 04AB     	CALL	PMSG
+  165 01D8  CD 04EF     	CALL	GET_HEX			; Get number of bytes to send in [A]
+  166 01DB  DA 024B     	JP	C,DATA_FILL_ERROR
+  167 01DE  E6 7F       	AND	A,7FH			; Range must be 00-7FH only (1 page)
+  168 01E0  32 0E76     	LD	(RANGE_STORE),A		; <<< Save range in B >>
+  169                   	
+  170 01E3  21 0858     	LD	HL,FILL_MSG2		; "Enter Fill Value (00-FFH)"
+  171 01E6  CD 04AB     	CALL	PMSG
+  172 01E9  CD 04EF     	CALL	GET_HEX			; Get fill value in [A]
+  173 01EC  DA 024B     	JP	C,DATA_FILL_ERROR
+  174 01EF  32 0E77     	LD	(DATA_STORE),A		; <<< Save fill value in [C] >>>
+Z80ASM SuperFast Relocating Macro Assembler     	    Z80ASM 1.30 Page   4
+SPI     Z80
+
+  175                   	
+  176                   
+  177                   
+  178                   					; >>>> Display what will be done <<<<
+  179 01F2  21 0876     	LD	HL,FILL_MSG3		; "Will fill EEPROM starting at "
+  180 01F5  CD 04AB     	CALL	PMSG
+  181 01F8  2A 0E74     	LD	HL,(START_STORE)	; Print the value in HL
+  182 01FB  CD 0540     	CALL	PRINT_HL		; <--- START
+  183 01FE  21 0892     	LD	HL,FILL_MSG4		; "H for "
+  184 0201  CD 04AB     	CALL	PMSG
+  185                   	
+  186 0204  3A 0E76     	LD	A,(RANGE_STORE)
+  187 0207  CD 0545     	CALL	PRINT_A			; <--- RANGE
+  188 020A  21 0899     	LD	HL,FILL_MSG5		; "H Bytes with a Fill Value of "
+  189 020D  CD 04AB     	CALL	PMSG
+  190 0210  3A 0E77     	LD	A,(DATA_STORE)
+  191 0213  CD 0545     	CALL	PRINT_A			; <--- VALUE
+  192 0216  21 08B7     	LD	HL,FILL_MSG6		; "H. Press any character to continue. Press ESC to return to the main menu.."
+  193 0219  CD 04AB     	CALL	PMSG
+  194 021C  CD 04E3     	CALL	CHECK_ESC
+  195 021F  C2 0225     	JP	NZ,BEGIN_FILL
+  196 0222  C3 0110     	JP	START1
+  197                   	
+  198 0225              BEGIN_FILL:
+  199 0225  2A 0E74     	LD	HL,(START_STORE)	; Get Start
+  200 0228  7C          	LD	A,H
+  201                   ;;;;	OUT	(I2C_DATA),A	
+  202 0229  7D          	LD	A,L			; Send to FIFO High byte address
+  203                   ;;;;	OUT	(I2C_DATA),A	
+  204                   	
+  205 022A  3A 0E76     	LD	A,(RANGE_STORE)		; 1 up to 7F Bytes
+  206 022D  3C          	INC	A			; 0,1,2,3,4 to 1,2,3,4
+  207 022E  47          	LD	B,A			; Store in B
+  208                   
+  209 022F              FILL_LOOP:
+  210                   ;;;;	IN	A,(I2C_STATUS)		; Check if FIFO is full
+  211 022F  CB 67       	BIT	4,A
+  212 0231  C2 0254     	JP	NZ,FIFO_FILL_FULL
+  213 0234  3A 0E77     	LD	A,(DATA_STORE)		; Send to FIFO Fill Data byte
+  214                   ;;;;	OUT	(I2C_DATA),A
+  215 0237  10 F6       	DJNZ	FILL_LOOP		; Count down B
+  216                   
+  217 0239  CD 04BB     	CALL	CRLF
+  218 023C  AF          	XOR	A,A	
+  219                   ;;;;	OUT	(I2C_STROBE),A		; Set FIFO for Read
+  220                   
+  221                   ;;;;	OUT	(I2C_RW),A		; Pulse Write to transfer FIFO data to I2C Module
+  222                   					; Note, no need to test busy flag as the FIFO is controlled by this signal
+  223                   ;;;;	IN	A,(I2C_STATUS)		; Check if FIFO is full
+  224 023D  CB 6F       	BIT	5,A
+  225 023F  C2 025D     	JP	NZ,FILL_ERROR
+  226                   
+  227 0242  21 08FC     	LD	HL,FILL_MSG7		; "EEPROM Filled!"
+  228 0245  CD 04AB     	CALL	PMSG
+  229 0248  C3 0116     	JP	START2
+  230                   
+  231 024B              DATA_FILL_ERROR:
+  232 024B  21 0949     	LD	HL,ERROR_MSG		; "Data format error"
+Z80ASM SuperFast Relocating Macro Assembler     	    Z80ASM 1.30 Page   5
+SPI     Z80
+
+  233 024E  CD 04AB     	CALL	PMSG
+  234 0251  C3 0110     	JP	START1
+  235                   	
+  236 0254              FIFO_FILL_FULL:	
+  237 0254  21 090F     	LD	HL,FILL_MSG8		; "ERROR FIFO is Full!"
+  238 0257  CD 04AB     	CALL	PMSG
+  239 025A  C3 0110     	JP	START1
+  240                   	
+  241 025D              FILL_ERROR:	
+  242 025D  21 0929     	LD	HL,FILL_MSG9		; "ERROR writing to I2C Port"
+  243 0260  CD 04AB     	CALL	PMSG
+  244 0263  C3 0110     	JP	START1
+  245                   	
+  246                   ;-----------------------------------------------------------------------	
+  247                   
+  248 0266              WRITE_EEPROM:
+  249 0266  21 0974     	LD	HL,WRITE_MSG		; "Enter EEPROM Write Start Address (000-1FFH)"
+  250 0269  CD 04AB     	CALL	PMSG
+  251 026C  CD 0526     	CALL	GET_HEX4		; Put 16 Bit Paramater in HL
+  252 026F  DA 02FD     	JP	C,DATA_WRITE_ERROR	; Carry set, there was a problem
+  253 0272  7C          	LD	A,H
+  254 0273  E6 01       	AND	A,01H			; Range is 000-1FFH for 512 Byre EEPROM
+  255 0275  67          	LD	H,A 
+  256 0276  22 0E74     	LD	(START_STORE),HL
+  257                   
+  258 0279  21 09A6     	LD	HL,WRITE_MSG1		; "Enter bytes in form:- xx,xx,xx..., CR to stop"
+  259 027C  CD 04AB     	CALL	PMSG
+  260 027F  21 0E93     	LD	HL,BYTE_STRING		; Setup pointer
+  261 0282  3E 01       	LD	A,1			; Count from 1,2,3,4...
+  262 0284  32 0E76     	LD	(RANGE_STORE),A
+  263                   
+  264 0287              WRITE_LOAD:
+  265 0287  CD 04EF     	CALL	GET_HEX			; Get Bytes to write
+  266 028A  DA 02FD     	JP	C,DATA_WRITE_ERROR
+  267 028D  77          	LD	(HL),A			; <<< Save value in [HL++] >>>
+  268 028E  23          	INC	HL
+  269 028F  CD 04E9     	CALL	CHECK_CR
+  270 0292  CA 02A9     	JP	Z,WRITE2
+  271 0295  0E 2C       	LD	C,','
+  272 0297  CD 0573     	CALL	CO
+  273 029A  3A 0E76     	LD	A,(RANGE_STORE)
+  274 029D  3C          	INC	A
+  275 029E  FE 81       	CP	A,81H
+  276 02A0  CA 0306     	JP	Z,RANGE_WRITE_ERROR
+  277 02A3  32 0E76     	LD	(RANGE_STORE),A
+  278 02A6  C3 0287     	JP	WRITE_LOAD
+  279                   	
+  280 02A9              WRITE2:					; >>>> Display what will be done <<<<
+  281 02A9  21 09D8     	LD	HL,WRITE_MSG2		; "Will write to EEPROM starting at "
+  282 02AC  CD 04AB     	CALL	PMSG
+  283 02AF  2A 0E74     	LD	HL,(START_STORE)	; Print the value in HL
+  284 02B2  CD 0540     	CALL	PRINT_HL		; <--- START
+  285 02B5  21 09FD     	LD	HL,WRITE_MSG3		; "H for "
+  286 02B8  CD 04AB     	CALL	PMSG
+  287 02BB  3A 0E76     	LD	A,(RANGE_STORE)		;Numbering is 0,1,2...
+  288 02BE  CD 0545     	CALL	PRINT_A			; <--- RANGE
+  289 02C1  21 0A05     	LD	HL,WRITE_MSG4		; "H Bytes."
+  290 02C4  CD 04AB     	CALL	PMSG
+Z80ASM SuperFast Relocating Macro Assembler     	    Z80ASM 1.30 Page   6
+SPI     Z80
+
+  291 02C7  21 0A16     	LD	HL,WRITE_MSG5		; "Press any character to continue. Press ESC to return to the main menu."
+  292 02CA  CD 04AB     	CALL	PMSG
+  293 02CD  CD 04E3     	CALL	CHECK_ESC
+  294 02D0  C2 02D6     	JP	NZ,BEGIN_WRITE
+  295 02D3  C3 0110     	JP	START1
+  296                   	
+  297 02D6              BEGIN_WRITE:
+  298 02D6  2A 0E74     	LD	HL,(START_STORE)
+  299 02D9  7C          	LD	A,H			; Send to FIFO Low byte address
+  300                   ;;;	OUT	(I2C_DATA),A	
+  301 02DA  7D          	LD	A,L			; Send to FIFO High byte address
+  302                   ;;;;	OUT	(I2C_DATA),A	
+  303                   
+  304 02DB  3A 0E76     	LD	A,(RANGE_STORE)		; 1 up to 7F Bytes
+  305 02DE  47          	LD	B,A			; Store in B
+  306 02DF  21 0E93     	LD	HL,BYTE_STRING		; Get back pointer to byte string
+  307                   	
+  308                   
+  309 02E2              WRITE_LOOP:				;>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+  310                   ;;;;;	IN	A,(I2C_STATUS)		; Check if FIFO is full
+  311 02E2  CB 67       	BIT	4,A
+  312 02E4  C2 030F     	JP	NZ,FIFO_WRITE_FULL
+  313 02E7  7E          	LD	A,(HL)			; Send to FIFO Fill Data byte
+  314 02E8  23          	INC	HL			; Next data byte
+  315                   ;;;;;;	OUT	(I2C_DATA),A
+  316 02E9  10 F7       	DJNZ	WRITE_LOOP		; <<<<<<<<<<<<< Count down B
+  317                   
+  318 02EB  CD 04BB     	CALL	CRLF
+  319 02EE  AF          	XOR	A,A	
+  320                   ;;;;;;	OUT	(I2C_STROBE),A		; Set FIFO for Read
+  321                      					; Note the hardware will make sure all data is sent before Enable in lowered
+  322                   
+  323                   ;;;;;	OUT	(I2C_RW),A		; Pulse Write to transfer FIFO data to I2C Module
+  324                   					; Note, no need to test busy flag as the FIFO is controlled by this signal
+  325                   
+  326                   ;;;;;	IN	A,(I2C_STATUS)		; Check if FIFO is full
+  327 02EF  CB 6F       	BIT	5,A
+  328 02F1  C2 030F     	JP	NZ,FIFO_WRITE_FULL
+  329                   
+  330 02F4  21 0A77     	LD	HL,WRITE_MSG7		; "EEPROM Filled!"
+  331 02F7  CD 04AB     	CALL	PMSG
+  332 02FA  C3 0116     	JP	START2
+  333                   
+  334                   
+  335 02FD              DATA_WRITE_ERROR:
+  336 02FD  21 0949     	LD	HL,ERROR_MSG		; "Data format error"
+  337 0300  CD 04AB     	CALL	PMSG
+  338 0303  C3 0110     	JP	START1
+  339                   
+  340 0306              RANGE_WRITE_ERROR:
+  341 0306  21 095F     	LD	HL,ERROR_MSG2		; "Data range error"
+  342 0309  CD 04AB     	CALL	PMSG
+  343 030C  C3 0110     	JP	START1
+  344                   	
+  345 030F              FIFO_WRITE_FULL:	
+  346 030F  21 090F     	LD	HL,FILL_MSG8		; "ERROR FIFO is Full!"
+  347 0312  CD 04AB     	CALL	PMSG
+  348 0315  C3 0110     	JP	START1
+Z80ASM SuperFast Relocating Macro Assembler     	    Z80ASM 1.30 Page   7
+SPI     Z80
+
+  349                   	
+  350 0318              WRITE_ERROR:	
+  351 0318  21 0929     	LD	HL,FILL_MSG9		; "ERROR writing to I2C Port"
+  352 031B  CD 04AB     	CALL	PMSG
+  353 031E  C3 0110     	JP	START1
+  354                   
+  355                   ;----------------------------------------------------------------------
+  356                   	
+  357 0321              READ_EEPROM:
+  358 0321  21 0A92     	LD	HL,READ_MSG		; "Enter EEPROM Write Start Address (000-1FFH)"
+  359 0324  CD 04AB     	CALL	PMSG
+  360 0327  CD 0526     	CALL	GET_HEX4		; Put 16 Bit Paramater in HL
+  361 032A  DA 038D     	JP	C,DATA_READ_ERROR	; Carry set, there was a problem
+  362 032D  7C          	LD	A,H
+  363 032E  E6 01       	AND	A,01H			; Range is 000-1FFH for 512 Byre EEPROM
+  364 0330  67          	LD	H,A 
+  365 0331  22 0E74     	LD	(START_STORE),HL
+  366                   	
+  367 0334  21 0AC3     	LD	HL,READ_MSG1		; "Enter Number of Fill Bytes (00-7FH)"
+  368 0337  CD 04AB     	CALL	PMSG
+  369 033A  CD 04EF     	CALL	GET_HEX			; Get number of bytes to send in [A]
+  370 033D  DA 024B     	JP	C,DATA_FILL_ERROR
+  371 0340  E6 7F       	AND	A,7FH			; Range must be 00-7FH only (1 page)
+  372 0342  32 0E76     	LD	(RANGE_STORE),A		; <<< Save range in B >>
+  373                   
+  374                   					; >>>> Display what will be done <<<<
+  375 0345  21 0AF1     	LD	HL,READ_MSG2		; "Will Read bytes from EEPROM starting at "
+  376 0348  CD 04AB     	CALL	PMSG
+  377 034B  2A 0E74     	LD	HL,(START_STORE)	; Print the value in HL
+  378 034E  CD 0540     	CALL	PRINT_HL		; <--- START
+  379 0351  21 0B4A     	LD	HL,READ_MSG3		; "H,/n Press any keyboard character to display. ESC to return to the main menu.'"
+  380 0354  CD 04AB     	CALL	PMSG
+  381 0357  3A 0E76     	LD	A,(RANGE_STORE)		; <<< Range in B >>
+  382 035A  47          	LD	B,A
+  383 035B  CD 04E3     	CALL	CHECK_ESC
+  384 035E  C2 0364     	JP	NZ,BEGIN_READ
+  385 0361  C3 0110     	JP	START1
+  386                   
+  387 0364              BEGIN_READ:				;>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+  388 0364  2A 0E74     	LD	HL,(START_STORE)
+  389 0367  7C          	LD	A,H			; 68 Send to FIFO High byte address
+  390                   ;;;;;	OUT	(I2C_DATA),A	
+  391 0368  7D          	LD	A,L			; 68 Send to FIFO Low byte address
+  392                   ;;;;	OUT	(I2C_DATA),A	
+  393                   	
+  394                   ;;;;	OUT	(I2C_STROBE),A		; (Port 69) Set FIFO for Read
+  395                   	
+  396                   ;;;;	OUT	(I2C_RW),A		; (Port 6B) Pulse I2C device to set the "current address"
+  397 0369  CD 0377     	CALL	DELAY	
+  398                   
+  399 036C              BEGIN_READ1:
+  400                   ;;;;	IN	A,(I2C_RW)		; 
+  401 036C  CD 0377     	CALL	DELAY
+  402                   ;
+  403                   ;;;;;	IN	A,(I2C_DATA)		; Get a byte from I2C EEPROM at its current address
+  404 036F  CD 0545     	CALL	PRINT_A			; Print hex value on CRT
+  405                   	
+  406 0372  10 F8       	DJNZ	BEGIN_READ1		;>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+Z80ASM SuperFast Relocating Macro Assembler     	    Z80ASM 1.30 Page   8
+SPI     Z80
+
+  407 0374  C3 0116     	JP	START2
+  408                   	
+  409                   	
+  410 0377  F5          DELAY:	PUSH	AF
+  411 0378  C5          	PUSH	BC
+  412 0379  01 08FF     	LD	BC,08FFH
+  413 037C  0B          DELAY2:	DEC	BC
+  414 037D  79          	LD	A,C
+  415 037E  B0          	OR	A,B
+  416 037F  C2 037C     	JP	NZ,DELAY2
+  417 0382  C1          	POP	BC
+  418 0383  F1          	POP	AF
+  419 0384  C9          	RET
+  420                   	
+  421 0385              NEXT_READ:	
+  422 0385  0E 2C       	LD	C,','
+  423 0387  CD 0573     	CALL	CO
+  424 038A  C3 0364     	JP	BEGIN_READ
+  425                   
+  426 038D              DATA_READ_ERROR:
+  427 038D  21 0949     	LD	HL,ERROR_MSG		; "Data format error"
+  428 0390  CD 04AB     	CALL	PMSG
+  429 0393  C3 0110     	JP	START1
+  430                   	
+  431 0396              FIFO_READ_ERROR:	
+  432 0396  21 0892     	LD	HL,FILL_MSG4		; "ERROR. FIFO is not empty after loading start address!"
+  433 0399  CD 04AB     	CALL	PMSG
+  434 039C  C3 0110     	JP	START1
+  435                   	
+  436 039F              READ_ERROR:	
+  437 039F  21 0899     	LD	HL,FILL_MSG5		; "FIFO I2C Read error"
+  438 03A2  CD 04AB     	CALL	PMSG
+  439 03A5  C3 0110     	JP	START1
+  440                   
+  441                   
+  442                   ;----------------------------------------------------------------------
+  443                   	
+  444 03A8              MOVE_EEPROM:
+  445 03A8  21 0BEE     	LD	HL,MOVE_MSG		; "Enter S100 Bus RAM Read Start Address (0000-FFFH):"
+  446 03AB  CD 04AB     	CALL	PMSG
+  447 03AE  CD 0526     	CALL	GET_HEX4		; Put 16 Bit Paramater in HL
+  448 03B1  DA 0418     	JP	C,DATA_MOVE_ERROR	; Carry set, there was a problem
+  449 03B4  22 0E78     	LD	(S100_STORE),HL
+  450                   	
+  451 03B7  21 0C24     	LD	HL,MOVE_MSG0		; "Enter EEPROM Read Start Address (0000-01FFH):"
+  452 03BA  CD 04AB     	CALL	PMSG
+  453 03BD  CD 0526     	CALL	GET_HEX4		; Put 16 Bit Paramater in HL
+  454 03C0  DA 0418     	JP	C,DATA_MOVE_ERROR	; Carry set, there was a problem
+  455 03C3  22 0E74     	LD	(START_STORE),HL
+  456                   
+  457 03C6  21 0AC3     	LD	HL,READ_MSG1		; "Enter Number of Bytes to Move (00-7FH): "
+  458 03C9  CD 04AB     	CALL	PMSG
+  459 03CC  CD 04EF     	CALL	GET_HEX			; Get number of bytes to send in [A]
+  460 03CF  DA 0418     	JP	C,DATA_MOVE_ERROR
+  461 03D2  E6 7F       	AND	A,7FH			; Range must be 00-7FH only (1 page)
+  462 03D4  32 0E76     	LD	(RANGE_STORE),A		; <<< Save range in B >>
+  463                   
+  464                   					; >>>> Display what will be done <<<<
+Z80ASM SuperFast Relocating Macro Assembler     	    Z80ASM 1.30 Page   9
+SPI     Z80
+
+  465 03D7  21 0C80     	LD	HL,MOVE_MSG2		; "Will Move bytes from S100 Bus RAM starting at "
+  466 03DA  CD 04AB     	CALL	PMSG
+  467 03DD  2A 0E78     	LD	HL,(S100_STORE)		; Print the value in HL
+  468 03E0  CD 0540     	CALL	PRINT_HL		; <--- START RAM
+  469 03E3  21 0CB2     	LD	HL,MOVE_MSG2B		; "H. \n To the EEPROM starting at "
+  470 03E6  CD 04AB     	CALL	PMSG
+  471 03E9  2A 0E74     	LD	HL,(START_STORE)	; Print the value in HL
+  472 03EC  CD 0540     	CALL	PRINT_HL		; <--- START EEPROM
+  473                   
+  474 03EF  21 0CD0     	LD	HL,MOVE_MSG3		; "H,/n Press any keyboard character to display. ESC to return to the main menu.'"
+  475 03F2  CD 04AB     	CALL	PMSG
+  476 03F5  3A 0E76     	LD	A,(RANGE_STORE)		; <<< Range in B >>
+  477 03F8  47          	LD	B,A
+  478 03F9  CD 04E3     	CALL	CHECK_ESC
+  479 03FC  C2 0402     	JP	NZ,BEGIN_MOVE
+  480 03FF  C3 0110     	JP	START1
+  481                   
+  482 0402              BEGIN_MOVE:				;>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+  483 0402  2A 0E78     	LD	HL,(S100_STORE)		; Pointer to S100 RAM
+  484 0405  ED 5B 0E74  	LD	DE,(START_STORE)
+  485 0409  7A          	LD	A,D			; 68 Send to FIFO High byte address
+  486                   ;;;;	OUT	(I2C_DATA),A	
+  487 040A  7B          	LD	A,E			; 68 Send to FIFO Low byte address
+  488                   ;;;;;	OUT	(I2C_DATA),A	
+  489                   	
+  490                   ;;;;;	OUT	(I2C_STROBE),A		; (Port 69) Set FIFO for Read
+  491                   	
+  492                   ;;;;	OUT	(I2C_RW),A		; (Port 6B) Pulse I2C device to set the "current address"
+  493 040B  CD 0377     	CALL	DELAY	
+  494                   
+  495 040E              BEGIN_MOVE1:				; <----------- READ EEPROM
+  496                   ;;;;	IN	A,(I2C_RW)		;  
+  497 040E  CD 0377     	CALL	DELAY
+  498                   
+  499                   ;;;;	IN	A,(I2C_DATA)		; Get a byte from I2C EEPROM at its current address
+  500 0411  77          	LD	(HL),A			; Put data in S100 bus RAM
+  501 0412  23          	INC	HL
+  502 0413  10 F9       	DJNZ	BEGIN_MOVE1		;>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+  503                   
+  504 0415  C3 0116     	JP	START2
+  505                   
+  506 0418              DATA_MOVE_ERROR:
+  507 0418  21 0949     	LD	HL,ERROR_MSG		; "Data format error"
+  508 041B  CD 04AB     	CALL	PMSG
+  509 041E  C3 0110     	JP	START1
+  510                   	
+  511                   ;-----------------------------------------------------------------------------------------------	
+  512                   	
+  513 0421              COPY_EEPROM:
+  514 0421  21 0D19     	LD	HL,COPY_MSG		; "Enter S100 Bus RAM Read Start Address (0000-FFFH):"
+  515 0424  CD 04AB     	CALL	PMSG
+  516 0427  CD 0526     	CALL	GET_HEX4		; Put 16 Bit Paramater in HL
+  517 042A  DA 0499     	JP	C,DATA_COPY_ERROR	; Carry set, there was a problem
+  518 042D  22 0E78     	LD	(S100_STORE),HL
+  519                   	
+  520 0430  21 0D4F     	LD	HL,COPY_MSG0		; "Enter EEPROM Read Start Address (0000-01FFH):"
+  521 0433  CD 04AB     	CALL	PMSG
+  522 0436  CD 0526     	CALL	GET_HEX4		; Put 16 Bit Paramater in HL
+Z80ASM SuperFast Relocating Macro Assembler     	    Z80ASM 1.30 Page  10
+SPI     Z80
+
+  523 0439  DA 0499     	JP	C,DATA_COPY_ERROR	; Carry set, there was a problem
+  524 043C  22 0E74     	LD	(START_STORE),HL
+  525                   
+  526 043F  21 0D80     	LD	HL,COPY_MSG1		; "Enter Number of Bytes to Move (00-7FH): "
+  527 0442  CD 04AB     	CALL	PMSG
+  528 0445  CD 04EF     	CALL	GET_HEX			; Get number of bytes to send in [A]
+  529 0448  DA 0499     	JP	C,DATA_COPY_ERROR
+  530 044B  E6 7F       	AND	A,7FH			; Range must be 00-7FH only (1 page)
+  531 044D  32 0E76     	LD	(RANGE_STORE),A		; <<< Save range in B >>
+  532                   
+  533                   					; >>>> Display what will be done <<<<
+  534 0450  21 0DAB     	LD	HL,COPY_MSG2		; "Will Copy bytes from S100 Bus starting at"
+  535 0453  CD 04AB     	CALL	PMSG
+  536 0456  2A 0E78     	LD	HL,(S100_STORE)		; Print the value in HL
+  537 0459  CD 0540     	CALL	PRINT_HL		; <--- START RAM
+  538 045C  21 0CB2     	LD	HL,MOVE_MSG2B		; "H. \n To the EEPROM starting at "
+  539 045F  CD 04AB     	CALL	PMSG
+  540 0462  2A 0E74     	LD	HL,(START_STORE)	; Print the value in HL
+  541 0465  CD 0540     	CALL	PRINT_HL		; <--- START EEPROM
+  542                   
+  543 0468  21 0CD0     	LD	HL,MOVE_MSG3		; "H,/n Press any keyboard character to start. ESC to return to the main menu.'"
+  544 046B  CD 04AB     	CALL	PMSG
+  545 046E  3A 0E76     	LD	A,(RANGE_STORE)		; <<< Range in B >>
+  546 0471  47          	LD	B,A
+  547                   		
+  548 0472              BEGIN_COPY:				;>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+  549 0472  2A 0E74     	LD	HL,(START_STORE)
+  550 0475  7C          	LD	A,H			; Send to FIFO Low byte address
+  551                   ;;;;	OUT	(I2C_DATA),A	
+  552 0476  7D          	LD	A,L			; Send to FIFO High byte address
+  553                   ;;;;	OUT	(I2C_DATA),A	
+  554                   
+  555 0477  3A 0E76     	LD	A,(RANGE_STORE)		; 1 up to 7F Bytes
+  556 047A  47          	LD	B,A			; Store in B
+  557 047B  2A 0E78     	LD	HL,(S100_STORE)		; Get back pointer to S100 bus RAM
+  558                   	
+  559                   
+  560 047E              COPY_LOOP:				;>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+  561                   ;;;;	IN	A,(I2C_STATUS)		; Check if FIFO is full
+  562 047E  CB 67       	BIT	4,A
+  563 0480  C2 04A2     	JP	NZ,FIFO_COPY_FULL
+  564 0483  7E          	LD	A,(HL)			; Send to FIFO Fill Data byte
+  565 0484  23          	INC	HL			; Next data byte
+  566                   ;;;;;	OUT	(I2C_DATA),A
+  567 0485  10 F7       	DJNZ	COPY_LOOP		; <<<<<<<<<<<<< Count down B
+  568                   
+  569 0487  CD 04BB     	CALL	CRLF
+  570 048A  AF          	XOR	A,A	
+  571                   ;;;;;	OUT	(I2C_STROBE),A		; Set FIFO for Read
+  572                      					; Note the hardware will make sure all data is sent before Enable in lowered
+  573                   
+  574                   ;;;;	OUT	(I2C_RW),A		; Pulse Write to transfer FIFO data to I2C Module
+  575                   					; Note, no need to test busy flag as the FIFO is controlled by this signal
+  576                   
+  577                   ;;;;	IN	A,(I2C_STATUS)		; Check if FIFO is full
+  578 048B  CB 6F       	BIT	5,A
+  579 048D  C2 04A2     	JP	NZ,FIFO_COPY_FULL
+  580                   
+Z80ASM SuperFast Relocating Macro Assembler     	    Z80ASM 1.30 Page  11
+SPI     Z80
+
+  581 0490  21 0E40     	LD	HL,COPY_MSG7		; "EEPROM Filled!"
+  582 0493  CD 04AB     	CALL	PMSG
+  583 0496  C3 0116     	JP	START2
+  584                   
+  585 0499              DATA_COPY_ERROR:
+  586 0499  21 0949     	LD	HL,ERROR_MSG		; "Data format error"
+  587 049C  CD 04AB     	CALL	PMSG
+  588 049F  C3 0110     	JP	START1
+  589                   
+  590                   	
+  591 04A2              FIFO_COPY_FULL:	
+  592 04A2  21 090F     	LD	HL,FILL_MSG8		; "ERROR FIFO is Full!"
+  593 04A5  CD 04AB     	CALL	PMSG
+  594 04A8  C3 0110     	JP	START1
+  595                   	
+  596                   
+  597                   ;<<<<<<<<<<<<<<<<<<<<<<<<< SUPPORT ROUTINES >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+  598                   
+  599 04AB  C5          PMSG:	PUSH	BC		; Only [A] and [HL] is changed
+  600 04AC  7E          PMSG1:	LD	A,(HL)		; A ROUTINE TO PRINT OUT A STRING @ [HL]
+  601 04AD  23          	INC	HL		; UP TO THE FIRST 0.
+  602 04AE  B7          	OR	A,A
+  603 04AF  CA 04B9     	JP	Z,PMSG_DONE
+  604 04B2  4F          	LD	C,A
+  605 04B3  CD 0573     	CALL	CO
+  606 04B6  C3 04AC     	JP	PMSG1
+  607 04B9              PMSG_DONE:
+  608 04B9  C1          	POP	BC
+  609 04BA  C9          	RET
+  610                   
+  611 04BB  C5          CRLF:	PUSH	BC
+  612 04BC  0E 0D       	LD	C,CR
+  613 04BE  CD 0573     	CALL	CO
+  614 04C1  0E 0A       	LD	C,LF
+  615 04C3  CD 0573     	CALL	CO
+  616 04C6  C1          	POP	BC
+  617 04C7  C9          	RET
+  618                   
+  619                   ; GET A CHARACTER, convert to UC, ECHO it
+  620 04C8  CD 0586     GETCMD:	CALL	CI		
+  621 04CB  CD 04DA     	CALL	UCASE
+  622 04CE  FE 1B       	CP	A,ESC
+  623 04D0  C8          	RET	Z		;Don't echo an ESC
+  624 04D1  F5          	PUSH	AF		;Save it
+  625 04D2  C5          	PUSH	BC
+  626 04D3  4F          	LD	C,A
+  627 04D4  CD 0573     	CALL	CO		;Echo it
+  628 04D7  C1          	POP	BC
+  629 04D8  F1          	POP	AF		;get it back
+  630 04D9  C9          	RET
+  631                   ;				;Convert LC to UC
+  632 04DA  FE 61       UCASE:	CP	A,'a'		;must be >= lowercase a
+  633 04DC  D8          	RET	C		; else go back...
+  634 04DD  FE 7B       	CP	A,'z'+1		;must be <= lowercase z
+  635 04DF  D0          	RET	NC		; else go back...
+  636 04E0  D6 20       	SUB	A,'a'-'A'	;subtract lowercase bias
+  637 04E2  C9          	RET
+  638                   
+Z80ASM SuperFast Relocating Macro Assembler     	    Z80ASM 1.30 Page  12
+SPI     Z80
+
+  639                   ; Check if next character is a ESC
+  640 04E3              CHECK_ESC:
+  641 04E3  CD 0586     	CALL	CI
+  642 04E6  FE 1B       	CP	A,ESC
+  643 04E8  C9          	RET			; Return Z if ESC character.
+  644                   	
+  645                   ; Check if next character is a CR
+  646 04E9              CHECK_CR:
+  647 04E9  CD 0586     	CALL	CI
+  648 04EC  FE 0D       	CP	A,CR
+  649 04EE  C9          	RET			; Return Z if ESC character.
+  650                   	
+  651                   ; Return with 2 HEX digits in [A]. If abort, Carry flag set + ESC in [A]
+  652 04EF              GET_HEX:
+  653 04EF  C5          	PUSH	BC			
+  654 04F0  CD 04C8     	CALL	GETCMD		;Get a character from keyboard & ECHO
+  655 04F3  FE 1B       	CP	A,ESC
+  656 04F5  28 2A       	JR	Z,HEX_ABORT
+  657 04F7  FE 2F       	CP	'/'		;check 0-9, A-F
+  658 04F9  38 26       	JR	C,HEX_ABORT
+  659 04FB  FE 47       	CP	'F'+1
+  660 04FD  30 22       	JR	NC,HEX_ABORT
+  661 04FF  CD 0538     	CALL	ASBIN		;Convert to binary
+  662 0502  CB 27       	SLA	A
+  663 0504  CB 27       	SLA	A
+  664 0506  CB 27       	SLA	A
+  665 0508  CB 27       	SLA	A		;Shift to high nibble	
+  666 050A  47          	LD	B,A		;Store it
+  667 050B  CD 04C8     	CALL	GETCMD		;Get 2nd character from keyboard & ECHO
+  668 050E  FE 1B       	CP	A,ESC
+  669 0510  28 0F       	JR	Z,HEX_ABORT
+  670 0512  FE 2F       	CP	'/'		;check 0-9, A-F
+  671 0514  38 0B       	JR	C,HEX_ABORT
+  672 0516  FE 47       	CP	'F'+1
+  673 0518  30 07       	JR	NC,HEX_ABORT
+  674 051A  CD 0538     	CALL	ASBIN		;Convert to binary
+  675 051D  B0          	OR	A,B		;add in the first digit
+  676 051E  B7          	OR	A,A		;To return NC
+  677 051F  C1          	POP	BC
+  678 0520  C9          	RET
+  679                   	
+  680 0521              HEX_ABORT:
+  681 0521  37          	SCF			;Set Carry flag 
+  682 0522  3E 1B       	LD	A,ESC
+  683 0524  C1          	POP	BC
+  684 0525  C9          	RET
+  685                   ;
+  686                   ;
+  687                   ; Put 4 HEX characters in [HL] 
+  688 0526              GET_HEX4:	
+  689 0526  26 00       	LD      H,0000H
+  690 0528  CD 04EF     	CALL	GET_HEX		;get 2 HEX digits
+  691 052B  38 09       	JR	C,SCAN_ABORT
+  692 052D  67          	LD	H,A
+  693 052E  CD 04EF     	CALL	GET_HEX		;get 2 more HEX digits
+  694 0531  38 03       	JR	C,SCAN_ABORT
+  695 0533  6F          	LD	L,A
+  696 0534  B7          	OR	A,A		;To return NC
+Z80ASM SuperFast Relocating Macro Assembler     	    Z80ASM 1.30 Page  13
+SPI     Z80
+
+  697 0535  C9          	RET
+  698                   	
+  699 0536              SCAN_ABORT:
+  700 0536  37          	SCF			;Set Carry flag 
+  701 0537  C9          	RET
+  702                   
+  703                   ; ASCII TO BINARY CONVERSION ROUTINE
+  704 0538  D6 30       ASBIN:	SUB	30H 
+  705 053A  FE 0A       	CP	0AH 
+  706 053C  F8          	RET	M
+  707 053D  D6 07       	SUB	07H 
+  708 053F  C9          	RET
+  709                   ;	
+  710                   ;
+  711                   ; PRINT [HL] ON CONSOL
+  712 0540              PRINT_HL:
+  713 0540  7C          	LD	A,H
+  714 0541  CD 0545     	CALL	PRINT_A
+  715 0544  7D          	LD	A,L
+  716 0545              PRINT_A:
+  717 0545  F5          	PUSH	AF
+  718 0546  0F          	RRCA
+  719 0547  0F          	RRCA
+  720 0548  0F          	RRCA
+  721 0549  0F          	RRCA
+  722 054A  CD 054E     	CALL	SF598
+  723 054D  F1          	POP	AF
+  724 054E  CD 0554     SF598:	CALL	CONV
+  725 0551  C3 0573     	JP	CO
+  726                   
+  727                   ; CONVERT HEX TO ASCII
+  728 0554  E6 0F       CONV:	AND	0FH
+  729 0556  C6 90       	ADD	A,90H
+  730 0558  27          	DAA 
+  731 0559  CE 40       	ADC	A,40H
+  732 055B  27          	DAA 
+  733 055C  4F          	LD	C,A
+  734 055D  C9          	RET
+  735                   	
+  736                   ; DISPLAY 8 BITS OF [A] (No registers changed)
+  737                   ; DISPLAY BIT PATTERN IN [A]
+  738 055E  F5          ZBITS:	PUSH	AF
+  739 055F  C5          	PUSH	BC
+  740 0560  D5          	PUSH	DE
+  741 0561  5F          	LD	E,A		
+  742 0562  06 08       	LD	B,8
+  743 0564  CB 23       BQ2:	SLA	E	
+  744 0566  3E 18       	LD	A,18H
+  745 0568  8F          	ADC	A,A
+  746 0569  4F          	LD	C,A
+  747 056A  CD 0573     	CALL	CO
+  748 056D  10 F5       	DJNZ	BQ2
+  749 056F  D1          	POP	DE
+  750 0570  C1          	POP	BC
+  751 0571  F1          	POP	AF
+  752 0572  C9          	RET
+  753                   
+  754                   ;<<<<<<<<<<<<<<<<<<<<<< MAIN CONSOL OUTPUT ROUTINE >>>>>>>>>>>>>>>>>>>>>>>>>
+Z80ASM SuperFast Relocating Macro Assembler     	    Z80ASM 1.30 Page  14
+SPI     Z80
+
+  755                   ;
+  756 0573  DB 00       CO:	IN	A,(CONSTAT)	; SD SYSTEMS or PROPELLER VIDIO BOARD PORT
+  757 0575  E6 04       	AND	4H
+  758 0577  CA 0573     	JP	Z,CO
+  759 057A  79          	LD	A,C
+  760 057B  D3 01       	OUT	(CONOUT),A
+  761 057D  C9          	RET			; RETURN CHARACTER SENT IN [A]
+  762                    
+  763                   ;<<<<<<<<<<<<<<<<<<< MAIN CONSOL STATUS ROUTINE >>>>>>>>>>>>>>>>>>>>>>
+  764                   ;
+  765 057E  DB 00       CSTS:	IN	A,(CONSTAT)
+  766 0580  E6 02       	AND	02H
+  767 0582  C8          	RET	Z
+  768 0583  AF          	XOR	A
+  769 0584  3D          	DEC	A		; RETURN WITH 0FFH IN [A] IF SOMETHING
+  770 0585  C9          	RET
+  771                   
+  772                   ;<<<<<<<<<<<<<<<<<<<< MAIN CONSOL INPUT ROUTINE >>>>>>>>>>>>>>>>>>>>
+  773                   ;
+  774 0586  DB 00       CI:	IN 	A,(CONSTAT)	; NEED CONSTAT TO CLEAN UP SHIFT KEYS ETC
+  775 0588  E6 02       	AND	02H
+  776 058A  28 FA       	JR	Z,CI
+  777 058C  DB 01       	IN	A,(CONIN)
+  778 058E  E6 7F       	AND	7FH
+  779 0590  C9          	RET
+  780                   
+  781                   ;---------------------------------------------------------------------------------------
+  782 0591  0D 0A       SIGNON:		DB	CR,LF
+  783 0593  0D 0A 54 65 		DB	CR,LF,'Test program for SPI_8 interface of S100Computers.com FPGA Prototype board'
+  784 05DF  0D 0A 42 79 		DB	CR,LF,'By John Monahan S100Computers.COM  (V1.0)  1/5/2019'
+  785 0614  0D 0A 4E 6F 		DB	CR,LF,'Note: 1. The test is with an SPI ATS5128 EEPROM'
+  786                   		
+  787 0645  0D 0A 0A 2D SIGNON1:	DB	CR,LF,LF,'---------- Main Menu ---------------------------------------'
+  788 0684  0D 0A 30 2E 		DB	CR,LF,'0.   Read a single byte from a location in the SPI EEPROM.'
+  789 06C0  0D 0A 31 2E 		DB	CR,LF,'1.   Fill up to a page of the SPI EEPROM with a Byte value.'
+  790 06FD  0D 0A 32 2E 		DB	CR,LF,'2.   Write bytes to the EEPROM.'
+  791 071E  0D 0A 33 2E 		DB	CR,LF,'3.   Read bytes from the EEPROM.'
+  792 0740  0D 0A 34 2E 		DB	CR,LF,'4.   Move up to a page of the EEPROM to S100 bus RAM.'
+  793 0777  0D 0A 35 2E 		DB	CR,LF,'5.   Copy up to a page of S100 bus RAM to the EEPROM.'
+  794 07AE  0D 0A 45 53 		DB	CR,LF,'ESC  To abort program.',CR,LF,0H
+  795                   
+  796 07C9  07 07 0D 0A MENU_MSG:	DB	BELL,BELL,CR,LF,'Menu error.',0
+  797                   
+  798                   
+  799                   ;-----		
+  800 07D9  0D 0A 45 6E FILL_MSG:	DB	CR,LF,'Enter EEPROM Fill Start Address (0000-01FFH): ',0H		
+  801 080A  0D 0A 45 6E MSG0:		DB	CR,LF,'Enter EEPROM Address (0000-01FFH): ',0H		
+  802 0830  0D 0A 45 6E FILL_MSG1:	DB	CR,LF,'Enter Number of Fill Bytes (00-7FH): ',0H		
+  803 0858  0D 0A 45 6E FILL_MSG2:	DB	CR,LF,'Enter Fill Value (00-FFH): ',0H		
+  804                   
+  805 0876  0D 0A 0A 46 FILL_MSG3:	DB	CR,LF,LF,'Fill EEPROM starting at ',0H		
+  806 0892  48 20 66 6F FILL_MSG4:	DB	'H for ',0H		
+  807 0899  48 20 62 79 FILL_MSG5:	DB	'H bytes with a fill value of ',0H	
+  808 08B7  48 2E       FILL_MSG6:	DB	'H.'
+  809 08B9  0D 0A 50 72 		DB	CR,LF,'Press any character to continue. ESC to return to the main menu.',0H	
+  810 08FC  0D 0A 45 45 FILL_MSG7:	DB	CR,LF,'EEPROM Filled.',CR,LF,0H
+  811 090F  0D 0A 07 45 FILL_MSG8:	DB	CR,LF,BELL,'ERROR, FIFO is Full!',CR,LF,0H
+  812 0929  0D 0A 07 45 FILL_MSG9:	DB	CR,LF,BELL,'ERROR writing to I2C Port!',CR,LF,0H
+Z80ASM SuperFast Relocating Macro Assembler     	    Z80ASM 1.30 Page  15
+SPI     Z80
+
+  813                   	
+  814 0949  07 07 0D 0A ERROR_MSG:	DB	BELL,BELL,CR,LF,'Data format error',0
+  815 095F  07 07 0D 0A ERROR_MSG2:	DB	BELL,BELL,CR,LF,'Data range error',0
+  816                   
+  817                   
+  818 0974  0D 0A 45 6E WRITE_MSG:	DB	CR,LF,'Enter EEPROM Write Start Address (0000-01FFH): ',0H		
+  819 09A6  0D 0A 45 6E WRITE_MSG1:	DB	CR,LF,'Enter bytes in form:- xx,xx,xx..., CR to stop',CR,LF,0H		
+  820 09D8  0D 0A 0A 57 WRITE_MSG2:	DB	CR,LF,LF,'Will write to EEPROM starting at ',0H		
+  821 09FD  48 20 77 69 WRITE_MSG3:	DB	'H with ',0H
+  822 0A05  48 20 42 79 WRITE_MSG4:	DB	'H Bytes of data.',0H		
+  823 0A16  0D 0A 50 72 WRITE_MSG5:	DB	CR,LF,'Press any character to continue. ESC to return to the main menu.',0H	
+  824 0A59  48 20 62 79 WRITE_MSG6:	DB	'H bytes with a fill value of ',0H	
+  825 0A77  42 79 74 65 WRITE_MSG7:	DB	'Bytes written to EEPROM OK',0H	
+  826                   
+  827 0A92  0D 0A 45 6E READ_MSG:	DB	CR,LF,'Enter EEPROM Read Start Address (0000-01FFH): ',0H		
+  828 0AC3  0D 0A 45 6E READ_MSG1:	DB	CR,LF,'Enter Number of Bytes to Display (00-7FH): ',0H		
+  829 0AF1  0D 0A 0A 57 READ_MSG2:	DB	CR,LF,LF,'Will Read bytes from EEPROM starting at ',0H		
+  830 0B1D  0D 0A 0A 57 READ_MSG2A:	DB	CR,LF,LF,'Will Read Byte from EEPROM at ',0H		
+  831 0B3F  0D 0A 0A 42 READ_MSG2B:	DB	CR,LF,LF,'Byte = ',0H		
+  832 0B4A  48 0D 0A    READ_MSG3:	DB	'H',CR,LF
+  833 0B4D  50 72 65 73 		DB	'Press any keyboard to display. Press ESC to return to the main menu.',CR,LF,LF,0H	
+  834 0B95  48 0D 0A 00 READ_MSG3A:	DB	'H',CR,LF,0H
+  835 0B99  0D 0A 07 45 READ_MSG4:	DB	CR,LF,BELL,'ERROR. FIFO is not empty after loading start address!',CR,LF,0H
+  836 0BD4  0D 0A 07 46 READ_MSG5:	DB	CR,LF,BELL,'FIFO I2C Read error!',CR,LF,0H
+  837                   
+  838                   
+  839 0BEE  0D 0A 45 6E MOVE_MSG:	DB	CR,LF,'Enter S100 Bus RAM Read Start Address (0000-FFFH): ',0H		
+  840 0C24  0D 0A 45 6E MOVE_MSG0:	DB	CR,LF,'Enter EEPROM Read Start Address (0000-01FFH): ',0H
+  841 0C55  0D 0A 45 6E MOVE_MSG1:	DB	CR,LF,'Enter Number of Bytes to Move (00-7FH): ',0H		
+  842 0C80  0D 0A 0A 57 MOVE_MSG2:	DB	CR,LF,LF,'Will Move bytes from S100 Bus RAM starting at ',0H		
+  843 0CB2  48          MOVE_MSG2B:	DB	'H',
+  844 0CB3  0D 0A 54 6F 		DB	CR,LF,'To the EEPROM starting at ',0H		
+  845 0CD0  48 0D 0A    MOVE_MSG3:	DB	'H',CR,LF
+  846 0CD3  50 72 65 73 		DB	'Press any keyboard to start. Press ESC to return to the main menu.',CR,LF,LF,0H
+  847                   
+  848 0D19  0D 0A 45 6E COPY_MSG:	DB	CR,LF,'Enter S100 Bus RAM Read Start Address (0000-FFFH): ',0H		
+  849 0D4F  0D 0A 45 6E COPY_MSG0:	DB	CR,LF,'Enter EEPROM Read Start Address (0000-01FFH): ',0H
+  850 0D80  0D 0A 45 6E COPY_MSG1:	DB	CR,LF,'Enter Number of Bytes to Move (00-7FH): ',0H		
+  851 0DAB  0D 0A 0A 57 COPY_MSG2:	DB	CR,LF,LF,'Will Copy bytes from S100 Bus starting at ',0H		
+  852 0DD9  48          COPY_MSG2B:	DB	'H',
+  853 0DDA  0D 0A 54 6F 		DB	CR,LF,'To the EEPROM starting at ',0H		
+  854 0DF7  48 0D 0A    COPY_MSG3:	DB	'H',CR,LF
+  855 0DFA  50 72 65 73 		DB	'Press any keyboard to start. Press ESC to return to the main menu.',CR,LF,LF,0H
+  856 0E40  42 79 74 65 COPY_MSG7:	DB	'Bytes written to EEPROM OK',0H	
+  857                   
+  858                   
+  859 0E5B  3E 3E 3E 3E START_OF_STORE:	DB	'>>>>>>>>>>>>>>>>>>>>>>>>>'		
+  860 0E74  0000        START_STORE:	DW	0H   ;<--- Note:- Low Byte,High Byte
+  861 0E76  00          RANGE_STORE:	DB	0H
+  862 0E77  00          DATA_STORE:	DB	0H
+  863 0E78  0000        S100_STORE:	DW	0H
+  864 0E7A  3C 3C 3C 3C END_OF_STORE:	DB	'<<<<<<<<<<<<<<<<<<<<<<<<<'
+  865                   		
+  866 0E93    0080      BYTE_STRING:	DS	80H
+  867                   ;
+  868 0F13    0040      	DS	40H
+  869 0F53  00          STACK:	DB	0H
+  870                   ; END
+Z80ASM SuperFast Relocating Macro Assembler     	    Z80ASM 1.30 Page  16
+SPI     Z80
+
+  871                   	
+  872                   
+  873                   
+  874                   
+ 0 Error(s) Detected.
+ 3668 Absolute Bytes. 148 Symbols Detected.
+
