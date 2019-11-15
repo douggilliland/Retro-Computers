@@ -39,7 +39,7 @@ void initM6850StatusRegister(void)
 
 void M6850ReadIntReg(void)
 {
-	Z80_Data_In_Write(0xFF);
+	Z80_Data_In_Control = (0xFF);
 	INT_n_Write(INT_OFF);   // Clear IRQ* line
 	ackIO();
 }
@@ -77,7 +77,7 @@ uint8 checkSerialReceiverBusy(void)
 
 void M6850ReadData(void)
 {
-	Z80_Data_In_Write(M6850_DataIn);
+	Z80_Data_In_Control = (M6850_DataIn);
 	M6850_Status &= 0xFE;                              // No Rx Character Available
 	ackIO();
 }
@@ -90,7 +90,7 @@ void M6850WriteData(void)
 	uint8 buffer[64];
 	uint16 count = 1;
 	while (0u == USBUART_CDCIsReady());
-	buffer[0] = Z80_Data_Out_Read();
+	buffer[0] = Z80_Data_Out_Status;
 	USBUART_PutData(buffer, count);
 	ackIO();
 }
@@ -100,7 +100,7 @@ void M6850WriteData(void)
 
 void M6850ReadStatus(void)
 {
-	Z80_Data_In_Write(M6850_Status);
+	Z80_Data_In_Control = (M6850_Status);
 	ackIO();
 }
 
@@ -109,7 +109,7 @@ void M6850ReadStatus(void)
 
 void M6850WriteCtrl(void)
 {
-	M6850_Ctrl = Z80_Data_Out_Read();
+	M6850_Ctrl = Z80_Data_Out_Status;
 	// TBD - This is where the side effects of changing control codes are handled
 	ackIO();
 }
