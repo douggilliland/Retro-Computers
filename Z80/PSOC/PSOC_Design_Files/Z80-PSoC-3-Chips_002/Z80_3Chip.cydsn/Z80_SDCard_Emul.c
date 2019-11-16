@@ -72,7 +72,7 @@ void SDWriteData(void)
 
 void SDWriteCommand(void)
 {
-	SD_Command = Z80_Data_Out_Read();
+	SD_Command = Z80_Data_Out_Status;
 	if (SD_Command == 0x00)         // Read command
 	{
 		ackIO();
@@ -104,7 +104,7 @@ void SDWriteCommand(void)
 
 void SDReadStatus(void)
 {
-	Z80_Data_In_Write(SD_Status);
+	Z80_Data_In_Control = SD_Status;
 	ackIO();
 	return;
 }

@@ -18,7 +18,7 @@ void HandleZ80IO(void)
 	volatile uint8 ioCrtlRegVal;
 	volatile uint8 ioZ80Addr;
 	
-	ioCrtlRegVal = IO_Stat_Reg_Read();
+	ioCrtlRegVal = IO_Stat_Reg_Status;
 #ifdef USING_SIO
 	if ((ioCrtlRegVal & IACK_MASK) == IN_IACK_CYCLE)
 	{
@@ -33,7 +33,7 @@ void HandleZ80IO(void)
 		return;
 	}
 #endif
-	ioZ80Addr = AdrLowIn_Read();        // gets the I/O address that the Z80 is accessing
+	ioZ80Addr = AdrLowIn_Status;        // gets the I/O address that the Z80 is accessing
 	switch (ioZ80Addr)                  // call appropriate functions based on the address
 	{
 #ifdef USING_SIO
@@ -106,6 +106,14 @@ void HandleZ80IO(void)
 			writeDAC();
 		}
 		break;
+#ifdef USING_MMU4
+    case MEM_MAP_SWAP_OUT:
+        ackIO();
+        break;
+    case MEM_MAP_SWAP_BACK:
+        ackIO();
+        break;
+#endif
 	case DAC_CSR:
 		if (ioCrtlRegVal == REGULAR_READ_CYCLE)            // regular read cycle
 		{
@@ -343,12 +351,12 @@ void HandleZ80IO(void)
 
 void ackIO(void)
 {
-	IO_Ctrl_Reg_Write(IO_Ctrl_Reg_Read() | CLR_IO_INT_BIT);
+	IO_Ctrl_Reg_Control = (IO_Ctrl_Reg_Read() | CLR_IO_INT_BIT);
 }
 
 void waitNextIORq(void)
 {
-	while ((IO_Stat_Reg_Read() & IOBUSY_BIT) == 0x00);
+	while ((IO_Stat_Reg_Status & IOBUSY_BIT) == 0x00);
 }
 
 

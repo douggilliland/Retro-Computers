@@ -799,7 +799,7 @@ labidx:	ld (DE),A		; store in label
 
 
 
-; READSYS - perform I/O for physical sytem track read
+; READSYS - perform I/O for physical system track read
 ;-------------------------------------------------------------
 readsys:
 	ld D,2

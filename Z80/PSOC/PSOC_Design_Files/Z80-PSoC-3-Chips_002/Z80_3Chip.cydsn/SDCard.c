@@ -186,6 +186,10 @@ void dumpBuffer(uint8 * dumpBuffer)
 
 void readSDCard(uint32 sectorNumber)
 {
+	char lineString[65];    // The whole line buffered up
+	lineString[0] = 0;
+    sprintf(lineString, "Sector: 0x%0lx\n\r",sectorNumber);
+    putStringToUSB(lineString);    
 	SD_ReadSector(sectorNumber, readSDBuffer);
 	dumpBuffer(readSDBuffer);
 	return;

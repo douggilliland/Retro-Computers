@@ -224,6 +224,10 @@
         #define PIOB_D              0x21    // decimal 33
         #define PIOB_C              0x23    // decimal 35
     #endif
+    #ifdef USING_MMU4
+        #define MEM_MAP_SWAP_OUT    0x38
+        #define MEM_MAP_SWAP_BACK   0x39
+    #endif
 #endif
 
 #endif

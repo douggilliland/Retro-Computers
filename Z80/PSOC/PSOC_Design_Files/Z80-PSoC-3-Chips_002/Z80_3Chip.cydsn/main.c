@@ -151,7 +151,7 @@ int main(void)
 					}
 				}
 			}
-			if ((IO_Stat_Reg_Read() & IOBUSY_BIT) == IOBUSY_BIT)
+			if ((IO_Stat_Reg_Status & IOBUSY_BIT) == IOBUSY_BIT)
 			{
 				HandleZ80IO();
 			}
@@ -184,26 +184,27 @@ int main(void)
     					while (0u == USBUART_CDCIsReady()); // Wait until component is ready to send data to host
     					if ((inBuffer[0] == 'r') || (inBuffer[0] == 'R'))
     					{
-    						putStringToUSB("Read from the SD Card\n\r");
-                            readSDCard(0x200000);
+    						putStringToUSB("Read from the SD Card at 0x4000\n\r");
+                            sectorNumber = 0x4000;
+                            readSDCard(sectorNumber);
     					}
-    					if (inBuffer[0] == '1')
+    					else if (inBuffer[0] == '1')
     					{
-                            sectorNumber = 0;
     						putStringToUSB("Read first sector from the SD Card\n\r");
+                            sectorNumber = 0x0;
                             readSDCard(sectorNumber);
     					}
     					else if ((inBuffer[0] == 'n') || (inBuffer[0] == 'N'))
     					{
     						putStringToUSB("Read next sector from the SD Card\n\r");
-                            readSDCard(sectorNumber);
                             sectorNumber++;
+                            readSDCard(sectorNumber);
                             
     					}
     					else if ((inBuffer[0] == 'w') || (inBuffer[0] == 'W'))
     					{
-    						putStringToUSB("Write to the SD Card\n\r");
-                            writeSDCard(0x200000);
+    						putStringToUSB("Write to the SD Card at 2GB - 1 sector\n\r");
+                            writeSDCard(0x1FFFFF);
     					}
     					else if ((inBuffer[0] == 'i') || (inBuffer[0] == 'I'))
     					{
@@ -222,10 +223,10 @@ int main(void)
     					else
     					{
     						putStringToUSB("\n\rLand Boards, LLC - Z80_PSoC monitor\n\r");
-    						putStringToUSB("1 - Read first sector of the SD Card\n\r");
-    						putStringToUSB("N - Read next sector of the SD Card\n\r");
-    						putStringToUSB("R - Read SD Card at 1GB Block\n\r");
-    						putStringToUSB("W - Write SD Card at 1GB Block\n\r");
+    						putStringToUSB("1 - Read first sector from the SD Card\n\r");
+    						putStringToUSB("N - Read next sector from the SD Card\n\r");
+    						putStringToUSB("R - Read from the SD Card at 0x4000\n\r");
+    						putStringToUSB("W - Write to the SD Card at 2GB - 1 sector\n\r");
     						putStringToUSB("I - Initialize SD Card\n\r");
                             putStringToUSB("F - Read Front Panel\n\r");
     						putStringToUSB("? - Print this menu\n\r");
