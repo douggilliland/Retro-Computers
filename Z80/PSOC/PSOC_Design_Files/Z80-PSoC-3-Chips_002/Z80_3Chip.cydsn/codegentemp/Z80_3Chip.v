@@ -1,6 +1,6 @@
 // ======================================================================
 // Z80_3Chip.v generated from TopDesign.cysch
-// 11/14/2019 at 08:02
+// 11/17/2019 at 09:46
 // This file is auto generated. ANY EDITS YOU MAKE MAY BE LOST WHEN THIS FILE IS REGENERATED!!!
 // ======================================================================
 
@@ -1403,7 +1403,6 @@ module top ;
           wire  Net_1156;
           wire  Net_1116;
           wire  Net_931;
-          wire  Net_915;
           wire  Net_890;
           wire  Net_889;
           wire  Net_888;
@@ -1540,7 +1539,6 @@ module top ;
           wire  Net_467;
           wire  Net_934;
           wire  Net_323;
-          wire  Net_318;
           wire  Net_774;
           wire  Net_780;
           wire  Net_793;
@@ -4116,7 +4114,7 @@ module top ;
 		#(.id("eb027e0e-f62e-40a0-9548-bc235094bdfc"),
 		  .drive_mode(3'b110),
 		  .ibuf_enabled(1'b1),
-		  .init_dr_st(1'b0),
+		  .init_dr_st(1'b1),
 		  .input_clk_en(0),
 		  .input_sync(1'b1),
 		  .input_sync_mode(1'b0),
@@ -4134,7 +4132,7 @@ module top ;
 		  .oe_sync(1'b0),
 		  .output_clk_en(0),
 		  .output_clock_mode(1'b0),
-		  .output_conn(1'b1),
+		  .output_conn(1'b0),
 		  .output_mode(1'b0),
 		  .output_reset(0),
 		  .output_sync(1'b0),
@@ -4167,7 +4165,7 @@ module top ;
 		  .input_buffer_sel(2'b00))
 		BUSRQ_n
 		 (.oe(tmpOE__BUSRQ_n_net),
-		  .y({Net_318}),
+		  .y({1'b0}),
 		  .fb({tmpFB_0__BUSRQ_n_net[0:0]}),
 		  .io({tmpIO_0__BUSRQ_n_net[0:0]}),
 		  .siovref(tmpSIOVREF__BUSRQ_n_net),
@@ -4180,8 +4178,6 @@ module top ;
 		  .out_reset({1'b0}));
 
 	assign tmpOE__BUSRQ_n_net = (`CYDEV_CHIP_MEMBER_USED == `CYDEV_CHIP_MEMBER_3A && `CYDEV_CHIP_REVISION_USED < `CYDEV_CHIP_REVISION_3A_ES3) ? ~{1'b1} : {1'b1};
-
-    assign Net_318 = 1'h1;
 
 	wire [0:0] tmpOE__NMI_n_net;
 	wire [0:0] tmpFB_0__NMI_n_net;
@@ -5483,6 +5479,7 @@ module top ;
     assign Net_485 = CLR_HALT | CPURES;
 
 	wire [0:0] tmpOE__BUSACK_n_net;
+	wire [0:0] tmpFB_0__BUSACK_n_net;
 	wire [0:0] tmpIO_0__BUSACK_n_net;
 	wire [0:0] tmpINTERRUPT_0__BUSACK_n_net;
 	electrical [0:0] tmpSIOVREF__BUSACK_n_net;
@@ -5543,7 +5540,7 @@ module top ;
 		BUSACK_n
 		 (.oe(tmpOE__BUSACK_n_net),
 		  .y({1'b0}),
-		  .fb({Net_915}),
+		  .fb({tmpFB_0__BUSACK_n_net[0:0]}),
 		  .io({tmpIO_0__BUSACK_n_net[0:0]}),
 		  .siovref(tmpSIOVREF__BUSACK_n_net),
 		  .interrupt({tmpINTERRUPT_0__BUSACK_n_net[0:0]}),

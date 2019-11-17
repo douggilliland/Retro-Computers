@@ -28,18 +28,12 @@
 #endif
 
 ////////////////////////////////////////////////////////////////////////////
-// main() - Setup and Loop code goes in here
+// initZ80PSOC() - Initialize the PSoC for Z80 operations
 
-int main(void)
+uint8 initZ80PSOC(void)
 {
-	uint16 USB_To_Z80_RxBytes_count = 0;    
-	uint8 inBuffer[USBUART_Buffer_SIZE];
-	uint8 uartReadBuffer[USBUART_uartBuffer_SIZE];
-    uint16 uartReadBufferOff = 0;
 	uint32 postVal;
 	uint8 Z80Running;
-	uint16 inCount;
-    uint32 sectorNumber = 0;
     
 #ifdef USING_FRONT_PANEL
     fpIntVal = 0;
@@ -67,10 +61,12 @@ int main(void)
         I2CINT_ISR_Start();                         // Start up I2C interface interrupts
         I2CINT_ISR_Disable();
 	#endif  
+    
 	#ifdef USING_FRONT_PANEL
         init_FrontPanel();
     #endif
-  	#ifdef USING_EXP_MCCP23017
+  	
+    #ifdef USING_EXP_MCCP23017
     	init_PIO();
 	#endif
     
@@ -78,8 +74,13 @@ int main(void)
 		SDInit();
 	#endif
     	
-    init_Z80_RTC();
-    init_DAC();
+    #ifdef USING_RTC
+        init_Z80_RTC();
+    #endif
+    
+    #ifdef USING_DAC
+        init_DAC();
+    #endif
     
 	// Do Power On Self Tests (POST)
 	// SRAM POST
@@ -107,7 +108,24 @@ int main(void)
 	#ifdef USING_6850_2
 		initM6850_2_StatusRegister();
 	#endif
+    
+    return(Z80Running);
+}
 
+////////////////////////////////////////////////////////////////////////////
+// main() - Setup and Loop code goes in here
+
+int main(void)
+{
+	uint16 USB_To_Z80_RxBytes_count = 0;    
+	uint8 inBuffer[USBUART_Buffer_SIZE];
+	uint8 uartReadBuffer[USBUART_uartBuffer_SIZE];
+    uint16 uartReadBufferOff = 0;
+	uint8 Z80Running;
+	uint16 inCount;
+    uint32 sectorNumber = 0;
+    
+    Z80Running = initZ80PSOC();
     // Code has two loops - one for when Z80 is running with PSoC as Z80 I/O handler - other as PSoC monitor with Z80 in reset
     if (Z80Running == 1)    // Z80 Running (RUN front panel switch pushed)
 	{

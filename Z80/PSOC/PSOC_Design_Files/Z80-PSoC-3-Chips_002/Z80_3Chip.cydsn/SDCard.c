@@ -14,6 +14,7 @@
 #include "stdio.h"
 #include <Z80_PSoC_3Chips.h>
 
+#ifdef USING_SDCARD
 uint16 readPointer;
 uint16 writePointer;
 
@@ -350,5 +351,5 @@ uint8 SD_WriteSector(uint32 sector, uint8 * buffPtr)
 	SDInit();
 	return (0);
 }
-
+#endif
 /* [] END OF FILE */
