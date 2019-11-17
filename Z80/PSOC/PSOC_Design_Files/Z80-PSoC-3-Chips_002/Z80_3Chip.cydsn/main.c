@@ -33,7 +33,7 @@
 uint8 initZ80PSOC(void)
 {
 	uint32 postVal;
-	uint8 Z80Running;
+	uint8 Z80Running = 0;
     
 #ifdef USING_FRONT_PANEL
     fpIntVal = 0;
@@ -45,6 +45,7 @@ uint8 initZ80PSOC(void)
 #endif
 	
 	USBUART_Start(USBFS_DEVICE, USBUART_5V_OPERATION);  // Start USBFS operation with 5-V operation.
+    clearReceiveBuffer();
 
     // Memory Map/MMU initialization
     #ifdef USING_MEM_MAP_1
@@ -60,16 +61,13 @@ uint8 initZ80PSOC(void)
     	I2CINT_n_SetDriveMode(I2CINT_n_DM_RES_UP);  // Pull-up the I2C interrupt line
         I2CINT_ISR_Start();                         // Start up I2C interface interrupts
         I2CINT_ISR_Disable();
+    	init_PIO();
 	#endif  
     
 	#ifdef USING_FRONT_PANEL
         init_FrontPanel();
     #endif
   	
-    #ifdef USING_EXP_MCCP23017
-    	init_PIO();
-	#endif
-    
 	#ifdef USING_SDCARD
 		SDInit();
 	#endif
@@ -82,6 +80,18 @@ uint8 initZ80PSOC(void)
         init_DAC();
     #endif
     
+    #ifdef USING_MMU4
+	    init_mem_map_4();       // Set up the address mapper - will be over-written by the BIOS
+    #endif
+    
+	#ifdef USING_6850
+		initM6850StatusRegister();
+	#endif
+	
+    #ifdef USING_6850_2
+		initM6850_2_StatusRegister();
+	#endif
+    
 	// Do Power On Self Tests (POST)
 	// SRAM POST
 	postVal = TestSRAM();       // Run External SRAM POST
@@ -89,7 +99,7 @@ uint8 initZ80PSOC(void)
 	if (postVal != 0)           // Halt on POST failure (could do something better here)
 		while(1);
         
-    // Load SRAM with BIOS and/or language image
+    // Load SRAM with BIOS and/or BASIC image
 	loadSRAM();
 	
 	// Front Panel Initialization
@@ -97,16 +107,6 @@ uint8 initZ80PSOC(void)
 		Z80Running = runFrontPanel();            // Exits either by pressing EXitFrontPanel or RUN button on front panel
  	#else
 		ExtSRAMCtl_Control = 0;     // Auto Run if there's no Front Panel
-	#endif
-    
-    #ifdef USING_MMU4
-	    init_mem_map_4();       // Set up the address mapper - will be over-written by the BIOS
-    #endif
-	#ifdef USING_6850
-		initM6850StatusRegister();
-	#endif
-	#ifdef USING_6850_2
-		initM6850_2_StatusRegister();
 	#endif
     
     return(Z80Running);
@@ -136,8 +136,7 @@ int main(void)
 				/* Initialize IN endpoints when device is configured. */
 				if (0u != USBUART_GetConfiguration())
 				{
-					/* Enumeration is done, enable OUT endpoint to receive data 
-					 * from host. */
+					/* Enumeration is done, enable OUT endpoint to receive data from host. */
 					USBUART_CDC_Init();
 				}
 			}
@@ -197,39 +196,40 @@ int main(void)
 				if (0u != USBUART_DataIsReady())        // Check for input data from host
 				{
     				inCount = USBUART_GetAll(inBuffer);     // Read received data and re-enable OUT endpoint
-    				if (0u != inCount)
+                    addToReceiveBuffer(inCount,inBuffer);
+    				if (gotCRorLF == 1)
     				{
     					while (0u == USBUART_CDCIsReady()); // Wait until component is ready to send data to host
-    					if ((inBuffer[0] == 'r') || (inBuffer[0] == 'R'))
+    					if ((receiveBuffer[0] == 'r') || (receiveBuffer[0] == 'R'))
     					{
     						putStringToUSB("Read from the SD Card at 0x4000\n\r");
                             sectorNumber = 0x4000;
                             readSDCard(sectorNumber);
     					}
-    					else if (inBuffer[0] == '1')
+    					else if (receiveBuffer[0] == '1')
     					{
     						putStringToUSB("Read first sector from the SD Card\n\r");
                             sectorNumber = 0x0;
                             readSDCard(sectorNumber);
     					}
-    					else if ((inBuffer[0] == 'n') || (inBuffer[0] == 'N'))
+    					else if ((receiveBuffer[0] == 'n') || (receiveBuffer[0] == 'N'))
     					{
     						putStringToUSB("Read next sector from the SD Card\n\r");
                             sectorNumber++;
                             readSDCard(sectorNumber);
                             
     					}
-    					else if ((inBuffer[0] == 'w') || (inBuffer[0] == 'W'))
+    					else if ((receiveBuffer[0] == 'w') || (receiveBuffer[0] == 'W'))
     					{
     						putStringToUSB("Write to the SD Card at 2GB - 1 sector\n\r");
                             writeSDCard(0x1FFFFF);
     					}
-    					else if ((inBuffer[0] == 'i') || (inBuffer[0] == 'I'))
+    					else if ((receiveBuffer[0] == 'i') || (receiveBuffer[0] == 'I'))
     					{
     						putStringToUSB("Initialize the SD Card\n\r");
                             SDInit();
     					}
-    					else if ((inBuffer[0] == 'f') || (inBuffer[0] == 'F'))
+    					else if ((receiveBuffer[0] == 'f') || (receiveBuffer[0] == 'F'))
     					{
                             char lineString[16];
     						putStringToUSB("Front Panel Value - ");
@@ -249,6 +249,7 @@ int main(void)
                             putStringToUSB("F - Read Front Panel\n\r");
     						putStringToUSB("? - Print this menu\n\r");
     					}
+                        clearReceiveBuffer();
     					/* If the last sent packet is exactly the maximum packet size, it is followed by a 
                         zero-length packet to assure that the end of the segment is properly identified by 
     					*  the terminal. */

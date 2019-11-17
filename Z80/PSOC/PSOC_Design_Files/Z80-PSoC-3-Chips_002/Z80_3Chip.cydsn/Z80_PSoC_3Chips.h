@@ -29,6 +29,8 @@
 // All images have the same variable name
 
 extern const unsigned char Z80_eeprom[];
+extern uint8 receiveBuffer[80];
+extern uint8 gotCRorLF;
 
 ////////////////////////////////////////////////////////////////////////////
 // externs for the Front Panel
@@ -48,5 +50,7 @@ extern uint8 pioBIntVals;
 void PostLed(uint32);
 void putStringToUSB(char *);
 void I2CIntISR(void);
+void clearReceiveBuffer(void);
+void addToReceiveBuffer(uint16 inCount, uint8 * inBuffer);
 
 /* [] END OF FILE */

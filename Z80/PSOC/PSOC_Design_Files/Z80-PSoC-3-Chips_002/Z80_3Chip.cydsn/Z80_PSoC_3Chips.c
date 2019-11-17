@@ -17,6 +17,10 @@
 #include "stdio.h"
 #include <Z80_PSoC_3Chips.h>
 
+uint8 receiveBuffer[80];
+uint8 receiveBufferPtr;
+uint8 gotCRorLF;
+
 ////////////////////////////////////////////////////////////////////////////
 // PostLed(postVal) - Blink the LED the number of times (postVal)
 
@@ -31,6 +35,38 @@ void PostLed(uint32 postVal)
 		CyDelay(250);
 		blinkCount--;   // loop as many times as the POST code
 	}
+}
+
+////////////////////////////////////////////////////////////////////////////
+// 
+
+void clearReceiveBuffer(void)
+{
+    receiveBufferPtr = 0;
+    gotCRorLF = 0;
+}
+
+////////////////////////////////////////////////////////////////////////////
+// 
+
+void addToReceiveBuffer(uint16 inCount, uint8 * inBuffer)
+{
+    uint8 echoString[80];
+    echoString[0] = 0;
+    for (uint8 receiveCt = 0; receiveCt < inCount; receiveCt++)
+    {
+        receiveBuffer[receiveBufferPtr] = inBuffer[receiveCt];
+        echoString[receiveCt] = inBuffer[receiveCt];
+        if ((receiveBuffer[receiveBufferPtr] == 0x0a) || (receiveBuffer[receiveBufferPtr] == 0x0d))
+            gotCRorLF = 1;
+        receiveBufferPtr++;
+    }
+    echoString[inCount] = 0;
+    putStringToUSB((char *)echoString);
+    if (gotCRorLF == 1)
+    {
+        putStringToUSB("\n\r");
+    }
 }
 
 ////////////////////////////////////////////////////////////////////////////
