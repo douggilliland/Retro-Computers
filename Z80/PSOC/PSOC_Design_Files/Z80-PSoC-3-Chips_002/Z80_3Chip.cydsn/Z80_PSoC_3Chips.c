@@ -20,6 +20,7 @@
 uint8 receiveBuffer[80];
 uint8 receiveBufferPtr;
 uint8 gotCRorLF;
+uint32 sectorNumber;
 
 ////////////////////////////////////////////////////////////////////////////
 // PostLed(postVal) - Blink the LED the number of times (postVal)
@@ -38,16 +39,109 @@ void PostLed(uint32 postVal)
 }
 
 ////////////////////////////////////////////////////////////////////////////
-// 
+// void printMenu(void)
+
+void printMenuScreen(void)
+{
+    putStringToUSB("\n\rLand Boards, LLC - Z80_PSoC monitor\n\r");
+	putStringToUSB("I - Initialize SD Card\n\r");
+	putStringToUSB("B - Blink LED\n\r");
+    putStringToUSB("F - Read Front Panel\n\r");
+	putStringToUSB("Rxxxxxxxx - Read sector xxxxxxxx from the SD Card\n\r");
+	putStringToUSB("N - Read next sector from the SD Card\n\r");
+	putStringToUSB("W - Write to the SD Card at 2GB - 1 sector\n\r");
+	putStringToUSB("? - Print this menu\n\r");
+}
+
+////////////////////////////////////////////////////////////////////////////
+// asciiNibbleToVal(uint8)
+
+uint32 asciiNibbleToVal(uint8 charVal)
+{
+    if ((charVal >= '0') && (charVal <= '9'))
+        return (charVal-'0');
+    else if ((charVal >= 'A') && (charVal <= 'F'))
+        return (charVal-'A'+10);
+    else if ((charVal >= 'a') && (charVal <= 'f'))
+        return (charVal-'a'+10);
+    return(0);
+}
+
+////////////////////////////////////////////////////////////////////////////
+// uint32 extractLong(uint8 *)
+
+uint32 extractLong(uint8 * commandString)
+{
+    uint8 linePtr = 1;
+    uint32 rVal = 0;
+    while ((commandString[linePtr] != 0) && (linePtr < 32) && (commandString[linePtr] != '\n') && (commandString[linePtr] != '\r'))
+    {
+        rVal <<= 4;
+        rVal |= asciiNibbleToVal(commandString[linePtr]);
+        linePtr++;
+    }
+    return (rVal);
+}
+
+////////////////////////////////////////////////////////////////////////////
+// void psocMenu(void)
+
+void psocMenu(void)
+{
+	while (0u == USBUART_CDCIsReady()); // Wait until component is ready to send data to host
+	if ((receiveBuffer[0] == 'r') || (receiveBuffer[0] == 'R'))
+	{
+		putStringToUSB("Read from the SD Card\n\r");
+        sectorNumber = extractLong(receiveBuffer);
+        readSDCard(sectorNumber);
+	}
+	else if ((receiveBuffer[0] == 'n') || (receiveBuffer[0] == 'N'))
+	{
+		putStringToUSB("Read next sector from the SD Card\n\r");
+        sectorNumber++;
+        readSDCard(sectorNumber);
+	}
+	else if ((receiveBuffer[0] == 'b') || (receiveBuffer[0] == 'B'))
+	{
+		putStringToUSB("Blink LED\n\r");
+        PostLed(1);
+	}
+	else if ((receiveBuffer[0] == 'w') || (receiveBuffer[0] == 'W'))
+	{
+		putStringToUSB("Write to the SD Card at 2GB - 1 sector\n\r");
+        writeSDCard(0x1FFFFF);
+	}
+	else if ((receiveBuffer[0] == 'i') || (receiveBuffer[0] == 'I'))
+	{
+		putStringToUSB("Initialize the SD Card\n\r");
+        SDInit();
+	}
+	else if ((receiveBuffer[0] == 'f') || (receiveBuffer[0] == 'F'))
+	{
+        char lineString[16];
+		putStringToUSB("Front Panel Value - ");
+  		sprintf(lineString,"0x%08lx",fpIntVal);
+        putStringToUSB(lineString);
+        putStringToUSB("\n\r");
+	}
+	else
+	{
+        printMenuScreen();
+	}
+    clearReceiveBuffer();
+}
+////////////////////////////////////////////////////////////////////////////
+// void clearReceiveBuffer(void)
 
 void clearReceiveBuffer(void)
 {
     receiveBufferPtr = 0;
+    receiveBuffer[0] = 0;
     gotCRorLF = 0;
 }
 
 ////////////////////////////////////////////////////////////////////////////
-// 
+// void addToReceiveBuffer(uint16, uint8 *)
 
 void addToReceiveBuffer(uint16 inCount, uint8 * inBuffer)
 {
@@ -55,17 +149,31 @@ void addToReceiveBuffer(uint16 inCount, uint8 * inBuffer)
     echoString[0] = 0;
     for (uint8 receiveCt = 0; receiveCt < inCount; receiveCt++)
     {
-        receiveBuffer[receiveBufferPtr] = inBuffer[receiveCt];
-        echoString[receiveCt] = inBuffer[receiveCt];
-        if ((receiveBuffer[receiveBufferPtr] == 0x0a) || (receiveBuffer[receiveBufferPtr] == 0x0d))
+        // First check if the character is an end of line
+        if ((inBuffer[receiveCt] == 0x0a) || (inBuffer[receiveCt] == 0x0d))
+        {
             gotCRorLF = 1;
-        receiveBufferPtr++;
-    }
-    echoString[inCount] = 0;
-    putStringToUSB((char *)echoString);
-    if (gotCRorLF == 1)
-    {
-        putStringToUSB("\n\r");
+            putStringToUSB("\n\r");
+        }
+        // check if the character is not a RUBOUT and if the line length is OK
+        else if ((inBuffer[receiveCt] != 0x7f) && (receiveCt < 80))
+        {
+            receiveBuffer[receiveBufferPtr] = inBuffer[receiveCt];
+            receiveBufferPtr++;
+            echoString[inCount] = 0;
+            echoString[receiveCt] = inBuffer[receiveCt];
+            putStringToUSB((char *)echoString);
+        }
+        // If the character is rubout and not the 0th character
+        else if ((receiveBufferPtr > 0) && (inBuffer[receiveCt] == 0x7f))
+        {
+            receiveBufferPtr--;
+            echoString[0] = 0x08;       // Backspace
+            echoString[1] = 0x20;       // Space
+            echoString[2] = 0x08;       // Backspace
+            echoString[3] = 0;
+            putStringToUSB((char *)echoString);
+        }
     }
 }
 

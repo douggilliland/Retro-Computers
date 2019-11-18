@@ -123,7 +123,7 @@ int main(void)
     uint16 uartReadBufferOff = 0;
 	uint8 Z80Running;
 	uint16 inCount;
-    uint32 sectorNumber = 0;
+    uint8 printMenu = 1;
     
     Z80Running = initZ80PSOC();
     // Code has two loops - one for when Z80 is running with PSoC as Z80 I/O handler - other as PSoC monitor with Z80 in reset
@@ -193,72 +193,27 @@ int main(void)
 			
 			if (0u != USBUART_GetConfiguration())       // Service USB CDC when device is configured
 			{
+                if (printMenu == 1)
+                {
+                    printMenuScreen();
+                    printMenu = 0;
+                }
 				if (0u != USBUART_DataIsReady())        // Check for input data from host
 				{
     				inCount = USBUART_GetAll(inBuffer);     // Read received data and re-enable OUT endpoint
                     addToReceiveBuffer(inCount,inBuffer);
     				if (gotCRorLF == 1)
     				{
-    					while (0u == USBUART_CDCIsReady()); // Wait until component is ready to send data to host
-    					if ((receiveBuffer[0] == 'r') || (receiveBuffer[0] == 'R'))
-    					{
-    						putStringToUSB("Read from the SD Card at 0x4000\n\r");
-                            sectorNumber = 0x4000;
-                            readSDCard(sectorNumber);
-    					}
-    					else if (receiveBuffer[0] == '1')
-    					{
-    						putStringToUSB("Read first sector from the SD Card\n\r");
-                            sectorNumber = 0x0;
-                            readSDCard(sectorNumber);
-    					}
-    					else if ((receiveBuffer[0] == 'n') || (receiveBuffer[0] == 'N'))
-    					{
-    						putStringToUSB("Read next sector from the SD Card\n\r");
-                            sectorNumber++;
-                            readSDCard(sectorNumber);
-                            
-    					}
-    					else if ((receiveBuffer[0] == 'w') || (receiveBuffer[0] == 'W'))
-    					{
-    						putStringToUSB("Write to the SD Card at 2GB - 1 sector\n\r");
-                            writeSDCard(0x1FFFFF);
-    					}
-    					else if ((receiveBuffer[0] == 'i') || (receiveBuffer[0] == 'I'))
-    					{
-    						putStringToUSB("Initialize the SD Card\n\r");
-                            SDInit();
-    					}
-    					else if ((receiveBuffer[0] == 'f') || (receiveBuffer[0] == 'F'))
-    					{
-                            char lineString[16];
-    						putStringToUSB("Front Panel Value - ");
-                      		sprintf(lineString,"0x%08lx",fpIntVal);
-                            putStringToUSB(lineString);
-                            putStringToUSB("\n\r");
-                            SDInit();
-    					}
-    					else
-    					{
-    						putStringToUSB("\n\rLand Boards, LLC - Z80_PSoC monitor\n\r");
-    						putStringToUSB("1 - Read first sector from the SD Card\n\r");
-    						putStringToUSB("N - Read next sector from the SD Card\n\r");
-    						putStringToUSB("R - Read from the SD Card at 0x4000\n\r");
-    						putStringToUSB("W - Write to the SD Card at 2GB - 1 sector\n\r");
-    						putStringToUSB("I - Initialize SD Card\n\r");
-                            putStringToUSB("F - Read Front Panel\n\r");
-    						putStringToUSB("? - Print this menu\n\r");
-    					}
-                        clearReceiveBuffer();
-    					/* If the last sent packet is exactly the maximum packet size, it is followed by a 
-                        zero-length packet to assure that the end of the segment is properly identified by 
-    					*  the terminal. */
-    					if (USBUART_Buffer_SIZE == inCount)
-    					{
-    						while (0u == USBUART_CDCIsReady()); // Wait until component is ready to send data to PC						
-    						USBUART_PutData(NULL, 0u);          // Send zero-length packet to PC
-    					}
+                        psocMenu();
     				}
+					/* If the last sent packet is exactly the maximum packet size, it is followed by a 
+                    zero-length packet to assure that the end of the segment is properly identified by 
+					*  the terminal. */
+					if (USBUART_Buffer_SIZE == inCount)
+					{
+						while (0u == USBUART_CDCIsReady()); // Wait until component is ready to send data to PC						
+						USBUART_PutData(NULL, 0u);          // Send zero-length packet to PC
+					}
     			}
 			}
             // Window for the I2C Interrupt
