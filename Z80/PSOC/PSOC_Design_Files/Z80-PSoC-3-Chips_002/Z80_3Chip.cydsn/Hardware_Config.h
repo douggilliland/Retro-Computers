@@ -30,12 +30,15 @@
 #undef GRANT_9_CHIP_Z80
 //#define GRANT_9_CHIP_Z80
 
-//#undef GRANT_7_CHIP_Z80
-#define GRANT_7_CHIP_Z80
+#undef GRANT_7_CHIP_Z80
+//#define GRANT_7_CHIP_Z80
     
-#undef GRANT_FPGA_CPM
-//#define GRANT_FPGA_CPM
+//#undef GRANT_7_CHIP_Z80_STANDALONE
+#define GRANT_7_CHIP_Z80_STANDALONE
 
+//#undef GRANT_FPGA_CPM
+//#define GRANT_FPGA_CPM
+    
 //#undef MULTIBOOT_CPM
 //#define MULTIBOOT_CPM
 
@@ -120,6 +123,34 @@
 // https://searle.x10host.com/z80/SimpleZ80.html
 
 #ifdef GRANT_7_CHIP_Z80
+    #define MONITOR_START       0x00000000      // EEPROM loads to address 0
+    #define MONITOR_LENGTH      0x00002000      // 8K build
+    // I/O Space Address Map follow
+    #define USING_FRONT_PANEL
+    #define USING_EXP_MCCP23017
+    #define USING_MCP23017
+    #define USING_6850
+    #define M6850_C              0x80       // Control/Status register
+    #define M6850_D              0x81       // Data
+    #ifdef USING_FRONT_PANEL
+        #define FR_PNL_IO_LO        0x18    // decimal 24
+        #define FR_PNL_IO_LO_MID    0x19    // decimal 25
+        #define FR_PNL_IO_HI_MID    0x1A    // decimal 26
+        #define FR_PNL_IO_HI        0x1B    // decimal 27
+    #endif
+    #ifdef USING_EXP_MCCP23017
+        #define PIOA_D              0x20    // decimal 32
+        #define PIOA_C              0x22    // decimal 34
+        #define PIOB_D              0x21    // decimal 33
+        #define PIOB_C              0x23    // decimal 35
+    #endif
+#endif
+
+////////////////////////////////////////////////////////////////////////////
+// defines for building Grant Searle's 7-chip Z80 design
+// https://searle.x10host.com/z80/SimpleZ80.html
+
+#ifdef GRANT_7_CHIP_Z80_STANDALONE
     #define MONITOR_START       0x00000000      // EEPROM loads to address 0
     #define MONITOR_LENGTH      0x00002000      // 8K build
     // I/O Space Address Map follow

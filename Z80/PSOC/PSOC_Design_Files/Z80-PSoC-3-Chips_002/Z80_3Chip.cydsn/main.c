@@ -106,6 +106,7 @@ uint8 initZ80PSOC(void)
     #ifdef USING_FRONT_PANEL
 		Z80Running = runFrontPanel();            // Exits either by pressing EXitFrontPanel or RUN button on front panel
  	#else
+        Z80Running = 1;
 		ExtSRAMCtl_Control = 0;     // Auto Run if there's no Front Panel
 	#endif
     

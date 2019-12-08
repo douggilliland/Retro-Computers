@@ -197,7 +197,9 @@ void putStringToUSB(char * stringToPutOutUSB)
 
 void I2CIntISR(void)
 {
+	#ifdef USING_FRONT_PANEL
     uint32 lFPVal;
+	#endif
     uint8 bPortA;
     uint8 bPortB;
     I2CINT_ISR_Disable();       // Cause an implicit delay between interrupts

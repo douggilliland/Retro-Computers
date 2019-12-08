@@ -19,8 +19,17 @@
 #include <project.h>
 #include <Z80_PSoC_3Chips.h>
 
-#ifdef GRANT_7_CHIP_Z80
+#undef INCTHISONE
 
+#ifdef GRANT_7_CHIP_Z80
+    #define INCTHISONE
+#endif
+
+#ifdef GRANT_7_CHIP_Z80_STANDALONE
+    #define INCTHISONE
+#endif
+
+#ifdef INCTHISONE
 const unsigned char Z80_eeprom[] =
 {
 	0xF3, 0xC3, 0xB8, 0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0xC3, 0x9F, 0x00, 0xFF,
