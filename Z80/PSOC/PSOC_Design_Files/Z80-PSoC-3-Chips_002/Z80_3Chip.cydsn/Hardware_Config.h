@@ -30,14 +30,14 @@
 #undef GRANT_9_CHIP_Z80
 //#define GRANT_9_CHIP_Z80
 
-#undef GRANT_7_CHIP_Z80
-//#define GRANT_7_CHIP_Z80
+//#undef GRANT_7_CHIP_Z80
+#define GRANT_7_CHIP_Z80
     
 #undef GRANT_FPGA_CPM
 //#define GRANT_FPGA_CPM
 
 //#undef MULTIBOOT_CPM
-#define MULTIBOOT_CPM
+//#define MULTIBOOT_CPM
 
 ////////////////////////////////////////////////////////////////////////////
 // These are the design specific Z80 peripherals
@@ -117,13 +117,13 @@
 
 ////////////////////////////////////////////////////////////////////////////
 // defines for building Grant Searle's 7-chip Z80 design
-// http://zx80.netai.net/grant/z80/SimpleZ80.htm
+// https://searle.x10host.com/z80/SimpleZ80.html
 
 #ifdef GRANT_7_CHIP_Z80
     #define MONITOR_START       0x00000000      // EEPROM loads to address 0
     #define MONITOR_LENGTH      0x00002000      // 8K build
     // I/O Space Address Map follow
-    #define USING_FRONT_PANEL
+//    #define USING_FRONT_PANEL
     #define USING_EXP_MCCP23017
     #define USING_MCP23017
     #define USING_6850

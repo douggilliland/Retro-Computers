@@ -23,6 +23,7 @@
 #include "Z80_SIO_emul.h"
 #include "Z80_RTC.h"
 #include "Z80_DAC.h"
+#include "MCP23017.h"
 
 ////////////////////////////////////////////////////////////////////////////
 // externs for the EPROM image - Only 1 image is actually used

@@ -116,6 +116,7 @@ void psocMenu(void)
 		putStringToUSB("Initialize the SD Card\n\r");
         SDInit();
 	}
+#ifdef USING_FRONT_PANEL
 	else if ((receiveBuffer[0] == 'f') || (receiveBuffer[0] == 'F'))
 	{
         char lineString[16];
@@ -124,6 +125,7 @@ void psocMenu(void)
         putStringToUSB(lineString);
         putStringToUSB("\n\r");
 	}
+#endif
 	else
 	{
         printMenuScreen();
