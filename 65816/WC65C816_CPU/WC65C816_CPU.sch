@@ -1,6 +1,5 @@
 EESchema Schematic File Version 4
-LIBS:WC65C816_CPU-cache
-EELAYER 26 0
+EELAYER 30 0
 EELAYER END
 $Descr B 17000 11000
 encoding utf-8
@@ -217,11 +216,11 @@ Text Label 9400 5550 0    50   ~ 0
 CPUA7
 Wire Wire Line
 	9300 6950 9900 6950
-Text Label 12600 6750 0    50   ~ 0
+Text Label 9400 5150 0    50   ~ 0
 CPUA8
 Wire Wire Line
 	9300 7050 9900 7050
-Text Label 12600 6650 0    50   ~ 0
+Text Label 9400 5250 0    50   ~ 0
 CPUA9
 Wire Wire Line
 	9300 7150 9900 7150
@@ -414,7 +413,7 @@ Text Label 9400 6050 0    50   ~ 0
 E
 Text Label 9400 6150 0    50   ~ 0
 MX
-Text Label 9400 5250 0    50   ~ 0
+Text Label 12600 6750 0    50   ~ 0
 R/~W
 Text Label 9400 6250 0    50   ~ 0
 VDA
@@ -1877,7 +1876,7 @@ Text Label 5000 3050 0    50   ~ 0
 BE
 Wire Wire Line
 	9300 5150 9900 5150
-Text Label 9400 5150 0    50   ~ 0
+Text Label 12600 6650 0    50   ~ 0
 BE
 $Comp
 L WC65C816_CPU-rescue:IS62WV10248EBLL-45TLI-LandBoards_Semis U2
