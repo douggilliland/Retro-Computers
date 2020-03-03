@@ -1,0 +1,373 @@
+O  0000   01 01 01              NAM    MIKBUG
+                        *      REV 009
+                        *      COPYRIGHT 1974 BY MOTOROLA INC
+                        *
+                        *      MIKBUG (TM)
+                        *
+                        *      L  LOAD
+                        *      G  GO TO TARGET PROGRAM
+                        *      M  MEMORY CHANGE
+                        *      F  PRINTIPUNCH DUMP
+                        *      R  DISPLAY CONTENTS OF TARGET STACK
+                        *            CC   B   A   X   P   S
+   8007                 PIASB   EQU    $8007
+S  0000                 PIADB   EQU    $8006     B DATA
+U  0000                 PIAS    EQU    $8005     PIA STATUS
+U  0000                 PIAD    EQU    $8004     PIA DATA
+                        *       OPT    MEMORY
+   e000                         ORG    $E000
+                        
+                        *     I/O INTERRUPT SEQUENCE
+   e000   fe a0 00      IO      LDX    IOV
+   e003   6e 00                 JMP    X
+                        
+                        * NMI SEQUENCE
+U  e005   fe 00 00      POWDWN  LDX    NIO       GET NMI VECTOR
+   e008   6e 00                 JMP    X
+                        
+   e00a                 LOAD    EQU    *
+   e00a   86 3c                 LDA A  #$3C
+U  e00c   b7 00 00              STA A  PIASB     READER RELAY ON
+   e00f   86 11                 LDA A  #@21
+U  e011   01 01                 BSR    OUTCH     OUTPUT CHAR
+                        
+   e013   8d 65         LOAD3   BSR    INCH
+"  e015   81 00                 CMP A  #'S
+D  e017   01 01                 BNE    LOAD3     1ST CHAR NOT (S)
+U  e019   01 01                 BSR    INCH      READ CHAR
+"  e01b   81 00                 CMP A  #'9
+   e01d   27 25                 BEQ    LOAD21
+"  e01f   81 00                 CMP A  #'1
+D  e021   01 01                 BNE    LOAD3     2ND CHAR NOT (1)
+U  e023   7f 00 00              CLR    CKSM      ZERO CHECKSUM
+U  e026   01 01                 BSR    BYTE      READ BYTE
+   e028   80 02                 SUB A  #2
+E  e02a   b7 00 00              STA A  BYTECT    BYTE COUNT
+                        * BUILD ADDRESS
+   e02d   8d 18                 BSR    BADDR
+                        * STORE DATA
+   e02f   8d 24         LOAD11  BSR    BYTE
+                        
+   e031   7a a0 00              DEC    BYTECT
+U  e034   01 01                 BEQ    LOAD15    ZERO BYTE COUNT
+U  e036   a7 00                 STA A  X         STORE DATA
+   e038   08                    INX
+   e039   20 f4                 BRA    LOAD11
+                        
+   e03b   7c a0 00      LOAD15  INC    CKSM
+   e03e   27 d3                 BEQ    LOAD3
+"  e040   86 00         LOAD19  LDA A  #'?       PRINT QUESTION MARK
+   e042   8d 33                 BSR    OUTCH
+   e044                 LOAD21  EQU    *
+   e044   7e e0 e7      C1      JMP    CONTRL
+                        
+                        * BUILD ADDRESS
+U  e047   01 01         BADDR   BSR    BYTE      READ 2 FRAMES
+   e049   b7 a0 00              STA A  XHI
+   e04c   8d 07                 BSR    BYTE
+   e04e   b7 a0 00              STA A  XLOW
+E  e051   fe 00 00              LDX    XHI       (X) ADDRESS WE BUILT
+   e054   39                    RTS
+                        
+                        *INPUT BYTE (TWO FRAMES)
+U  e055   01 01         BYTE    BSR    INHEX     GET HEX CHAR
+   e057   48                    ASL A
+   e058   48                    ASL A
+   e059   48                    ASL A
+   e05a   48                    ASL A
+   e05b   16                    TAB
+   e05c   8d 50                 BSR    INHEX
+   e05e   1b                    ABA
+   e05f   16                    TAB
+   e060   fb a0 00              ADD B  CKSM
+   e063   f7 a0 00              STA B  CKSM
+   e066   39                    RTS
+                        
+U  e067   01 01 01      OUTHL   LSR A            OUT HEX LEFT BCD DIGIT
+   e06a   44                    LSR A
+   e06b   44                    LSR A
+   e06c   44                    LSR A
+                        
+U  e06d   84 00         OUTHR   AND A  #$F       OUT HEX RIGHT BCD DIGIT
+   e06f   8b 30                 ADD A  #$30
+   e071   81 39                 CMP A  #$39
+   e073   23 02                 BLS    OUTCH
+   e075   8b 07                 ADD A  #$7
+                        
+                        * OUTPUT ONE CHAR
+   e077   7e e1 e1      OUTCH   JMP    OUTEEE
+   e07a   7e e1 b4      INCH    JMP    INEEE
+                        
+                        * PRINT DATA POINTED AT BY X-REG
+   e07d   8d f8         PDATA2  BSR    OUTCH
+   e07f   08                    INX
+   e080   a6 00         PDATA1  LDA A  X
+   e082   81 04                 CMP A  #4
+   e084   26 f7                 BNE    PDATA2
+U  e086   01 01 01              RTS              STOP ON EOT
+                        
+                        * CHANGE MENORY (M AAAA DD NN)
+U  e089   01 01         CHANGE  BSR    BADDR     BUILD ADDRESS
+   e08b   ce e1 a6      CHA51   LDX    #MCL
+U  e08e   01 01                 BSR    PDATA1    C/R L/F
+   e090   ce a0 00              LDX    #XHI
+E  e093   01 01                 BSR    OUT4HS    PRINT ADDRESS
+   e095   fe a0 00              LDX    XHI
+E  e098   01 01                 BSR    OUT2HS    PRINT DATA (OLD)
+U  e09a   ff 00 00              STX    XHI       SAYE DATA ADDRESS
+U  e09d   01 01                 BSR    INCH      INPUT ONE CHAR
+   e09f   81 20                 CMP A  #$20
+E  e0a1   01 01                 BNE    CHA51     NOT SPACE
+U  e0a3   01 01                 BSR    BYTE      INPUT NEW DATA
+   e0a5   09                    DEX
+U  e0a6   a7 00                 STA A  X         CHANGE MEMORY
+   e0a8   a1 00                 CMP A  X
+U  e0aa   01 01                 BEQ    CHA51     DID CHANGE
+E  e0ac   01 01                 BRA    LOAD19    NOT CHANGED
+                        
+                        * INPUT HEX CHAR
+   e0ae   8d ca         INHEX   BSR    INCH
+   e0b0   80 30                 SUB A  #$30
+E  e0b2   01 01                 BMI    C1        NOT HEX
+   e0b4   81 09                 CMP A  #$09
+   e0b6   2f 0a                 BLE    IN1HG
+   e0b8   81 11                 CMP A  #$11
+E  e0ba   01 01                 BMI    C1        NOT HEX
+   e0bc   81 16                 CMP A  #$16
+E  e0be   01 01                 BGT    C1        NOT HEX
+   e0c0   80 07                 SUB A  #7
+   e0c2   39            IN1HG   RTS
+                        
+U  e0c3   a6 00         OUT2H   LDA A  0,X       OUTPUT 2 HEX CHAR
+U  e0c5   01 01         OUT2HA  BSR    OUTHL     OUT LEFT HEX CHAR
+   e0c7   a6 00                 LDA A  0,X
+   e0c9   08                    INX
+U  e0ca   01 01                 BRA    OUTHR     OUTPUT RIGHT HEX CHAR AND R
+                        
+U  e0cc   01 01         OUT4HS  BSR    OUT2H     OUTPUT 4 HEX CHAR + SPACE
+U  e0ce   01 01         OUT2HS  BSR    OUT2H     OUTPUT 2 HEX CHAR + SPACE
+                        
+U  e0d0   86 00         OUTS    LDA A  #$20      SPACE
+E  e0d2   01 01                 BRA    OUTCH     (BSR & RTS)
+                        
+                        * ENTER POWER  ON SEQUENCE
+   e0d4                 START   EQU    *
+   e0d4   8e a0 2e              LDS    #STACK
+U  e0d7   bf 00 00              STS    SP        INZ TARGET'S STACK PNTR
+                        * INZ PIA
+E  e0da   ce 00 00              LDX    #PIAD     (X) POINTER TO DEVICE PIA
+U  e0dd   6c 00                 INC    0,X       SET DATA DIR PIAD
+   e0df   86 07                 LDA A  #$7
+U  e0e1   a7 00                 STA A  1,X       INIT CON PIAS
+U  e0e3   6c 00                 INC    0,X       MARK COM LINE
+U  e0e5   a7 00                 STA A  2,X       SET DATA DIR PIADB
+   e0e7   86 34         CONTRL  LDA A  #$34
+U  e0e9   b7 00 00              STA A  PIASB     SET CONTROL PIASB TURN READ
+U  e0ec   b7 00 00              STA A  PIADB     SET TIMER INTERVAL
+U  e0ef   8e 00 00              LDS    #STACK    SET CONTRL STACK POINTER
+   e0f2   ce e1 a5              LDX    #MCLOFF
+                        
+E  e0f5   01 01                 BSR    PDATA1    PRINT DATA STRING
+                        
+U  e0f7   01 01                 BSR    INCH      READ CHARACTER
+   e0f9   16                    TAB
+E  e0fa   01 01                 BSR    OUTS      PRINT SPACE
+"  e0fc   c1 00                 CMP B  #'L
+   e0fe   26 03                 BNE    *+5
+   e100   7e e0 0a              JMP    LOAD
+"  e103   c1 00                 CMP B  #'M
+   e105   27 82                 BEQ    CHANGE
+"  e107   c1 00                 CMP B  #'R
+E  e109   01 01                 BEQ    PRINT     STACK
+"  e10b   c1 00                 CMP B  #'P
+E  e10d   01 01                 BEQ    PUNCH     PRINT/PUNCH
+"  e10f   c1 00                 CMP B  #'G
+   e111   26 d4                 BNE    CONTRL
+U  e113   be 00 00              LDS    SP        RESTORE PGM'S STACK PTR
+U  e116   01 01 01              RTI              GO
+                        
+                        * ENTER FROM SOFTVARE INTERRUPT
+   e119                 SFE     EQU    *
+U  e119   bf 00 00              STS    SP        SAVE TARGET'S STACK POINTER
+                        * DECREMENT P-COUNTER
+   e11c   30                    TSX
+   e11d   6d 06                 TST    6,X
+   e11f   26 02                 BNE    *+4
+   e121   6a 05                 DEC    5,X
+   e123   6a 06                 DEC    6,X
+                        
+                        * PRINT CONTENTS OF STACK
+   e125   fe a0 00      PRINT   LDX    SP
+   e128   08                    INX
+U  e129   01 01                 BSR    OUT2HS    CONDITION CODES
+U  e12b   01 01                 BSR    OUT2HS    ACC-B
+U  e12d   01 01                 BSR    OUT2HS    ACC-A
+S  e12f   01 01                 BSR    OUT4HS    X-REG
+U  e131   01 01                 BSR    OUT4HS    P-COUNTER
+   e133   ce a0 00              LDX    #SP
+E  e136   01 01                 BSR    OUT4HS    STACK POINTER
+   e138   20 ad         C2      BRA    CONTRL
+                        
+                        * PUNCH DUMP
+                        * PUNCH FROM BEGINING ADDRESS (BEGA) THRU ENDI
+                        * ADDRESS (ENDA)
+                        *
+E  e13a   0d 0a 00 00   MTAPE1  FCB    $D,$A,0,0,0,0,'S,'1,4 PUNCH FORMAT
+E  e13e   00 00 00 00   
+                        
+                        
+   e142                 PUNCH   EQU    *
+                        
+U  e142   86 00                 LDA A  #$12      TURN TTY PUNCH ON
+U  e144   bd 00 00              JSR    OUTCH     OUT CHAR  
+                        
+   e147   fe a0 00              LDX    BEGA
+E  e14a   ff 00 00              STX    TW        TEMP BEGINING ADDRESS
+   e14d   b6 a0 01      PUN11   LDA A  ENDA+1
+   e150   b0 a0 01              SUB A  TW+1
+   e153   f6 a0 00              LDA B  ENDA
+   e156   f2 a0 00              SBC B  TW
+   e159   26 04                 BNE    PUN22
+   e15b   81 10                 CMP A  #16
+   e15d   25 02                 BCS    PUN23
+   e15f   86 0f         PUN22   LDA A  #15
+   e161   8b 04         PUN23   ADD A  #4
+U  e163   b7 00 00              STA A  MCONT     FRAME COUNT THIS RECORD
+   e166   80 03                 SUB A  #3
+E  e168   b7 00 00              STA A  TEMP      BYTE COUNT THIS RECORD
+                        * PUNCH C/R,L/F,NULL,S,1
+   e16b   ce e1 3a              LDX    #MTAPE1
+   e16e   bd e0 80              JSR    PDATA1
+U  e171   01 01 01              CLR B            ZERO CHECKSUM
+                        * PUNCH FRAME COUNT
+   e174   ce a0 00              LDX    #MCONT
+E  e177   01 01                 BSR    PUNT2     PUNCH 2 HEX CHAR
+                        * PUNCH ADDRESS
+   e179   ce a0 00              LDX    #TW
+   e17c   8d 22                 BSR    PUNT2
+   e17e   8d 20                 BSR    PUNT2
+                        * PUNCH DATA
+   e180   fe a0 00              LDX    TW
+E  e183   01 01         PUN32   BSR    PUNT2     PUNCH ONE BYTE (2 FRAMES)
+U  e185   7a 00 00              DEC    TEMP      DEC BYTE COUNT
+   e188   26 f9                 BNE    PUN32
+   e18a   ff a0 00              STX    TW
+   e18d   53                    COM B
+   e18e   37                    PSH B
+   e18f   30                    TSX
+E  e190   01 01                 BSR    PUNT2     PUNCH CHECKSUM
+U  e192   01 01 01              PUL B            RESTORE STACK
+   e195   fe a0 00              LDX    TW
+   e198   09                    DEX
+   e199   bc a0 00              CPX    ENDA
+   e19c   26 af                 BNE    PUN11
+U  e19e   01 01                 BRA    C2        JMP TO CONTRL
+                        
+                        * PUNCH 2 HEX CHAR UPDATE CHECKSUM
+U  e1a0   eb 00         PUNT2   ADD B  0,X       UPDATE CHECKSUM
+U  e1a2   7e 00 00              JMP    OUT2H     OUTPUT TWO HEX CHAR AND RTS
+                        
+                        
+U  e1a5   00            MCLOFF  FCB    $13       READER OFF
+"  e1a6   0d 0a 14 00   MCL     FCB    $D,$A,$14,0,0,0,'*,4 C/R,L/F,PUNCH
+"  e1aa   00 00 00      
+                        
+                        *
+   e1ad   ff a0 00      SAV     STX    XTEMP
+   e1b0   ce 00 00              LDX    #PIAD
+   e1b3   39                    RTS
+                        
+                        *INPUT   ONE CHAR INTO A-REGISTER
+U  e1b4   01 01 01      INEEE   PSH B            SAVE ACC-B
+E  e1b7   01 01                 BSR    SAV       SAV XR
+U  e1b9   a6 00         IN1     LDA A  0,X       LOOK FOR START BIT
+   e1bb   2b fc                 BMI    IN1
+U  e1bd   6f 00                 CLR    2,X       SET COUNTER FOR HALF BIT TI
+E  e1bf   01 01                 BSR    DE        START TIMER
+U  e1c1   01 01                 BSR    DEL       DELAY HALF BIT TIME
+U  e1c3   c6 00                 LDA B  #4        SET DEL FOR FULL BIT TIME
+   e1c5   e7 02                 STA B  2,X
+U  e1c7   01 01 01              ASL B            SET UP CNTR WITH 8
+                        
+U  e1ca   01 01         IN3     BSR    DEL       WAIT ONE CHAR TIME
+U  e1cc   01 01 01              SEC              NARK CON LINE
+U  e1cf   69 00                 ROL    0,X       GET BIT INTO CFF
+U  e1d1   01 01 01              ROR A            CFF TO AR
+   e1d4   5a                    DEC B
+   e1d5   26 f3                 BNE    IN3
+U  e1d7   01 01                 BSR    DEL       WAIT FOR STOP BIT
+U  e1d9   84 00                 AND A  #$7F      RESET PARITY BIT
+   e1db   81 7f                 CMP A  #$7F
+U  e1dd   01 01                 BEQ    IN1       IF RUBOUT, GET NEXT CHAR
+U  e1df   01 01                 BRA    IOUT2     GO RESTORE REG
+                        
+                        * OUTPUT ONE CHAR 
+U  e1e1   01 01 01      OUTEEE  PSH B            SAV BR
+E  e1e4   01 01                 BSR    SAV       SAV XR
+U  e1e6   c6 00         IOUT    LDA B  #$A       SET UP COUNTER
+U  e1e8   6a 00                 DEC    0,X       SET START BIT
+E  e1ea   01 01                 BSR    DE        START TIMER
+U  e1ec   01 01         OUT1    BSR    DEL       DELAY ONE BIT TIME
+U  e1ee   a7 00                 STA A  0,X       PUT OUT ONE DATA BIT
+U  e1f0   01 01 01              SEC              SET CARRY BIT
+U  e1f3   01 01 01              ROR A            SHIFT IN NEXT BIT
+U  e1f6   01 01 01              DEC B            DECREMENT COUNTER
+U  e1f9   01 01                 BNE    OUT1      TEST FOR 0
+U  e1fb   e6 00         IOUT2   LDA B  2,X       TEST FOR STOP BITS
+U  e1fd   01 01 01              ASL B            SHIFT BIT TO SIGN
+U  e200   01 01                 BPL    IOS       BRANCH FOR 1 STOP BIT
+U  e202   01 01                 BSR    DEL       DELAY-FOR STOP BITS
+U  e204   fe 00 00      IOS     LDX    XTEMP     RES XR
+U  e207   01 01 01              PUL B            RESTORE BR
+   e20a   39                    RTS
+                        
+U  e20b   6d 00         DEL     TST    2,X       IS TIME UP
+   e20d   2a fc                 BPL    DEL
+U  e20f   6c 00         DE      INC    2,X       RESET TIMER
+   e211   6a 02                 DEC    2,X
+   e213   39                    RTS
+                        
+   e214   e0 00                 FDB    IO
+   e216   e1 19                 FDB    SFE
+   e218   e0 05                 FDB    POWDWN
+   e21a   e0 d4                 FDB    START
+   a000                         ORG    $A000
+E  a000                 IOV     RMB    2         IO INTERRUPT POINTER
+U  a000                 BEGA    RMB    2         BEGINING ADDR PRINT/PUNCH
+U  a000                 ENDA    RMB    2         ENDING ADDR PRINT/PUNCH
+U  a000                 NIO     RMB    2         NMI INTERRUPT POINTER
+U  a000                 SP      RMB    1         S-HIGH
+U  a000                         RMB    1         S-LOW
+U  a000                 CKSM    RMB    1         CHECKSUM
+                        
+E  a000                 BYTECT  RMB    1         BYTE COUNT
+U  a000                 XHI     RMB    1         XREG HIGH
+U  a000                 XLOW    RMB    1         XREG LOW
+U  a000                 TEMP    RMB    1         CHAR COUNT (INADD)
+E  a000                 TW      RMB    2         TEMP/
+E  a000                 MCONT   RMB    1         TEMP
+S  a000                 XTEMP   RMB    2         X-REG TEMP STORAGE
+   a000                         RMB    46
+E  a02e                 STACK   RMB    1         STACK POINTER
+                        
+                        
+   a02e                         END    
+e047  BADDR         a000  BEGA          e055  BYTE          a000  BYTECT    
+e044  C1            e138  C2            e08b  CHA51         e089  CHANGE    
+a000  CKSM          e0e7  CONTRL        e20f  DE            e20b  DEL       
+a000  ENDA          e1b9  IN1           e0c2  IN1HG         e1ca  IN3       
+e07a  INCH          e1b4  INEEE         e0ae  INHEX         e000  IO        
+e204  IOS           e1e6  IOUT          e1fb  IOUT2         a000  IOV       
+e00a  LOAD          e02f  LOAD11        e03b  LOAD15        e040  LOAD19    
+e044  LOAD21        e013  LOAD3         e1a6  MCL           e1a5  MCLOFF    
+a000  MCONT         e13a  MTAPE1        a000  NIO           e1ec  OUT1      
+e0c3  OUT2H         e0c5  OUT2HA        e0ce  OUT2HS        e0cc  OUT4HS    
+e077  OUTCH         e1e1  OUTEEE        e067  OUTHL         e06d  OUTHR     
+e0d0  OUTS          e080  PDATA1        e07d  PDATA2        0000  PIAD      
+0000  PIADB         0000  PIAS          8007  PIASB         e005  POWDWN    
+e125  PRINT         e14d  PUN11         e15f  PUN22         e161  PUN23     
+e183  PUN32         e142  PUNCH         e1a0  PUNT2         e1ad  SAV       
+e119  SFE           a000  SP            a02e  STACK         e0d4  START     
+a000  TEMP          a000  TW            a000  XHI           a000  XLOW      
+a000  XTEMP         
+
