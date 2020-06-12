@@ -1,0 +1,155 @@
+	.title	Serial I/O test for console
+
+	; This program tests the DEC DL11 or Robotron AIS K8060 console interface.
+	; It run in 4 phases:
+	; 1. print a start message,
+	; 2. echoes chars typed to the output until ^C is hit
+	; 3. prints an end message and HALTs.
+	; 4. on CONT it repeats.
+	;
+	; Contact: Joerg Hoppe / j_hoppe@t-online.de / www.retromcp.com
+
+	.asect
+
+	; select one type of console at assembly time
+DL11	=	1
+K8060	=	0
+
+
+	.=1000
+
+stack	=	. - 2		; stack growns down from start
+
+start:
+	mov	#stack,sp	; init stack
+
+	; 1. print "Hello" msg
+	mov	#shello,r1
+	call	@#puts
+
+	; 2. echo chars until ^C hit
+1$:
+	call	@#getc		; wait for char, return in r0
+	bic	#177600,r0	; make 7bit: clear bits <15:7>
+	cmpb	r0,#3		; break by ^C ?
+	beq	2$		; yes: leave loop
+	call	@#putc		; no: echo char in r0 and loop
+	br	1$
+
+2$:
+
+	; 3. print "Bye bye" msg and HALT
+	mov	#sbye,r1
+	call	@#puts
+	halt
+
+	; 4. loop on CONT
+	br	start
+
+
+	; ----------------------
+	; puts - print a string
+	; r1 = pointer, r0,r1 changed
+puts:
+	movb	(r1)+,r0	; load xmt char
+	beq	1$		; string ends with 0
+	call	@#putc
+	br	puts		; transmit nxt char of string
+1$:	return
+
+
+.IF NE DL11			; assemble this if symbol DL11 > 0
+	; code block for DEC DL11 console I/O
+	 dladr = 177560        ; base addr of DEC DL11 console
+	; dladr = 176500	; DL11 #0
+	; dladr = 176510	; DL11 #1
+	; dladr = 176520	; DL11 #2
+	; dladr = 177550	; SLU
+
+	; ----------------------
+	; putc - output a single char
+	; r0 = char, r4 changed
+putc:
+	mov	#dladr,r4	; set base addr
+	movb	r0,6(r4)	; char into transmit buffer
+1$:	tstb	4(r4)		; XMT RDY?
+	bpl	1$		; no, loop
+	return
+
+	; ----------------------
+	; getc - input a single char
+	; result in r0, r4 changed
+getc:
+	mov	#dladr,r4	; set base addr
+1$:	tstb	(r4)		; RCVR DONE?
+	bpl	1$		; no, loop
+	mov	2(r4),r0	; return data
+	return
+.ENDC
+
+
+.IF NE K8060			; assemble this if symbol K8060 > 0
+	; code block for Robotron AIS K8060 console I/O
+	; It is assumed that the serial interface is already
+	; initialized by boot code, so
+	; - registers are enabled in I/O space.
+	; - mode is asyncronous
+	; - baudrate is valid
+	; - format is 8N1 or so
+	aisadr	  = 177500	; base addr of AIS channel 1A
+dpr	=	0		; channel 1A read/write data port offset
+sr	=	2		; channel 1A control/address port offset (write)
+lr	=	2		; channel 1A status port offset (read)
+
+	; ----------------------
+	; putc - output a single char
+	; r0 = char, r4 changed
+putc:
+	mov	#aisadr,r4	; set base addr
+	; assume no pending address select in SR0, so LR0 is accessed
+	movb	r0,dpr(r4)	; write char into "1A Schreibdatenregister"
+1$:	bit	#4,lr(r4)	; LR0.D2: xmt buffer emtpy?
+	beq	1$		; no, loop
+	return
+
+	; ----------------------
+	; getc - input a single char
+	; result in r0, r4 changed
+getc:
+	mov	#aisadr,r4	; set base addr
+	; assume no pending address select in SR0, so LR0 is accessed
+1$:	bit	#1,lr(r4)	; LR0.D0: char received?
+	beq	1$		; no, loop
+	mov	dpr(r4),r0	; read char from "1A Lesedatenregister"
+	return
+.ENDC
+
+
+shello:
+	.ascii	/Hello, World!/
+
+
+
+
+	.byte	15,12		; CR, LF,
+	.ascii	/Typed chars are echoed, ^C HALTs./
+
+
+
+
+
+
+
+
+
+
+	.byte	15,12,0 	; CR, LF, NUL=end marker
+sbye:
+	.byte	15,12
+	.ascii	/Good bye!/
+
+
+	.byte	15,12,0 	; CR, LF, NUL=end marker
+
+	.end
+
