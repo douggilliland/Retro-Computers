@@ -1,0 +1,430 @@
+==========================
+HBIOS Management Functions
+==========================
+
+RESET ($F0):
+  B=Function					A=Result
+
+VER ($F1):
+  B=Function                       		A=Result
+  C=Reserved (set to 0)				DE=Version (Maj/Min/Upd/Pat)
+						L=Platform Id
+SETBNK ($F2):
+  B=Function                       		A=Result
+  C=Bank Id					C=Previous Bank Id
+
+GETBNK ($F3):
+  B=Function                       		A=Result
+						C=Bank Id
+
+SETCPY ($F4):
+  B=Function                       		A=Result
+  D=Destination Bank Id
+  E=Source Bank Id
+  HL=Count of Bytes to Copy
+
+BNKCPY ($F5):
+  B=Function                       		A=Result
+  DE=Destination Address
+  HL=Source Address
+
+ALLOC ($F6):
+  B=Function                       		A=Result
+  HL=Size					HL=Address of Allocated Memory Block
+
+FREE ($F7):
+  B=Function                       		A=Result
+  HL=Address of Memory Block to Free
+
+GET ($F8):
+  BC=Function/Subfunction                       A=Result
+
+  Subfunctions:
+
+    CIOCNT ($00):
+      BC=Function/Subfunction                   A=Result
+                                                E=Serial Unit Count
+
+    DIOCNT ($10):
+      BC=Function/Subfunction                   A=Result
+                                                E=Disk Unit Count
+
+    VDACNT ($40):
+      BC=Function/Subfunction                   A=Result
+                                                E=Video Unit Count
+
+    TIMER ($D0):
+      BC=Function/Subfunction                   A=Result
+                                                DE:HL=Timer Value (32 bit)
+
+    SECONDS ($D1):
+      BC=Function/Subfunction                   A=Result
+                                                DE:HL=Seconds Value (32 bit)
+						C=Ticks within current second
+
+    BOOTINFO ($E0):
+      BC=Function/Subfunction                   A=Result
+                                                DE=Boot Volume (Disk Unit/Slice)
+                                                L=Boot Bank Id
+
+    CPUINFO ($F0):
+      BC=Function/Subfunction                   A=Result
+                                                H=Z80 CPU Variant
+                                                L=CPU Speed in MHz
+                                                DE=CPU Speed in KHz
+
+    MEMINFO ($F1):
+      BC=Function/Subfunction                   A=Result
+                                                D=# ROM Banks
+                                                E=# RAM Banks
+
+    BNKINFO ($F2):
+      BC=Function/Subfunction                   A=Result
+                                                D=BIOS Bank Id
+                                                E=User Bank Id
+
+SET ($F9):
+  BC=Function/Subfunction                       A=Result
+
+    TIMER ($D0):
+      BC=Function/Subfunction                   A=Result
+      DE:HL=Timer Value (32 bit)
+
+    SECONDS ($D1):
+      BC=Function/Subfunction                   A=Result
+      DE:HL=Seconds Value (32 bit)
+
+    BOOTINFO ($E0):
+      BC=Function/Subfunction                   A=Result
+      DE=Boot Volume (Disk Unit/Slice)
+      L=Boot Bank Id
+
+PEEK ($FA):
+  B=Function                       		A=Result
+  D=Bank					E=Byte Value
+  HL=Address
+
+POKE ($FB):
+  B=Function                       		A=Result
+  D=Bank
+  E=Byte Value
+  HL=Address
+
+INT ($FC): Interrupt vector management functions
+  BC=Function/Subfunction                       A=Result
+
+  Subfunctions:
+
+    INTINF ($00): Query interrupt system information
+      BC=Function/Subfunction                   A=Result
+						D=Interrupt Mode
+                                                E=Interrupt Vector Table Size
+
+      Report interrupt interrupt management system information.
+
+      Interrupt Mode:
+        0: Interrupts disabled
+        1: Z80 Interrupt Mode 1 active
+        2: Z80 Interrupt Mode 2 active
+
+      Interrupt Vector Table Size:
+        If interrupts are disabled, this will be zero.  if interrupt mode 1, this
+        will be the number of entries in the interrupt call list.  if interrupt mode
+        2, this will be the number of slots in the interrupt vector table.
+
+    INTGET ($10): Get interrupt vector
+      BC=Function/Subfunction			A=Result
+      E=Interrupt Vector Table Position		HL=Interrupt Vector
+
+      Return the Interrupt Vector for the specified Interrupt Vector Table Position.
+
+    INTSET ($20): Set interrupt vector
+      BC=Function/Subfunction			A=Result
+      HL=Interrupt Vector			HL=Previous Vector
+      E=Interrupt Vector Table Position
+
+      Set the Interrupt Vector for the specified Interrupt Vector Table Position to the
+      specified Interrupt Vector.  The previous value at the specified table position
+      will be returned.  The Vector Table Position is a zero-based index into the
+      interrupt vector table and must specify a position less than or equal to the
+      size of the table.
+
+      The new interrupt vector must point to a proper interrupt handler located in the
+      top 32K of CPU address space.  Note that during interrupt processing, the lower
+      32K of CPU address space will contain the RomWBW HBIOS code bank, not the lower
+      32K of application TPA.  As such, a dynamically installed interrupt handler does
+      not have access to the lower 32K of TPA and must be careful to avoid modifying
+      the contents of the lower 32K of memory.  Invoking RomWBW HBIOS functions within
+      an interrupt handler is not supported.  The interrupt management framework takes
+      care of saving and restoring AF, BC, DE, HL, and IY.  Any other registers modified
+      must be saved and restored by the interrupt handler.
+
+      Interrupt handlers are different for IM1 or IM2.
+      
+      For IM1:
+
+          The new interrupt handler is responsible for chaining (JP) to the previous vector
+	  if the interrupt is not handled. If the interrupt is handled, the new handler may
+	  simply return (RET) with ZF cleared (NZ).
+
+      For IM2:
+
+          The new interrupt handler may either replace or hook the previous interrupt
+	  handler. To replace the previous interrupt handler, the new handler just returns
+	  (RET) when done. To hook the previous handler, the new handler can chain (JP)
+	  to the previous vector. Note that initially all IM2 interrupt vectors are set
+	  to be handled as “BAD” meaning that the interrupt is unexpected. In most cases,
+	  you do not want to chain to the previous vector because it will cause the
+	  interrupt to display a “BAD INT” system panic message.
+
+      The interrupt framework will take care of issuing an EI and RETI instruction.
+      Do not put these instructions in your new handler.
+
+      If the caller is transient, then the caller must remove the new interrupt handler and
+      restore the original one prior to termination.  This is accomplished by calling this
+      function with the Interrupt Vector set to the Previous Vector returned in the original
+      call.
+
+      The caller is responsible for disabling interrupts prior to making an INTSET call and
+      enabling them afterwards.  The caller is responsible for ensuring that a valid interrupt
+      handler is installed prior to enabling any hardware interrupts associated with the handler.
+      Also, if the handler is transient, the caller must disable the hardware interrupt(s)
+      associated with the handler prior to uninstalling it.
+
+================
+Serial Functions
+================
+
+IN ($00):
+  BC=Function/Unit                      A=Result
+                                        E=Byte Input
+
+  Wait for a single character to be available at the specified device and return the character in E. Function
+  will wait indefinitely for a character to be available.
+
+OUT ($01):
+  BC=Function/Unit                      A=Result
+  E=Character to Output
+
+  Wait for device to be ready to send a character, then send the character specified in E.
+
+IST ($02):
+  BC=Function/Unit                      A=Result
+                                        *E=# Bytes Pending
+
+OST ($03):
+  BC=Function/Unit                      A=Result
+                                        *E=# Buffer Bytes Available
+
+INIT ($04):
+  BC=Function/Unit                      A=Result
+  DE=Line Characteristics
+  L=Terminal Type?
+
+  Line Characteristics:
+   _______________________________  _______________________________
+  |       |   |     encoded       ||   |   |           |   |       |
+  |       |rts|    Baud Rate      ||dtr|xon|  parity   |stp| 8/7/6 |
+  |_______|___|___|_______________||___|___|___________|___|_______|
+   15  14  13  12  11  10   9   8    7   6   5   4   3   2   1   0
+            D register                       E register
+
+QUERY ($05)
+  BC=Function/Unit                      A=Result
+                                        DE=Line Characteristics (Baud, Flow Control, etc.)
+					L=Terminal Type? (TTY, VT-100, etc.)
+
+DEVICE ($06):
+  BC=Function/Unit                      A=Result
+                                        D=Device Type
+                                        E=Device Number
+					C=Device Attributes
+
+  Serial Device Attributes Byte:
+    7: 0=RS-232, 1=Terminal
+    6: 1=Parallel Port
+
+    If device is of type Terminal, bits 3-0 indicate attached Video Unit #
+
+==============
+Disk Functions
+==============
+
+STATUS ($10):
+  BC=Function/Unit                      A=Result
+
+  Return current status result code of specified unit.  Does not clear
+  the status.
+
+RESET ($11):
+  BC=Function/Unit                      A=Result
+
+  Reset the physical interface associated with the specified unit.  Flag all units
+  associated with the interface for unit initialization at next I/O call.  Clear
+  media identified unless locked.  Reset result code of all associated units.
+
+SEEK ($12):
+  BC=Function/Unit                      A=Result
+  D:7=Address Type (0=CHS, 1=LBA)
+  CHS: D:0-6=Head,E=Sector,HL=Track
+  LBA: DE:HL
+
+  Seek function establishes current sector for next I/O function for the specified
+  unit.  A seek must precede read/write/verify function calls.  Physical seek is
+  typically deferred until subsequent I/O operation.
+
+READ ($13) / WRITE ($14) / VERIFY ($15):
+  BC=Function/Unit                      A=Result
+  HL=Buffer Address			E=Blocks Read
+  D=Buffer Bank ID
+  E=Block Count
+
+  Read, write, or verify block count sectors to/from buffer bank/address starting at current target
+  sector.  Current sector must be established by prior seek function; however, multiple
+  read/write/verify function calls can be made after a seek function.  Current sector is
+  incremented after each sector successfully read/written.  On error, current sector is
+  sector where error occurred.  Block count indicates number of sectors successfully read/written.
+  Caller must ensure buffer address is large enough to contain data for all sectors
+  read/written.  If buffer is not in upper 32K, then sectors will be double buffered.
+
+FORMAT ($16):
+  BC=Function/Unit                      A=Result
+  CHS: D=Head, HL=Cylinder
+  E=Fill Byte
+
+  Format the designated track using the current media_id.  Many devices
+  do not support a true format operation.  If so, format should write
+  sectors with designated fill byte.
+
+  *** Need to specify interleave/sector id's somehow.
+
+DEVICE ($17)
+  BC=Function/Unit                      A=Result
+                                        D=Device Type (MD, FD, IDE, etc.)
+                                        E=Device Number (0..n)
+					C=Device Attributes
+
+  Report the Device Type (Floppy, IDE, SD, etc.) and Device Number.  Call
+  does not perform any I/O and succeeds even if the device is in an error state.
+  It does not reset the unit status.
+
+  Disk Device Attributes Byte:
+    7: 1=Floppy, 0=Hard Disk (or similar, e.g. CF, SD, RAM)
+
+    If Floppy:
+      6-5: Form Factor (0=8", 1=5.25", 2=3.5", 3=Other)
+        4: Sides (0=SS, 1=DS)
+      3-2: Density (0=SD, 1=DD, 2=HD, 3=ED)
+      1-0: Reserved
+
+    If Hard Disk:
+        6: Removable
+      5-3: Type (0=Hard, 1=CF, 2=SD, 3=USB, 4=ROM, 5=RAM, 6=RAMF, 7=?)
+      2-0: Reserved
+
+  Note: IDE value 848Ah in IDENTIFY DEVICE data word 0 indicates CF Card
+
+MEDIA ($18):
+  BC=Function/Unit                      A=Result
+  E:0=Enable Media Discovery            E=Media ID (legacy)
+
+  Report the media definition for media in specified unit.  If bit 0 of E is
+  set, then perform media discovery or verification.  If no media in device,
+  return no media error.
+
+DEFMED ($19):
+  BC=Function/Unit                      A=Result
+  E=Media ID (legacy)
+
+  Define media in unit.
+
+CAPACITY ($1A):
+  BC=Function/Unit			A=Result
+					DE:HL=Blocks on Device
+                                        BC=Block Size
+
+  Report current media capacity information.
+  If media is unknown, return error (no media)
+
+GEOMETRY ($1B):
+  BC=Function/Unit                      A=Result
+  					HL=Cylinders
+                                        D:0-6=Heads
+                                        D:7=LBA Capable
+                                        E=Sectors
+                                        BC=Block Size
+
+  Report current media geometry information.
+  If media is unknown, return error (no media)
+
+===============
+Video Functions
+===============
+
+
+
+
+-----------------------------------------------------------------------------------
+
+Unit        Device      Type              Capacity/Mode
+----------  ----------  ----------------  --------------------
+Disk 0      MD0:        ROM Disk          384K, LBA
+Disk 1      MD1:        RAM Disk          384K, LBA
+Disk 2      FD0:        Floppy Disk       3.5", DS/HD, CHS
+Disk 3      FD1:        Floppy Disk       5.25", DS/HD, CHS
+Disk 4      PPIDE0:     Hard Disk         2345M, LBA
+Disk 5      IDE0:       Compact Flash     2048M, LBA
+Disk 6      SD0:        SD Card           4096M, LBA
+Disk 7      PRPSD0:     SD Card           2048M, LBA
+Disk 8      RF0:        RAM Floppy        4M, LBA
+Serial 0    UART0:      RS-232            38400,8N1,HFC
+Serial 1    PRPCON0:    Terminal          Video 0
+Serial 2    CVDU0:      Terminal          Video 1
+Serial 3    VDU0:       Terminal          Video 2
+Serial 4    TMS0:       Terminal          Video 3
+Video 0     PRPCON0:    CRT               Text 80x25, ANSI
+Video 1     CVDU0:      CRT               Text 80x25, ANSI
+Video 2     VDU0:       CRT               Text 80x25, ANSI
+Video 3     TMS0:       CRT               Text 40x25, TTY
+Video 4     NEC0	CRT               Graphics 600x400
+
+Unit: Function Group & Unit Index
+Device: <driver>_DEVICE Device Type & Device Num
+Type: <driver>_DEVICE Type & Attributes
+Capacity/Mode:
+  Disk: <driver>_DEVICE Attributes & <driver>_CAPACITY
+  Serial: <driver>_QUERY
+  Video: <driver>_QUERY
+
+
+
+-----------------------------------------------------------------------------------
+
+<VDA>_INIT:
+  - INIT CRT HARDWARE
+  - INIT KEYBOARD HARDWARE
+  - CALL <VDA>_VDARES (<NO PARMS>)
+  - ADD OURSELVES TO VDA_TBL
+  - CALL TERM_ATTACH (C=VIDEO UNIT, DE=<VDA>_DISPATCH)
+
+<VDA>_VDARES: (<NO PARMS>)
+  - HOME CURSOR
+  - CLEAR SCREEN
+  - RETURN (A=STATUS)
+
+TERM_ATTACH: (C=VIDEO UNIT, DE=<VDA>_DISPATCH)
+  - CALL <EMU>_INIT (B=TERM DEV NUM, C=VIDEO UNIT, DE=<VDA>_DISPATCH)
+  - ADD OURSELVES TO CIO_TBL USING <EMU>_DISPATCH
+  - RETURN (A=STATUS)
+
+<EMU>_INIT: (B=TERM DEV NUM, C=VIDEO UNIT, DE=<VDA>_DISPATCH)
+  - SAVE TERM DEV NUM TO <EMU>_DEVNUM
+  - SAVE VIDEO UNIT TO <EMU>_VDAUNIT
+  - SAVE <VDA>_DISPATCH TO <EMU>_VDADISPADR
+  - CALL <EMU>_RESET (<NO PARMS>)
+  - RETURN (DE=<EMU>_DISPATCH, A=STATUS)
+
+<EMU>_RESET: (<NO PARMS>)
+  - QUERY ATTACHED VDA FOR SCREEN SIZE (VIA <EMU>_VDADISP)
+  - INITIALIZE ALL WORKING VARIABLES AND EMULATOR STATE
+  - RETURN (A=STATUS)

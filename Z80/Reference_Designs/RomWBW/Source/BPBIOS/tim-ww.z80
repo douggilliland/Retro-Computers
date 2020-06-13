@@ -1,0 +1,156 @@
+;:::::::::::::::::::::::::::::::::::::::***************************
+;	Time-handling Routines		**   Machine-Dependant   **
+;     D-X Designs Pty Ltd, P112		***************************
+;
+; This module incorporates provisions for an interrupt-driven clock, or
+; the Dallas DS-1202 Real Time Clock for obtaining Time and Date Info.
+;
+; 1.0 - 18 Jul 96 - Initial Release.				HFB
+;::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
+
+; This code module should handle all Time-related segments, to include
+; Interrupt handlers for Real Time update, motor timeouts, user down-
+; counter and any necessary time format conversion routines.
+
+;::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
+;  TIMER
+;	This routine keeps the Real Time Clock, Diskette Time Out
+;	counter, and General-Purpose down-counters.  An interrupt is
+;	generated every 50 mS by the Z-182 Programmable Interrupt Timer
+;	and used to update parameters.  Every other interrupt (100 mS
+;	intervals) is used to update the 100 mS counters and Time string
+;	if using Interrupt-driven Time and Date.
+; Enter: No parameters needed (Interrupt)
+; Exit : None
+; Uses : None.  All registers preserved.  Decrements MTM, User and BIOS
+;		general-purpose counter bytes every 100 mS.
+;::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
+
+	CSEG
+
+TIMER:
+	RET	; NOT IMPLEMENTED FOR HBIOS
+
+;::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
+; TIME - Set or Return the time string as defined for ZSDOS.  If Reading,
+;  The Six digit BCD ZSDOS Clock string is copied to the location
+;  addressed by Register pair DE.  As an enhancement, the tenths-of-seconds
+;  value is returned in Reg D.  If Setting the Clock, the RTC clock string
+;  will be set from the 6 bytes addressed by DE.
+;
+; ENTER: C - 0 to Read the Clock, Non-0 (1 recommended) to Set the Clock
+;	DE = Pointer to receive 6-byte Time/Date on Read, Source for Set
+;
+; EXIT : E = Original contents of Target Seconds field
+;	 D = Tenths of Seconds field
+;	HL = Pointer to Target Seconds field
+;	 A = 1 for success, 0 if Unable to Set or Read
+;	BC = Address of User General-Purpose Down-Counter
+;
+;   NOTE: The Wall Clock string is arranged as BCD digits with Tenths-
+;	of-Seconds byte appended.  The entire string is:
+;
+;    YR   MO   DA   HH   MM   SS   TT
+;::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
+
+	  IF  CLOCK
+	  
+	    IF SIMHCLK
+SIMHPORT	EQU	0FEH
+READCLOCK	EQU	7
+WRITECLOCK	EQU	8
+PARBLOCKSIZE	EQU	6
+
+TIME:
+	EX	DE,HL	; GET DE TO HL
+	LD	A,C
+	OR	A
+	JR	NZ,WRCLK
+;
+GETTIM:	LD	A,READCLOCK
+	OUT     (SIMHPORT),A
+	LD      BC,256*(PARBLOCKSIZE-1)+SIMHPORT	; B := 5, C := 0FEH
+	INIR
+	LD      E,(HL)	; Save original seconds in E
+	INI		; READ SECONDS
+	DEC     HL
+	LD      A,1	; Set OK status return
+	LD	BC,DCNTR	;  Get Address of User Down-Counter
+	RET
+;
+WRCLK:	LD	A,WRITECLOCK
+	OUT     (SIMHPORT),A
+	LD      A,L
+	OUT     (SIMHPORT),A
+	LD      A,H
+	OUT     (SIMHPORT),A
+	LD      A,1
+	LD	BC,DCNTR	;  Get Address of User Down-Counter
+	RET
+	    ENDIF	; SIMHCLK
+	    
+	    IF HBCLK
+
+TIME:
+	LD	A,C
+	OR	A
+	JR	NZ,WRCLK
+;
+RDCLK:
+	PUSH	DE		; Save the final destination
+	LD	HL,TIMBUF	; Point HL to temp buf
+	LD	B,20H		; HBIOS function to read RTC
+	CALL	HBX_INVOKE	; Do it
+	LD	HL,TIMBUF	; Setup HL as source
+	POP	DE		; And recover final destination
+	LD	BC,5		; Copy first 5 bytes
+	LDIR			; Do it
+	LD	A,(DE)		; Now get the original seconds value to A
+	INC	BC		; Setup to copy last byte, BC := 1
+	LDIR			; Do it
+	EX	DE,HL		; Set HL to seconds dest for return
+	DEC	HL		; Decrement to point back at seconds value
+	LD	D,0		; Tenths is always zero
+	LD	E,A		; Get original seconds value 
+
+	LD	BC,DCNTR	; BC must point to countdown timer on return
+	LD	A,1		; Signal success
+	
+	RET
+;
+WRCLK:
+	EX	DE,HL		; Make incoming DE the copy source in HL
+	LD	DE,TIMBUF	; We are copying to time buffer
+	LD	BC,6		; For 6 bytes
+	LDIR			; Do it, time buffer now ready
+	LD	HL,TIMBUF	; Point to time buffer
+	LD	B,21H		; Set clock function
+	CALL	HBX_INVOKE	; Do it via HBIOS
+	
+	LD	BC,DCNTR	; BC must point to countdown timer on return
+	LD	A,1		; Signal success
+
+	RET
+
+	    ENDIF	; HBCLK
+
+	XOR	A		;  Set Error Return
+	RET			;   and exit
+
+	  ENDIF		; Clock
+
+
+;.....
+; Save some space in the Common RAM Area for a local stack
+
+	DSEG
+
+DCNTR:	DEFS	1		; User 100 mS General-Purpose Down-Counter
+
+	    IF HBCLK
+TIMBUF	DEFS	6
+	    ENDIF
+
+	CSEG			; End up by restoring CSEG
+
+;=========================== END of TIM-DX ==================================

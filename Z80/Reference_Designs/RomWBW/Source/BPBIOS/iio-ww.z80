@@ -1,0 +1,217 @@
+;:::::::::::::::::::::::::::::::::::::::::::::::::*************************
+;		 Byte I/O Routines		  *** Hardware Specific ***
+;	    - D-X Designs Pty Ltd P112 -	  *************************
+;
+; 1.2 - 28 Aug 01 - Final scrub for GPL release.			HFB
+; 1.1a- 11 May 97 - Cleaned code, fixed added port accesses.		HFB
+; 1.1 - 25 Jan 97 - Revised ESCC Baud rate calcs, added COM3-5.		HFB
+; 1.0 - 19 Jun 96 - Initial Release for the P112 from YASBEC.		HFB
+;::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
+; Place constants for Expansions here
+
+	CSEG
+
+;::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
+;	   Byte  Device  Control  Tables
+;::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
+
+DEVCFG:
+
+COM1:	DEFB	'COM1'		; 4-Char ID
+	DEFB	11101011B	; Baud Rate
+;		||||++++--- Baud Rate setting (19.2 kbps)
+;		++++------- Maximum Baud Rate (115.2 kbps)
+; Rates are as:
+; 0000 = None	0001 = 134.5	0011 = 50	0011 = 75
+; 0100 = 150	0101 = 300	0110 = 600	0111 = 1200
+; 1000 = 2400	1001 = 4800	1010 = 9600	1011 = 19200
+; 1100 = 38400	1101 = 76800	1110 = 115200	1111 = Fixed
+
+	DEFB	11100001B	; Config Byte (In,Out,CTS/RTS control,1 Stop)
+;		|||||||+---------- Stop Bits 1 (1), 2 (0)
+;		||||||+----------- Parity Enable (1), Disable (0)
+;		|||||+------------ Parity Even (1), Odd (0)
+;		||||+------------- Data Bits 8 (0), 7 (1)
+;		|||+-------------- Xon-Xoff Handshake
+;		||+--------------- CTS/RTS Handshake
+;		|+---------------- Input Device No (0), Yes (1)
+;		+----------------- Output Device No (0), Yes (1)
+
+	DEFB	0FFH		; Input Data Mask
+	DEFB	0FFH		; Output Data Mask
+
+	DEFW	COM1OT		; COM 1 Byte Output
+	DEFW	COM1OS		; COM 1 Output Status
+	DEFW	COM1IN		; COM 1 Byte Input
+	DEFW	COM1IS		; COM 1 Input Status
+
+COM2:	DEFB	'COM2'		; 4-Char ID
+	DEFB	11101010B	; Baud Rate (115.2k Max, 9600 Set)
+	DEFB	11100001B	; Config Byte (In,Out,CTS/RTS control,1 Stop)
+	DEFB	0FFH		; Input Data Mask
+	DEFB	0FFH		; Output Data Mask
+
+	DEFW	COM2OT		; COM 2 Byte Output
+	DEFW	COM2OS		; COM 2 Output Status
+	DEFW	COM2IN		; COM 2 Byte Input
+	DEFW	COM2IS		; COM 2 Input Status
+
+PIO1:	DEFB	'PIO1'		; 4-Char ID
+	DEFB	00000000B	; Baud Rate (None)
+	DEFB	10000000B	; Config Byte (Output Only)
+	DEFB	0FFH		; Input Data Mask
+	DEFB	07FH		; Output Data Mask
+
+	DEFW	PIO1OT		; PIO Byte Output
+	DEFW	PIO1OS		; PIO Output Status
+	DEFW	PIO1IN		; PIO Byte Input
+	DEFW	PIO1IS		; PIO Input Status
+
+	  IF  MOVCPM OR [MORDEV AND NOT [ESCC_B OR ASCI_0 OR ASCI_1]]
+	DEFB	'NULL'		; 4-Char ID
+	DEFB	00000000B	; Baud Rate (None)
+	DEFB	11000000B	; Config Byte
+	DEFB	0FFH		; Input Data Mask
+	DEFB	0FFH		; Output Data Mask
+
+	DEFW	ISFALSE		; Null Output
+	DEFW	ISTRUE		; Null Output Status
+	DEFW	ISFALSE		; Null Input
+	DEFW	ISTRUE		; Null Input Status
+	  ENDIF
+
+	DEFB	0		; - End-of-Table marker
+MAXBDV	EQU	[$-DEVCFG-1]/[COM2-COM1]  ; Number of Character Devices Defined
+
+DEVTBL:	LD	HL,DEVCFG	; BYTE device table
+	RET			; CP/M-3 device init
+
+;::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
+;		   COM1   Drivers
+;::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
+
+; Uses HBIOS
+;.....
+; COM1 Input Status Test
+
+COM1IS:
+	LD	BC,0200H + HB_IODEV	; Func=$02 (IS), Device/Unit=HB_IODEV
+	CALL	HBX_INVOKE
+	RET
+
+;.....
+; COM1 Input Routine
+; Remain in Loop until Char ready, then Return Char in A
+
+COM1IN:
+	LD	BC,0000H + HB_IODEV	; Func=$00 (IN), Device/Unit=HB_IODEV
+	CALL	HBX_INVOKE
+	LD	A,E
+	RET
+
+;.....
+; COM1 Output Status Test
+
+COM1OS:
+	LD	BC,0300H + HB_IODEV	; Func=$03 (OS), Device/Unit=HB_IODEV
+	CALL	HBX_INVOKE
+	RET
+
+;.....
+; COM1 Output Routine (Byte to Send in C)
+
+COM1OT:
+	LD	E,C		; Character to E
+	LD	BC,0100H + HB_IODEV	; Func=$01 (OT), Device/Unit=HB_IODEV
+	CALL	HBX_INVOKE
+	RET
+
+	PAGE
+;::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
+;		  COM2   Drivers
+;::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
+
+; Uses HBIOS
+;.....
+; COM2 Input Status Test
+
+COM2IS:
+	LD	BC,0200H + HB_IODEV + 1	; Func=$02 (IS), Device/Unit=HB_IODEV
+	CALL	HBX_INVOKE
+	RET
+
+;.....
+; COM2 Input Routine
+; Remain in Loop until Char ready, then Return Char in A
+
+COM2IN:
+	LD	BC,0000H + HB_IODEV + 1	; Func=$00 (IN), Device/Unit=HB_IODEV
+	CALL	HBX_INVOKE
+	LD	A,E
+	RET
+
+;.....
+; COM2 Output Status Test
+
+COM2OS:
+	LD	BC,0300H + HB_IODEV + 1	; Func=$03 (OS), Device/Unit=HB_IODEV
+	CALL	HBX_INVOKE
+	RET
+
+;.....
+; COM2 Output Routine (Byte to Send in C)
+
+COM2OT:
+	LD	E,C		; Character to E
+	LD	BC,0100H + HB_IODEV + 1	; Func=$01 (OT), Device/Unit=HB_IODEV
+	CALL	HBX_INVOKE
+	RET
+
+	PAGE
+;::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
+;	       Parallel  I/O  Drivers
+;:::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
+; Uses "Standard" Parallel Centronics mode of SMC37C655 (output only)
+;.....
+; Parallel Input Status Test
+
+PIO1IS:	JR	ISTRUE		; Not implemented
+
+;.....
+; Parallel Input Data fetch
+
+PIO1IN:	JP	ISFALSE		; Not implemented
+
+;.....
+; Parallel Output Status Test
+
+PIO1OS:	JP	ISTRUE		; Not implemented
+
+;.....
+; Parallel Output Routine
+
+PIO1OT:	JP	ISFALSE		; Not implemented
+
+;:::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
+;::	      Helper Functions                              ::
+;:::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
+
+ISTRUE:	OR	0FFH		; Else set flags for Ready
+	RET
+
+
+;:::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
+;::	  D e v i c e    I n i t i a l i z a t i o n	    ::
+;:::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
+
+	CSEG
+DEVINI:
+	  IF  BANKED
+	CALL	BIOSTK
+	CALL	GOSYSB
+	JP	JDVINI
+	COMMON	/BANK2/
+JDVINI:
+	  ENDIF
+
+	RET			; WW
