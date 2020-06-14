@@ -1,0 +1,448 @@
+# $Id: INSTALL.txt 559 2014-06-06 21:26:47Z mueller $
+
+Guide to install and build w11a systems, test benches and support software
+
+  Table of content:
+  
+  1.  Download
+  2.  System requirements
+  3.  Setup system environment
+       a. Setup environment variables
+       b. Setup USB access
+  4.  Compile UNISIM/SIMPRIM libraries for ghdl
+  5.  Compile and install the support software
+       a. Compile sharable libraries
+       b. Setup Tcl packages
+       c. Rebuild Cypress FX2 firmware
+  6.  The build system
+  7.  Building test benches
+       a. General instructions
+       b. Available test benches
+  8.  Building systems
+       a. General instructions
+       b. Configuring FPGAs
+       c. Available systems
+  9.  Generate Doxygen based source code view
+
+1. Download ---------------------------------------------------------------
+
+  All instructions below assume that the project files reside in a
+  working directory with the name represented as <wdir>
+
+  - to download latest snapshot of trunk
+
+      cd <wdir>
+      svn co http://opencores.org/ocsvn/w11/w11/trunk
+
+  - to download tagged verions (from major releases)
+    list available svn tags
+      
+      svn ls http://opencores.org/ocsvn/w11/w11/tags
+
+    and download one of them
+
+      cd <wdir>
+      svn co http://opencores.org/ocsvn/w11/w11/tags/<tag>
+
+  - to download specific svn revision (from minor releases)
+    determine desired svn revsion from list given on
+      http://opencores.org/project,w11,overview
+
+    and download 
+
+      cd <wdir>
+      svn co -r <rev> http://opencores.org/ocsvn/w11/w11/trunk
+
+
+2. System requirements ----------------------------------------------------
+  
+  This project contains not only VHDL code but also support software. Therefore
+  quite a few software packages are expected to be installed. The following
+  list gives the Ubuntu/Debian package names, but mapping this to other
+  distributions should be straight forward. 
+
+  - building the bit files for the FPGAs requires a Xilinx WebPACK installation
+
+  - building and using the RLink backend software requires:
+    - full C/C++ development chain (gcc,g++,cpp,make)
+      -> package: build-essential
+    - Boost C++ library (>= 1.40), with date-time, thread, and regex
+      -> package: libboost-dev libboost-date-time-dev libboost-thread-dev
+                  libboost-regex-dev
+    - libusb 1.0 (>= 1.0.6)
+      -> package: libusb-1.0-0-dev
+    - Perl (>= 5.10)  (usually included in base installations)
+    - Tcl  (>= 8.4), with tclreadline support
+      -> package: tcl tcl-dev tcllib tclreadline
+
+  - the download contains pre-build firmware images for the Cypress FX2
+    USB Interface. Re-building them requires
+    - Small Device C Compiler
+      -> package: sdcc sdcc-ucsim
+
+  - for FX2 firmware download and jtag programming over USB one needs
+    - fxload
+      -> package: fxload
+    - urjtag
+      -> package: urjtag   for Ubuntu 12.04
+      -> see INSTALL_urjtag.txt for other distributions !!
+
+  - for VHDL simulations one needs
+    - ghdl
+      -> see INSTALL_ghdl.txt for the unfortunately gory details
+
+  - for doxygen documentation an up-to-date installation of doxygen is
+    required, version 1.8.3.1 or later
+
+  - optional but very useful is:
+    - gtkwave
+      -> package: gtkwave
+
+3. Setup system environment -----------------------------------------------
+
+3a. Setup environment variables --------------------------------------
+
+  The make flow for building test benches (ghdl and ISim based) and systems
+  (Xilinx xst based) as well as the support software (mainly the rlink backend
+  server) requires
+
+    - the definition of the environment variables:
+      - RETROBASE: must refer to the installation root directory
+      - TCLINC:    pathname for includes of Tcl runtime library
+      - RETRO_FX2_VID and RETRO_FX2_PID: default USB VID/PID, see below
+    - that the tools binary directory is in the path
+    - that the tools library directory is in the library path
+    - optional environment variables:
+      - BOOSTINC:  pathname for includes of boost library
+      - BOOSTLIB:  pathname for libraries of boost library
+        {Note: Either both must be undefined, or both must be defined}
+    
+  For bash and alike use
+
+    export RETROBASE=<wdir>
+    export PATH=$PATH:$RETROBASE/tools/bin
+    export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:$RETROBASE/tools/lib
+
+  To access the man pages update also the MANPATH
+
+    export MANPATH=$MANPATH:$RETROBASE/doc/man
+
+  In most cases the boost library version coming with the distribution will
+  work, similar for Tcl, in those cases simply use
+
+    export TCLINC=/usr/include/tcl8.5
+
+  and don't setup BOOSTINC and BOOSTLIB.
+
+  After that building functional model based test benches will work. If you 
+  want to also build post-xst or post-par test benches read next section.
+
+  If the Cypress USB controller available on Digilent Nexys2, Nexys3 and
+  Atlys boards is used the default USB VID and PID is defined by two
+  environment variables. For internal lab use one can use
+
+    export RETRO_FX2_VID=16c0
+    export RETRO_FX2_PID=03ef
+
+  !! Carefully read the disclaimer about usage of USB VID/PID numbers  !!
+  !! in the file README_USB-VID-PID.txt. You'll be responsible for any !!
+  !! misuse of the defaults provided with the project sources.         !!
+  !! Usage of this VID/PID in any commercial product is forbidden.     !!
+
+3b. Setup USB access -------------------------------------------------
+
+  For using the Cypress FX2 USB interface on Digilent Nexys2, Nexys3 and
+  Atlys boards 'udev' rules must be setup to allow user level access to
+  these devices. A set of rules is provided under
+
+    $RETROBASE/tools/fx2/sys
+
+  Follow the 'README.txt' file in this directory.
+
+  Notes:
+  - the provided udev rules use the VID/PID for 'internal lab use' as
+    described above. If other VID/PID used the file must be modified.
+  - your user account must be in group 'plugdev' (should be the default).
+
+4. Compile UNISIM/SIMPRIM libraries for ghdl ------------------------------
+
+  The build system for test benches also supports test benches run against
+  the gate level models derived after the xst, map or par step. In this
+  case ghdl has to link against a compiled UNISIM or SIMPRIM library.
+
+  To make handling of the parallel installion of several WebPack versions
+  easy the compiled libraries are stored in sub-directories under $XILINX:
+
+     $XILINX/ghdl/unisim
+     $XILINX/ghdl/simprim
+
+  Two helper scripts will create these libraries:
+
+    <setup WebPack, e.g. source .../ISE_DS/settings32.sh>  
+
+    cd $RETROBASE
+    xilinx_ghdl_unisim
+    xilinx_ghdl_simprim
+
+  If you have several WebPack versions installed, repeat for each version.
+
+5. Compile and install the support software -------------------------------
+
+5a. Compile sharable libraries ---------------------------------------
+
+  Required tools and libraries:
+    g++    >= 4.3    (decltype support assumed in usage of boost::bind)
+    boost  >= 1.35   (boost::thread api changed, new one is used)
+    linusb >= 1.0.5  (timerfd support)
+
+  Build was tested under:
+    ubuntu lucid (12.04 LTS):  gcc 4.6.3  boost 1.46.1  libusb 1.0.9
+    debian squezze (6.0.6):    gcc 4.4.5  boost 1.46.1  libusb 1.0.8
+
+  To build all sharable libraries
+
+    cd $RETROBASE/tools/src
+    make -j 4
+
+  To cleanup, e.g. before a re-build
+    
+    cd $RETROBASE/tools/src
+    rm_dep
+    make realclean
+
+5b. Setup Tcl environment --------------------------------------------
+
+  The Tcl files are organized in several packages. To create the Tcl
+  package files (pkgIndex.tcl)
+
+    cd $RETROBASE/tools/tcl
+    setup_packages
+
+  To use these packages it is convenient to make them available via the
+  'auto_path' mechanism. To do that add in your .tclshrc or .wishrc
+
+    lappend auto_path [file join $env(RETROBASE) tools tcl]
+    lappend auto_path [file join $env(RETROBASE) tools lib]
+
+  The w11 distribution contains two ready to use .tclshrc or .wishrc
+  files which
+    - include the auto_path statements above
+    - activate tclreadline (and thus in tclshrc an event loop)
+
+  To use them simply copy them into your home directory (or soft link them)
+
+    cd $HOME
+    ln -s $RETROBASE/tools/tcl/.tclshrc .
+    ln -s $RETROBASE/tools/tcl/.wishrc  .
+
+5c. Rebuild Cypress FX2 firmware -------------------------------------
+
+  The download includes pre-build firmware images for the Cypress FX2
+  USB interface used on the Digilent Nexys2, Nexys3 and Atlys Boards.
+  These firmware images are under
+
+    $RETROBASE/tools/fx2/bin
+
+  To re-build them, e.g. because a different USB VID/PID is to be used
+
+    cd $RETROBASE/tools/fx2/src
+    make clean
+    make
+    make install
+ 
+  Please read README_USB_VID-PID.txt carefully to understand the usage
+  of USB VID and PID.
+
+6. The build system -------------------------------------------------------
+
+  Simulation and synthesis tools usually need a list of the VHDL source
+  files, often in proper compilation order (libraries before components).
+  The different tools have different formats of these 'project files'.
+
+  The build system employed in this project is based on 
+     "VHDL bill of material" or 'vbom' files
+  which list for each vhdl source file the libraries and sources for
+  the instantiated components, the later via their vbom, and last but
+  not least the name of the vhdl source file. All file name are relative
+  to the current directory. A recursive traversal through all vbom's gives
+  for each vhld module all sources needed to compile it. The vbomconv script 
+  in tools/bin does this, and generates depending on options
+   - make dependency files
+   - ISE xst project files
+   - ISE ISim project files
+   - ghdl commands for analysis, inspection and make step
+
+  The master make files contain pattern rules like
+    %.ngc  : %.vbom           -- synthesize with xst
+    %      : %.vbom           -- build functional model test bench
+  which encapsulate all the vbomconf magic
+
+  A full w11a is build from more than 80 source files, test benches from
+  even more. Using the vbom's a large number of designs can be easily
+  maintained.
+
+7. Building test benches --------------------------------------------------
+
+7a. General instructions ---------------------------------------------
+
+  To compile a test bench named <tbench> all is needed is
+
+    make <tbench>
+
+  The make file will use <tbench>.vbom, create all make dependency files,
+  and generate the needed ghdl commands.
+
+  In many cases the test benches can also be compiled against the gate
+  level models derived after the xst, map or par step. To compile them
+
+    make ghdl_tmp_clean
+    make <tbench>_ssim                  # for post-xst
+    make <tbench>_fsim                  # for post-map
+    make <tbench>_tsim                  # for post-par
+
+  The 'make ghdl_tmp_clean' is needed to flush the ghdl work area from
+  the compilation remains of earlier functional model compiles.
+
+7b. Available test benches -------------------------------------------
+
+  See file w11a_tb_guide.txt
+
+8. Building systems -------------------------------------------------------
+
+8a. General instructions ---------------------------------------------
+
+  To generate a bit file for a system named <sys> all is needed is
+
+    make <sys>.bit
+
+  The make file will use <sys>.vbom, create all make dependency files, build 
+  the ucf file with cpp, and run the synthesis flow (xst, ngdbuild, par, trce).
+  The log files will be named
+
+      <sys>_xst.log        # xst log file
+      <sys>_tra.log        # translate (ngdbuild) log file (renamed %.bld)
+      <sys>_map.log        # map log file                  (renamed %_map.mrp)
+      <sys>_par.log        # par log file                  (renamed %.par)
+      <sys>_pad.log        # pad file                      (renamed %_pad.txt)
+      <sys>_twr.log        # trce log file                 (renamed %.twr)
+  
+  To load the bitfile with WebPack impact into the target board use
+
+    make <sys>.iconfig
+
+  For boards with a Cypress FX2 USB controller load the bitfile directly with
+
+    make <sys>.jconfig
+
+  If only the xst or par output is wanted just use
+
+    make <sys>.ngc
+    make <sys>.ncd
+
+  A simple 'message filter' system is also integrated into the make build flow.
+  For many (though not all) systems a .mfset file has been provided which
+  defines the xst,par and bitgen messages which are considered ok. To see
+  only the remaining message extracted from the vaious .log files simply
+  use the make target
+
+    make <sys>.mfsum
+
+  after a re-build.
+
+8b. Configuring FPGAs ------------------------------------------------
+
+  The make flow supports also loading the bitstream into FPGAs, either
+  via Xilinx Impact, or via the Cypress FX2 USB controller is available.
+
+  For Xilinx Impact a Xilinx USB Cable II has to be properly setup, than
+  simply use
+
+    make <sys>.iconfig
+
+  For using the Cypress FX2 USB controller on Digilent Nexys2, Nexys3 and
+  Atlys boards just connect the USB cable and
+
+    make <sys>.jconfig
+
+  This will automatically check and optionaly re-load the FX2 firmware
+  to a version matching the FPGA design, generate a .svf file from the
+  .bit file, and configure the FPGA. In case the bit file is out-of-date
+  the whole design will be re-implemented before.
+
+8c. Available systems ------------------------------------------------
+
+  Currently ready to build versions exist for 
+    - Digilent S3BOARD (-1000 FPGA version)
+    - Digilent Nexys2 board (-1200 FPGA version)
+    - Digilent Nexys3 board
+
+  Tarballs with ready to use bit file and and all logfiles from the tool
+  chain can be downloaded from
+    http://www.retro11.de/data/oc_w11/bitkits/
+  This area is organized in folders for different releases. The tarball
+  file names contain information about release, Xlinix tool, and design:
+    <release>_<tool>_<design>.tgz
+
+  To build the designs locally use
+
+  1. rlink tester
+     a. for Digilent S3BOARD
+
+        cd $RETROBASE/rtl/sys_gen/tst_rlink/s3board
+        make sys_tst_rlink_s3.bit
+
+     b. for Digilent Nexys2 board
+
+        cd $RETROBASE/rtl/sys_gen/tst_rlink/nexys2
+        make sys_tst_rlink_n2.bit
+
+     c. for Digilent Nexys3 board
+
+        cd $RETROBASE/rtl/sys_gen/tst_rlink/nexys3
+        make sys_tst_rlink_n3.bit
+
+  2. rlink over USB tester
+     a. for Digilent Nexys2 board
+
+        cd $RETROBASE/rtl/sys_gen/tst_rlink_cuff/nexys2/ic
+        make sys_tst_rlink_cuff_ic_n2.bit
+
+     b. for Digilent Nexys3 board
+
+        cd $RETROBASE/rtl/sys_gen/tst_rlink_cuff/nexys3/ic
+        make sys_tst_rlink_cuff_ic_n3.bit
+
+  3. w11a systems
+     a. for Digilent S3BOARD
+     
+        cd $RETROBASE/rtl/sys_gen/w11a/s3board
+        make sys_w11a_s3.bit
+
+     b. for Digilent Nexys2 board
+
+        cd $RETROBASE/rtl/sys_gen/w11a/nexys2
+        make sys_w11a_n2.bit
+
+     c. for Digilent Nexys3 board
+
+        cd $RETROBASE/rtl/sys_gen/w11a/nexys3
+        make sys_w11a_n3.bit
+
+9. Generate Doxygen based source code view --------------------------------
+
+   Currently there is not much real documentation included in the source
+   files. The doxygen generated html output is nevertheless very useful
+   to browse the code. C++, Tcl and Vhdl source are covered by setup files
+   contained in the project files.
+
+   To generate the html files
+
+     cd $RETROBASE/tools/dox
+     export RETRODOXY <desired root of html documentation>
+     ./make_doxy
+
+   If RETRODOXY is not defined '/tmp' is used. To view the docs use
+
+     firefox $RETRODOXY/w11/cpp/html/index.html &
+     firefox $RETRODOXY/w11/tcl/html/index.html &
+     firefox $RETRODOXY/w11/vhd/html/index.html &
