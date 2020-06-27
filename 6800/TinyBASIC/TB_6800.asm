@@ -5,7 +5,9 @@
 ; 
 ; Note this might look like valid assembler, but possibly isn't
 ; for reference only
-
+;
+; DGG - Noted my changes with my initials
+; 
 
                 org    0
                 rmb    32
@@ -292,7 +294,7 @@ IL_baseaddr:   fdb start_of_il      ; only used address where IL code starts
 ;------------------------------------------------------------------------------
 ; Cold start entry point
 ;------------------------------------------------------------------------------
-COLD_S:        ldx     #ram_basic   ; initialize start of BASIC
+COLD_S:        ldx     #$0900		; DGG - initialize start of BASIC
                stx     start_prgm
 
 find_end_ram:  inx                  ; point to next address
@@ -1412,10 +1414,10 @@ il_done:       lds     top_of_stack ; finished with IL
 ;------------------------------------------------------------------------------
 ; Break routine for Motorola MINIBUG
 ;------------------------------------------------------------------------------
-minibug_break: ldaa    $FCF4        ; ACIA control status
+minibug_chkbreak: ldaa    $FC18        ; ACIA control status
                asra                 ; check bit0: receive buffer full
                bcc     locret_776   ; no, exit, carry clear
-               ldaa    $FCF5        ; load ACIA data
+               ldaa    $FC19        ; load ACIA data
                bne     locret_776   ; if not NUL, return carry set
                clc                  ; was NUL, ignore, retun carry clear
 
@@ -1424,17 +1426,17 @@ locret_776:    rts
 ;------------------------------------------------------------------------------
 ; Input/Echo routine for Motorola MINIBUG
 ;------------------------------------------------------------------------------
-minibug_inoutput: ldaa $FCF4        ; get ACIA status
+minibug_inoutput: ldaa $FC18        ; get ACIA status
                asra                 ; check bit: receiver buffer empty?
                bcc     minibug_inoutput ; yes, wait for char
-               ldaa    $FCF5        ; get ACIA data
+               ldaa    $FC19        ; get ACIA data
                psha                 ; save it for later
 
-wait_tdre:     ldaa    $FCF4        ; get ACIA status
+wait_tdre:     ldaa    $FC18        ; get ACIA status
                anda    #2           ; check bit1: transmit buf empty?
                beq     wait_tdre    ; no, wait until transmitted
                pula                 ; restore char
-               staa    $FCF5        ; echo data just entered
+               staa    $FC19        ; echo data just entered
                rts
 
 ;------------------------------------------------------------------------------
@@ -1542,7 +1544,7 @@ il_test_return: fcb $89,'R','E','T','U','R','N'+$80
                fcb $E0              ; BE  00: if not eoln, error
                fcb $15              ; RS    : restore saved line
                fcb $1D              ; NX    : next BASIC statement
-il_test_end:   fcb $85,'E',N','D'+$80
+il_test_end:   fcb $85,'E','N','D'+$80
                                     ; BC  05: if not "END", branch to il_test_list
                fcb $E0              ; BE  00: if not eoln, error
                fcb $2D              ; WS    : stop

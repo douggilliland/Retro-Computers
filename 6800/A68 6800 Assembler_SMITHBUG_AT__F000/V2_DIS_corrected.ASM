@@ -1,5 +1,13 @@
-	titl "MIKES-M6802 OPERATING SYSTEM"
-;	REV 2.0
+	titl "DGG-MIKBUG-M6800 OPERATING SYSTEM"
+;	DGG - Was "MIKES-M6802 OPERATING SYSTEM"
+;	DGG - Was REV 2.0
+; 
+; DGG - D. Gilliland - My changes have DGG at the start of the line.
+; 	Uses a68 assembler. Command line to make S-Record output.
+;		a68 V2_DIS_corrected.ASM -l V2_DIS_corrected.LST -s smithbug.s
+;	Use srec_cat to shift from EPROM absolute addresses to 0x0000 as HEX file for Altera Quartus MIF
+;		srec_cat smithbug.s -offset - -minimum-addr smithbug.s -o smithbugF000_IO-FC.hex -Intel
+;	Need to watch Quartus warning and remove next to last line in the .HEX file
 ;
 ; This is the latest SMITHBUG+S1 source 
 ; with the Disassembler "PSH A = MISSING A" bug removed 
@@ -27,7 +35,7 @@
 ;	K	CONTINUE AFTER BREAK
 ;	1	BREAKPOINT ONE
 ;	2	BREAKPOINT TWO
-;	&	S1 LOAD PROGRAMME
+;	&	S1 LOAD PROGRAM
 ;	*	HARDWARE LOCATION (TBA)
 ;	O	ECHO ON
 ;	N	ECHO OFF
@@ -35,66 +43,70 @@
 ;
 ;	ADDRESS
 ;
-VAR	EQU	$DF00		; TOP OF USER MEMORY
+; DGG - Set the start of the scratchpad SRAM which is at the top of the 60KB of user memory
+;       to reflect the M6800 FPGA memory map 
+VAR	EQU	$EF00		; TOP OF USER MEMORY
 ;
-		ORG VAR	;V1 has ORG at $A000H
-;
-BUFFER	RMB 2		;V2: Buffer to protect system scratch
-IOV		RMB 2		;here and below same as V1
+		ORG VAR
+; DGG - RAM variables for MIKBUG
+BUFFER		RMB 2		;V2: Buffer to protect system scratch
+IOV			RMB 2		;here and below same as V1
 BEGA		RMB 2
 ENDA		RMB 2
-NIO		RMB 2
-SP		RMB 2
+NIO			RMB 2
+SP			RMB 2
 ACIAT		RMB 1
 ECHO		RMB 1
-XHI		RMB 1
+XHI			RMB 1
 XLOW		RMB 1
 TEMP		RMB 1
-TW		RMB 2
+TW			RMB 2
 TFLAG		RMB 1
 XTEMP		RMB 2
 BKFLG		RMB 1
-SWIPTR	RMB 45
+SWIPTR		RMB 45
 STACK		RMB 8
-PRINTR	RMB 3
-BFLAG 	RMB 1
+PRINTR		RMB 3
+BFLAG 		RMB 1
 MFLAG		RMB 1
 XFLAG		RMB 1
 BITE2		RMB 1
 BITE3		RMB 15
-TSTACK	RMB 1
-OPSAVE	RMB 1
-PB1		RMB 1
-PB2		RMB 1
-PB3		RMB 1
-BYTECT	RMB 1
-PC1		RMB 1
-PC2		RMB 1
-BPOINT	RMB 3
-BKFLG2	RMB 1
+TSTACK		RMB 1
+OPSAVE		RMB 1
+PB1			RMB 1
+PB2			RMB 1
+PB3			RMB 1
+BYTECT		RMB 1
+PC1			RMB 1
+PC2			RMB 1
+BPOINT		RMB 3
+BKFLG2		RMB 1
 MCONT		RMB 1
 ; V2 S-record data area
-TEMPX1	RMB 2			; S-Load Temporary X register
-ADDRESS	RMB 1			; Build 16 bit address byte 1
+TEMPX1		RMB 2			; S-Load Temporary X register
+ADDRESS		RMB 1			; Build 16 bit address byte 1
 ADDRESS1	RMB 1			; Build 16 bit address byte 2
 BYTESTORE	RMB 1			; Save Byte Count
 TEMPA		RMB 1			; Save A Register
+; DGG - Fixed addresses for ACIA to match FPGA board address mapping
+ACIACS	EQU	$FC18
+ACIADA	EQU	$FC19
+; DGG - Addresses in I/O space
+; DGG - PIA is unused in this build
+;PIAD1A	EQU	$FC00		;V2 has PIA support
+;PIAS1A	EQU	$FC01
+;PIAD1B	EQU	$FC02
+;PIAS1B	EQU	$FC03
 ;
-ACIACS	EQU	$E018		;V1 has $8000, $8001
-ACIADA	EQU	$E019
-;
-PIAD1A	EQU	$E000		;V2 has PIA support
-PIAS1A	EQU	$E001
-PIAD1B	EQU	$E002
-PIAS1B	EQU	$E003
-;
-PIAD2A	EQU	$E008
-PIAS2A	EQU	$E009
-PIAD2B	EQU	$E00A
-PIAS2B	EQU	$E00B
+;PIAD2A	EQU	$FC08
+;PIAS2A	EQU	$FC09
+;PIAD2B	EQU	$FC0A
+;PIAS2B	EQU	$FC0B
 ;
 ;	OPT	MEMORY
 ;
+; DGG - RAM at $F000 - $FFFF with hole at 0xFC00-0xFCFF
 	ORG	$F000			;V1 has $F800H
 ;
 ;	ENTER POWER ON SEQUENCE
@@ -102,8 +114,8 @@ PIAS2B	EQU	$E00B
 START EQU *
 	LDS #STACK
 	STS SP
-	CLR ECHO
-	LDX #SFE
+	CLR ECHO		; DGG - default to serial port echo on
+	LDX #SFE		; DGG - VECTORED SWI ROUTINE
 	STX SWIPTR
 	STX NIO
 ;
@@ -1091,8 +1103,10 @@ GETCOUNT	BSR	GETHEX		; Get the byte number
 		CMPA	0,X		; Test if RAM OK
 		BNE	QUESTION	; If write failed send Question and abort
 		INX			; Increment address pointer
-		; bad instruction CMPX	VAR		; Is it the system scratch area
-		BGT	S1EXIT		; Abort if close to system scratch
+; DGG next line was commented out
+;		CMPX	VAR		; Is it the system scratch area
+; DGG commented out this next line because previous line missing always caused next line to fail
+;		BGT	S1EXIT		; Abort if close to system scratch
 		BRA	GETCOUNT	; go get another byte
 ;
 S1EXIT	LDX	#S1STRING		; Protect System Scratch Abort S1
