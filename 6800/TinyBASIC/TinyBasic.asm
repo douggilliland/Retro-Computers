@@ -24,7 +24,7 @@
 ;
 ; v0.2.2 - 2011/11/11
 ;        Reduced version containg only a terminal monitor
-;        for an 6850 ACIA ad Tom Pitman's Tiny Basic
+;        for an 6850 ACIA aNd Tom Pitman's Tiny Basic
 ;
 ; v0.2.1 - 2011/05/18
 ;        Ported to Michal Kowalski's macro assembler

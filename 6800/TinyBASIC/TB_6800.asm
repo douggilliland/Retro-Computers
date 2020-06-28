@@ -1,4 +1,4 @@
-; Tom PitIL_tman's 6800 tiny BASIC
+; Tom Pittman's 6800 tiny BASIC
 ; reverse analyzed from (buggy) hexdump (TB68R1.tiff and TB68R2.tiff) at 
 ; http://www.ittybittycomputers.com/IttyBitty/TinyBasic/index.htm
 ; by Holger Veit
