@@ -1,0 +1,185 @@
+	.macro	CLC
+		ANDCC	#$FE
+	.endm
+
+	.macro	SEC
+		ORCC	#$01
+	.endm
+
+;	Title:			Stack Manager
+;
+;	Name:			INITST, PUSH, POP 
+;
+;	Purpose:		This program consists of three
+;				subroutines that manage a stack.
+;
+;				INITST sets up the stack pointer and its upper and Lower bounds
+;
+;				PUSH inserts a 16-bit element into the stack.
+;
+;				POP removes a 16-bit element from the stack.
+;
+;	Entry:			INITST
+;
+;				Base address of stack in X
+;				Size of stack data area in words in D
+;				PUSH Base address of stack in X Element in D
+;				POP Base address of stack in X
+;
+;	Exit:			INITST Stack header set up with:
+;
+;				Stack pointer = base address of stack data area
+;				Lower bound = base address of stack data area
+;				Upper bound = address just beyond end of stack data area
+;
+;				PUSH
+;					If stack pointer is below upper bound,
+;						ELement added to stack
+;						Stack pointer = Stack pointer + 2
+;						Carry = 0
+;					else
+;						Carry = 1
+;
+;				POP
+;					If stack pointer is at or above lower bound, 
+;						Element removed from stack in X
+;						Stack pointer = Stack pointer + 2
+;						Carry = 0
+;					else
+;						Carry = 1
+;
+;	Registers Used:			INITST	A,B,CC,U,X PUSH CC,U POP CC,U,X
+;
+;	Time:			INITST	43 cycles
+;
+;				PUSH	41 cycles
+;
+;				POP	36 cycles
+;
+;	Size:			Program 46 bytes
+;
+; INITIALIZE AN EMPTY STACK
+;
+; HEADER CONTAINS:
+;
+;	1) STACK POINTER (2 BYTES)
+;	2) LOWER BOUND (2 BYTES)
+;	3) UPPER BOUND (2 BYTES)
+;
+	;
+	; STACK POINTER = BASE ADDRESS OF STACK DATA AREA
+	; LOWER BOUND = BASE ADDRESS OF STACK DATA AREA
+	;
+INITST:
+	LEAU	6,X		; GET BASE ADDRESS OF STACK DATA AREA
+	STU	,X++		; STORE IT AS INITIAL STACK POINTER
+	STU	,X++		; STORE IT AS LOWER BOUND ALSO
+				; UPPER BOUND = ADDRESS JUST BEYOND END OF STACK DATA AREA ALSO	
+				;
+	ASLB			; MULTIPLY SIZE OF DATA AREA BY 2
+	RORA			; SINCE SIZE IS IN WORDS
+	LEAU	D,U		; FIND ADDRESS JUST BEYOND END OF
+				; STACK DATA AREA
+	STU	,X		; STORE IT AS UPPER BOUND
+	RTS
+;
+;	INSERT A 16-BIT ELEMENT INTO A STACK
+;
+PUSH:
+	;
+	; EXIT INDICATING OVERFLOW (CARRY SET) IF STACK IS FULL
+	;
+	LDU	,X		; GET STACK POINTER
+	LEAU	2,U		; INCREMENT STACK POINTER BY 2
+	CMPU	4,X		; COMPARE TO UPPER BOUND
+	BCC	OVRFLW		; BRANCH IF STACK POINTER AT OR
+	    			; ABOVE UPPER BOUND
+				;
+				; NOTE:
+				; THIS COMPARISON HANDLES
+				; SITUATIONS IN WHICH THE STACK POINTER
+				; HAS BECOME MISALIGNED
+				; OR GONE OUTSIDE ITS NORMAL RANGE.
+	;
+	; NO OVERFLOW - INSERT ELEMENT INTO STACK
+	; UPDATE STACK POINTER
+	;
+	STD	-2,U		; INSERT ELEMENT INTO STACK
+	STU	,X		; SAVE INCREMENTED STACK POINTER
+	CLC			; CLEAR CARRY TO INDICATE
+				; INSERTION WORKED
+	RTS
+	;
+	; OVERFLOW - SET CARRY AND EXIT
+	;
+OVRFLW:
+	SEC			; SET CARRY TO INDICATE OVERFLOW
+	RTS
+;
+;	REMOVE A 16-BIT ELEMENT FROM A STACK
+;
+POP:
+	; EXIT INDICATING UNDERFLOW (CARRY SET) IF STACK IS EMPTY
+	;
+	LDU	,X		; GET STACK POINTER
+	LEAU	-2,U		; DECREASE STACK POINTER BY 2
+	CMPU	2,X		; COMPARE TO LOWER BOUND
+	BCS	EXITSP		; BRANCH (EXIT) IF BELOW LOWER BOUND
+				;
+				; NOTE: THIS COMPARISON HANDLES
+				; SITUATIONS IN WHICH THE STACK
+				; POINTER HAS BECOME MISALIGNED OR
+				; GONE OUTSIDE ITS NORMAL RANGE.
+	;
+	; NO UNDERFLOW - REMOVE ELEMENT AND DECREASE STACK POINTER
+	;
+	STU	,X		; SAVE UPDATED STACK POINTER
+	LDX	,U		; REMOVE ELEMENT
+EXITSP:
+	RTS			; EXIT
+;
+; SAMPLE EXECUTION
+;
+
+SC7B:
+	;
+	; INITIALIZE EMPTY STACK
+	;
+	LDX	#STACK		; GET BASE ADDRESS OF STACK
+	LDD	#STKSZ		; GET SIZE OF STACK DATA AREA IN WORDS
+	JSR	INITST		; INITIALIZE STACK HEADER
+	;	
+	; PUT ELEMENT 1 IN STACK
+	;
+	LDD	ELEM1		; GET ELEMENT 1 
+	LDX	#STACK		; GET BASE ADDRESS OF STACK AREA 
+	JSR	PUSH		; PUT ELEMENT 1 IN STACK
+
+	;
+	; PUT ELEMENT 2 IN STACK
+	;
+	LDD	ELEM2		; GET ELEMENT 2 
+	LDX	#STACK		; GET BASE ADDRESS OF STACK AREA 
+	JSR	PUSH		; PUT ELEMENT 2 IN STACK
+	;
+	; REMOVE ELEMENT FROM STACK
+	;
+	LDX	#STACK		; GET BASE ADDRESS OF STACK 
+	JSR	POP		; REMOVE ELEMENT FROM STACK TO X
+				; X NOW CONTAINS ELEMENT 2
+				; SINCE STACK IS ORGANIZED ON A
+				; LAST-IN, FIRST-OUT BASIS
+	BRA	SC7B		; LOOP FOR MORE TESTS
+
+
+;
+; DATA
+;
+STACK	RMB	16		; STACK HAS ROOM FOR 6-BYTE HEADER
+				; AND 10 BYTES OF DATA (5 WORD-LENGTH ELEMENTS)
+ELEM1	RMB	2		; 2 BYTE ELEMENT
+ELEM2	RMB	2		; 2 BYTE ELEMENT
+STKSZ	EQU	5		; SIZE OF STACK DATA AREA IN WORDS
+
+	END
+

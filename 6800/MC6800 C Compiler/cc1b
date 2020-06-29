@@ -1,0 +1,350 @@
+
+ lib sysdef
+
+* temp driver
+
+ text
+
+
+cc leax -2800,s set stack
+ sys stack
+ lbsr cinit init system
+ jsr ioinit
+ ldx #CEND set end marker
+ leay 2,s point to args
+ jsr prs init the preprocessor
+ leax 4,s point to args
+ stx argpt save ptr
+ jsr opts process options
+2 jsr nxtfil open next file
+ beq 4f EQ if none left
+ pshs x save module name
+ jsr cinit init compiler
+ jsr reset reset all preproc defs
+ clr char
+ clr token
+ puls x get module name
+ jsr obgmod output begin module code
+ jsr progrm process program
+ jsr oenmod output end module code
+ bra 2b
+4 lbsr clnup
+ jsr flusho
+ ldd errcnt check for errors
+ beq 8f
+ ldx #erbuf point to buffer
+ jsr decstn convert error count
+ ldu #erbuf point to number
+ jsr pstrng
+ ldu #ercstr point to string
+ jsr pstrng
+8 ldd #0
+ sys term
+9 sys term
+
+ercstr fcc ' compilation error(s) detected.',$d,0
+
+*** temp mod name
+tmdnam fcc 'modnam',0
+
+ pag
+
+*
+* opts
+*
+* Get and process any calling line options.
+*
+
+opts ldx argpt get arg pointer
+ pshs x save arg ptr
+1 ldx 0,x get arg
+ beq 15f is it null?
+ ldd 0,x++ get 1st 2 chars
+ cmpa #'+ is it '+'?
+ beq 2f
+ ldx 0,s get arg ptr
+ leax 2,x bump to next arg
+ stx 0,s save it
+ bra 1b repeat
+15 puls x,pc return
+2 cmpb #'z pass comments?
+ bne 3f
+ inc comopt set flag
+ bra 7f
+3 cmpb #'l is it list on?
+ bne 7f
+ inc lstflg set list flag
+ bra 7f
+7 ldb 0,x+ get next option
+ bne 2b
+ ldx 0,s get arg pointer
+ leax 2,x bump to next
+ stx 0,s save it
+ bra 1b
+
+
+pcrlf lda #$d output cr
+ jmp outch
+
+rpteat bsr rpterr report error
+
+eatsc pshs x,y
+1 jsr getok get token
+ clr token eat it
+ cmpa #EOF is it end of file?
+ beq 2f
+ cmpa #1 is it ; ?
+ bne 1b
+2 puls x,y,pc return
+
+rpterr pshs x,y
+ ifc &a,"swi"
+ swi
+ endif
+ pshs d
+ ldd errcnt bump error count
+ addd #1
+ std errcnt
+ tst lstflg listing file?
+ bne 2f
+ jsr pfile print file name
+2 jsr pline print line
+ puls d
+4 pshs d save error number
+ ldu #erstr0
+ jsr pstrng
+ puls d get error number
+ clra
+ decb remove bias
+ ldu #ertab point to error table
+ aslb
+ rola
+ ldu d,u get error string
+ jsr pstrng print it
+ clra set error
+ puls x,y,pc return
+
+erstr0 fcc '**** ',0
+
+*
+* fatal error handler
+*
+
+error pshs d save error number
+ ldu #erstr0
+ jsr pstrng
+ ldd 0,s get error number
+ cmpd #127
+ bhi 2f
+ cmpd #31
+ bls 4f
+ ldd #31 set error
+ bra 4f
+2 subd #95 remove bias
+4 clra
+ decb remove bias
+ ldu #fertab point to error table
+ aslb
+ rola
+ ldu d,u get error string
+ jsr pstrng print it
+ ldu #abstr point to abort string
+ jsr pstrng
+ puls d get error code
+ sys term exit
+
+abstr fcc 'Compilation aborted.',$d,0
+
+rptfnd jsr rpterr report error
+
+fndsc pshs x,y
+1 jsr getok get token
+ cmpa #1 is it ; ?
+ beq 2f
+ cmpa #EOF end of file?
+ beq 2f
+ clr token eat token
+ bra 1b
+2 puls x,y,pc return
+
+
+pstrng stu iewrt2 save pointer
+ clrb set count
+2 lda 0,u+ find term
+ beq 4f
+ incb bump count
+ bra 2b
+4 clra
+ std iewrt3 save count
+ beq 6f null?
+ ldd #1 set fd
+ sys ind,iewrt
+6 rts return
+
+fotdec ldd 0,x
+ ldx #dcvbuf
+ pshs y
+ bsr decstn
+ puls y
+ leax 1,x
+ decb
+ pshs b
+2 lda 0,x+
+ jsr outch output it
+ dec 0,s
+ bne 2b
+ puls b,pc
+
+ data
+dcvbuf fdb 0,0,0,0,0,0
+
+ text
+
+*
+* decst
+*
+* Convert the number in D into an ascii string
+* representing a decimal number.  The string
+* is pointed at by X (X should be set on entry!)
+* Also on exit, D has the length of the string.
+* The second entry point, 'decstn' will not print
+* leading spaces for leading zeroes, but will
+* suppress all leading zero info.  All strings
+* start with a space.
+*
+
+decst pshs x save user pointer
+ clr 0,-s set suppression flag
+ bra 2f
+*
+decstn pshs x save user pointer
+ clr 0,-s
+ inc 0,s set for no fielding
+2 pshs a
+ lda #$20 setup leading space
+ sta 0,x+ save in buffer
+ puls a
+ clr 0,-s set up bookkeeping
+ clr 0,-s
+ ldy #conlst point to constants
+4 cmpd 0,y compare number to constant
+ blo 5f
+ subd 0,y do subtraction of constant
+ inc 1,s bump digits counter
+ bra 4b
+5 pshs a save number
+ tst 2,s zero digit?
+ bne 6f
+ tst 1,s any numbers output yet?
+ bne 6f
+ tst 3,s doing suppression?
+ bne 8f
+ lda #$20 set up space
+ bra 7f
+6 lda 2,s get digit count
+ inc 1,s set 'got one' flag
+ ora #$30 make ascii
+7 sta 0,x+ save in buffer
+8 puls a reset number
+ clr 1,s clear out digit
+ leay 2,y bump constant ptr
+ cmpy #conend end of list?
+ bne 4b
+ leas 3,s clean up stack
+ orb #$30 make last digit
+ stb 0,x+ save in buffer
+ clr 0,x null terminate string
+ tfr x,d
+ subd 0,s calculate string length
+ puls x,pc return
+
+* constants for convert
+
+ data
+
+conlst fdb 10000
+ fdb 1000
+ fdb 100
+ fdb 10
+conend equ * end of list
+
+ text
+
+ pag
+
+
+* outch
+
+outch pshs d,x,y
+ ldd errcnt check errors?
+ bne 6f
+ tst comopt comments on?
+ beq 2f
+ jsr flpass flush comments
+2 ldx outchp
+ cmpx #outchb+512 end of buffer
+ bne 4f
+ ldd outfd get file desc
+ sys write,outchb,512
+ ldx #outchb reset ptr
+4 lda 0,s get char
+ sta 0,x+ place in buffer
+ stx outchp save ptr
+6 puls d,x,y,pc return
+
+* flush output
+
+flusho ldd outchp get count
+ subd #outchb
+ beq 2f
+ std iwrt2 save count in call
+ ldd outfd get file desc
+ sys ind,iwrt
+2 rts return
+
+* init io stuff
+
+ioinit ldx #inchb set ptrs
+ stx inchp
+ stx inche
+ ldx #linbuf init list buffers
+ stx linend
+ stx linptr
+ ldx #outchb
+ stx outchp
+ stx outche
+ clr cmccnt clear comment char count
+ ldx #pasbuf get pass char buffer
+ stx pasptr save as ptr
+ ldd #0
+ std infd set file desc
+ sys create,tfile,$3f
+ std outfd set output file desc
+ rts return
+tfile fcc 'cc_temp',0
+
+* pass comment code (flush the comment)
+
+flpass ldb cmccnt get count
+ bne 2f nonzero?
+ rts return
+2 clr comopt temp set opt to 0
+ clr cmccnt zero char count
+ pshs d,x,y save reg
+ lda #CMNT output comment code
+ jsr outch
+ ldx #pasbuf point to char buffer
+ stx pasptr reset pointer
+4 lda 0,x+ get char
+ jsr outch output it
+ dec 1,s dec the count
+ bne 4b
+ cmpa #NL last chr a NL?
+ beq 6f
+ lda #NL output NL
+ jsr outch
+6 clra output null
+ jsr outch
+ inc comopt reset option flag
+ puls d,x,y,pc return
+

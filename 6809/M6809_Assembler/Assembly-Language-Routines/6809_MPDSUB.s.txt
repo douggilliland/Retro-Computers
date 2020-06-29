@@ -1,0 +1,110 @@
+	.macro	CLC
+		ANDCC	#$FE
+	.endm
+	.macro	SEC
+		ORCC	#1
+	.endm
+; Title:		Multiple-Precision Decimal Subtraction
+;
+; Name:			MPDSUB
+;
+; Purpose:		Subtract 2 arrays of BCD bytes
+;			Minuend := Minuend - Subtrahend
+;
+; Entry:		TOP OF STACK
+;			High byte of return address
+;			Low  byte of return address
+;			Length of the arrays in bytes
+;			High byte of subtrahend address
+;			Low  byte of subtrahend address
+;			High byte of minuend address
+;			Low  byte of minuend address
+;
+;			The arrays are unsigned BCD numbers
+;			with a maximum length of 255 bytes,
+;			ARRAY[0]	is the least significant byte, and
+;			ARRAY[LENGTH-1]	is the most significant byte.
+;
+; Exit:			Minuend := Minuend - Subtrahend
+;
+; Registers Used:	A,B,CC,U,X
+;
+; Time:			26 cycles per byte plus 36 cycles overhead
+; 
+;
+; Size:			Program 30 bytes
+;
+
+MPDSUB:
+	;
+	; CHECK IF LENGTH OF ARRAYS IS ZERO
+	; EXIT WITH CARRY CLEARED IF IT IS
+	;
+	SEC			; SET CARRY TO START
+	LDB	2,S		; CHECK LENGTH OF ARRAYS
+	BEQ	SBEXIT		; BRANCH (EXIT) IF LENGTH IS ZERO
+	;
+	; SUBTRACT OPERANDS 2 DIGITS AT A TIME BY ADDING TEN'S
+	; COMPLEMENT OF SUBTRAHEND TO MINUEND
+	; CARRY IS INVERTED BORROW IN TEN'S COMPLEMENT ARITHMETIC
+	; NOTE THAT DAA WORKS ONLY AFTER ADDITION INSTRUCTIONS
+	; BYTE OF TEN'S COMPLEMENT = 99 HEX + INVERTED BORROW
+	; BYTE OF SUBTRAHEND. RESULT IS ALWAYS NON-NEGATIVE
+	; AND CARRY AND HALF CARRY ARE ALWAYS 0, SO NO PROBLEM
+	; WITH SUBTRACTING BCD OPERANDS
+	;
+	LDX	5,S		; GET BASE ADDRESS OF MINUEND
+	LDU	3,S		; GET BASE ADDRESS OF SUBTRAHEND
+SUBBYT:
+	LDA	#$99		; FORM 2 DIGITS OF 10'S COMPLEMENT
+	ADCA	#0		; OF SUBTRAHEND
+	SUBA	,U+
+	ADDA	,X		; ADD 2 DIGITS OF MINUEND
+	DAA			; MAKE RESULT DECIMAL
+	STA	,X+		; SAVE DIFFERENCE OVER MINUEND
+	DECB
+	BEQ	SUBBYT		; CONTINUE UNTIL ALL DIGITS SUBTRACTED
+	;
+	; REMOVE PARAMETERS FROM STACK AND EXIT
+	;
+SBEXIT:
+	LDX	,S		; SAVE RETURN ADDRESS
+	LEAS	7,S		; REMOVE PARAMETERS FROM STACK
+	JMP	,X		; EXIT TO RETURN ADDRESS
+;
+;
+; SAMPLE EXECUTION
+;
+;
+SC3I:
+	LDY	AY1ADR		; GET BASE ADDRESS OF MINUEND
+	LDX	AY2ADR		; GET BASE ADDRESS OF SUBTRAHEND
+	LDA	#SZAYS		; GET LENGTH OF OPERANDS IN BYTES
+	PSHS	A,X,Y		; SAVE PARAMETERS IN STACK
+	JSR	MPDSUB		; MULTIPLE-PRECISION DECIMAL SUBTRACTION
+				;
+				; RESULT 0F 28364150H - 17598093H
+				; = 10766057H
+				; IN MEMORY
+				;	AY1	= 57H
+				;	AY1+1	= 60H
+				;	AY1+2	= 76H
+				;	AY1+3	= 10H
+				;	AY1+4	= 00H
+				;	AY1+5	= 00H
+				;	AY1+6	= 00H
+;
+; DATA
+;
+SZAYS	EQU	7		; LENGTH OF ARRAYS IN BYTES
+AY1ADR	FDB	AY1		; BASE ADDRESS OF ARRAY 1
+AY2ADR	FDB	AY2		; BASE ADDRESS OF ARRAY 2
+
+AY1:	FCB	$50,$41,$36,$28,0,0,0
+AY2:	FCB	$93,$80,$59,$17,0,0,0
+
+	END
+
+
+
+

@@ -1,0 +1,215 @@
+
+
+ ttl External Definition Parsing
+ pag
+
+
+*
+* parse a program
+*
+
+progrm bsr extdef do external defs
+ bne 1f
+ clr token eat token
+1 lbsr getok get next token
+ cmpa #EOF end of file?
+ bne progrm
+ andcc #$fb set true
+ rts return
+
+*
+* process an external definition
+*
+
+extdef clr blklev set level to zero
+ clr dtype clear data type info
+ clr dtype+1
+ clr deftyp
+ ldx #eldesc init element desc
+ stx nxteld
+ lda #EXTN set default class
+ sta dclass
+ lbsr tstcls test for class spec
+ beq 2f
+ cmpa #EXTN is it external?
+ beq 2f if so, ok
+ cmpa #STAT is it static?
+ beq 2f error?
+ cmpa #TYPDF is it type define?
+ beq 2f
+ ldb #1 set error code
+ jsr rpterr report it
+2 lbsr tsttyp test type
+ beq 3f
+ lbsr type process type
+ beq extder error?
+3 lbsr getok get next token
+ cmpa #1 is it ';'? (null dec)
+ beq 5f
+ lbsr dodec process declaration
+ beq extder error?
+ lbsr getok get next token
+ cmpa #1 is it ';'?
+ beq 5f
+ cmpa #9 is it comma?
+ beq 4f
+ lda fndcf function defined?
+ bne 35f error?
+ ldb #8 set code
+ jmp rpterr
+35 bsr funbod process function body
+ rts return
+4 clr token eat the token
+ lda pmlsf parameters found?
+ beq 45f error?
+ ldb #9
+ jmp rptfnd report error
+45 lbsr dctlst process rest of list
+ beq extder error?
+ lbsr getok get token
+ cmpa #1 is it ';'?
+ beq 47f error?
+ ldb #10
+ jmp rptfnd report error
+47 clr token eat the token
+ tsta set true
+ rts return
+5 clr token eat the token
+ lda pmlsf parameters found?
+ beq 6f error?
+ ldb #9
+ jmp rptfnd report error
+6 andcc #$fb set true
+ rts return
+extder clra set error
+ rts return
+
+*
+* process a function body
+*
+
+funbod jsr obfnct output function begin
+ lbsr nxtlab get ret lab
+ std retlab
+ ldd #FSTAUT set auto count
+ std nxtaut
+ ldx #swttab reset switch table
+ stx nxtsw
+ lda #1 set block level to 1
+ sta blklev
+ ldx fmrksy save table pointers
+ ldy fmrksu
+ pshs x,y save them
+ bsr argdec process argument declarations
+ bne 4f error?
+ jsr eatsc find ;
+4 jsr oprms output parameter decs
+ ldd #0 clear register count
+ std nxtreg
+ lbsr cmpstm do funct body
+ beq funbor
+ ldd retlab get return lab
+ jsr olabel output label
+ jsr oefnct output end function
+ puls x,y clear this level
+ lbsr clrlev
+ andcc #$fb
+ rts
+funbor puls x,y get table pointers
+ lbsr clrlev clear out this block level
+ clra set error
+ rts return
+
+*
+* process the argument declarations
+*
+
+argdec lbsr getok get next token
+ cmpa #2 is it '{'?
+ beq 2f
+ clr dclass clear temps
+ clr dtype
+ clr dtype+1
+ clr deftyp
+ lbsr type process type
+* beq argder error?
+ lbsr dctlst do declaration list
+* beq argder error?
+ lbsr getok get next token
+ cmpa #1 is it ';'?
+ beq 1f error?
+ ldb #12 set error
+ jsr rptfnd report
+ bra argder
+1 clr token eat it
+ bra argdec repeat
+2 andcc #$fb set true
+ rts return
+argder clra set error
+ rts
+
+*
+* process parameter list
+*
+
+prmlst ldx #prmlnk reset list to empty
+ stx nxtprm
+ ldd #0 set list empty
+ std 0,x
+2 lbsr getok get token
+ cmpa #20 is name?
+ beq 22f error?
+ ldb #7 set error
+ jmp rpterr report it
+22 ldx symloc get symbol
+ clr token
+ tst sclass,x check for defined?
+ beq 6f
+ ldb sblklv,x check if also param
+ cmpb #1
+ bne 24f
+ ldd #22 set error
+ jsr rpterr
+ bra 7f
+24 pshs x save symbol entry
+ lda sflags,x get flags
+ ora #FPSHD set pushed status
+ sta sflags,x
+ jsr getsym get new symbol
+ stx symloc save entry
+ puls d get old entry
+ std spshd,x save pushed location
+6 lda #INT set INT
+ ldb #AUTO set AUTO
+ sta stype+1,x
+ stb sclass,x
+ lda #1 set block level
+ sta sblklv,x
+ lda sflags,x show it ia param
+ ora #FPRM set bit
+ sta sflags,x
+ ldd nxtarg get arg address
+ std sstore,x set in table
+ addd #2 bump arg address as if INT
+ std nxtarg save new value
+ ldy nxtprm set list pointer
+ stx 0,y++ save this param
+ sty nxtprm
+ cmpy #prmlnk+PRLEN overflow?
+ bhs 9f
+ ldd #0 null terminate list
+ std 0,y
+7 lbsr getok get token
+ cmpa #9 is it ","?
+* bne prmls4
+ bne 8f
+ clr token
+ bra 2b repeat
+8 andcc #$fb set true
+ rts
+prmerr clra set false
+ rts
+9 ldd #134 set error
+ jmp error
+
+

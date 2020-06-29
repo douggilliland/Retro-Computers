@@ -1,0 +1,619 @@
+ opt lis
+
+* code generation for unary ops
+
+* nop
+
+noop ldd -EXPSIZ+rslt,x get result
+ std rslt,x set new result
+nop leax EXPSIZ,x skip entry
+ stx codptr save new pointer
+ rts return
+
+* cvt code generation
+
+cvt ldu op1ptr get op
+ ldb enbtyp save the type
+ pshs b
+ jsr gettyp get operand type
+ bitb #$30 complex type?
+ beq 2f
+ andb #$30
+ cmpb #$10 is it ptr?
+ bne 1f
+ ldb #8
+ bra 2f
+1 ldb #9 set ptr type
+2 andb #$f
+ ldy #typcnv
+ decb
+ ldb b,y get basic type
+ stb enbtyp set new type
+ ldu op1ptr get op1
+ lda 0,u get type
+ cmpa #NNODE is it node?
+ beq 6f
+ cmpa #NNAME is it name?
+ bne 3f
+ lda 1,u get class
+ cmpa #REG is it register?
+ beq 6f
+3 cmpb #8 pointer type?
+ blo 4f
+ lda 0,s get basic type
+ cmpa #2 integral type?
+ bls 5f
+ bra 6f
+4 lda 0,s get basic type
+ cmpa #8 pointer type?
+ blo 6f
+ cmpb #2 op1 type integral?
+ bhi 6f
+5 puls b
+ stb enbtyp reset type
+ jmp lod go do load
+6 jsr load do load
+ puls b reset type
+ stb enbtyp
+ ldu op1ptr
+ ldy #cvttab point to routine list
+ jmp [b,y] do it
+
+cvttab fdb chcvt,intcvt,lncvt,fpcvt,ptcvt,arcvt
+
+chcvt jsr gettyp get operand type
+ cmpb #UNSND is it unsigned?
+ lbls rsltb if integral - nop
+ swi
+intcvt jsr gettyp get operand type
+ cmpb #CHR is it character?
+ beq 2f
+ cmpb #UNSND integral?
+ bhi 4f
+ jmp rsltd nop
+2 ldd entype get type of result
+ cmpb #UNSND
+ beq 3f
+ jsr osex output 'sex'
+ clr ccok
+ bra 35f
+3 jsr oclra output 'clra'
+ clr ccok
+35 jmp rsltd
+4 bitb #$30 complex type?
+ beq 6f
+ ldy curadr get ar
+ jsr cmplar complete ar
+ jsr chkdb check if d busy
+ ldy curadr get ar
+ lda ar_ref,y get reference
+ cmpa #UREF in u?
+ bne 5f
+ jsr otfrud output 'tfr u,d'
+ bra 35b
+5 jsr otfrxd output 'tfr x,d'
+ ldd #0
+ std xcont
+ bra 35b
+6 swi
+lncvt swi
+fpcvt swi
+ptcvt
+arcvt jsr gettyp get type of op
+ bitb #$30 complex?
+ beq 2f
+ jmp nop
+2 cmpb #CHR is it character?
+ beq 4f
+ cmpb #UNSND integral?
+ bhi 5f
+3 jsr chkxb check if x busy
+ jsr otfrdx output 'tfr d,x'
+ jsr gtareg get ar
+ lda #XREF set xref
+ sta ar_ref,y
+ sty curadr
+ sty xcont set x contents
+ ldd #0
+ std dcont
+ jmp ptrfin go finish
+4 jsr osex output 'sex'
+ bra 3b
+5 swi
+
+* fpp code generation
+
+fpp ldu op1ptr get op1
+ ldb enbtyp get basic type
+ ldy #fpptab point to routines
+ jmp [b,y] go do it
+
+fpptab fdb chfpp,intfpp,lnfpp,fpfpp,ptfpp,arfpp
+
+chfpp jsr fixar fix ar reg
+ jsr oinc output 'inc'
+ jsr giadr gen address
+ inc ccok
+ jsr tstfol end of exp?
+ beq 1f
+ ldu op1ptr get op1
+ jsr load do load
+1 jmp rsltb set result
+intfpp jsr fixar fix ar
+ jsr tstfol end of exp?
+ beq infpp2
+ jsr load do load
+ jsr oaddd1 output 'addd #1'
+ ldu op1ptr get op1
+ jmp intasn do store code
+infpp2 jsr oinc output 'inc'
+ ldd #1 set offset
+ std offval
+ clr spctos
+ jsr giadro gen address
+ jsr obne1f output 'bne 1f'
+ jsr oinc output 'inc'
+ ldu op1ptr get op1
+ jsr giadr gen address
+ jsr o1lab output '1'
+ clr ccok
+ jmp rsltd set result
+lnfpp swi
+fpfpp swi
+ptfpp
+arfpp jsr load do load of op1
+ clr mmflag
+ jsr spcinc check for special case
+ bne 2f
+ ldy curadr get ar
+ jmp ptrfin go finish
+2 ldy curadr get ar
+ lda ar_ref,y check for u ref
+ cmpa #UREF
+ beq 4f
+ jsr cmplar reduce ar
+ jsr adcoff check for offset addition ok
+4 ldu op2ptr get constant
+ ldd 2,u
+ addd ar_off,y add to offset
+ std ar_off,y
+ ldu op1ptr get op1
+ lda ar_ref,y get ref
+ cmpa #UREF is it u?
+ beq 6f
+ jmp ptasn do assignment
+6 sta uflag
+ jsr cmplar reduce ar
+ clr uflag
+ jmp ptrfin finish up
+
+* fmm code generation
+
+fmm ldu op1ptr get op1
+ ldb enbtyp get basic type
+ ldy #fmmtab point to routines
+ jmp [b,y] go do it
+
+fmmtab fdb chfmm,intfmm,lnfmm,fpfmm,ptfmm,arfmm
+
+chfmm jsr fixar
+ jsr odec output 'dec'
+ jsr giadr gen address
+ inc ccok
+ jsr tstfol end of exp
+ beq 1f
+ ldu op1ptr get op1
+ jsr load do load
+1 jmp rsltb set result
+intfmm jsr fixar
+ jsr load do load
+ jsr osubd1 output 'subd #1'
+ ldu op1ptr get op1
+ jmp intasn do store code
+lnfmm swi
+fpfmm swi
+ptfmm
+arfmm jsr load do load
+ inc mmflag
+ jsr spcinc special case?
+ bne 05f
+ ldy curadr get ar
+ jmp ptrfin finish up
+05 ldy curadr get ar
+ lda ar_ref,y check for u ref
+ cmpa #UREF
+ beq 1f
+ jsr cmplar
+1 jsr tstaut test for auto dec
+ bne 2f
+ rts return
+2 lda ar_ref,y u ref?
+ cmpa #UREF
+ beq 4f
+ jsr cmplar reduce ar
+ jsr adcoff check offset
+4 ldu op2ptr get constant
+ ldd #0 negate constant
+ subd 2,u
+ addd ar_off,y add in offset
+ std ar_off,y
+ ldu op1ptr get op1
+ lda ar_ref,y u ref?
+ cmpa #UREF
+ beq 6f
+ jmp ptasn do assignment
+6 sta uflag
+ jsr cmplar reduce ar
+ clr uflag
+ jmp ptrfin finish up
+
+* bpp code generation
+
+bpp ldu op1ptr get op1
+ jsr fixar
+ jsr tstfol
+ beq 1f
+ jsr load do load
+ ldu op1ptr get op1
+1 ldb enbtyp get type
+ ldy #bpptab point to routines
+ jmp [b,y] do it
+
+bpptab fdb chbpp,intbpp,lnbpp,fpbpp,ptbpp,arbpp
+
+chbpp jsr oinc output 'inc'
+ jsr giadr gen address
+ clr ccok
+ jmp rsltb set result
+intbpp jmp infpp2 same as above
+lnbpp swi
+fpbpp swi
+ptbpp
+arbpp jsr load do load
+ clr mmflag
+ jsr spcinc special case
+ bne 05f
+ ldu op2ptr get offset
+ ldy curadr
+ ldd #0 set neg offset
+ subd 2,u
+ std ar_off,y
+ jmp ptrfin go finish
+05 ldy curadr get ar
+ lda ar_ref,y get ref
+ cmpa #UREF
+ beq 1f
+ jsr cmplar
+1 jsr tstaut test for auto inc
+ bne 2f
+ rts return
+2 lda ar_ref,y get reference
+ cmpa #UREF u reg?
+ beq 4f
+ jsr cmplar reduce it
+ jsr adcoff check offset
+4 ldu op2ptr get constant
+ ldd 2,u
+ pshs d save it
+ addd ar_off,y add in offset
+ std ar_off,y
+ ldu op1ptr get op
+ lda ar_ref,y
+ cmpa #UREF
+ bne 5f
+ sta uflag
+ jsr cmplar reduce ar
+ clr uflag
+ jsr ptrfin finish pointer
+ bra 6f
+5 jsr ptasn do assignment
+6 ldy curadr get ar
+ ldd #0 negate offset
+ subd 0,s++
+ std ar_off,y
+ rts return
+
+* bmm code generation
+
+bmm ldu op1ptr get op1
+ jsr fixar
+ jsr tstfol end of exp?
+* beq 1f
+ jsr load do load
+ ldu op1ptr get op1
+1 ldb enbtyp get type
+ ldy #bmmtab point to routines
+ jmp [b,y] go do it
+
+bmmtab fdb chbmm,intbmm,lnbmm,fpbmm,ptbmm,arbmm
+
+chbmm jsr odec output 'dec'
+ jsr giadr gen address
+ jmp rsltb set result
+intbmm jsr otst output 'tst'
+ ldd #1 set offset
+ std offval
+ clr spctos
+ jsr giadro gen address
+ jsr obne1f output 'bne 1f'
+ jsr odec output 'dec'
+ ldu op1ptr get op1
+ inc nofree
+ jsr giadr gen address
+ jsr o1dec output '1 dec'
+ ldd #1 set offset
+ std offval
+ clr spctos
+ ldu op1ptr get op1
+ jsr giadro
+ clr ccok
+ jmp rsltd set result
+lnbmm swi
+fpbmm swi
+ptbmm
+arbmm jsr load do load
+ inc mmflag set neg
+ jsr spcinc special case?
+ bne 2f
+ ldu op2ptr get offset
+ ldy curadr
+ ldd 2,u
+ std ar_off,y set in offset
+ jmp ptrfin finish up
+2 ldy curadr get ar
+ lda ar_ref,y uref?
+ cmpa #UREF
+ beq 4f
+ jsr cmplar reduce ar
+ jsr adcoff check offset
+4 ldu op2ptr get constant
+ ldd #0 negate it
+ subd 2,u
+ addd ar_off,y add in offset
+ std ar_off,y
+ ldu op1ptr get op1
+ lda ar_ref,y u ref?
+ cmpa #UREF
+ bne 5f
+ sta uflag
+ jsr cmplar reduce ar
+ clr uflag
+ jsr ptrfin finish ptr op
+ bra 6f
+5 jsr ptasn do assignment
+6 ldy curadr get ar
+ ldu op2ptr get constant
+ ldd 2,u
+ std ar_off,y set in ar
+ rts return
+
+* not code generation
+
+not ldu op1ptr get op1
+ jsr load do load
+ com revcon reverse compare
+ jmp cndfin
+
+* adr code generation
+
+adr ldu op1ptr get op1
+ jsr ptld do pointer load
+ ldy curadr get address reg
+ inc ar_adr,y set address mode
+ bra ptrfin go finish
+
+* ind code generation
+
+ino ldu op1ptr get operand
+ jsr ptld do pointer load
+ clr doind clear flag
+ pshs y
+ jsr tstfol
+ puls y
+ bne 2f
+ inc doind set ind flag
+2 sta nxtopr save operator
+ ldy curadr get address reg
+ pshs y,x
+ ldu op1ptr get operand
+ jsr gettyp get type
+ puls y,x reset regs
+* tst ar_ind,y ind set?
+* bgt 22f
+* andb #$f0
+* cmpb #$50 ptr - ptr?
+* bne 22f
+* inc ar_ind,y
+22 andb #$30 get complex type
+ cmpb #ARAY<<4 is it array?
+ beq 25f
+* bne 23f
+* ldb enbtyp get result type
+* cmpb #8 is it pointer
+* bne 25f
+* lda ar_ref,y check reference
+* cmpa #XREF
+* bne 25f
+23 inc ar_ind,y bump indirect count
+25 ldb enbtyp check for structure
+ cmpb #12
+ bne 3f
+ jsr cmplar reduce ar
+ ldy curadr get ar
+3 lda ar_ind,y get count
+ cmpa #1
+ bls ptrfin
+ lda enbtyp get type
+ cmpa #8 pointer type?
+ bhs 35f
+ lda ar_ref,y check reference
+ cmpa #XREF
+ beq ptrfin
+ cmpa #UREF
+ beq ptrfin
+ bra 37f
+35 lda nxtopr check operator
+ cmpa #FPP is it auto inc?
+ blo 37f
+ cmpa #BMM
+ bls 36f
+ cmpa #ADA
+ blo 37f
+ cmpa #ASN
+ bhi 37f
+36 dec ar_ind,y
+37 inc frcind
+ jsr cmplar reduce ar
+ptrfin ldx codptr get code pointer
+ stx ar_con,y set contents of ar reg
+ sty rslt,x save result location
+ leax EXPSIZ,x next entry
+ stx codptr
+ tst doind do ind now?
+ bne 4f
+ rts return
+4 leax -EXPSIZ,x
+ stx codptr
+ clr doind
+ ldu #faknod set up fake node
+ lda #NNODE set node type
+ sta 0,u
+ ldd #1 set exp count
+ ldx #exptbl point to exp
+5 cmpx codptr this guy?
+ beq 6f
+ leax EXPSIZ,x next entry
+ incb bump count
+ bra 5b
+6 std 1,u set node number
+ stu op1ptr set op1
+ jmp lod do load op
+
+* unm code generation
+
+unm ldu op1ptr get operand
+ jsr load do load
+ ldb enbtyp get type
+ ldy #unmtab point to routines
+ jmp [b,y]
+
+unmtab fdb chunm,intunm,lnunm,fpunm
+
+chunm jsr onegb output 'negb'
+ inc ccok
+ jmp rsltb set result
+intunm jsr onegd output 'negd'
+ clr ccok
+ jmp rsltd set result
+lnunm swi
+fpunm swi
+
+* com code generation
+
+com ldu op1ptr get operand
+ jsr load do load
+ ldb enbtyp get type
+ ldy #comtab point to routines
+ jmp [b,y]
+
+comtab fdb chcom,intcom,lncom,fpcom
+
+chcom jsr ocomb output 'comb'
+ inc ccok
+ jmp rsltb
+intcom jsr ocomb output 'comb'
+ jsr ocoma output 'coma'
+ clr ccok
+ jmp rsltd set restult
+lncom swi
+fpcom swi
+
+* get operand type for cvt routines
+
+gettyp ldb 0,u what is this entry?
+ cmpb #NNODE
+ bne 2f
+ ldb 2,u get node number
+ jsr fndnod find the node
+ ldd rtype,y get type
+ rts return
+2 cmpb #NNAME is it name?
+ bne 3f
+ ldd 2,u get type
+ rts return
+3 ldb 1,u get constant type
+ clra
+ rts return
+
+* test if end of expression
+
+tstfol ldy codptr get code pointer
+1 leay EXPSIZ,y get next entry
+ cmpy expptr end of exp?
+ beq 4f
+ lda oprtr,y get operator
+ bmi 2f branch type?
+ cmpa #NOP is it nop?
+ beq 1b
+ bra 4f
+2 cmpa #LBL is it label
+ beq 1b
+ sez set false
+4 rts return
+
+* test for auto inc or dec conditions
+
+tstaut pshs x,y,u save regs
+ ldu op1ptr get op1
+ lda entype+1 get result type
+ bita #$c0 if complex - forget it
+ bne 6f
+ anda #$f check basic type
+ cmpa #UNSND must be integral
+ bhi 6f
+ lda 0,u check node type
+ cmpa #NNAME
+ bne 6f
+ ldx #exptbl point to exp list
+ ldb #1 set node count
+2 cmpx codptr calculate node number
+ beq 3f
+ leax EXPSIZ,x
+ inc b
+ bra 2b
+3 leay EXPSIZ,x get next entry
+ cmpy expptr end of exp?
+ beq 6f
+ lda oprtr,y get operator
+ cmpa #IND is it indirection?
+ bne 6f
+ leay op1,y point to operand
+ lda 0,y get node type
+ cmpa #NNODE is it node?
+ bne 6f
+ cmpb 2,y ind for this exp entry?
+ bne 6f
+ ldu op2ptr get inc amount
+ ldd 2,u
+ ldy curadr point to ar
+ std ar_inc,y set auto inc
+ lda oprtor get operator
+ cmpa #BPP is it O++ ?
+ beq 4f
+ ldd #0 make inc negative
+ subd ar_inc,y
+ std ar_inc,y
+4 ldu op1ptr set up auto inc name
+ lda ar_ref,y is it u ref?
+ cmpa #UREF
+ beq 5f
+ stu autptr
+5 stx ar_con,y
+ sty rslt,x
+ leax EXPSIZ,x get next guy
+ stx codptr
+ sez set status
+ puls x,y,u,pc return
+6 clz set status
+ puls x,y,u,pc return
+

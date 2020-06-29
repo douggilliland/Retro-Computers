@@ -1,0 +1,795 @@
+
+ ttl Code generation - 0
+ pag
+
+*
+* There are several files involving code generation.
+* They are all name codgenN where N is a number.
+*
+
+*
+* Operation classifications
+*
+
+* I. Special (1-20)
+* II. Unary (21-39)
+* III. Binary (40-49)
+* IV. Special (50-59)
+* V. Relops (60-69)
+* VI. Asgnops (70-80)
+* VII. Special (90-127)
+
+
+*
+* Binary operator table
+*
+* 0 = CHAR - CHAR
+* 1 = CHAR - INT
+* 2 = INT - CHAR
+* 3 = INT - INT
+* 4 = LONG - LONG
+* 5 = FLOAT - FLOAT
+*
+
+ pag
+
+*
+* Generate code for an expression matrix.
+*
+
+ ifnc &A,"MAT"
+ 
+codmat clr dcont
+ clr xcont
+ tst ycont y have register var?
+ bmi codma1
+ clr ycont
+codma1 ldd #0
+ std crdvar
+ std flab
+ std tlab
+ clr comtyp
+ clr dflab
+ clr dtlab
+ clr matlev
+ std curtph
+ ldy #emat point to matrix
+codma2 bsr cdntry generate code for this entry
+ beq codmar error?
+ inc matlev bump level counters
+ leay MATSIZ,y find next entry
+ tst 0,y is it end?
+ bne codma2 if not, repeat
+ lda cndlf is this a conditional?
+ bne codma4
+ lbsr dellab
+ bra codma6
+codma4 bpl codma5
+ lbsr revcon reverson comparison
+codma5 clr cndlf clear status
+* do nocc processing here ??
+ ldd cexlab get cond label
+ beq codmar error?
+ std flab set false label
+ clr dflab **** ???? ****
+ lbsr gfbra generate false branch
+codma6 andcc #$fb set true
+codmar rts return error
+
+ endif
+
+*
+* Generate code for the current entry in the expression
+* matrix.  This entry is pointed to by Y reg.
+*
+
+cdntry lbsr watgot find out whats in this entry
+ lda oprtrc check operator class
+ deca
+ asla
+ ldx #optyt point to vectors
+ jmp [a,x] go to appropriate routine
+
+optyt fdb spclo
+ fdb unry
+ fdb binry
+ fdb spclt
+ fdb relp
+ fdb asgp
+ fdb spclh
+
+
+ pag
+
+*
+* Determine all pertinent info about current matrix
+* entry pointed at by Y reg.
+*
+
+watgot lbsr oprt classify operator
+ leax mo1loc,y point to operand 1
+ pshs y
+ bsr figop classify it
+ sta op1loc save location info
+ stx op1clh save class info
+ sty op1adr save address
+ puls y
+ leax mo2loc,y point to operand 2
+ pshs y
+ bsr figop classify it
+ sta op2loc save location
+ stx op2clh save class info
+ sty op2adr save address
+ puls y,pc return
+
+*
+* Determine all info about matrix operand pointed
+* to by the X reg.  Return location info in A and
+* type info in X.
+*
+
+figop ldd 0,x get location
+ beq figop6
+ tsta is it memory?
+ bne figop4
+ ldx #fgptb point to table
+figop1 cmpb [0,x++] find type in table
+ beq figop3
+ leax 1,x next entry
+ cmpx #fgptbe end of table
+ bne figop1
+ ldx #emat point to matrix begin
+ lda #MATSIZ
+ pshs b
+ decb
+ mul find referenced entry
+ leax d,x
+ puls b
+ lda moprtr,x get operator
+ cmpa #36 is it unary * ?
+ bne figop2
+ tst mo1loc,x is entry in memory?
+ beq figop2
+ tfr x,y it is, so point to it
+ lda #INDLOC set indirect
+ ldx mttype,x get type
+ rts return
+figop2 tfr x,y point to stacked entry
+ lda #STKLOC set to stack
+ ldx mttype,x get type
+ rts return
+figop3 lda 0,x get location from table
+ ldy #0 set address to 0
+ bra fndetp find type
+figop4 ldy 0,x get address of var
+ lda 1,y get type
+ anda #$f mask it
+ cmpa #CONST is it constant?
+ bne figop5
+ ldb 0,y get type of constant
+ clra
+ tfr d,x set type
+ lda #CONLOC set location
+ rts return
+figop5 lda #MEMLOC set location
+ ldx stype,y get type
+figop6 rts return
+
+fgptb fdb dcont
+ fcb REGLOC
+ fdb xcont
+ fcb XLOC
+ fdb ycont
+ fcb YLOC
+ fdb stcont
+ fcb STRLOC
+fgptbe equ * end of table
+
+*
+* Find the type of matrix entry N which is in B reg.
+* Return type in X.
+*
+
+fndetp ldx #emat point to matrix base
+ decb
+ pshs a
+ lda #MATSIZ calculate location
+ mul
+ leax d,x point to entry
+ puls a
+ ldx mttype,x get type
+ rts return it in b
+
+ pag
+
+*
+* Classify the operator type.
+*
+
+oprt lda moprtr,y get operator
+ ldb #1 set initial index
+ cmpa #20 is it special I?
+ bls oprt4
+ incb bump index
+ cmpa #39 is it unary op?
+ bls oprt4
+ incb bump index
+ cmpa #49 is it binary op?
+ bls oprt4
+ incb
+ cmpa #59 is it special II?
+ bls oprt4
+ incb
+ cmpa #69 is it relational op?
+ bls oprt4
+ incb
+ cmpa #80 is it assign op?
+ bls oprt4
+ incb
+oprt4 stb oprtrc save type class
+ rts return
+
+ pag
+
+*
+* Determine type combination of the two operands.
+* Set the ptrref flag if a pointer reference is made.
+*
+
+pairs clr ptrref clr flags
+ clr oppair
+ lda op1cls check operand 1 class
+ bita #$30 is it a pointer type?
+ beq pairs1
+ anda #$30 check for function
+ cmpa #FNCT<<4
+ beq pairsr
+ inc ptrref set reference flag if so
+ lda #INT change type to integer
+ bra pairs2
+pairs1 cmpa #CHR is it character?
+ bne pairs2
+ lda op2cls check operand 2
+ bita #$30 is it pointer?
+ beq pair15
+ anda #$30 check for function
+ cmpa #FNCT<<4
+ beq pairsr
+ inc ptrref set reference flag
+ lda #INT make integer
+pair15 clrb
+ cmpa #CHR is it character?
+ beq pairs8
+ incb set next type
+ bita #INT is it integer?
+ bne pairs8
+ bra pairsr error!
+pairs2 bita #INT is it integer?
+ beq pairs4
+ ldb #2 set type
+ lda op2cls check operand 2
+ bita #$30 is it pointer?
+ beq pairs3
+ anda #$30
+ cmpa #FNCT<<4 is it function?
+ beq pairsr
+ inc ptrref set reference flag
+ lda #INT make integer
+pairs3 cmpa #CHR is it character?
+ beq pairs8
+ incb next type
+ bita #INT is it integer?
+ bne pairs8
+ bra pairsr error!
+pairs4 cmpa #LONG|INT is it long?
+ bne pairs6
+ ldb #4 set type
+ lda op2cls check op 2
+ cmpa #LONG|INT is it long too?
+ beq pairs8
+ bra pairsr error!
+pairs6 cmpa #DUBLE is it double fp?
+ bne pairsr error?
+ ldb #5 set type
+ cmpa op2cls same as op 2?
+ bne pairsr error?
+pairs8 stb oppair set pair type
+ andcc #$fb set true
+ rts return
+pairsr clra set error
+ rts return
+
+
+*
+* Do operand arrangement for commutative operator.
+*
+
+carng clr revops clear flag
+ lda op2loc check loc of op 2
+ cmpa #REGLOC is it register?
+ bne carng2
+ bsr chpar
+ inc revops set reversed flag
+carng2 rts return
+
+* same - for non commutative
+
+arng clr revops
+ lda op2loc
+ cmpa #REGLOC
+ bne arng2
+ bsr chpar
+ dec revops
+arng2 rts
+
+*
+* Change pairing order if mixed
+*
+
+chpar lda oppair check pairing
+ cmpa #1
+ bne chpar2
+ inc oppair reverse this one
+ rts
+chpar2 cmpa #2
+ bne chpar4
+ dec oppair reverse it
+chpar4 rts return
+
+
+*
+* Push current type register on stack
+*
+
+pshcur lda dcont check d contents
+ beq pshcu8
+ lda curtyp check type
+ clr dcont
+ cmpa #CHR character?
+ lbeq otpshb output "psh b"
+ cmpa #INT integer?
+ lbeq otpshd output "psh d"
+pshcu8 rts return
+
+
+*
+* Generate load of second operand
+*
+
+ldsop ldx #op2loc point to info
+ bra ldfo12
+
+*
+* Generate load of first operand
+*
+
+ldfop lda revops operands reversed?
+ bne ldfop4
+ldfop1 ldx #op1loc point to op1
+ldfo12 ldd 1,x get type
+ std ldopch save it
+ andb #$30 check for pointer
+ cmpb #PTR<<4
+ lbeq ldptr
+ lda 0,x get location
+ cmpa #REGLOC in register?
+ beq ldfop5 if so, done!
+ldfo15 tst dcont d reg busy?
+ beq ldfop2
+ pshs x
+ bsr pshcur push current if necessary
+ puls x
+ldfop2 ldd 3,x get var name
+ beq ldfo25
+ cmpd crdvar same as current?
+ beq ldfop5
+ldfo25 std crdvar set current name
+ lda matlev update d contents
+ inca
+ sta dcont
+ lda 2,x get type
+ cmpa #CHR is it character?
+ beq ldchr do load char
+ cmpa #INT is it int?
+ beq ldint
+ cmpa #LONG|INT is it long int?
+ lbeq ldlng
+ lbra ldfp load fp
+ldfop4 bmi ldfop6 non commute?
+ldfop5 lda matlev update level info
+ inca
+ sta dcont
+ rts return
+ldfop6 lbsr pshcur push current
+ bra ldfop1
+
+
+*
+* Generate load character code
+*
+
+ldchr pshs x
+ lbsr otldb output "ldb"
+ puls x
+ lbra gadr generate address
+
+*
+* generate load integer code
+*
+
+ldint pshs x
+ lbsr otldd output "ldd"
+ puls x
+ lbra gadr output address info
+
+
+*
+*
+ldlng rts
+ldfp rts
+
+*
+* Load pointer
+*
+
+ldptr lda 0,x get loc info
+ cmpa #XLOC in x?
+ beq ldptr2
+ cmpa #YLOC in y?
+ beq ldptr4
+ tst xcont x busy?
+ beq ldptr2
+ tst ycont y busy?
+ beq ldptr4
+ lbsr pshxr push x register
+ldptr2 lda matlev update level info
+ inca
+ sta xcont
+ lda 0,x get location info
+ cmpa #XLOC in x?
+ beq ldptr6
+ pshs x
+ lbsr otldx output 'ldx'
+ puls x
+ lbra gadr generate address
+ldptr4 lda matlev update level info
+ inca
+ sta ycont
+ lda 0,x get location info
+ cmpa #YLOC in y?
+ beq ldptr6
+ pshs x
+ lbsr otldy output 'ldy'
+ puls x
+ lbra gadr generate address
+ldptr6 rts return
+
+
+
+ pag
+
+*
+* Generate address code
+*
+
+gadr lda 0,x get location
+ cmpa #STKLOC is it stack?
+ lbeq gstk
+ cmpa #CONLOC is it constant?
+ lbeq gcons
+ cmpa #STRLOC structure?
+ lbeq gstr
+ clr btypo
+ cmpa #INDLOC is it indirect?
+ lbeq gindr
+ cmpa #XLOC is it x mod?
+ lbeq gxml
+ cmpa #YLOC is it y mod?
+ lbeq gyml
+gadr12 ldx 3,x point to it
+gadr13 lda sclass,x get classification
+ cmpa #AUTO is it auto type?
+ bne gadr2
+ pshs x
+ ldd sstore,x get offset
+ tst srflg structure?
+ beq gadr14
+ addd stoff add in offset
+gadr14 tst plone plus one?
+ beq gadr15
+ clr plone
+ addd #1 do plus one
+gadr15 lbsr omrkof output offset ",u"
+ puls x,pc
+gadr2 cmpa #STAT is it static?
+ bne gadr3
+ ldd sstore,x get label number
+ tst srflg structure?
+ lbne otslbp output label + offset
+ tst plone plus one?
+ lbne outlbp output lab + 1
+ lbra outlb output label
+gadr3 cmpa #EXTN is it external
+ bne gadr4
+ pshs x
+ tst srflg structure?
+ bne gadr6
+ tst plone plus one?
+ bne gadr5
+ lbsr outnam output variable name
+ puls x,pc return
+gadr4 clra set error????
+ rts
+gadr5 clr plone
+ lbsr otnamp output name+1
+ puls x,pc return
+gadr6 lbsr otnmsp output name + offset
+ puls x,pc return
+
+*
+* Generate constant code
+*
+
+gcons pshs x
+ lbsr otpnd output "#"
+ puls x
+ lda 2,x get constant type
+ ldx 3,x point to it
+ cmpa #CHR is it character
+ beq gchr
+ cmpa #INT is it integer?
+ beq gint
+ clr btypo
+ clr plone
+ rts return
+
+* generate character constant
+
+gchr clra make integer
+ ldb 2,x get number
+ tst btypo check for bit type
+ beq gchr4
+ clrb get top half only
+gchr4 clr btypo
+ clr plone
+ lbra outcon output constant
+
+* generate integer constant
+
+gint ldd 2,x get number
+ tst btypo
+ beq gint4
+ tfr a,b get top half only
+ clra
+ clr btypo
+gint4 tst plone
+ beq gint6
+ clr plone
+ clra
+gint6 lbra outcon output it
+
+*
+* Generate stack reference address
+*
+
+gstk ldx 3,x point to it
+ ldb mttype+1,x get type
+ anda #$f ???????????????????
+ tst btypo bit type?
+ bne gstk1
+ tst plone bit again?
+ bne gstk1
+ cmpb #CHR is it character
+ bne gstk2
+gstk1 clr btypo
+ clr plone
+ lbra ot0sp output "0,s+"
+gstk2 cmpb #INT is it integer?
+ bne gstk4
+ lbra ot0spp output "0,s++"
+gstk4 clra error ??????
+ rts
+
+*
+* Generat indirect address
+*
+
+gindr pshs x save x
+ lbsr otlsb output "["
+ puls x
+ clr btypo
+ ldx 3,x get address
+ inc inaflg show indirection
+ lbsr gadr12 output address
+ clr inaflg
+ pshs x
+ lbsr otrsb output "]"
+ puls x
+ clz set true
+gindr4 rts return
+
+*
+* Generate x mod address
+*
+
+gxml ldd xmod+mcon get constant
+ std num save it
+ pshs x
+ tst xmod+mind indirect?
+ beq gxml2
+ lbsr otlsb output '['
+ inc inaflg set ind flag
+gxml2 lbsr otnum output number
+ lbsr otcmx output ',x'
+ tst inaflg indirect?
+ beq gxml4
+ clr inaflg clear mode
+ clr xmod+mind
+ lbsr otrsb output ']'
+gxml4 puls x
+ ldd #0 clear info
+ sta xcont
+ std xmod+mcon
+ clz set true
+ rts return
+
+*
+* Generate y mod address
+*
+
+gyml ldd ymod+mcon get offset
+ std num
+ pshs x
+ tst ymod+mind indirect?
+ beq gyml2
+ lbsr otlsb output '['
+ inc inaflg set mode
+gyml2 lbsr otnum output number
+ lbsr otcmy output ',y'
+ tst inaflg indirect?
+ beq gyml4
+ clr inaflg clear mode
+ clr ymod+mind
+ lbsr otrsb output ']'
+gyml4 puls x
+ ldd #0 clear info
+ sta ycont
+ std ymod+mcon
+ clz set true
+ rts return
+
+*
+* Generate structure reference address
+*
+
+gstr lda stref check ref type
+ bne gstr4 indexed?
+ inc srflg set mode
+ ldx stnam point to name
+ lbsr gadr13 gen address
+ bra gstr8
+gstr4 pshs a save ref type
+ ldd stoff get offset
+ std num
+ puls a
+ deca check if x or y ref
+ bne gstr6
+ lbsr otcmx output ',x'
+ bra gstr8
+gstr6 lbsr otcmy output ',y'
+gstr8 tst btypo bit type op?
+ bne gstr9
+ ldd #0 clear out ref info
+ std stnam
+ std stoff
+ sta stcont
+gstr9 clr btypo
+ clr srflg
+ rts return
+
+
+*
+* Set current level type
+*
+
+gtcuru ldd op1clh get op 1 class
+ bra gtcur2
+gtcur ldd op1clh check op 1 class
+ cmpd op2clh is it same as op 2?
+ bhs gtcur2
+ ldd op2clh must use op 2 type
+gtcur2 std curtph set current type
+ std mttype,y set in matrix
+ andcc #$fb set true
+ rts return
+
+
+*
+* Update reg mod with D
+*
+
+updrmd tst mreg,y reg mod present?
+ beq updrd6
+ pshs y
+ cmpy #xmod doing x mod?
+ bne updrd2
+ lbsr otledx output 'leax d,x'
+ bra updrd3
+updrd2 lbsr otledy output 'leay d,y'
+updrd3 puls y
+ clr dcont clear reg contents
+ clr mreg,y
+updrd6 lda matlev set level
+ inca
+ sta mlev,y
+ rts return
+
+*
+* Update reg mod with constant
+*
+
+updrmc ldd mcon,y check for constant mod
+ beq updrc6
+ std num save constant
+ pshs y
+ cmpy #xmod modifying x?
+ bne updrc2
+ lbsr otleax output 'leax'
+ lbsr otnum output number
+ lbsr otcmx output ',x'
+ bra updrc3
+updrc2 lbsr otleay output 'leay'
+ lbsr otnum output number
+ lbsr otcmy output ',y'
+updrc3 puls y
+ ldd #0 finish up
+ std mcon,y
+updrc6 lda matlev update level
+ inca
+ sta mlev,y
+ rts return
+
+*
+* Partial update of modifiers
+*
+
+pupd ldy #xmod point to mods
+ cmpa #XLOC is it x?
+ beq pupd2
+ ldy #ymod switch to y mod
+ pshs y
+ lda matlev update level
+ inca
+ sta ycont
+ lbsr otldy output 'ldy'
+ ldx #ymod+mnam point to name
+ bra pupd4
+pupd2 pshs y
+ lda matlev update level
+ inca
+ sta xcont
+ lbsr otldx output 'ldx'
+ ldx #xmod+mnam point to name
+pupd4 ldx 0,x point to var
+ lbsr gadr13 gen address
+ puls y
+ lbsr updrmd update reg mod
+ rts return
+
+*
+* Push x register
+*
+
+pshxr
+* update x first !!!!!! ***************
+ lbsr otpshx output 'pshs x'
+ clr xcont
+ rts return
+
+
+*
+* Update x
+*
+
+** still to go .... updx, updy, pshxr **
+

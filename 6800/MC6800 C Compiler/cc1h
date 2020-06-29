@@ -1,0 +1,1492 @@
+
+
+ ttl parser for declarations
+ pag
+
+*
+* declaration list
+*
+
+dcllst bsr spctst check for specifier
+ beq 2f
+ bsr declar declarators
+* beq dclerr
+ bra dcllst
+2 andcc #$fb set true
+dclerr rts return
+
+*
+* parse the declarator
+*
+
+declar bsr spcfr do specifier
+ beq decer2
+ lbsr tstdcl check for declarator
+ beq 2f
+ lbsr dctlst do declaration list
+ beq decer2
+2 lbsr getok get token
+ cmpa #1 is it ";"?
+ beq 4f error?
+ ldb #13
+ jsr rptfnd report it
+4 clr token
+ tsta set true
+ rts return
+decerr clra set error
+decer2 rts
+
+*
+* test for specifier
+*
+
+spctst clr dclass clear class
+ clr dtype and type
+ clr dtype+1
+ clr deftyp
+ ldx #eldesc reset descriptor list
+ stx nxteld
+ lbsr getok get next token
+ cmpa #19 keyword?
+ bne 1f
+ lda toktyp get type
+ cmpa #20 check for spec
+ bhs 2f
+ rts return true
+1 cmpa #20 check type defined
+ bne 2f
+ ldx symloc check type
+ lda sclass,x
+ cmpa #TYPDF is it type define?
+ bne 2f
+ andcc #$fb set true
+ rts return
+2 clra set false
+ rts
+
+*
+* process specifier
+*
+
+spcfr bsr tstcls is it class?
+ beq 4f
+ bsr tsttyp is it type?
+ beq 2f
+ lbsr type process type
+ beq 3f
+2 andcc #$fb set true
+3 rts return
+4 bsr tsttyp is it type?
+ bne 5f error?
+ ldb #15 set error
+ jmp rpterr
+5 lbsr type process type
+ beq 3b
+ bsr tstcls test for class
+ bra 2b
+
+*
+* test for CLASS spec
+*
+
+tstcls clr extspc
+ lbsr getok get next token
+ cmpa #19 is it keyword?
+ bne 2f
+ lda toktyp get type
+ cmpa #9
+ bls 2f
+ cmpa #20
+ bhs 2f
+ clr token eat token
+ suba #10 remove bias
+ pshs x
+ ldx #clstbl point to class table
+ lda a,x get class
+ puls x
+ cmpa #EXTN is it external?
+ bne 1f
+ sta extspc
+1 sta dclass set class
+ rts return true
+2 clra return false
+ rts
+
+ data
+clstbl fcb AUTO,EXTN,REG,TYPDF,STAT
+
+ text
+
+*
+* test for TYPE spec
+*
+
+tsttyp lbsr getok get token
+ cmpa #19 is it keyword?
+ bne 1f
+ lda toktyp check type
+ cmpa #10
+ bhs 2f
+ rts return true
+1 cmpa #20 check for typdef
+ bne 2f
+ ldx symloc point to name
+ lda sclass,x check class
+ cmpa #TYPDF is it typdef?
+ bne 2f
+ andcc #$fb set true
+ rts return
+2 clra
+ rts
+
+*
+* process TYPE specifier
+*
+
+type lbsr tststr test for structure
+ bne 4f
+ bsr tsttyp test for type
+ bne 1f error?
+ ldb #15 set error
+ jmp rpterr
+1 bsr settyp set type
+ bsr tsttyp another one?
+ beq 2f
+ bsr settyp
+2 andcc #$fb set true
+ rts
+typerr clra set false
+ rts
+4 lbsr suspc process structure - union
+ beq 8f
+ ldb #STRUCT set type
+ stb dtype+1
+ inc deftyp set type defined
+ tst sukey was it union?
+ beq 5f
+ inc dtype+1 adjust type
+5 andcc #$fb set true
+8 rts
+
+*
+* check for structure type
+*
+
+tststr lbsr getok get next token
+ cmpa #19 is it key word?
+ bne 1f
+ lda toktyp check type
+ cmpa #5 is it 'structure'
+ beq 2f
+ cmpa #6 is it 'union'
+ beq 2f
+1 clra set error
+ rts
+2 andcc #$fb set true
+ rts return
+
+*
+* set the TYPE for ident
+*
+
+settyp lbsr getok get token
+ cmpa #20 is it name?
+ beq 8f
+ clr token use it
+ lda toktyp get type
+ ldy #typtab point to type table
+ deca
+ lda a,y get stored type
+ pshs b
+ ldb dtype+1 get defined type
+ beq 3f any there?
+ cmpa #INT is it integer?
+ bne 2f
+ cmpb #SHORT is previous short, unsigned, or long?
+ blo 1f
+ cmpb #LONG
+ bls 4f
+1 puls b
+ ldd #62 set type error
+ jsr rpterr
+ rts return
+2 cmpa #FLOAT is it float?
+ bne 1b
+ cmpb #LONG
+ bne 1b
+ lda #DUBLE set double float type
+3 sta dtype+1 save new type
+4 inc deftyp set defined type flag
+ puls b,pc
+8 pshs b
+ inc sawtd set saw typdef
+ tst dtype+1 type defined?
+ beq 9f
+ puls b,pc
+9 clr token eat the token
+ puls b
+ ldx symloc point to name
+ ldd stype,x get type
+ std dtype set type
+ inc deftyp
+ rts
+
+ data
+typtab fcb INT,CHR,FLOAT,DUBLE,STRUCT,UNION,LONG,SHORT,UNSND
+
+ text
+
+*
+* test for declarator
+*
+
+tstdcl lbsr getok get token
+ cmpa #20 is it 'name'
+ bne 2f
+1 andcc #$fb set true
+ rts
+2 cmpa #42 is it '*'?
+ beq 1b
+ cmpa #6 is it '('?
+ beq 1b
+8 clra set false
+ rts
+
+*
+* process declarator list
+*
+
+dctlst bsr dodec do declarator
+ beq 1f
+ lda pmlsf parameters in there?
+ beq 1f error?
+ ldb #11
+ jmp rptfnd
+1 lbsr getok get token
+ cmpa #9 is it ","?
+ bne 2f
+ clr token
+ bra dctlst repeat
+2 rts return
+dctlsr clra set error
+ rts
+
+*
+* process a declarator
+*
+
+dodec clr namdec clear name def flag
+ clr initfl
+ clr autinf
+ clr pmlsf clear param flag
+ clr fndcf clear function declar flag
+ lbsr dfdec
+ lbeq 5f error?
+**** new init code *****
+ tst strflg doing structure?
+ bne noint
+ ldd symloc get symbol
+ pshs d save it
+ jsr getok get next token
+ puls x
+ stx symloc
+ cmpa #80 is it "="?
+ bne noint
+ ldd symloc save symbol location
+ pshs d
+ jsr dcinit do init
+ puls d
+ lbeq 5f error?
+ std symloc reset symbol
+ clr istrfl
+ tst extspc external specified
+ beq noint
+ clr extspc
+ ldd #65 set error
+ jsr rpterr
+noint
+ lda dtype+1 get type
+ cmpa #STRUCT is it structure or union?
+ beq 1f
+ cmpa #STRUCT+1
+ bne 2f
+1 ldx symloc point to name
+ pshs d
+ ldd strhdr get structure header
+ std sstrct,x put in sym table
+ puls d
+ cmpa #STRUCT+1 is it union?
+ bne 2f
+ ldb sflags,x get flags
+ orb #FUNION set union bit
+ stb sflags,x
+2 ldb dclass and class
+ tst deftyp type set?
+ bne 3f
+ lda #INT set to INT
+3 tstb classed yet?
+ bne 4f
+ ldb #AUTO set to AUTO
+4 ldx symloc point to symbol
+ tst sclass,x already defined?
+ beq 42f
+ lbsr chkdec check if legal
+ lbeq 5f error?
+42 pshs a save type
+ lda stype+1,x get type
+ anda #$30 check for function
+ cmpa #FNCT<<4
+ puls a
+ bne dod422
+ cmpb #AUTO is it auto storage?
+ bne dod422
+ ldb #EXTN make external
+ stb dclass
+dod422 cmpb #EXTN is it external type?
+ bne 44f
+ tst blklev at level 0?
+ bne 43f
+ tst extspc external specified?
+ bne 43f
+ pshs d,x
+ lda sflags,x get flags
+ anda #!FUND show definition
+ sta sflags,x put back
+ lda stype+1,x check for function
+ anda #$30
+ cmpa #FNCT<<4 is it function?
+ beq dod425
+ ldd stype,x get type
+ orb 0,s set new type
+ jsr esizit get size
+ jsr oextdf output external def
+dod425 puls d,x
+ bra 44f
+43 tst sclass,x defined?
+ bne 44f
+ pshs a
+ lda sflags,x get flags
+ ora #FUND show undefined
+ sta sflags,x put back
+ puls a
+44 pshs d
+ ldd sstore,x check for param
+ puls d
+ lbne fxprm go fix parameter indexes
+ ora stype+1,x
+ sta stype+1,x
+ stb sclass,x
+ cmpb #EXTN is it external
+ bne dod442
+ lda sflags,x check if defined
+ bita #FUND
+ beq dod444
+dod442 lda blklev get block level
+ sta sblklv,x set block level
+dod444 cmpb #AUTO auto storage?
+ bne 45f
+ lbsr sizit get size
+ pshs d
+ ldd nxtaut get auto index
+ subd 0,s++ adjust for new entry
+ std nxtaut
+ std sstore,x
+ jsr oautvr output auto dec
+ tst autinf auto init?
+ beq dod448
+ clr autinf clear flag
+ jsr expb output exp code
+dod448 ldd newsym get new symbol
+ std symloc
+ andcc #$fb set true
+ rts return
+45 cmpb #STAT is it static
+ bne 46f
+ lda stype+1,x check for function
+ anda #$30
+ cmpa #FNCT<<4
+ beq 46f
+ lbra makst make static
+46 cmpb #REG is it register var?
+ bne 6f
+ ldd nxtreg get reg count
+ cmpd #MAXREG too many?
+ bhs 7f
+* check allowable register types here *
+ lda stype+1,x get type
+ anda #$30 mask high part
+ cmpa #PTR<<4 is it pointer?
+ bne 7f
+* end of register type checking *
+ ldd nxtreg get reg number
+ addd #1 bump reg count
+ std nxtreg
+ std sstore,x save storage info
+ jsr oregvr output register dec
+ tst autinf init variable?
+ beq 48f
+ clr autinf clear flag
+ jsr expb output code
+48 ldd newsym
+ std symloc
+ andcc #$fb set true
+ rts return
+5 clra set false
+6 pshs cc
+ ldd newsym
+ std symloc
+ puls cc,pc
+ rts
+7 ldb #AUTO force to auto since no more regs
+ stb sclass,x
+ lbra dod444
+
+*
+* do declaration definition
+*
+
+dfdec ldx symloc save symbol
+ stx newsym
+ pshs x
+ lbsr getok get next token
+ cmpa #20 is it name?
+ bne 2f
+ ldx symloc get symbol
+ lda sclass,x check for TYPEDEF
+ cmpa #TYPDF
+ bne 15f
+ stx newsym
+ puls x get old symbol
+ stx symloc
+ rts return
+15 clr token eat the token
+ puls x
+ tst namdec name defined yet?
+ beq 1f error?
+ ldb #2
+ jsr rpterr
+1 ldx symloc point to symbol
+ inc namdec set defined flag
+ bra dfdec do definition
+2 puls x get symbol
+ stx newsym
+ cmpa #6 is it '('?
+ bne 4f
+ clr token
+ tst namdec named defined?
+ lbne 8f if so, function
+ bsr dfdec
+ lbeq dfdece error?
+ lbsr getok get next token
+ cmpa #7 is it ')'?
+ beq 3f error?
+ ldb #3
+ jsr rpterr
+ bra dfdec
+3 clr token eat token
+ bra dfdec
+4 cmpa #42 is it '*'?
+ bne 6f
+ clr token eat the token
+ tst namdec name defined?
+ beq 5f error?
+ ldb #2
+ jsr rpterr
+5 bsr dfdec
+ tst namdec name defined?
+ bne 55f error?
+ ldb #4
+ jmp rpterr
+55 lda #PTR set pointer type
+ lbsr entdec enter declaration
+ tsta set true
+ rts
+6 cmpa #4 is it '['?
+ lbne 9f
+ clr token eat the token
+ ldx symloc save symbol location
+ lda #1 set constant type
+ sta contyp
+ clr conbuf
+ clr conbuf+1
+ pshs x save x
+ lbsr getok get next token
+ puls x
+ cmpa #5 is it ']' (check null dim)
+ bne 61f
+ ldd #0 set zero value
+ ldy ssubs,x get dim pointer
+ beq 62f
+ ldb #53 set error
+ jsr rpterr
+ bra 7f
+61 pshs x
+ lbsr cexp process constant expression ***
+ puls x
+ stx symloc reset symbol
+62 ldu nxtdim get next dim entry
+ ldy ssubs,x get subs pointer
+ bne 63f is it set?
+ stu ssubs,x set pointer in sym table
+ std 0,u++ set dim value
+ bra 65f
+63 std -2,u set dim value
+65 ldd #$ffff set term value
+ std 0,u++
+ stu nxtdim save next dim pointer
+ cmpu #dimstk+DMLEN overflow?
+ blo 67f
+ ldd #135 set error
+ jmp error
+67 lbsr getok get next token
+ cmpa #5 is it ']'?
+ beq 7f error?
+ ldb #5 set error
+ jmp rpterr
+7 clr token eat the token
+ tst namdec name defined?
+ bne 75f error?
+ ldb #4 set error
+ jmp rpterr
+75 lda #ARAY set array
+ bsr entdec enter declaration
+ lbra dfdec
+8 inc fndcf set function flag
+ ldd symloc save function pointer
+ std funnam
+ ldd nxtsym mark symbol table end
+ std fmrksy
+ ldd nxtsu mark structure table end
+ std fmrksu
+ ldd #FSTARG set arg offset
+ std nxtarg
+ ldy #prmlnk reset param list
+ sty nxtprm
+ ldd #0 set term
+ std 0,y
+ lbsr getok get token
+ cmpa #7 is it ')'?
+ bne 95f params?
+85 clr token eat token
+ lda #FNCT make function type
+ bsr entdec
+ lbra dfdec
+9 rts return
+95 lbsr prmlst process parameter list
+* beq dfdece error?
+ inc pmlsf show params found
+ ldd funnam reset pointer to function
+ std symloc
+ lbsr getok get next token
+ cmpa #7 is it ')'?
+ beq 85b
+ ldb #6 set error
+ jmp rpterr
+dfdece clra error return
+ rts
+
+*
+* enter declaration type
+* need to check for overflow here!!!!
+*
+
+entdec ldx symloc point to symbol
+ ldb stype+1,x get type
+ leax 1,x
+ bitb #$30
+ beq 3f find which 2 bit slot is empty
+ bitb #$c0
+ beq 2f
+ leax -1,x
+ ldb stype,x get top part of type
+ beq 5f
+ bitb #$0c
+ beq 4f
+ bitb #$30
+ beq 3f
+ bitb #$c0
+ bne 6f error (overflow)
+2 asla adjust new type info
+ asla
+3 asla
+ asla
+4 asla
+ asla
+5 ora stype,x put in new value
+ sta stype,x
+ rts return
+6 ldd #64 set error
+ jmp rpterr
+
+*
+* structure - union specifier
+*
+
+suspc clr token eat the key word
+ suba #5 adjust type
+ sta sukey set str-union flag
+ lda strflg
+ pshs a
+ lda #1 set st flag
+ sta strflg
+ lbsr getok get next token
+ puls b reset flag
+ stb strflg
+ cmpa #20 is it identifier?
+ beq 2f
+ cmpa #2 is it '{'?
+ beq 1f
+ ldb #16
+ jmp rpterr
+1 ldx nxtlnk get next link block
+ stx strhdr save as header
+ stx curstr set current structure
+ ldd #0 zero space
+ std 0,x++
+ stx nxtlnk set next link
+ cmpx #lnktab+LNLEN overflow?
+ blo 12f
+ ldd #134 set error
+ jmp error
+12 clr token eat the token
+ ldd strofs save current offset
+ pshs d
+ ldd #0
+ std strofs set to zero
+ jsr stdlst process list
+* beq suspc3 error?
+ lbsr getok get token
+ cmpa #3 is it '}'?
+ beq 13f error?
+ ldb #17
+ jsr rpterr
+ bra 3f
+13 ldd strofs get structure size
+ std [strhdr]
+ puls d reset offset
+ std strofs
+ clr token eat the token
+15 andcc #$fb set true
+ rts return
+2 clr token eat the token
+ ldx symloc
+ pshs x
+ lbsr getok get next token
+ puls x
+ cmpa #2 is it '{'?
+ bne 27f
+ tst sclass,x declared yet?
+ beq 22f error?
+ ldb #18 set error
+ jmp rpterr
+22 ldy nxtlnk get next link block
+ sty strhdr set header
+ sty curstr
+ ldd #0 clear info
+ std 0,y++
+ sty nxtlnk save new next
+ cmpy #lnktab+LNLEN overflow?
+ blo 23f
+ ldd #134 set error
+ jmp error
+23 ldd strhdr get header
+ std sstrct,x set as structure
+ ldd #STRUCT set type
+ std stype,x
+ lda #STRTAG show it is tag
+ ldb sukey str or union
+ beq 25f
+ lda #UNNTAG show union tag
+25 sta sclass,x
+ jmp 12b
+27 ldd sstrct,x get structure pointer
+ bne 28f error?
+ ldb #19
+ jmp rpterr
+28 std strhdr set header
+ bra 15b
+3 puls d
+ std strofs
+suspcr clra set error
+ rts return
+
+*
+* structure declaraton list
+*
+
+stdlst bsr stdec do str declaration
+ beq 1f error?
+ lda strflg save flag
+ pshs a
+ clr strflg
+ lbsr getok get token
+ puls b
+ stb strflg
+ cmpa #3 is it '}'?
+ beq 2f
+ bsr stdlst do list again
+1 rts return
+2 andcc #$fb set true
+ rts return
+
+*
+* process structure declaration
+*
+
+stdec lda strflg save flag
+ pshs a
+ lda #1
+ sta strflg
+ lda dclass save class
+ pshs a
+ lda sukey push str info
+ pshs a
+ ldd curstr
+ pshs d
+ ldd strhdr
+ pshs d
+ ldd #0 clear info
+ std dtype
+ sta deftyp
+ lbsr type process type
+ beq 9f error?
+* lda #1
+* sta strflg
+ ldb #MOS set class
+ tst sukey union?
+ beq 2f
+ ldb #MOU
+2 stb dclass save class
+ bsr stdcl declarator list
+ beq 9f error?
+ puls d
+ std strhdr reset str info
+ puls d
+ std curstr
+ puls a
+ sta sukey
+ puls a
+ sta dclass
+ lbsr getok get token
+ cmpa #1 is it ';'?
+ beq 5f error?
+ ldb #13
+ jsr rptfnd report error
+ bra stdecr
+5 puls a
+ sta strflg
+ clr token eat the token
+ andcc #$fb set true
+ rts return
+9 puls d clean up stack
+ std strhdr
+ puls d
+ std curstr
+ puls a
+ sta sukey
+ puls a
+ sta dclass
+stdecr puls a
+ sta strflg
+ clra set error
+ rts
+
+*
+* structure declarator list
+*
+
+stdcl bsr sdecl process declarator
+ beq 8f error?
+ ldx symloc point to name
+ tst sukey structure or union?
+ bne 3f
+ jsr enteld enter element descriptor
+ ldd sstore,x check offset
+ beq 2f
+ cmpd strofs same as current?
+ beq 25f error?
+ ldb #20 set error
+ jmp rpterr
+2 ldd strofs get offset
+ std sstore,x put in table
+25 lbsr sizit get size
+ cmpd #0 null size?
+ bne 27f
+26 ldb #16 set error
+ jsr rpterr
+ bra 5f
+27 addd strofs add to offset
+ std strofs
+ bra 5f
+3 ldd sstore,x check offset
+ beq 4f error?
+ ldb #21 set error
+ jmp rpterr
+4 lbsr sizit get size
+ cmpd #0 null size?
+ beq 26b
+ cmpd strofs check with current
+ bls 5f
+ std strofs set new size
+5 lbsr getok get next token
+ cmpa #9 is it comma?
+ bne 8f
+ clr token eat it
+ bra stdcl repeat
+8 rts return
+stdclr clra set error
+ rts
+
+*
+* process structure declarator
+*
+
+sdecl lbsr getok get next token
+ cmpa #8 is it ':'?
+ beq 4f
+ clr namdec
+ lbsr dodec do declaration
+ beq 6f error?
+ lbsr getok get next token
+ cmpa #8 is it ':'?
+ bne 6f
+4 clr token eat it
+ lbsr cexp process constant exp
+6 rts return
+
+*
+* check for legal duplicate declaration
+*
+* this will not work with structure (push down part)!!
+*
+
+chkdec pshs d
+ lda sflags,x get flags
+ bita #FPRM is it paramter?
+ beq 2f
+ bita #FFIELD make sure not field
+ bne chkder if so, error
+ ldb blklev get block level
+ cmpb #1 must be 1 for param redef
+ bne chkder
+ anda #!FPRM clear param bit    ?????????????????
+ sta sflags,x
+ bra 8f
+2 ldd 0,s
+ cmpb #EXTN is it external def?
+ bne 4f
+ cmpb sclass,x same class?
+ bne chkder
+ cmpa stype+1,x check same type?
+ bne chkder
+ lda sflags,x get flags byte
+ ldb blklev and current block level
+ bne 8f if not 0, exit ok
+ bita #FUND is it undefined?
+* beq chkder if not, error *** ???????????????????????
+ bra 8f
+4 lda sblklv,x check if different block
+ cmpa blklev
+ beq chkder error?
+ pshs x save current pointer
+ lda sflags,x get flags byte
+ ora #FPSHD set 'pushed' status
+ sta sflags,x
+ lbsr getsym get new symbol
+ stx symloc save location
+ puls d get old pointer
+ std spshd,x save pushed pointer
+8 andcc #$fb set true
+ puls d,pc return
+chkder ldb #22 set error
+ jsr rpterr report it
+ puls d,pc return
+
+*
+* parse type-name
+*
+
+typnam clr dtype clear values
+ clr dtype+1
+ clr deftyp
+ clr sawtd
+ lbsr type process type
+* beq typna2
+ tst sawtd type define?
+ beq 18f
+ pshs y save y reg
+ ldy #absent
+ ldx symloc get typedef symbol
+ sty symloc
+ ldb #SYMSIZ set counter
+15 lda 0,x+ transfer data
+ sta 0,y+
+ decb
+ bne 15b
+ puls y reset y reg
+ bra 19f
+18 ldd #absent init tables
+ std symloc
+ ldd #SYMSIZ zero table
+ ldx #absent point to entry
+1 sta 0,x+
+ decb
+ bne 1b
+19 ldd #adimst
+ std nxtadim
+ bsr absdec do abstract declaration
+ beq 2f
+ ldx symloc
+ lda dtype+1 get basic type
+ anda #$f
+ ora stype+1,x put in symbol table
+ sta stype+1,x
+2 rts return
+
+*
+* process abstract declaration
+*
+
+absdec clr absflg clear dec flag
+2 lbsr getok get token
+ cmpa #6 is it '('?
+ bne 4f
+ clr token eat it
+ tst absflg any yet? (if so, function)
+ lbne 8f
+ bsr 2b next level
+* beq absder error?
+ lbsr getok get next token
+ cmpa #7 is it ')'?
+ beq 3f error?
+ ldb #23
+ jsr rpterr
+ bra 2b
+3 clr token use the token
+ inc absflg set marker
+ bsr 2b next level
+ rts return
+4 cmpa #42 is it '*'?
+ bne 6f
+ clr token eat it
+ tst absflg any yet?
+ beq 5f error?
+ ldb #24 set error
+ jsr rpterr
+5 bsr 2b next level
+* beq absder error?
+ lda #PTR
+ lbsr entdec make entry
+ tsta set true
+ rts return
+6 cmpa #4 is it '['?
+ lbne 9f
+ clr token eat the token
+ ldx symloc get symbol
+ lda #INT set constant type
+ sta contyp
+ clr conbuf set constant to 0
+ clr conbuf+1
+ pshs x save symbol
+ jsr getok get next token
+ puls x
+ cmpa #5 is it ']'?
+ bne 61f
+ ldd #0 set for null dim
+ ldy ssubs,x get subs ptr
+ beq 62f
+ ldb #53 set error
+ jsr rpterr
+ bra 7f
+61 pshs x save symbol
+ lbsr cexp process constant exp
+* beq absder error?
+ puls x get symbol back
+ stx symloc
+62 ldu nxtadim get dim pointer
+ ldy ssubs,x get subs ptr
+ bne 63f
+ stu ssubs,x set ptr
+ std 0,u++ save value
+ bra 65f
+63 std -2,u
+65 ldd #$ffff set term
+ std 0,u++
+ stu nxtadim save next ptr
+ cmpu #adimst+ADLEN overflow?
+ blo 66f
+ ldd #135 set error
+ jmp error
+66 lbsr getok get next token
+ cmpa #5 is it ']'?
+ beq 7f error?
+ ldb #25
+ jmp rpterr
+7 clr token eat it
+ lda #ARAY set type
+ lbsr entdec make entry
+ inc absflg mark it
+ jsr 2b next level
+ rts return
+8 lbsr getok get next token
+ cmpa #7 is it ')'?
+ beq 85f error?
+ ldb #23 set error
+ jmp rpterr
+85 clr token eat it
+ lda #FNCT make entry (function)
+ lbsr entdec
+ inc absflg mark it
+ jsr 2b next level
+9 rts return
+absder clra set error
+ rts return
+
+*
+* Generate static space
+*
+
+makst pshs x
+ lbsr nxtlab get label
+ puls x
+ std sstore,x
+ jsr sizit get size
+ jsr ostcvr output static dec
+ andcc #$fb set true
+ rts return
+
+*
+* Return size of variable in d
+*
+
+esizit pshs x
+ bra 2f
+sizit pshs x save x
+ ldd stype,x get type
+2 pshs d save type
+ andb #$f get basic type
+ cmpb #STRUCT is it structure?
+ beq strsiz
+ cmpb #STRUCT+1 is it union?
+ beq strsiz
+ decb adjust for index
+ ldu #siztbl point to size table
+ ldb b,u get size
+ clra make 16 bits
+ std basize save base size
+4 puls d get type back
+ andb #$30 check for complex type
+ beq 6f
+ cmpb #ARAY<<4 is it an array?
+ beq arysiz
+ ldd #2 must be pointer
+ puls x,pc return
+6 ldd basize get base size
+ puls x,pc return
+*
+strsiz ldd #0 set 0 base
+ std basize
+ ldx sstrct,x get structure pointer
+ beq 4b if null - ignore
+ ldd 0,x get size
+ std basize save size
+ bra 4b
+*
+arysiz ldu 0,s get symbol pointer
+ ldu ssubs,u get dim list
+ beq 6b if null - set base size
+ tst actary doing special array size?
+ beq 2f
+ ldd #1 set base to 1
+ std basize
+2 ldd basize get base size
+ std conop1 set up for multiply
+ ldd 0,u++ get dim size
+ cmpd #$ffff is it term?
+ beq 6b
+ std conop2 set 2nd operand
+ pshs u save pointer
+ jsr imul go multiply
+ puls u
+ std basize set new base size
+ bra 2b repeat
+
+ data
+
+siztbl fcb 1,2,2,2,4,4,8
+
+ text
+
+
+*
+* Adjust all parameter sizes since on has just been
+* formally declared.
+*
+
+fxprm pshs d,x
+ ldu #prmlnk point to param list
+2 cmpx 0,u look for this guy
+ beq 4f
+ leau 2,u skip to next
+ bra 2b
+4 lda stype+1,x get type
+ bita #$30 complex?
+ bne 45f
+ lda 0,s check type
+ cmpa #CHR is it character?
+ beq 5f
+45 lda stype+1,x get type byte
+ anda #$f0 remove old type (INT)
+ ora 0,s assign new type
+ sta stype+1,x
+ anda #$30 check for array
+ cmpa #ARAY<<4
+ bne 5f
+ lda stype+1,x get type
+ anda #$cf mask type bits
+ ora #PTR<<4 make ptr
+ sta stype+1,x save new type
+5 pshs u save index
+ jsr sizit get size of item
+ puls u
+ subd #2 get size difference from INT size
+ pshs d save dif
+6 leau 2,u move to next param
+ ldx 0,u get its sym address
+ beq 8f end of list?
+ ldd sstore,x get its offset
+ addd 0,s add in difference
+ std sstore,x save new offset
+ bra 6b repreat
+8 puls d clean stack
+ andcc #$fb set true
+ puls d,x,pc return
+
+
+*
+* parse initializations
+*
+
+dcinit clr token eat the "="
+ ldd symloc save init symbol
+ std intsym
+ jsr intint init the init stuff
+ ldu intsym get symbol entry
+ ldu ssubs,u get subscripts pointer
+ jsr getok get next token
+ cmpa #2 is it "{"?
+ beq 4f
+ jsr ibldmt process expression
+ pshs cc
+ ldd intsym reset symbol
+ std symloc
+ puls cc,pc return
+4 clr token eat the {
+ bsr inlst process init list
+ jsr getok get next token
+ cmpa #9 is it ","?
+ bne 5f
+ clr token eat it
+5 jsr getok get next token
+ cmpa #3 is it "}"?
+ bne 8f
+ clr token eat the token
+ tsta set true
+ bra 9f
+8 ldd #65 set error
+ jsr rpterr
+9 pshs cc save status
+ ldd intsym reset symbol
+ std symloc
+ puls cc,pc return
+
+*
+* process init list
+*
+
+inlst ldd #0 set item count to 0
+ pshs d
+ pshs u save subscript pointer
+ cmpu #0 any subs?
+ beq inlst2
+ ldd 0,u get current sub
+ cmpd #$ffff is it term sub?
+ beq inlst2
+ leau 2,u bump to next subscript
+inlst2 jsr getok get token
+ cmpa #3 is it '}'?
+ beq 7f
+ cmpa #2 is it "{"?
+ beq 4f
+ ldd totlct get element count
+ std 2,s
+2 pshs u save subs pointer
+ jsr ibldmt process expression
+ puls u get subs pointer
+ jsr getok get next token
+ cmpa #9 is it comma
+ bne 3f
+ clr token
+ jsr getok get next token
+ cmpa #3 is it '}'?
+ bne 2b
+3 ldd totlct calculate elements
+ subd 2,s subtract current from start
+ std 2,s
+ bra 7f
+4 clr token
+ jsr getok get next token
+ cmpa #3 is it '}'
+ beq 7f
+ bsr inlst process next list
+ ldd 2,s get item counter
+ addd #1 bump it
+ std 2,s save it
+ jsr getok get next token
+ cmpa #9 is it ","?
+ beq 4b
+6 cmpa #3 is it "}"?
+ bne 8f
+ clr token eat the token
+ jsr getok get next token
+ cmpa #9 is it ','?
+ bne 7f
+ clr token eat the comma
+ bra inlst2 repeat
+7 puls u get old subs pointer
+ puls d get item count
+ cmpu #0 any arrays?
+ bne 71f
+ cmpd #1 only one element?
+ beq 75f
+ ldd #66 set error
+ jmp rpterr report it
+71 pshs d save count
+ ldd 0,u check for term
+ cmpd #$ffff
+ puls d
+ beq 75f
+ cmpd 0,u element count = subscript count?
+ beq 75f
+ lblo infill fill with 0 if low
+ ldy 0,u is subscript 0?
+ lbne inhigh take care of high part
+ std 0,u set subscript
+75 andcc #$fb set true
+ rts return
+8 puls u get subs pointer
+ puls d get item counter
+ clra set error
+ rts
+
+*
+* initialize the initializer data base
+*
+
+intint ldd #datapl set data pool pointer
+ std nxtdat
+ ldd #0 clear total element counter
+ std totlct
+ clr aofchr clear array flag
+ ldd #eldesc set desc ptr
+ std eldptr
+ inc initfl set init flag
+ ldu #eldesc point to descs
+ cmpu nxteld empty desc list?
+ bne 5f
+ ldx intsym get symbol
+ ldd stype,x
+ tst dtype+1
+ bne 2f
+ orb #INT set int
+ bra 3f
+2 orb dtype+1 get type
+3 bitb #$30 is it complex?
+ beq 4f
+ pshs b
+ andb #$30
+ cmpb #PTR<<4 is it pointer?
+ puls b
+ beq 4f
+ pshs b
+ andb #$30
+ cmpb #FNCT<<4 is it function?
+ puls b
+ beq 6f if so - error
+ cmpb #(ARAY<<4)|CHR is it array of char?
+ bne 35f
+ andb #$0f mask array part
+ inc aofchr set array flag
+ bra 4f
+35 bsr eltcv2 convert complex type
+4 stb 0,u+ set in desc
+ ldd #1 set desc count
+ std 0,u++
+ stu nxteld set end pointer
+5 rts return
+6 ldd #65 set error
+ jmp rpterr
+
+*
+* convert complex type
+*
+
+eltcvt ldd stype,x get type
+eltcv2 pshs d save it
+4 lsra shift to next complex bits
+ rorb
+ lsra
+ rorb
+ andb #$f0 strip basic type
+ pshs b save it
+ ldb 2,s get old type
+ andb #$0f get basic
+ orb 0,s+ make new type
+ std 0,s save new type
+ bitb #$30 still complex?
+ beq 6f
+ pshs b
+ andb #$30
+ cmpb #ARAY<<4 is it array?
+ puls b
+ bne 5f
+ ldd 0,s
+ bra 4b repeat
+5 pshs b
+ andb #$30
+ cmpb #PTR<<4 is it pointer?
+ puls b
+ beq 6f
+ ldb 1,s get type
+ andb #!$30 mask complex bits
+ orb #PTR<<4 make pointer
+ stb 1,s save new type
+6 puls d,pc return
+
+*
+* enter element descriptor
+*
+
+enteld lda #1 set structure flag
+ sta istrfl
+ ldd stype,x get type
+ bitb #$30 is it complex?
+ bne 2f
+1 ldu nxteld get next desc
+ stb 0,u+ set in type
+ ldd #1 set count
+ std 0,u++
+ stu nxteld save next desc ptr
+ rts return
+2 andb #$30 mask complex bits
+ cmpb #PTR<<4 is it pointer?
+ beq 1b
+ cmpb #ARAY<<4 is it array?
+ beq 3f
+ ldb stype+1,x get type
+ andb #!$30 mask complex bits
+ orb #PTR<<4 set pointer
+ bra 1b
+3 inc actary set for actual array size
+ jsr sizit get array size
+ clr actary
+ pshs d save byte count
+ bsr eltcvt convert type
+ ldu nxteld get next desc
+ stb 0,u+ save desc
+ puls d get byte count
+ std 0,u++ set in desc
+ stu nxteld save end ptr
+ rts return
+
+*
+* fill initialized data with 0's
+*
+
+infill pshs d,u
+ ldd 0,u++ get array size
+ std conop1 set in constants acc
+1 ldd 0,u++ get next one
+ cmpd #$ffff is it term?
+ beq 2f
+ std conop2 set 2nd op
+ pshs u save pointer
+ jsr imul get product
+ puls u
+ std conop1 save result
+ bra 1b
+2 ldd conop1 get result
+ pshs d
+ ldu 4,s get array pointer
+ leau 2,u
+ ldd 2,s get count
+ std conop1
+3 ldd 0,u++ get next sub
+ cmpd #$ffff is it term?
+ beq 4f
+ std conop2 set for mult
+ pshs u save array
+ jsr imul
+ puls u
+ std conop1 save result
+ bra 3b
+4 ldd conop1 get size
+ std 2,s save result
+infil2 ldx #emat reset arithmetic matrix
+ stx nxtmat
+ ldx #contab set up constants buffer
+ stx nxtcon
+ lda #INT set integer type
+ sta contyp
+ sta 0,x+ put in buffer
+ lda #CONST set constant
+ sta 0,x+
+ ldd #0 set value of 0
+ std 0,x++
+ std conbuf
+ sta matlev zero matrix level
+ ldx #astack point to arith. stack
+ ldd #contab point to constant
+ std 0,x++ push on a-stack
+ stx tos mark tos
+ jsr xfrdat xfr the data
+ ldd 2,s get count
+ addd #1 bump subs count
+ std 2,s save new value
+ cmpd 0,s finished?
+ blo infil2
+ leas 4,s
+ puls u
+ andcc #$fb set true
+ rts return
+
+*
+* take care of high subs count for init
+*
+
+inhigh pshs d,u
+ ldd 0,u++ get subscript
+ std conop1
+2 ldd 0,u++ get next subs
+ cmpd #$ffff term?
+ beq 4f
+ std conop2 setup for mult
+ pshs u
+ jsr imul
+ puls u
+ std conop1 save result
+ bra 2b repeat
+4 ldd conop1 get result
+ pshs d
+ cmpd 2,s check for too big?
+ beq 6f
+ bhi infil2
+ leas 2,s fix stack
+ puls u,d
+ ldd #66 set error
+ jmp rpterr report error
+6 leas 2,s fix stack
+ puls d,u
+ andcc #$fb
+ rts return
+

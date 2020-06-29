@@ -1,0 +1,327 @@
+
+
+ ttl statement parser
+ pag
+
+
+*
+* parse a compound statement
+*
+
+cmpstm ldd nxtaut get auto count
+ ldx hdrlab save header label
+ pshs d,x
+ ldx nxtsym save block info
+ ldy nxtsu
+ ldd nxtdim
+ pshs d,x,y
+ inc blklev bump block level
+ lbsr getok get token
+ cmpa #2 is it "{"?
+ beq 2f error?
+ ldb #26 set error
+ jsr rpterr
+ bra 21f
+2 clr token
+21 lda blklev check for function block
+ cmpa #2
+ beq 22f
+ jsr spctst check for declarations
+ bne 22f
+ ldd #0 set 0 header label
+ bra 25f
+22 jsr nxtlab get a label
+25 std hdrlab save as new header label
+ jsr ostblk output start block code
+3 lbsr dcllst look for declarations
+* beq cmperr
+ lda blklev check if starting function block
+ cmpa #2
+ bne 31f
+ ldd nxtaut get next auto
+ bra 32f
+31 ldd nxtaut check for new auto variables
+ cmpd 6,s check against old count
+ beq 35f
+32 subd #2 make room for function space ********
+ std nxtaut
+35 bsr stmlst do statement list
+* beq cmperr
+ lbsr getok get token
+ cmpa #3 is it "}"?
+ beq 4f
+ ldb #27
+ jsr rpterr
+ bra cmperr
+4 clr token
+ puls d,x,y
+ std nxtdim
+ lbsr clrlev clear out block level
+ ldx hdrlab get header label
+ ldd 0,s get old auto count
+ subd nxtaut get difference
+ jsr oenblk output end block code
+ puls d,x
+ std nxtaut reset old values
+ stx hdrlab
+ andcc #$fb set true
+ rts
+cmperr puls d,x,y get block info
+ std nxtdim
+ lbsr clrlev clear out level
+ puls d,x reset values
+ std nxtaut
+ stx hdrlab
+ clra set false
+ rts return
+
+*
+* process a statement list
+*
+
+stmlst lbsr getok get token
+ cmpa #3 is it "}"
+ beq 2f
+ cmpa #EOF end of file?
+ beq 4f
+1 bsr stmnt do statement
+ bra stmlst
+2 andcc #$fb set true
+4 rts return
+
+*
+* parse an expected statement
+*
+
+stmnt lbsr getok get next token
+ cmpa #19 keyword?
+ bne 3f
+ lda toktyp get type
+ cmpa #25 IF?
+ bne 1f
+ lbra if
+1 cmpa #30 SWITCH?
+ bne 12f
+ lbra switch
+12 cmpa #23 BREAK?
+ bne 14f
+ lbra xbreak
+14 cmpa #24 CONTINUE?
+ bne 16f
+ lbra contin
+16 cmpa #40 CASE?
+ bne 18f
+ lbra case
+18 cmpa #41 DEFAULT?
+ bne 2f
+ lbra defalt
+2 cmpa #29 WHILE?
+ bne 22f
+ lbra while
+22 cmpa #28 DO?
+ bne 23f
+ lbra do
+23 cmpa #21 RETURN?
+ bne 24f
+ lbra return
+24 cmpa #27 FOR?
+ bne 25f
+ lbra for
+25 cmpa #20 GOTO?
+ lbeq goto
+ ldb #28 set error
+ jmp rpteat
+3 cmpa #1 ";"?
+ bne 35f
+ clr token
+ andcc #$fb set true
+ rts
+35 cmpa #20 is it label?
+ bne 4f
+ lbsr getchr check next character
+ cmpa #': is it label mark?
+ bne 5f
+ clr char eat the colon
+ lbra dolab
+4 cmpa #2 "{"?
+ bne 5f
+ lbra cmpstm do compound statement
+5 lbsr exp
+ lbeq eatsc
+ lbsr getok
+ cmpa #1 ";"?
+ beq 55f error?
+ ldb #29
+ jmp rpteat
+55 clr token
+ andcc #$fb set true
+ rts
+6 clra set error
+9 rts
+
+*
+* if statement (else)
+*
+
+if clr token eat token
+ ldd #0
+ pshs d
+ pshs d save space for labels
+ lbsr nxtlab get next label
+ std 2,s save it
+ lbsr pexp process paren exp
+* beq iferr
+ ldu 2,s get exit label
+ clrb set false branch
+ jsr ocbr
+ lbsr stmnt process statement
+* beq iferr
+ lbsr getok get token
+ cmpa #19 keyword?
+ bne 4f
+ lda toktyp check type
+ cmpa #26 ELSE?
+ bne 4f
+ clr token eat token
+ lbsr nxtlab get label
+ std 0,s save it
+ jsr obrnch output branch
+ ldd 2,s output 1st label
+ jsr olabel output label
+ lbsr stmnt do statement
+* beq iferr
+ ldd 0,s get label
+ bra 5f
+4 ldd 2,s get label
+5 jsr olabel
+ leas 4,s fix stack
+ andcc #$fb set true
+ rts return
+iferr leas 4,s fix stack
+ clra set false
+ rts
+
+*
+* process while statement
+*
+
+while clr token eat token
+ ldd brklab save current break
+ pshs d
+ ldd conlab save current contin
+ pshs d
+ lbsr nxtlab get a label
+ std conlab new contin label
+ pshs d save it
+ jsr olabel output label
+ lbsr nxtlab get another label
+ std brklab new break label
+ pshs d save it
+ lbsr pexp paren expression
+* beq wlerr
+ ldu 0,s get exit label
+ clrb set false
+ jsr ocbr output cond branch
+ lbsr stmnt do statement
+* beq wlerr
+ ldd 2,s get label
+ jsr obrnch output branch
+ puls d get label
+ jsr olabel output label
+while4 leas 2,s fix stack
+ puls d reset continue
+ std conlab
+ puls d reset break
+ std brklab
+ andcc #$fb set true
+ rts return
+wlerr leas 4,s fix stack
+ puls d reset contin
+ std conlab
+ puls d reset break
+ std brklab
+ clra set false
+ rts return
+
+*
+* the do statement
+*
+
+do clr token
+ ldd brklab save break
+ pshs d
+ ldd conlab save contin
+ pshs d
+ lbsr nxtlab get next label
+ pshs d save it
+ jsr olabel output label
+ lbsr nxtlab get new contin label
+ pshs d
+ std conlab
+ lbsr nxtlab get new breal label
+ pshs d
+ std brklab
+ lbsr stmnt process statement
+* beq doerr
+ lbsr getok get token
+ cmpa #19 key word?
+ bne 3f error?
+ lda toktyp get token type
+ cmpa #29 is it WHILE?
+ beq 4f error?
+3 ldb #30
+ jmp rpteat
+4 clr token
+ ldd 2,s get contin label
+ jsr olabel output label
+ lbsr pexp process paren expression
+* beq doerr
+ ldu 4,s get exit label
+ ldb #1 set true
+ jsr ocbr output cond branch
+ lbsr getok get token
+ cmpa #1 is it ";"?
+ beq 6f error?
+ ldb #31
+ jsr rptfnd
+6 clr token
+ puls d get break label
+ jsr olabel output label
+ leas 4,s fix stack
+ puls d reset contin label
+ std conlab
+ puls d reset break label
+ std brklab
+ andcc #$fb
+ rts
+doerr leas 6,s fix stack
+ puls d reset contin
+ std conlab
+ puls d reset break
+ std brklab
+ clra set false
+ rts return
+
+*
+* return statement
+*
+
+return clr token
+ lbsr getok get next token
+ cmpa #1 is it ";"?
+ beq 2f
+ lbsr exp process expression
+* beq reterr
+ lbsr getok get next token
+ cmpa #1 is it ';'?
+ beq 2f error?
+ ldb #31
+ jsr rptfnd
+2 clr token
+ ldd retlab get label
+ jsr obrnch output branch
+ andcc #$fb set true
+ rts
+reterr clra
+ rts return
+

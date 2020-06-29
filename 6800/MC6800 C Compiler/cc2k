@@ -1,0 +1,443 @@
+
+
+* code generation for special ops
+
+* brx code generation
+
+brx ldd #0 clear vars
+ std dcont
+ std xcont
+ std lcont
+ std fcont
+ std lcont
+ tst ccok cc ok?
+ bne 1f
+ ldu op1ptr get op1
+ lda 0,u get condition
+ cmpa #2 is it always?
+ beq 1f
+ inc ccok
+ ldu codptr get current position
+ leau -EXPSIZ,u get last op
+ ldd rtype,u get type
+ clra
+ bitb #$30 complex?
+ beq 02f
+ ldb #8
+02 andb #$f
+ beq 03f
+ decb
+ ldu #typcnv
+ lda b,u
+03 ldu #brxtab point to routines
+ pshs x
+ jsr [a,u] go do it
+ puls x
+1 ldu op1ptr
+ lda 1,u get label type
+ sta brntyp save it
+ lda 0,u get condition
+ beq 2f
+ cmpa #2 branch always?
+ beq 3f
+ ldd 2,u get label
+ jsr gbtrue
+ bra 4f
+2 ldd 2,u get label
+ jsr gbfals gen false jmp
+ bra 4f
+3 ldd 2,u get label
+ jsr gbrnch gen jmp
+4 ldx codptr
+ jmp nop
+
+brxtab fdb chbrx,intbrx,lnbrx,fpbrx,ptbrx,arbrx
+
+chbrx jmp ocmbi0 output 'cmpb #0'
+intbrx jmp ocmdi0 output 'cmpd #0'
+lnbrx swi
+fpbrx swi
+ptbrx
+arbrx ldy curadr get ar
+ lda ar_ref,y
+ cmpa #UREF is it u?
+ bne 2f
+ jmp ocmpui0
+2 jmp ocmpxi0
+
+* blx code generation
+
+blx jsr brx as above
+ ldx codptr back up code pointer
+ leax -EXPSIZ,x
+ stx codptr
+ ldu op1ptr get op1
+ ldd 5,u get label number
+ tst 4,u local label?
+ bne 2f
+ jsr gnmnos gen local label
+ jsr pcrlf term line
+ bra 4f
+2 jsr grlab gen label
+ jsr pcrlf term line
+4 ldx codptr
+ jmp nop
+
+* lbl code generation
+
+lbl ldu op1ptr get op1
+ ldd 1,u get label number
+ tst 0,u local label?
+ bne 2f
+ jsr gnmnos output label
+ jsr pcrlf term line
+ bra 4f
+2 jsr grlab output label
+ jsr pcrlf term line
+4 ldx codptr
+ jmp nop
+
+* dot code generation
+
+dot ldu op1ptr get op1
+ jsr ptld do load op
+ ldu op2ptr get op2
+ ldy curadr get ar
+ jsr adcoff check for adding constant
+ ldd 4,u get offset value
+ addd ar_off,y add to ar offset
+ std ar_off,y
+ ldx codptr get code pointer
+ stx ar_con,y set contents
+ sty rslt,x set result
+* jsr redarg reduce ar
+ lda enbtyp get basic type
+* cmpa #12 is it structure?
+* bne 1f
+ cmpa #10 is it array?
+ bne 05f
+ inc ar_adr,y set address mode
+05 ldx codptr get code pointer
+ jmp nop finish up
+1 ldu #faknod point to fake node
+ lda #NNODE
+ sta 0,u set node type
+ ldd #1
+ ldx #exptbl find node #
+2 cmpx codptr are we there?
+ beq 3f
+ leax EXPSIZ,x bump to next
+ incb bump node count
+ bra 2b
+3 std 1,u set node number
+ stu op1ptr set fake op1
+ jmp lod do load
+
+* cal code generation
+
+cal jsr ojsr output 'jsr'
+ ldu op1ptr get operand
+ jsr giadr generate address
+ clr ccok
+ ldb enbtyp get basic type
+ ldy #caltab point to routines
+ jmp [b,y] go do it
+
+caltab fdb chcal,intcal,lncal,fpcal,ptcal,arcal
+
+chcal jmp rsltb set result
+intcal jmp rsltd set result
+lncal swi
+fpcal swi
+ptcal
+arcal jsr gtareg get address reg
+ lda #XREF set x ref
+ sta ar_ref,y
+ sty curadr
+ jmp ptrfin go finish
+
+* prm code generation
+
+prm ldu op1ptr get op1
+ jsr load do load
+ ldb enbtyp get basic type
+ ldy #prmtab point to routines
+ jmp [b,y] do it
+
+prmtab fdb chrprm,intprm,lnprm,fpprm,ptprm,arprm
+
+chrprm jsr osex conert to integer
+intprm jmp ipsh do 'pshs d'
+lnprm swi
+fpprm swi
+ptprm
+arprm ldy curadr get current addr
+ jsr fcmpar reduce adr reg
+ jmp xpsh push x
+
+* lod code generation
+
+lod ldu op1ptr get op1
+ inc ccok
+ jsr load do load
+ ldb enbtyp get basic type
+ ldy #lodtab point to routines
+ jmp [b,y]
+
+lodtab fdb chlod,intlod,lnlod,fplod,ptlod,arlod
+
+chlod jmp rsltb
+intlod jmp rsltd
+lnlod swi
+fplod swi
+ptlod
+arlod clr ccok bad cc here
+ ldy curadr get ar
+ jsr cmplar
+ jmp ptrfin finish pointer
+
+* spl code generation
+
+spl ldb stklev save stack info
+ pshs b
+ ldd stksiz
+ pshs d
+ leas -2,s save room for call pointer
+ leay 0,s mark call slot
+ ldx codptr get code pointer
+ leax EXPSIZ,x skip spl op
+ stx codptr save new guy
+1 lda oprtr,x get operator
+ cmpa #CAL is it the call?
+ bne 12f
+ jsr calbsy check for busy regs
+ bra 4f
+12 cmpa #SPR is it parametr start?
+ beq 15f
+ swi COMPILER ERROR!
+15 leax EXPSIZ,x skip the spr
+ pshs x remember his start
+2 lda oprtr,x get operator
+ leax EXPSIZ,x move to next guy
+ cmpa #SPL start of new function?
+ bne 3f
+ jsr skipfn skip function
+ bra 2b
+3 cmpa #PRM is it parameter psh?
+ bne 2b
+ bra 1b
+4 stx 0,y mark the CAL location
+45 puls x get an entry
+ stx codptr set code pointer
+ lda oprtr,x get operator
+ cmpa #CAL back to call yet?
+ beq 7f
+5 cmpa #PRM ready to push?
+ beq 6f
+ jsr doentry gen code for this guy
+ ldx codptr get code pointer
+ lda oprtr,x get operator
+ bra 5b repeat
+6 jsr doentry go do push code
+ bra 45b
+7 jsr doentry generate call code
+ ldd stksiz get stack size
+ subd 0,s fix stack?
+ beq 8f
+ jsr clndr clean stack code
+8 puls d reset stack info
+ std stksiz
+ puls b
+ stb stklev
+ ldx codptr get new code pointer
+ rts return
+
+spr swi COMPILER ERROR!
+
+* cma code generation
+
+cma ldd #0 clear vars
+ std dcont
+ std xcont
+ std lcont
+ std fcont
+ sta revcon
+ ldx codptr get code pointer
+ jmp nop finish up
+
+ill swi ERROR!
+
+* clean 'd' bytes off stack
+
+clndr cmpd #0 any there?
+ bne 2f
+ rts return
+2 pshs d save count
+ jsr oleas output 'leas'
+ puls d get count
+ jsr gnmnos output count
+ jmp ocms output ',s'
+
+* skip function code
+
+skipfn lda oprtr,x get operator
+ leax EXPSIZ,x skip entry
+ cmpa #CAL end of function?
+ beq 2f
+ cmpa #SPL new function start?
+ bne skipfn
+ bsr skipfn skip function
+ bra skipfn
+2 rts return
+
+* replace conditionals and logicals with branches
+
+rplcnd ldx #exptbl point to exp
+1 cmpx expptr end of exp?
+ bne 2f
+ rts return
+2 lda oprtr,x get operator
+ cmpa #CXB is it cond or logical?
+ blo 4f
+ cmpa #ANC
+ bhi 4f
+ ldy #rpcntb point to routines
+ suba #CXB remove bias
+ asla
+ jsr [a,y] go do it
+4 leax EXPSIZ,x next entry
+ bra 1b repeat
+
+rpcntb fdb rcxb,rcbr,rcen,rorb,rore,ranb,rane,rorc,ranc
+
+* replace orb
+
+rorb jsr nxtloc get local lab
+ ldu orptr push on stack
+ std 0,u++
+ stu orptr
+ jmp putbrt put branch
+
+* replace orc
+
+rorc ldu orptr get top label number
+ ldd -2,u
+ jmp putbrt put branch
+
+* replace ore
+
+rore ldu orptr pop label from stack
+ ldd 0,--u
+ stu orptr
+ jmp putllb put label
+
+* replace anb
+
+ranb jsr nxtloc get local label
+ ldu andptr push on stack
+ std 0,u++
+ stu andptr
+ jmp putbrf put branch
+
+* replace anc
+
+ranc ldu andptr get top label
+ ldd -2,u
+ jmp putbrf put branch
+
+* replace ane
+
+rane ldu andptr pop top label
+ ldd 0,--u
+ stu andptr
+ jmp putllb put label
+
+* replace cxb
+
+rcxb jsr nxtloc get next label
+ ldu cndptr push on stack
+ std 0,u++
+ stu cndptr
+ jmp putbrf put branch
+
+* replace cbr
+
+rcbr jsr nxtloc get local label
+ ldu cndptr trade top with new
+ ldy -2,u get top
+ std -2,u save new
+ jmp putbfl put branch & label
+
+* replace cen
+
+rcen ldu cndptr pop label
+ ldd 0,--u
+ stu cndptr
+ jmp putllb put label
+
+* put true branch in exp entry
+
+putbrt pshs d save label
+ jsr clrop1 clear op1
+ ldb #1 set true condition
+ stb op1,x
+putbr2 ldb #BRX set op
+ stb oprtr,x
+ clr op1+1,x set local label
+ puls d get label
+ std op1+2,x save label
+ rts return
+
+* put false branch in exp entry
+
+putbrf pshs d save label
+ jsr clrop1 clear op1
+ clr op1,x set false cond
+ bra putbr2
+
+* put local label in exp entry
+
+putllb pshs d save label number
+ jsr clrop1 clear op1
+ ldb #LBL set op
+ stb oprtr,x
+ clr op1,x set local label
+ puls d get label
+ std op1+1,x set in entry
+ rts return
+
+* put always branch and label in entry
+
+putbfl pshs d,y save args
+ bsr clrop1 clear op1
+ ldb #BLX set op
+ stb oprtr,x
+ ldb #2 set branch always
+ stb op1,x
+ clr op1+1,x set local label
+ puls d get number
+ std op1+2,x
+ clr op1+4,x set local label
+ puls d get label
+ std op1+5,x
+ rts return
+
+* clear op1
+
+clrop1 ldd #0
+ std op1,x
+ std op1+2,x
+ std op1+4,x
+ std op1+6,x
+ std op1+8,x
+ std op1+10,x
+ rts return
+
+* check for busy regs for CAL
+
+calbsy ldd #0 clear ar marker
+ std curadr
+ jsr chkxb check for x busy
+ jsr chkdb check d busy
+ rts
+

@@ -1,0 +1,837 @@
+ text
+* #include <stdio.h>
+* #define   BUFSIZ 512
+* #define   _NFILE   16
+* struct _iobuf {
+*        char *_ptr;     /* pointer into buffer */
+*        int _cnt;       /* count of unused buffer */
+*        char *_base;    /* buffer base address */
+*        int _flag;      /* file status */
+*        int _fd;        /* file descriptor */
+*        char _save;     /* for 'ungetc' when unbuffered */
+*        char _spare;
+* } ;
+* 
+* typedef struct _iobuf FILE ;
+* 
+* extern FILE _iob[_NFILE];
+* 
+* #define _READ 1
+* #define _WRITE 2
+* #define _UNBUF 4
+* #define _BIGBUF 010
+* #define _EOF 020
+* #define _ERR 040
+* 
+* #define EOF (-1)
+* #define EOL 13
+* #define NULL 0
+* 
+* #define stdin _iob
+* #define stdout (&_iob[1])
+* #define stderr (&_iob[2])
+* 
+* #define PMODE  0xb   /* r/w for owner, r for others */
+* 
+* #define fgetc      getc
+* #define putchar(c) putc(c,stdout)
+* #define getchar()  getc(stdin)
+* #define ferror(p)  ((p)->_flag&_ERR)
+* #define feof(p)    ((p)->_flag&_EOF)
+* #define clearerr(p) ((p)->_flag&=~_ERR)
+* #define fileno(p)   ((p)->_fd)
+* 
+* long ftell();
+* 
+* #include "tbdef.h"
+* struct table {
+* 	char *fwad;
+* 	char *lwad;
+* 	char *ptr1;
+* 	char *ptr2;
+* 	char *lwas;
+* 	int   incr;
+* };
+* #include "boolean.h"
+* typedef int BOOLEAN;
+* #define TRUE 1
+* #define FALSE 0
+* 
+* #define INCREASE 4096 /* Increment size for memory increase */
+* 
+* static char *memend; /* End of memory */
+ bss
+memend rmb 2
+ text
+* static BOOLEAN preset; /* set TRUE when "tbprs" executed */
+ bss
+preset rmb 2
+ text
+* 
+* static move(from,to,count) /* Move data */
+* 
+* char from[], to[];
+* unsigned int count;
+* 
+* {
+move
+ pshs y,u
+ jmp 1f
+2
+* 	if (from > to)
+ ldd 6,s
+ cmpd 8,s
+ lbls _1
+* 		while (count--)
+_2
+_4
+ ldd 10,s
+ addd #-1
+ std 10,s
+ subd #-1
+ lbeq _3
+* 			*to++ = *from++;
+_5
+ ldx 6,s
+ leax 1,x
+ stx 6,s
+ ldb -1,x
+ ldx 8,s
+ leax 1,x
+ stx 8,s
+ stb -1,x
+* 	else {
+ jmp _4
+_3
+ jmp _6
+_1
+* 		from += count;
+ ldd 6,s
+ addd 10,s
+ std 6,s
+* 		to += count;
+ ldd 8,s
+ addd 10,s
+ std 8,s
+* 		while (count--)
+_8
+ ldd 10,s
+ addd #-1
+ std 10,s
+ subd #-1
+ lbeq _7
+* 			*--to = *--from; }
+_9
+ ldx 6,s
+ leax -1,x
+ stx 6,s
+ ldb ,x
+ ldx 8,s
+ leax -1,x
+ stx 8,s
+ stb ,x
+ jmp _8
+_7
+* }
+_6
+ puls y,u,pc
+
+1 jmp 2b
+
+
+* 
+* BOOLEAN tbadb(ta,tn,b,n) /* add bytes to a table */
+* /*	ta : table array address
+* 
+* struct table ta[];
+* int tn;
+* char *b;
+* int n;
+* 
+* {
+ global tbadb
+tbadb
+ pshs y,u
+ jmp 1f
+2
+* 	char *space;
+*  
+* 	if (tbats(ta,tn,n,&space)) {
+ leas -2,s
+ leax ,s
+ tfr x,d
+ pshs d
+ ldd 16,s
+ pshs d
+ ldd 14,s
+ pshs d
+ ldd 14,s
+ pshs d
+ jsr tbats
+ leas 8,s
+ cmpd #0
+ lbeq _10
+_11
+* 		while (n--) *space++ = *b++;
+_13
+ ldd 14,s
+ addd #-1
+ std 14,s
+ subd #-1
+ lbeq _12
+_14
+ ldx 12,s
+ leax 1,x
+ stx 12,s
+ ldb -1,x
+ ldx ,s
+ leax 1,x
+ stx ,s
+ stb -1,x
+* 		return TRUE; }
+ jmp _13
+_12
+ ldd #1
+ leas 2,s
+ puls y,u,pc
+
+* 	else return FALSE;
+ jmp _15
+_10
+ ldd #0
+ leas 2,s
+ puls y,u,pc
+
+* }
+_15
+ leas 2,s
+ puls y,u,pc
+
+1 ldd #-144
+ jsr _stkcheck
+ jmp 2b
+
+
+* 
+* BOOLEAN tbats(ta,tn,al,sp) /* Allocate table space */
+* /*	ta : table array address
+* 
+* struct table ta[];
+* int tn;
+* unsigned int al;
+* char (*sp)[];
+* 
+* {
+ global tbats
+tbats
+ pshs y,u
+ jmp 1f
+2
+* 	int last;
+* 	unsigned int increment;
+* 
+* 	if (preset == FALSE) {
+ leas -4,s
+ ldd preset
+ lbne _16
+_17
+* 		printf("Managed tables not initialized.\n");
+ data
+_18
+ fcb 77,97,110,97,103,101,100,32,116,97,98,108,101,115,32,110,111
+ fcb 116,32,105,110,105,116,105,97,108,105,122,101,100,46,13,0
+ text
+ ldd #_18
+ pshs d
+ jsr printf
+ leas 2,s
+* 		exit(255); }
+ ldd #255
+ pshs d
+ jsr exit
+ leas 2,s
+* 	if (ta[tn].lwad+al <= ta[tn].lwas) {
+_16
+ ldd 12,s
+ pshs d
+ ldd #12
+ jsr ccmult
+ addd 10,s
+ addd #2
+ tfr d,x
+ ldd ,x
+ addd 14,s
+ pshs d
+ ldd 14,s
+ pshs d
+ ldd #12
+ jsr ccmult
+ addd 12,s
+ addd #8
+ tfr d,x
+ ldd ,x
+ cmpd ,s++
+ lblo _19
+_20
+* 		sp = ta[tn].lwad;
+ ldd 12,s
+ pshs d
+ ldd #12
+ jsr ccmult
+ addd 10,s
+ addd #2
+ tfr d,x
+ ldd ,x
+ std 16,s
+* 		ta[tn].lwad += al;
+ ldd 12,s
+ pshs d
+ ldd #12
+ jsr ccmult
+ addd 10,s
+ addd #2
+ tfr d,x
+ ldd ,x
+ addd 14,s
+ std ,x
+* 		return TRUE; }
+ ldd #1
+ leas 4,s
+ puls y,u,pc
+
+* 	else {
+ jmp _21
+_19
+* 		last = sizeof(ta)/sizeof(struct table) - 1;
+ ldd #-1
+ std 2,s
+* 		increment = (al>ta[tn].incr) ? al : ta[tn].incr ;
+ ldd 12,s
+ pshs d
+ ldd #12
+ jsr ccmult
+ addd 10,s
+ addd #10
+ tfr d,x
+ ldd ,x
+ cmpd 14,s
+ lbhs _22
+_23
+ ldd 14,s
+ jmp _24
+_22
+ ldd 12,s
+ pshs d
+ ldd #12
+ jsr ccmult
+ addd 10,s
+ addd #10
+ tfr d,x
+ ldd ,x
+_24
+ std ,s
+* 		if (ta[last].lwas+increment > memend) return FALSE;
+ ldd 2,s
+ pshs d
+ ldd #12
+ jsr ccmult
+ addd 10,s
+ addd #8
+ tfr d,x
+ ldd ,x
+ addd ,s
+ cmpd memend
+ lbls _25
+_26
+ ldd #0
+ leas 4,s
+ puls y,u,pc
+
+* 		for (;last > tn; last--) tbmov(&ta[last],increment);
+_25
+_29
+ ldd 2,s
+ cmpd 12,s
+ lble _28
+_27
+ ldd ,s
+ pshs d
+ ldd 4,s
+ pshs d
+ ldd #12
+ jsr ccmult
+ addd 12,s
+ pshs d
+ jsr tbmov
+ leas 4,s
+* 		ta[tn].lwas += increment;
+_30
+ ldd 2,s
+ addd #-1
+ std 2,s
+ jmp _29
+_28
+ ldd 12,s
+ pshs d
+ ldd #12
+ jsr ccmult
+ addd 10,s
+ addd #8
+ tfr d,x
+ ldd ,x
+ addd ,s
+ std ,x
+* 		sp = ta[tn].lwad;
+ ldd 12,s
+ pshs d
+ ldd #12
+ jsr ccmult
+ addd 10,s
+ addd #2
+ tfr d,x
+ ldd ,x
+ std 16,s
+* 		ta[tn].lwad += al;
+ ldd 12,s
+ pshs d
+ ldd #12
+ jsr ccmult
+ addd 10,s
+ addd #2
+ tfr d,x
+ ldd ,x
+ addd 14,s
+ std ,x
+* 		return TRUE; }
+ ldd #1
+ leas 4,s
+ puls y,u,pc
+
+* }
+_21
+ leas 4,s
+ puls y,u,pc
+
+1 ldd #-142
+ jsr _stkcheck
+ jmp 2b
+
+
+* 
+* static tbmov(ta,am)  /* Move managed table */
+* /*	ta : table information structure
+* 
+* struct table *ta;
+* int am;
+* 
+* {
+tbmov
+ pshs y,u
+ jmp 1f
+2
+* 	move(ta.fwad,ta.fwad+am,ta.lwad-ta.fwad);
+ leax 6,s
+ ldd 2,x
+ subd 6,s
+ pshs d
+ ldd 8,s
+ addd 10,s
+ pshs d
+ ldd 10,s
+ pshs d
+ jsr move
+ leas 6,s
+* 	ta.fwad += am;
+ ldd 6,s
+ addd 8,s
+ std 6,s
+* 	ta.lwad += am;
+ leax 6,s
+ ldd 2,x
+ addd 8,s
+ std 2,x
+* 	ta.ptr1 += am;
+ leax 6,s
+ ldd 4,x
+ addd 8,s
+ std 4,x
+* 	ta.ptr2 += am;
+ leax 6,s
+ ldd 6,x
+ addd 8,s
+ std 6,x
+* 	ta.lwas += am;
+ leax 6,s
+ ldd 8,x
+ addd 8,s
+ std 8,x
+* 	return;
+ puls y,u,pc
+
+* }
+1 ldd #-140
+ jsr _stkcheck
+ jmp 2b
+
+
+* 
+* tbprs(ta,st,en) /*  Initialize table structures  */
+* /*	ta : address of table array
+* 
+* struct table ta[];
+* char *st;
+* char *en;
+* 
+* {
+ global tbprs
+tbprs
+ pshs y,u
+ jmp 1f
+2
+* 	int count;
+* 	extern char *end;
+* 	extern char *edata;
+* 
+* 	if (st == 0) {
+ leas -2,s
+ ldd 10,s
+ lbne _31
+_32
+* 		st = &edata;
+ ldd #edata
+ std 10,s
+* 		en = &end; }
+ ldd #end
+ std 12,s
+* 	else if (en < st) {
+ jmp _33
+_31
+ ldd 12,s
+ cmpd 10,s
+ lbhs _34
+_35
+* 		printf("End of tables < start of tables.\n");
+ data
+_36
+ fcb 69,110,100,32,111,102,32,116,97,98,108,101,115,32,60,32,115
+ fcb 116,97,114,116,32,111,102,32,116,97,98,108,101,115,46,13,0
+ text
+ ldd #_36
+ pshs d
+ jsr printf
+ leas 2,s
+* 		exit(255); }
+ ldd #255
+ pshs d
+ jsr exit
+ leas 2,s
+* 	memend = en;
+_34
+_33
+ ldd 12,s
+ std memend
+* 	count = sizeof(ta)/sizeof(struct table);
+ ldd #0
+ std ,s
+* 	while (count--) {
+_38
+ ldd ,s
+ addd #-1
+ std ,s
+ subd #-1
+ lbeq _37
+_39
+* 		ta[count].fwad = st;
+ ldd ,s
+ pshs d
+ ldd #12
+ jsr ccmult
+ addd 8,s
+ tfr d,x
+ ldd 10,s
+ std ,x
+* 		ta[count].lwad = st;
+ ldd ,s
+ pshs d
+ ldd #12
+ jsr ccmult
+ addd 8,s
+ addd #2
+ tfr d,x
+ ldd 10,s
+ std ,x
+* 		ta[count].ptr1 = st;
+ ldd ,s
+ pshs d
+ ldd #12
+ jsr ccmult
+ addd 8,s
+ addd #4
+ tfr d,x
+ ldd 10,s
+ std ,x
+* 		ta[count].ptr2 = st;
+ ldd ,s
+ pshs d
+ ldd #12
+ jsr ccmult
+ addd 8,s
+ addd #6
+ tfr d,x
+ ldd 10,s
+ std ,x
+* 		ta[count].lwas = st;
+ ldd ,s
+ pshs d
+ ldd #12
+ jsr ccmult
+ addd 8,s
+ addd #8
+ tfr d,x
+ ldd 10,s
+ std ,x
+* 		ta[count].incr = 0; }
+ ldd ,s
+ pshs d
+ ldd #12
+ jsr ccmult
+ addd 8,s
+ addd #10
+ tfr d,x
+ ldd #0
+ std ,x
+* 	preset = TRUE;
+ jmp _38
+_37
+ ldd #1
+ std preset
+* }
+ leas 2,s
+ puls y,u,pc
+
+1 ldd #-138
+ jsr _stkcheck
+ jmp 2b
+
+
+* 
+* tbrdi(ta,tn,ia,is) /* Remove item from table */
+* /*	ta : table array address
+* 
+* struct table ta[];
+* int tn;
+* char ia[];
+* int is;
+* 
+* {
+ global tbrdi
+tbrdi
+ pshs y,u
+ jmp 1f
+2
+* 	if (ia+is < ta[tn].lwad ) move(ia+is,ia,ta[tn].lwad-ia-is);
+ ldd 10,s
+ addd 12,s
+ pshs d
+ ldd 10,s
+ pshs d
+ ldd #12
+ jsr ccmult
+ addd 8,s
+ addd #2
+ tfr d,x
+ ldd ,x
+ cmpd ,s++
+ lbls _40
+_41
+ ldd 8,s
+ pshs d
+ ldd #12
+ jsr ccmult
+ addd 6,s
+ addd #2
+ tfr d,x
+ ldd ,x
+ subd 10,s
+ subd 12,s
+ pshs d
+ ldd 12,s
+ pshs d
+ ldd 14,s
+ addd 16,s
+ pshs d
+ jsr move
+ leas 6,s
+* 	ta[tn].lwad -= is;
+_40
+ ldd 8,s
+ pshs d
+ ldd #12
+ jsr ccmult
+ addd 6,s
+ addd #2
+ tfr d,x
+ ldd ,x
+ subd 12,s
+ std ,x
+* 	return;
+ puls y,u,pc
+
+* }
+1 ldd #-140
+ jsr _stkcheck
+ jmp 2b
+
+
+* 
+* BOOLEAN ats(ta,tn,al,sp)  /* Allocate space with memory increase */
+* /*	ta : table array address
+* 
+* struct table ta[];
+* int tn;
+* unsigned int al;
+* char (*sp)[];
+* 
+* {
+ global ats
+ats
+ pshs y,u
+ jmp 1f
+2
+* 	if (tbats(ta,tn,al,sp)) return TRUE;
+ ldd 12,s
+ pshs d
+ ldd 12,s
+ pshs d
+ ldd 12,s
+ pshs d
+ ldd 12,s
+ pshs d
+ jsr tbats
+ leas 8,s
+ cmpd #0
+ lbeq _42
+_43
+ ldd #1
+ puls y,u,pc
+
+* 	else if (brk(memend+INCREASE)) {
+ jmp _44
+_42
+ ldd memend
+ addd #4096
+ pshs d
+ jsr brk
+ leas 2,s
+ cmpd #0
+ lbeq _45
+_46
+* 		memend += INCREASE;
+ ldd memend
+ addd #4096
+ std memend
+* 		return tbats(ta,tn,al,sp); }
+ ldd 12,s
+ pshs d
+ ldd 12,s
+ pshs d
+ ldd 12,s
+ pshs d
+ ldd 12,s
+ pshs d
+ jsr tbats
+ leas 8,s
+ puls y,u,pc
+
+* 	else return FALSE;
+ jmp _47
+_45
+ ldd #0
+ puls y,u,pc
+
+* }
+_47
+_44
+ puls y,u,pc
+
+1 ldd #-142
+ jsr _stkcheck
+ jmp 2b
+
+
+* 
+* BOOLEAN adb(ta,tn,b,n) /* add bytes to a table with increase */
+* /*	ta : table array address
+* 
+* struct table ta[];
+* int tn;
+* char *b;
+* int n;
+* 
+* {
+ global adb
+adb
+ pshs y,u
+ jmp 1f
+2
+* 	char *space;
+*  
+* 	if (ats(ta,tn,n,&space)) {
+ leas -2,s
+ leax ,s
+ tfr x,d
+ pshs d
+ ldd 16,s
+ pshs d
+ ldd 14,s
+ pshs d
+ ldd 14,s
+ pshs d
+ jsr ats
+ leas 8,s
+ cmpd #0
+ lbeq _48
+_49
+* 		while (n--) *space++ = *b++;
+_51
+ ldd 14,s
+ addd #-1
+ std 14,s
+ subd #-1
+ lbeq _50
+_52
+ ldx 12,s
+ leax 1,x
+ stx 12,s
+ ldb -1,x
+ ldx ,s
+ leax 1,x
+ stx ,s
+ stb -1,x
+* 		return TRUE; }
+ jmp _51
+_50
+ ldd #1
+ leas 2,s
+ puls y,u,pc
+
+* 	else return FALSE;
+ jmp _53
+_48
+ ldd #0
+ leas 2,s
+ puls y,u,pc
+
+* }
+_53
+ leas 2,s
+ puls y,u,pc
+
+1 ldd #-144
+ jsr _stkcheck
+ jmp 2b
+
+
+ bss
+ name m_tables_c
+ text

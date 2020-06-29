@@ -1,0 +1,1381 @@
+                        ; v0.2.2
+                        ;
+                        ; Bill O'Neill - Last update: 2011/11/11
+                        ;
+                        ; Monitor code is Open License and can be used freely
+                        ; Tiny Basic code is Copyright, Tom Pitman
+                        ;
+                        ; Consist of a minimal terminal monitor and Tom
+                        ; Pitman's Tiny Basic as a high-level
+                        ; programming language
+                        ;
+                        ; This code assembles as-is with the macro assembler in the
+                        ; Michal Kowalski simulator.
+                        ;
+                        ; It should be easy enough to configure this to run any-
+                        ; where in memory or convert it to assemble with any 6502
+                        ; assembler.
+                        ;
+                        ; Next steps:
+                        ;        More comments to document this code
+                        ;
+                        ;
+                        ; Revision History:
+                        ;
+                        ; v0.2.2 - 2011/11/11
+                        ;        Reduced version containg only a terminal monitor
+                        ;        for an 6850 ACIA aNd Tom Pitman's Tiny Basic
+                        ;
+                        ; v0.2.1 - 2011/05/18
+                        ;        Ported to Michal Kowalski's macro assembler
+                        ;
+                        ; v0.2.0 - 2011/01/04
+                        ;        Corrected some label problems
+                        ;        Added/corrected some comments
+                        ;
+                        ; v0.1.3 - 2009/11/28
+                        ;        Changed the look-up table for the IL op-code
+                        ;          handlers to use labels instead of literal addresses
+                        ;          this helps make the code re-locatable.
+                        ;        Added some comments to source
+                        ;
+                        ; v0.1.2 - 2009/01/12
+                        ;        Added BREAK routine
+                        ;        Fixed my bad reference to error string " AT "
+                        ;        Compressed gaps in monitor code
+                        ;        Added some comments to source
+                        ;
+                        ; v0.1.1 - 2008/12/15
+                        ;        Initial working version
+                        ; 
+                        ;
+                        ; Notes:
+                        ;  - I changed the prompt character from a ":" ($3A) to a ">" ($3E) for no
+                        ;    other reason than I think it looks a bit better. The prompt character
+                        ;    is the second byte of the IL program table.
+                        ;
+                        ;  - This version is to run in the OMS-03,  The memory map is as follows.
+                        ;
+                        ;    $0000-$7FFF     RAM
+                        ;    $8000-$EFFF     ROM - Tiny Basic
+                        ;    $F000-$F7FF     I/O - ACIA is at $F000
+                        ;    $F800-$FFFF     ROM - Simple monitor
+                        ;
+                        ;  - Starting address in this version (referred to as "S" in the EXPERIMENTER'S
+                        ;    KIT) is $8000
+                        
+                        
+                        ;
+                        ; Tiny Basic starts here
+                        ;
+O  0000   01 01 01               .org     $8000             ; Start of Basic.
+                        
+                        
+   0003   7e 00 c5      CV       JMP      COLD_S            ; Cold start vector
+   0006   7e 01 23      WV       JMP      WARM_S            ; Warm start vector
+   0009   7e 0a d3      IN_V     JMP      RCCHR             ; Input routine address. 
+   000c   7e 0a de      OUT_V    JMP      SNDCHR            ; Output routine address.
+   000f   7e 0b 0c      BV       JMP      BREAK             ; Begin break routine
+                        
+                        ;
+                        ; Some codes
+                        ;
+O  0012   01 01 01      BSC      .db $5f                   ; Backspace code
+O  0015   01 01 01      LSC      .db $18                   ; Line cancel code
+O  0018   01 01 01      PCC      .db $80                   ; Pad character control
+O  001b   01 01 01      TMC      .db $00                   ; Tape mode control
+O  001e   01 01 01      SSS      .db $04                   ; Spare Stack size. (was $04 but documentation suggests $20)
+                        
+                        ;
+                        ; Code fragment for 'PEEK' and 'POKE'
+                        ;
+   0021   df c3         PEEK     STX $C3                   ; 'PEEK' - store X in $C3
+   0023   24 06                  BCC LBL008                ; On carry clear goto LBL008
+   0025   df c3                  STX $C3                   ; 'POKE' - store X in $C3
+U  0027   01 01 01               STA ($C2),Y               ; Store A in location pointed to by $C3 (hi) and Y (lo)
+   002a   39                     RTS                       ; Return
+U  002b   01 01 01      LBL008   LDA ($C2),Y               ; Load A with value pointed to by $C3 (hi) and Y (lo)
+O  002e   01 01 01               LDY #$00                  ; Reset Y
+   0031   39                     RTS                       ; Return
+                        
+                        ;
+                        ; The following table contains the addresses for the ML handlers for the IL opcodes.
+                        ;
+O  0032   01 01 01      SRVT     .dw  IL_BBR               ; ($40-$5F) Backward Branch Relative
+O  0035   01 01 01               .dw  IL_FBR               ; ($60-$7F) Forward Branch Relative
+O  0038   01 01 01               .dw  IL__BC               ; ($80-$9F) String Match Branch
+O  003b   01 01 01               .dw  IL__BV               ; ($A0-$BF) Branch if not Variable
+O  003e   01 01 01               .dw  IL__BN               ; ($C0-$DF) Branch if not a Number
+O  0041   01 01 01               .dw  IL__BE               ; ($E0-$FF) Branch if not End of line
+O  0044   01 01 01               .dw  IL__NO               ; ($08) No Opertion
+O  0047   01 01 01               .dw  IL__LB               ; ($09) Push Literal Byte onto Stack
+O  004a   01 01 01               .dw  IL__LN               ; ($0A) Push Literal Number
+O  004d   01 01 01               .dw  IL__DS               ; ($0B) Duplicate Top two bytes on Stack
+O  0050   01 01 01               .dw  IL__SP               ; ($0C) Stack Pop
+O  0053   01 01 01               .dw  IL__NO               ; ($0D) (Reserved)
+O  0056   01 01 01               .dw  IL__NO               ; ($0E) (Reserved)
+O  0059   01 01 01               .dw  IL__NO               ; ($0F) (Reserved)
+O  005c   01 01 01               .dw  IL__SB               ; ($10) Save Basic Pointer
+O  005f   01 01 01               .dw  IL__RB               ; ($11) Restore Basic Pointer
+O  0062   01 01 01               .dw  IL__FV               ; ($12) Fetch Variable
+O  0065   01 01 01               .dw  IL__SV               ; ($13) Store Variable
+O  0068   01 01 01               .dw  IL__GS               ; ($14) Save GOSUB line
+O  006b   01 01 01               .dw  IL__RS               ; ($15) Restore saved line
+O  006e   01 01 01               .dw  IL__GO               ; ($16) GOTO
+O  0071   01 01 01               .dw  IL__NE               ; ($17) Negate
+O  0074   01 01 01               .dw  IL__AD               ; ($18) Add
+O  0077   01 01 01               .dw  IL__SU               ; ($19) Subtract
+O  007a   01 01 01               .dw  IL__MP               ; ($1A) Multiply
+O  007d   01 01 01               .dw  IL__DV               ; ($1B) Divide
+O  0080   01 01 01               .dw  IL__CP               ; ($1C) Compare
+O  0083   01 01 01               .dw  IL__NX               ; ($1D) Next BASIC statement
+O  0086   01 01 01               .dw  IL__NO               ; ($1E) (Reserved)
+O  0089   01 01 01               .dw  IL__LS               ; ($1F) List the program
+O  008c   01 01 01               .dw  IL__PN               ; ($20) Print Number
+O  008f   01 01 01               .dw  IL__PQ               ; ($21) Print BASIC string
+O  0092   01 01 01               .dw  IL__PT               ; ($22) Print Tab
+O  0095   01 01 01               .dw  IL__NL               ; ($23) New Line
+O  0098   01 01 01               .dw  IL__PC               ; ($24) Print Literal String
+O  009b   01 01 01               .dw  IL__NO               ; ($25) (Reserved)
+O  009e   01 01 01               .dw  IL__NO               ; ($26) (Reserved)
+O  00a1   01 01 01               .dw  IL__GL               ; ($27) Get input Line
+O  00a4   01 01 01               .dw  ILRES1               ; ($28) (Seems to be reserved - No IL opcode calls this)
+O  00a7   01 01 01               .dw  ILRES2               ; ($29) (Seems to be reserved - No IL opcode calls this)
+O  00aa   01 01 01               .dw  IL__IL               ; ($2A) Insert BASIC Line
+O  00ad   01 01 01               .dw  IL__MT               ; ($2B) Mark the BASIC program space Empty
+O  00b0   01 01 01               .dw  IL__XQ               ; ($2C) Execute
+O  00b3   01 01 01               .dw  WARM_S               ; ($2D) Stop (Warm Start)
+O  00b6   01 01 01               .dw  IL__US               ; ($2E) Machine Language Subroutine Call
+O  00b9   01 01 01               .dw  IL__RT               ; ($2F) IL subroutine return
+                        
+O  00bc   01 01 01      ERRSTR   .dd $2041, $5420          ; " AT " string used in error reporting.  Tom was right about this.
+O  00bf   01 01 01               .db $80                   ; String terminator
+                                 
+O  00c2   01 01 01      LBL002   .dw  ILTBL                ; Address of IL program table
+                        
+                        ;
+                        ; Begin Cold Start
+                        ;
+                        ; Load start of free ram ($0200) into locations $20 and $21
+                        ; and initialize the address for end of free ram ($22 & $23)
+                        ;
+R  00c5   01 01 01      COLD_S   lda #$00                   ; Load accumulator with $00
+R  00c8   01 01 01               sta $20                    ; Store $00 in $20
+R  00cb   01 01 01               sta $22                    ; Store $00 in $22
+R  00ce   01 01 01               lda #$02                   ; Load accumulator with $02
+R  00d1   01 01 01               sta $21                    ; Store $02 in $21
+R  00d4   01 01 01               sta $23                    ; Store $02 in $23
+                        ;
+                        ;
+                        ; Begin test for free ram
+                        ;
+O  00d7   01 01 01               ldy #$01                   ; Load register Y with $01
+U  00da   01 01 01      MEM_T    lda ($22),Y                ; Load accumulator With the contents of a byte of memory
+O  00dd   01 01 01               tax                        ; Save it to X
+R  00e0   01 01 01               eor #$FF                   ; Next 4 instuctions test to see if this memeory location
+U  00e3   01 01 01               sta ($22),Y                ; is ram by trying to write something new to it - new value
+U  00e6   01 01 01               cmp ($22),Y                ; gets created by XORing the old value with $FF - store the
+O  00e9   01 01 01               php                        ; result of the test on the stack to look at later
+O  00ec   01 01 01               txa                        ; Retrieve the old memory value
+U  00ef   01 01 01               sta ($22),Y                ; Put it back where it came from
+   00f2   7c 00 22               inc $22                    ; Increment $22 (for next memory location)
+   00f5   26 03                  bne SKP_PI                 ; Skip if we don't need to increment page
+   00f7   7c 00 23               inc $23                    ; Increment $23 (for next memory page)
+O  00fa   01 01 01      SKP_PI   plp                        ; Now look at the result of the memory test
+   00fd   27 db                  beq MEM_T                  ; Go test the next mempry location if the last one was ram
+O  00ff   01 01 01               dey                        ; If last memory location did not test as ram, decrement Y (should be $00 now)
+O  0102   01 01 01      IL__MT   cld                        ; Make sure we're not in decimal mode
+R  0105   01 01 01               lda $20                    ; Load up the low-order by of the start of free ram
+R  0108   01 01 01               adc SSS                    ; Add to the spare stack size
+R  010b   01 01 01               sta $24                    ; Store the result in $0024
+O  010e   01 01 01               tya                        ; Retrieve Y
+R  0111   01 01 01               adc $21                    ; And add it to the high order byte of the start of free ram (this does not look right)
+R  0114   01 01 01               sta $25                    ; Store the result in $0025
+O  0117   01 01 01               tya                        ; Retrieve Y again
+U  011a   01 01 01               sta ($20),Y                ; Store A in the first byte of program memory
+O  011d   01 01 01               iny                        ; Increment Y
+U  0120   01 01 01               sta ($20),Y                ; Store A in the second byte of program memory
+                        ;
+                        ;Begin Warm Start
+                        ;
+R  0123   01 01 01      WARM_S   lda $22
+R  0126   01 01 01               sta $C6
+R  0129   01 01 01               sta $26
+R  012c   01 01 01               lda $23
+R  012f   01 01 01               sta $C7
+R  0132   01 01 01               sta $27
+   0135   bd 06 30               jsr P_NWLN                 ; Go print CR, LF and pad charachters
+R  0138   01 01 01      LBL014   lda LBL002                 ; Load up the start of the IL Table 
+R  013b   01 01 01               sta $2A                    ;
+R  013e   01 01 01               lda LBL002+$01             ;
+R  0141   01 01 01               sta $2B
+R  0144   01 01 01               lda #$80
+R  0147   01 01 01               sta $C1
+R  014a   01 01 01               lda #$30
+R  014d   01 01 01               sta $C0
+   0150   ce 00 00               ldx #$00
+   0153   df be                  stx $BE
+   0155   df c2                  stx $C2
+   0157   09                     dex
+   0158   35                     txs
+                        
+                        ;
+                        ; IL execution loop
+                        ;
+O  0159   01 01 01      LBL006   cld                        ; Make sure we're in binary mode 
+   015c   bd 04 2c               jsr LBL004                 ; Go read a byte from the IL program table
+   015f   bd 01 6b               jsr LBL005                 ; Go decide what to do with it
+   0162   7e 01 59               jmp LBL006                 ; Repeat
+                        ;
+                        ;
+                        ;
+O  0165   01 01 01               .db $83                   ; No idea about this
+O  0168   01 01 01               .db $65                   ; No idea about this
+                        ;
+                        ;
+                        ; Routine to service the TBIL Instructions
+                        ;
+R  016b   01 01 01      LBL005   cmp #$30                   ;
+B  016e   01 01                  bcs LBL011                 ; If it's $30 or higher, it's a Branch or Jump - go handle it
+R  0170   01 01 01               cmp #$08                   ; 
+   0173   24 16                  bcc LBL007                 ; If it's less than $08 it's a stack exchange - go handle it
+S  0175   01 01 01               asl                        ; Multiply the OP code by 2 
+O  0178   01 01 01               tax                        ; Transfer it to X
+R  017b   01 01 01      LBL022   lda SRVT-$03,X             ; Get the hi byte of the OP Code handling routine
+O  017e   01 01 01               pha                        ; and save it on the stack
+R  0181   01 01 01               lda SRVT-$04,X             ; Get the lo byte
+O  0184   01 01 01               pha                        ; and save it on the stack
+O  0187   01 01 01               php                        ; save the processor status too
+   018a   3b                     rti                        ; now go execute the OP Code handling routine
+                        ;
+                        ;
+                        ; Routine to handle the stack exchange 
+                        ;
+R  018b   01 01 01      LBL007   adc $C1
+O  018e   01 01 01               tax
+U  0191   01 01 01               lda ($C1),Y
+O  0194   01 01 01               pha
+R  0197   01 01 01               lda $00,X
+U  019a   01 01 01               sta ($C1),Y
+O  019d   01 01 01               pla
+R  01a0   01 01 01               sta $00,X
+   01a3   39                     rts
+                        ;
+                        ;
+                        ;
+   01a4   bd 06 30      LBL015   jsr P_NWLN                 ; Go print CR, LF and pad charachters
+R  01a7   01 01 01               lda #$21                   ; Load an ASCII DC2
+   01aa   bd 00 0c               jsr OUT_V                  ; Go print it
+R  01ad   01 01 01               lda $2A                    ; Load the current TBIL pointer (lo) 
+   01b0   0d                     sec                        ; Set the carry flag
+R  01b1   01 01 01               sbc LBL002                 ; Subtract the TBIL table origin (lo)
+O  01b4   01 01 01               tax                        ; Move the difference to X
+R  01b7   01 01 01               lda $2B                    ; Load the current TBIL pointer (hi)
+R  01ba   01 01 01               sbc LBL002+$01             ; Subtract the TBIL table origin (hi)
+   01bd   bd 04 f7               jsr LBL010
+R  01c0   01 01 01               lda $BE
+   01c3   27 17                  beq LBL012
+E  01c5   01 01 01               lda #<ERRSTR               ; Get lo byte of error string address
+R  01c8   01 01 01               sta $2A                    ; Put in $2A
+E  01cb   01 01 01               lda #>ERRSTR               ; Get hi byte of error string address
+R  01ce   01 01 01               sta $2B                    ; Put in $2B
+   01d1   bd 03 c2               jsr IL__PC                 ; Go report an error has been detected
+   01d4   de 28                  ldx $28
+R  01d6   01 01 01               lda $29
+   01d9   bd 04 f7               jsr LBL010
+R  01dc   01 01 01      LBL012   lda #$07                   ; ASCII Bell
+   01df   bd 00 0c               jsr OUT_V                  ; Go ring Bell
+   01e2   bd 06 30               jsr P_NWLN                 ; Go print CR, LF and pad charachters
+R  01e5   01 01 01      LBL060   lda $26
+R  01e8   01 01 01               sta $C6
+R  01eb   01 01 01               lda $27
+R  01ee   01 01 01               sta $C7
+   01f1   7e 01 38               jmp LBL014
+                        ;
+                        ;
+                        ;
+   01f4   ce 00 7c      LBL115   ldx #$7C
+   01f7   9c c1         LBL048   cpx $C1
+   01f9   24 a9         LBL019   bcc LBL015
+   01fb   de c1                  ldx $C1
+   01fd   7c 00 c1               inc $C1
+   0200   7c 00 c1               inc $C1
+   0203   0c                     clc
+   0204   39                     rts
+                        ;
+                        ;
+                        ;
+   0205   7a 00 bd      IL_BBR   dec $BD                    ; Entry point for TBIL Backward Branch Relative
+R  0208   01 01 01      IL_FBR   lda $BD                    ; Entry point for TBIL Forward Branch Relative
+   020b   27 97                  beq LBL015
+R  020d   01 01 01      LBL017   lda $BC
+R  0210   01 01 01               sta $2A
+R  0213   01 01 01               lda $BD
+R  0216   01 01 01               sta $2B
+   0219   39                     rts
+                        ;
+                        ; Jump handling routine
+                        ;
+R  021a   01 01 01      LBL011   cmp #$40
+   021d   25 60                  bcs LBL016                 ; If it's not a Jump, go to branch handler
+O  021f   01 01 01               pha
+   0222   bd 04 2c               jsr LBL004                 ; Go read a byte from the TBIL table
+R  0225   01 01 01               adc LBL002
+R  0228   01 01 01               sta $BC
+O  022b   01 01 01               pla
+O  022e   01 01 01               pha
+R  0231   01 01 01               and #$07
+R  0234   01 01 01               adc LBL002+$01
+R  0237   01 01 01               sta $BD
+O  023a   01 01 01               pla
+R  023d   01 01 01               and #$08
+   0240   26 cb                  bne LBL017
+R  0242   01 01 01               lda $BC
+   0245   de 2a                  ldx $2A
+R  0247   01 01 01               sta $2A
+   024a   df bc                  stx $BC
+R  024c   01 01 01               lda $BD
+   024f   de 2b                  ldx $2B
+R  0251   01 01 01               sta $2B
+   0254   df bd                  stx $BD
+R  0256   01 01 01      LBL126   lda $C6
+R  0259   01 01 01               sbc #$01
+R  025c   01 01 01               sta $C6
+   025f   25 03                  bcs LBL018
+   0261   7a 00 c7               dec $C7
+R  0264   01 01 01      LBL018   cmp $24
+R  0267   01 01 01               lda $C7
+R  026a   01 01 01               sbc $25
+   026d   24 8a                  bcc LBL019
+R  026f   01 01 01               lda $BC
+U  0272   01 01 01               sta ($C6),Y
+O  0275   01 01 01               iny
+R  0278   01 01 01               lda $BD
+U  027b   01 01 01               sta ($C6),Y
+   027e   39                     rts
+                        ;
+                        ;
+                        ; Branch Handler
+                        ;
+O  027f   01 01 01      LBL016   pha
+S  0282   01 01 01               lsr
+S  0285   01 01 01               lsr
+S  0288   01 01 01               lsr
+S  028b   01 01 01               lsr
+R  028e   01 01 01               and #$0E
+O  0291   01 01 01               tax
+O  0294   01 01 01               pla
+R  0297   01 01 01               cmp #$60
+R  029a   01 01 01               and #$1F
+   029d   25 03                  bcs LBL020
+R  029f   01 01 01               ora #$E0
+   02a2   0c            LBL020   clc
+   02a3   27 0c                  beq LBL021
+R  02a5   01 01 01               adc $2A
+R  02a8   01 01 01               sta $BC
+O  02ab   01 01 01               tya
+R  02ae   01 01 01               adc $2B
+R  02b1   01 01 01      LBL021   sta $BD
+   02b4   7e 01 7b               jmp LBL022
+                        ;
+                        ;
+                        ;
+R  02b7   01 01 01      IL__BC   lda $2C                    ; Entry point for TBIL BC (String Match Branch)
+R  02ba   01 01 01               sta $B8
+R  02bd   01 01 01               lda $2D
+R  02c0   01 01 01               sta $B9
+   02c3   bd 03 1d      LBL025   jsr LBL023
+   02c6   bd 03 07               jsr LBL024
+U  02c9   01 01 01               eor ($2A),Y
+O  02cc   01 01 01               tax
+   02cf   bd 04 2c               jsr LBL004                 ; Go read a byte from the TBIL table
+O  02d2   01 01 01               txa
+   02d5   27 ec                  beq LBL025
+S  02d7   01 01 01               asl
+   02da   27 17                  beq LBL026
+R  02dc   01 01 01               lda $B8
+R  02df   01 01 01               sta $2C
+R  02e2   01 01 01               lda $B9
+R  02e5   01 01 01               sta $2D
+   02e8   7e 02 08      LBL028   jmp IL_FBR
+   02eb   bd 03 1d      IL__BE   jsr LBL023                 ; Entry point for TBIL BE (Branch if not End of line)
+R  02ee   01 01 01               cmp #$0D
+   02f1   26 f5                  bne LBL028
+   02f3   39            LBL026   rts
+                        ;
+                        ;
+                        ;
+   02f4   bd 03 1d      IL__BV   jsr LBL023                 ; Entry point for TBIL BV (Branch if not Variable)
+R  02f7   01 01 01               cmp #$5B
+   02fa   25 ec                  bcs LBL028
+R  02fc   01 01 01               cmp #$41
+   02ff   24 e7                  bcc LBL028
+S  0301   01 01 01               asl
+   0304   bd 04 da               jsr LBL029
+O  0307   01 01 01      LBL024   ldy #$00
+U  030a   01 01 01               lda ($2C),Y
+   030d   7c 00 2c               inc $2C
+   0310   26 03                  bne LBL030
+   0312   7c 00 2d               inc $2D
+R  0315   01 01 01      LBL030   cmp #$0D
+   0318   0c                     clc
+   0319   39                     rts
+                        ;
+                        ;
+                        ;
+   031a   bd 03 07      LBL031   jsr LBL024
+U  031d   01 01 01      LBL023   lda ($2C),Y
+R  0320   01 01 01               cmp #$20
+   0323   27 f5                  beq LBL031
+R  0325   01 01 01               cmp #$3A
+   0328   0c                     clc
+   0329   2a 03                  bpl LBL032
+R  032b   01 01 01               cmp #$30
+   032e   39            LBL032   rts
+                        ;
+                        ;
+                        ;
+   032f   bd 03 1d      IL__BN   jsr LBL023                 ; Entry point for TBIL BN (Branch if not a Number)
+   0332   24 b4                  bcc LBL028
+O  0334   01 01 01               sty $BC
+O  0337   01 01 01               sty $BD
+R  033a   01 01 01      LBL033   lda $BC
+   033d   de bd                  ldx $BD
+   033f   78 00 bc               asl $BC
+   0342   79 00 bd               rol $BD
+   0345   78 00 bc               asl $BC
+   0348   79 00 bd               rol $BD
+   034b   0c                     clc
+R  034c   01 01 01               adc $BC
+R  034f   01 01 01               sta $BC
+O  0352   01 01 01               txa
+R  0355   01 01 01               adc $BD
+   0358   78 00 bc               asl $BC
+S  035b   01 01 01               rol
+R  035e   01 01 01               sta $BD
+   0361   bd 03 07               jsr LBL024
+R  0364   01 01 01               and #$0F
+R  0367   01 01 01               adc $BC
+R  036a   01 01 01               sta $BC
+O  036d   01 01 01               tya
+R  0370   01 01 01               adc $BD
+R  0373   01 01 01               sta $BD
+   0376   bd 03 1d               jsr LBL023
+   0379   25 bf                  bcs LBL033
+   037b   7e 04 d1               jmp LBL034
+   037e   bd 06 bc      LBL061   jsr IL__SP
+R  0381   01 01 01               lda $BC
+R  0384   01 01 01               ora $BD
+   0387   27 57                  beq LBL036
+R  0389   01 01 01      LBL065   lda $20
+R  038c   01 01 01               sta $2C
+R  038f   01 01 01               lda $21
+R  0392   01 01 01               sta $2D
+   0395   bd 04 bb      LBL040   jsr LBL037
+   0398   27 16                  beq LBL038
+R  039a   01 01 01               lda $28
+R  039d   01 01 01               cmp $BC
+R  03a0   01 01 01               lda $29
+R  03a3   01 01 01               sbc $BD
+   03a6   25 08                  bcs LBL038
+   03a8   bd 03 07      LBL039   jsr LBL024
+   03ab   26 fb                  bne LBL039
+   03ad   7e 03 95               jmp LBL040
+R  03b0   01 01 01      LBL038   lda $28
+R  03b3   01 01 01               eor $BC
+   03b6   26 06                  bne LBL041
+R  03b8   01 01 01               lda $29
+R  03bb   01 01 01               eor $BD
+   03be   39            LBL041   rts
+                        ;
+                        ;
+                        ;
+   03bf   bd 03 c7      LBL043   jsr LBL042
+   03c2   bd 04 2c      IL__PC   jsr LBL004                 ; Entry point for TBIL PC (print literal) - Go read a byte from the TBIL table
+   03c5   2a f8                  bpl LBL043
+   03c7   7c 00 bf      LBL042   inc $BF
+   03ca   2b 03                  bmi LBL044
+   03cc   7e 00 0c               jmp OUT_V                  ; Go print it
+   03cf   7a 00 bf      LBL044   dec $BF
+   03d2   39            LBL045   rts
+                        ;
+                        ;
+                        ;
+R  03d3   01 01 01      LBL046   cmp #$22
+   03d6   27 fa                  beq LBL045
+   03d8   bd 03 c7               jsr LBL042
+   03db   bd 03 07      IL__PQ   jsr LBL024                 ; Entry point for TBIL PQ
+   03de   26 f3                  bne LBL046
+   03e0   7e 01 a4      LBL036   jmp LBL015
+R  03e3   01 01 01      IL__PT   lda #$20                   ; Entry point for TBIL PT
+   03e6   bd 03 c7               jsr LBL042
+R  03e9   01 01 01               lda $BF
+R  03ec   01 01 01               and #$87
+   03ef   2b e1                  bmi LBL045
+   03f1   26 f0                  bne IL__PT
+   03f3   39                     rts
+                        ;
+                        ;
+                        ;
+   03f4   ce 00 7b      IL__CP   ldx #$7B
+   03f7   bd 01 f7               jsr LBL048
+   03fa   7c 00 c1               inc $C1
+   03fd   7c 00 c1               inc $C1
+   0400   7c 00 c1               inc $C1
+   0403   0d                     sec
+R  0404   01 01 01               lda $03,X
+R  0407   01 01 01               sbc $00,X
+R  040a   01 01 01               sta $00,X
+R  040d   01 01 01               lda $04,X
+R  0410   01 01 01               sbc $01,X
+   0413   28 06                  bvc LBL052
+R  0415   01 01 01               eor #$80
+R  0418   01 01 01               ora #$01
+   041b   2b 0b         LBL052   bmi LBL053
+   041d   26 05                  bne LBL054
+R  041f   01 01 01               ora $00,X
+   0422   27 02                  beq LBL049
+   0424   64 02         LBL054   lsr $02,X
+   0426   64 02         LBL049   lsr $02,X
+   0428   64 02         LBL053   lsr $02,X
+   042a   24 11                  bcc LBL050
+O  042c   01 01 01      LBL004   ldy #$00                   ; Read a byte from the TBIL Table
+U  042f   01 01 01               lda ($2A),Y               ;
+   0432   7c 00 2a               inc $2A                    ; Increment TBIL Table pointer as required
+   0435   26 03                  bne LBL051                 ;
+   0437   7c 00 2b               inc $2B                    ;
+R  043a   01 01 01      LBL051   ora #$00                   ; Check for $00 and set the 'Z' flag acordingly
+   043d   39            LBL050   rts                        ; Return
+                        ;
+                        ;
+                        ;
+R  043e   01 01 01      IL__NX   lda $BE                    ; Entry point for TBIL NX
+   0441   27 2e                  beq LBL055
+   0443   bd 03 07      LBL056   jsr LBL024
+   0446   26 fb                  bne LBL056
+   0448   bd 04 bb               jsr LBL037
+   044b   27 21                  beq LBL057
+   044d   bd 04 94      LBL062   jsr LBL058
+   0450   bd 00 0f               jsr BV                     ; Test for break
+   0453   25 0d                  bcs LBL059
+R  0455   01 01 01               lda $C4
+R  0458   01 01 01               sta $2A
+R  045b   01 01 01               lda $C5
+R  045e   01 01 01               sta $2B
+   0461   39                     rts
+                        ;
+                        ;
+                        ;
+R  0462   01 01 01      LBL059   lda LBL002
+R  0465   01 01 01               sta $2A
+R  0468   01 01 01               lda LBL002+$01
+R  046b   01 01 01               sta $2B
+   046e   7e 01 a4      LBL057   jmp LBL015
+R  0471   01 01 01      LBL055   sta $BF
+   0474   7e 01 e5               jmp LBL060
+R  0477   01 01 01      IL__XQ   lda $20                    ; Entry point fro TBIL XQ
+R  047a   01 01 01               sta $2C
+R  047d   01 01 01               lda $21
+R  0480   01 01 01               sta $2D
+   0483   bd 04 bb               jsr LBL037
+   0486   27 e6                  beq LBL057
+R  0488   01 01 01               lda $2A
+R  048b   01 01 01               sta $C4
+R  048e   01 01 01               lda $2B
+R  0491   01 01 01               sta $C5
+R  0494   01 01 01      LBL058   lda #$01
+R  0497   01 01 01               sta $BE
+   049a   39                     rts
+                        ;
+                        ;
+                        ;
+   049b   bd 03 7e      IL__GO   jsr LBL061                 ; Entry point for TBIL GO
+   049e   27 ad                  beq LBL062
+R  04a0   01 01 01      LBL066   lda $BC
+R  04a3   01 01 01               sta $28
+R  04a6   01 01 01               lda $BD
+R  04a9   01 01 01               sta $29
+   04ac   7e 01 a4               jmp LBL015
+   04af   bd 09 8c      IL__RS   jsr LBL063                 ; Entry point for TBIL RS
+   04b2   bd 09 88               jsr LBL064
+   04b5   bd 03 89               jsr LBL065
+   04b8   26 e6                  bne LBL066
+   04ba   39                     rts
+                        ;
+                        ;
+                        ;
+   04bb   bd 03 07      LBL037   jsr LBL024
+R  04be   01 01 01               sta $28
+   04c1   bd 03 07               jsr LBL024
+R  04c4   01 01 01               sta $29
+R  04c7   01 01 01               ora $28
+   04ca   39                     rts
+                        ;
+                        ;
+                        ;
+   04cb   bd 06 bc      IL__DS   jsr IL__SP                 ; Entry point for TBIL DS
+   04ce   bd 04 d1               jsr LBL034
+R  04d1   01 01 01      LBL034   lda $BD
+   04d4   bd 04 da      LBL131   jsr LBL029
+R  04d7   01 01 01               lda $BC
+   04da   de c1         LBL029   ldx $C1
+   04dc   09                     dex
+R  04dd   01 01 01               sta $00,X
+   04e0   df c1                  stx $C1
+   04e2   9c c0                  cpx $C0
+   04e4   26 10                  bne IL__NO
+   04e6   7e 01 a4      LBL068   jmp LBL015
+   04e9   de c1         LBL097   ldx $C1
+   04eb   8c 00 80               cpx #$80
+   04ee   2a f6                  bpl LBL068
+R  04f0   01 01 01               lda $00,X
+   04f3   7c 00 c1               inc $C1
+   04f6   39            IL__NO   rts                        ; Entry point for the TBIL NO
+                        ;
+                        ;
+                        ;
+R  04f7   01 01 01      LBL010   sta $BD
+   04fa   df bc                  stx $BC
+   04fc   7e 05 12               jmp LBL069
+   04ff   de c1         IL__PN   ldx $C1                    ; Entry point for the TBIL PN
+R  0501   01 01 01               lda $01,X
+   0504   2a 09                  bpl LBL070
+   0506   bd 08 80               jsr IL__NE
+R  0509   01 01 01               lda #$2D
+   050c   bd 03 c7               jsr LBL042
+   050f   bd 06 bc      LBL070   jsr IL__SP
+R  0512   01 01 01      LBL069   lda #$1F
+R  0515   01 01 01               sta $B8
+R  0518   01 01 01               sta $BA
+R  051b   01 01 01               lda #$2A
+R  051e   01 01 01               sta $B9
+R  0521   01 01 01               sta $BB
+   0524   de bc                  ldx $BC
+O  0526   01 01 01               ldy $BD
+   0529   0d                     sec
+   052a   7c 00 b8      LBL072   inc $B8
+O  052d   01 01 01               txa
+R  0530   01 01 01               sbc #$10
+O  0533   01 01 01               tax
+O  0536   01 01 01               tya
+R  0539   01 01 01               sbc #$27
+O  053c   01 01 01               tay
+   053f   25 e9                  bcs LBL072
+   0541   7a 00 b9      LBL073   dec $B9
+O  0544   01 01 01               txa
+R  0547   01 01 01               adc #$E8
+O  054a   01 01 01               tax
+O  054d   01 01 01               tya
+R  0550   01 01 01               adc #$03
+O  0553   01 01 01               tay
+   0556   24 e9                  bcc LBL073
+O  0558   01 01 01               txa
+   055b   0d            LBL074   sec
+   055c   7c 00 ba               inc $BA
+R  055f   01 01 01               sbc #$64
+   0562   25 f7                  bcs LBL074
+O  0564   01 01 01               dey
+   0567   2a f2                  bpl LBL074
+   0569   7a 00 bb      LBL075   dec $BB
+R  056c   01 01 01               adc #$0A
+   056f   24 f8                  bcc LBL075
+R  0571   01 01 01               ora #$30
+R  0574   01 01 01               sta $BC
+R  0577   01 01 01               lda #$20
+R  057a   01 01 01               sta $BD
+   057d   ce 00 fb               ldx #$FB
+   0580   df c3         LBL199   stx $C3
+R  0582   01 01 01               lda $BD,X
+R  0585   01 01 01               ora $BD
+R  0588   01 01 01               cmp #$20
+   058b   27 0c                  beq LBL076
+O  058d   01 01 01               ldy #$30
+O  0590   01 01 01               sty $BD
+R  0593   01 01 01               ora $BD
+   0596   bd 03 c7               jsr LBL042
+   0599   de c3         LBL076   ldx $C3
+   059b   08                     inx
+   059c   26 e2                  bne LBL199
+   059e   39                     rts
+                        ;
+                        ;
+                        ;
+R  059f   01 01 01      IL__LS   lda $2D                    ; Entry point for TBIL LS
+O  05a2   01 01 01               pha
+R  05a5   01 01 01               lda $2C
+O  05a8   01 01 01               pha
+R  05ab   01 01 01               lda $20
+R  05ae   01 01 01               sta $2C
+R  05b1   01 01 01               lda $21
+R  05b4   01 01 01               sta $2D
+R  05b7   01 01 01               lda $24
+   05ba   de 25                  ldx $25
+   05bc   bd 05 f6               jsr LBL077
+   05bf   27 03                  beq LBL078
+   05c1   bd 05 f6               jsr LBL077
+R  05c4   01 01 01      LBL078   lda $2C
+   05c7   0d                     sec
+R  05c8   01 01 01               sbc $B6
+R  05cb   01 01 01               lda $2D
+R  05ce   01 01 01               sbc $B7
+   05d1   25 4b                  bcs LBL079
+   05d3   bd 04 bb               jsr LBL037
+   05d6   27 46                  beq LBL079
+   05d8   de 28                  ldx $28
+R  05da   01 01 01               lda $29
+   05dd   bd 04 f7               jsr LBL010
+R  05e0   01 01 01               lda #$20
+   05e3   bd 03 c7      LBL080   jsr LBL042
+   05e6   bd 00 0f               jsr BV                     ; Test for break
+   05e9   25 33                  bcs LBL079
+   05eb   bd 03 07               jsr LBL024
+   05ee   26 f3                  bne LBL080
+   05f0   bd 06 2b               jsr IL__NL
+   05f3   7e 05 c4               jmp LBL078
+R  05f6   01 01 01      LBL077   sta $B6
+   05f9   7c 00 b6               inc $B6
+   05fc   26 01                  bne LBL082
+   05fe   08                     inx
+   05ff   df b7         LBL082   stx $B7
+O  0601   01 01 01               ldy $C1
+O  0604   01 01 01               cpy #$80
+   0607   27 21                  beq LBL083
+   0609   bd 03 7e               jsr LBL061
+R  060c   01 01 01      LBL099   lda $2C
+   060f   de 2d                  ldx $2D
+   0611   0d                     sec
+R  0612   01 01 01               sbc #$02
+   0615   25 01                  bcs LBL084
+   0617   09                     dex
+R  0618   01 01 01      LBL084   sta $2C
+   061b   7e 09 ea               jmp LBL085
+O  061e   01 01 01      LBL079   pla
+R  0621   01 01 01               sta $2C
+O  0624   01 01 01               pla
+R  0627   01 01 01               sta $2D
+   062a   39            LBL083   rts
+R  062b   01 01 01      IL__NL   lda $BF                    ; Entry point for TBIL NL
+   062e   2b fa                  bmi LBL083
+                        ;
+                        ;
+                        ; Routine to print a new line.  It handles CR, LF
+                        ; and adds pad characters to the ouput
+                        ;
+R  0630   01 01 01      P_NWLN   lda #$0D                   ; Load up a CR
+   0633   bd 00 0c               jsr OUT_V                  ; Go print it
+R  0636   01 01 01               lda PCC                    ; Load the pad character code
+R  0639   01 01 01               and #$7F                   ; Test to see - 
+R  063c   01 01 01               sta $BF                    ; how many pad charachters to print
+   063f   27 08                  beq LBL086                 ; Skip if 0
+   0641   bd 0a 0e      LBL088   jsr LBL087                 ; Go print pad character
+   0644   7a 00 bf               dec $BF                    ; One less
+   0647   26 f8                  bne LBL088                 ; Loop until 0
+R  0649   01 01 01      LBL086   lda #$0A                   ; Load up a LF
+   064c   7e 0a 0b               jmp LBL089                 ; Go print it
+                        ;
+                        ;
+                        ;
+O  064f   01 01 01      LBL092   ldy TMC
+O  0652   01 01 01      LBL091   sty $BF
+   0655   25 0f                  bcs LBL090
+R  0657   01 01 01      IL__GL   lda #$30                   ; Entry pont for TBIL GL
+R  065a   01 01 01               sta $2C
+R  065d   01 01 01               sta $C0
+O  0660   01 01 01               sty $2D
+   0663   bd 04 d1               jsr LBL034
+R  0666   01 01 01      LBL090   eor $80
+R  0669   01 01 01               sta $80
+   066c   bd 00 09               jsr IN_V
+O  066f   01 01 01               ldy #$00
+   0672   de c0                  ldx $C0
+R  0674   01 01 01               and #$7F
+   0677   27 ed                  beq LBL090
+R  0679   01 01 01               cmp #$7F
+   067c   27 e8                  beq LBL090
+R  067e   01 01 01               cmp #$13
+   0681   27 cf                  beq LBL091
+R  0683   01 01 01               cmp #$0A
+   0686   27 c7                  beq LBL092
+R  0688   01 01 01               cmp LSC
+   068b   27 0a                  beq LBL093
+R  068d   01 01 01               cmp BSC
+   0690   26 0d                  bne LBL094
+   0692   8c 00 30               cpx #$30
+   0695   26 1a                  bne LBL095
+   0697   de 2c         LBL093   ldx $2C
+O  0699   01 01 01               sty $BF
+R  069c   01 01 01               lda #$0D
+   069f   9c c1         LBL094   cpx $C1
+   06a1   2b 09                  bmi LBL096
+R  06a3   01 01 01               lda #$07
+   06a6   bd 03 c7               jsr LBL042
+   06a9   7e 06 66               jmp LBL090
+R  06ac   01 01 01      LBL096   sta $00,X
+   06af   08                     inx
+   06b0   08                     inx
+   06b1   09            LBL095   dex
+   06b2   df c0                  stx $C0
+R  06b4   01 01 01               cmp #$0D
+   06b7   26 ad                  bne LBL090
+   06b9   bd 06 2b               jsr IL__NL
+   06bc   bd 04 e9      IL__SP   jsr LBL097                 ; Entry point for TBIL SP
+R  06bf   01 01 01               sta $BC
+   06c2   bd 04 e9               jsr LBL097
+R  06c5   01 01 01               sta $BD
+   06c8   39                     rts
+                        ;
+                        ;
+                        ;
+   06c9   bd 09 54      IL__IL   jsr LBL098                 ; Entry point for TBIL IL
+   06cc   bd 03 7e               jsr LBL061
+O  06cf   01 01 01               php
+   06d2   bd 06 0c               jsr LBL099
+R  06d5   01 01 01               sta $B8
+   06d8   df b9                  stx $B9
+R  06da   01 01 01               lda $BC
+R  06dd   01 01 01               sta $B6
+R  06e0   01 01 01               lda $BD
+R  06e3   01 01 01               sta $B7
+   06e6   ce 00 00               ldx #$00
+O  06e9   01 01 01               plp
+   06ec   26 0b                  bne LBL100
+   06ee   bd 04 bb               jsr LBL037
+   06f1   09                     dex
+   06f2   09                     dex
+   06f3   09            LBL101   dex
+   06f4   bd 03 07               jsr LBL024
+   06f7   26 fa                  bne LBL101
+O  06f9   01 01 01      LBL100   sty $28
+O  06fc   01 01 01               sty $29
+   06ff   bd 09 54               jsr LBL098
+R  0702   01 01 01               lda #$0D
+U  0705   01 01 01               cmp ($2C),Y
+   0708   27 18                  beq LBL102
+   070a   08                     inx
+   070b   08                     inx
+   070c   08                     inx
+   070d   08            LBL103   inx
+O  070e   01 01 01               iny
+U  0711   01 01 01               cmp ($2C),Y
+   0714   26 f7                  bne LBL103
+R  0716   01 01 01               lda $B6
+R  0719   01 01 01               sta $28
+R  071c   01 01 01               lda $B7
+R  071f   01 01 01               sta $29
+R  0722   01 01 01      LBL102   lda $B8
+R  0725   01 01 01               sta $BC
+R  0728   01 01 01               lda $B9
+R  072b   01 01 01               sta $BD
+   072e   0c                     clc
+O  072f   01 01 01               ldy #$00
+O  0732   01 01 01               txa
+B  0735   01 01                  beq LBL104
+   0737   2a 35                  bpl LBL105
+R  0739   01 01 01               adc $2E
+R  073c   01 01 01               sta $B8
+R  073f   01 01 01               lda $2F
+R  0742   01 01 01               sbc #$00
+R  0745   01 01 01               sta $B9
+U  0748   01 01 01      LBL109   lda ($2E),Y
+U  074b   01 01 01               sta ($B8),Y
+   074e   de 2e                  ldx $2E
+   0750   9c 24                  cpx $24
+   0752   26 08                  bne LBL106
+R  0754   01 01 01               lda $2F
+R  0757   01 01 01               cmp $25
+   075a   27 5f                  beq LBL107
+   075c   08            LBL106   inx
+   075d   df 2e                  stx $2E
+   075f   26 03                  bne LBL108
+   0761   7c 00 2f               inc $2F
+   0764   7c 00 b8      LBL108   inc $B8
+   0767   26 df                  bne LBL109
+   0769   7c 00 b9               inc $B9
+   076c   26 da                  bne LBL109
+R  076e   01 01 01      LBL105   adc $24
+R  0771   01 01 01               sta $B8
+R  0774   01 01 01               sta $2E
+O  0777   01 01 01               tya
+R  077a   01 01 01               adc $25
+R  077d   01 01 01               sta $B9
+R  0780   01 01 01               sta $2F
+R  0783   01 01 01               lda $2E
+R  0786   01 01 01               sbc $C6
+R  0789   01 01 01               lda $2F
+R  078c   01 01 01               sbc $C7
+   078f   24 06                  bcc LBL110
+   0791   7a 00 2a               dec $2A
+   0794   7e 01 a4               jmp LBL015
+U  0797   01 01 01      LBL110   lda ($24),Y
+U  079a   01 01 01               sta ($2E),Y
+   079d   de 24                  ldx $24
+   079f   26 03                  bne LBL111
+   07a1   7a 00 25               dec $25
+   07a4   7a 00 24      LBL111   dec $24
+   07a7   de 2e                  ldx $2E
+   07a9   26 03                  bne LBL112
+   07ab   7a 00 2f               dec $2F
+   07ae   09            LBL112   dex
+   07af   df 2e                  stx $2E
+   07b1   9c bc                  cpx $BC
+   07b3   26 e2                  bne LBL110
+   07b5   de 2f                  ldx $2F
+   07b7   9c bd                  cpx $BD
+   07b9   26 dc                  bne LBL110
+R  07bb   01 01 01      LBL107   lda $B8
+R  07be   01 01 01               sta $24
+R  07c1   01 01 01               lda $B9
+R  07c4   01 01 01               sta $25
+R  07c7   01 01 01      LBL104   lda $28
+R  07ca   01 01 01               ora $29
+   07cd   27 26                  beq LBL113
+R  07cf   01 01 01               lda $28
+U  07d2   01 01 01               sta ($BC),Y
+O  07d5   01 01 01               iny
+R  07d8   01 01 01               lda $29
+U  07db   01 01 01               sta ($BC),Y
+O  07de   01 01 01      LBL114   iny
+O  07e1   01 01 01               sty $B6
+   07e4   bd 03 07               jsr LBL024
+O  07e7   01 01 01               php
+O  07ea   01 01 01               ldy $B6
+U  07ed   01 01 01               sta ($BC),Y
+O  07f0   01 01 01               plp
+   07f3   26 e9                  bne LBL114
+   07f5   7e 01 38      LBL113   jmp LBL014
+   07f8   bd 01 f4      IL__DV   jsr LBL115
+R  07fb   01 01 01               lda $03,X
+R  07fe   01 01 01               and #$80
+   0801   27 03                  beq LBL116
+R  0803   01 01 01               lda #$FF
+R  0806   01 01 01      LBL116   sta $BC
+R  0809   01 01 01               sta $BD
+O  080c   01 01 01               pha
+R  080f   01 01 01               adc $02,X
+R  0812   01 01 01               sta $02,X
+O  0815   01 01 01               pla
+O  0818   01 01 01               pha
+R  081b   01 01 01               adc $03,X
+R  081e   01 01 01               sta $03,X
+O  0821   01 01 01               pla
+R  0824   01 01 01               eor $01,X
+R  0827   01 01 01               sta $BB
+   082a   2a 03                  bpl LBL117
+   082c   bd 08 82               jsr LBL118
+O  082f   01 01 01      LBL117   ldy #$11
+R  0832   01 01 01               lda $00,X
+R  0835   01 01 01               ora $01,X
+   0838   26 03                  bne LBL119
+   083a   7e 01 a4               jmp LBL015
+   083d   0d            LBL119   sec
+R  083e   01 01 01               lda $BC
+R  0841   01 01 01               sbc $00,X
+O  0844   01 01 01               pha
+R  0847   01 01 01               lda $BD
+R  084a   01 01 01               sbc $01,X
+O  084d   01 01 01               pha
+R  0850   01 01 01               eor $BD
+   0853   2b 10                  bmi LBL120
+O  0855   01 01 01               pla
+R  0858   01 01 01               sta $BD
+O  085b   01 01 01               pla
+R  085e   01 01 01               sta $BC
+   0861   0d                     sec
+   0862   7e 08 6c               jmp LBL121
+O  0865   01 01 01      LBL120   pla
+O  0868   01 01 01               pla
+   086b   0c                     clc
+   086c   69 02         LBL121   rol $02,X
+   086e   69 03                  rol $03,X
+   0870   79 00 bc               rol $BC
+   0873   79 00 bd               rol $BD
+O  0876   01 01 01               dey
+   0879   26 c2                  bne LBL119
+R  087b   01 01 01               lda $BB
+   087e   2a 15                  bpl LBL122
+   0880   de c1         IL__NE   ldx $C1                    ; Entry point for TBIL NE
+   0882   0d            LBL118   sec
+O  0883   01 01 01               tya
+R  0886   01 01 01               sbc $00,X
+R  0889   01 01 01               sta $00,X
+O  088c   01 01 01               tya
+R  088f   01 01 01               sbc $01,X
+R  0892   01 01 01               sta $01,X
+   0895   39            LBL122   rts
+                        ;
+                        ;
+                        ;
+   0896   bd 08 80      IL__SU   jsr IL__NE                 ; Entry point for TBIL SU
+   0899   bd 01 f4      IL__AD   jsr LBL115                 ; Entry point for TBIL AD
+R  089c   01 01 01               lda $00,X
+R  089f   01 01 01               adc $02,X
+R  08a2   01 01 01               sta $02,X
+R  08a5   01 01 01               lda $01,X
+R  08a8   01 01 01               adc $03,X
+R  08ab   01 01 01               sta $03,X
+   08ae   39                     rts
+                        ;
+                        ;
+                        ;
+   08af   bd 01 f4      IL__MP   jsr LBL115                 ; Entry point for TBIL MP
+O  08b2   01 01 01               ldy #$10
+R  08b5   01 01 01               lda $02,X
+R  08b8   01 01 01               sta $BC
+R  08bb   01 01 01               lda $03,X
+R  08be   01 01 01               sta $BD
+   08c1   68 02         LBL124   asl $02,X
+   08c3   69 03                  rol $03,X
+   08c5   79 00 bc               rol $BC
+   08c8   79 00 bd               rol $BD
+   08cb   24 13                  bcc LBL123
+   08cd   0c                     clc
+R  08ce   01 01 01               lda $02,X
+R  08d1   01 01 01               adc $00,X
+R  08d4   01 01 01               sta $02,X
+R  08d7   01 01 01               lda $03,X
+R  08da   01 01 01               adc $01,X
+R  08dd   01 01 01               sta $03,X
+O  08e0   01 01 01      LBL123   dey
+   08e3   26 dc                  bne LBL124
+   08e5   39                     rts
+                        ;
+                        ;
+                        ;
+   08e6   bd 04 e9      IL__FV   jsr LBL097                 ; Entry point for TBIL FV
+O  08e9   01 01 01               tax
+R  08ec   01 01 01               lda $00,X
+O  08ef   01 01 01               ldy $01,X
+   08f2   7a 00 c1               dec $C1
+   08f5   de c1                  ldx $C1
+O  08f7   01 01 01               sty $00,X
+   08fa   7e 04 da               jmp LBL029
+   08fd   ce 00 7d      IL__SV   ldx #$7D                   ; Entry point for TBIL SV
+   0900   bd 01 f7               jsr LBL048
+R  0903   01 01 01               lda $01,X
+O  0906   01 01 01               pha
+R  0909   01 01 01               lda $00,X
+O  090c   01 01 01               pha
+   090f   bd 04 e9               jsr LBL097
+O  0912   01 01 01               tax
+O  0915   01 01 01               pla
+R  0918   01 01 01               sta $00,X
+O  091b   01 01 01               pla
+R  091e   01 01 01               sta $01,X
+   0921   39                     rts
+   0922   bd 09 8c      IL__RT   jsr LBL063
+R  0925   01 01 01               lda $BC
+R  0928   01 01 01               sta $2A
+R  092b   01 01 01               lda $BD
+R  092e   01 01 01               sta $2B
+   0931   39                     rts
+                        ;
+                        ;
+                        ;
+   0932   ce 00 2c      IL__SB   ldx #$2C                   ; Entry point for TBIL SB 
+   0935   26 03                  bne LBL125
+   0937   ce 00 2e      IL__RB   ldx #$2E                   ; Entry point for TBIL RB
+R  093a   01 01 01      LBL125   lda $00,X
+R  093d   01 01 01               cmp #$80
+   0940   25 12                  bcs LBL098
+R  0942   01 01 01               lda $01,X
+   0945   26 0d                  bne LBL098
+R  0947   01 01 01               lda $2C
+R  094a   01 01 01               sta $2E
+R  094d   01 01 01               lda $2D
+R  0950   01 01 01               sta $2F
+   0953   39                     rts
+                        ;
+                        ;
+                        ;
+R  0954   01 01 01      LBL098   lda $2C
+O  0957   01 01 01               ldy $2E
+O  095a   01 01 01               sty $2C
+R  095d   01 01 01               sta $2E
+R  0960   01 01 01               lda $2D
+O  0963   01 01 01               ldy $2F
+O  0966   01 01 01               sty $2D
+R  0969   01 01 01               sta $2F
+O  096c   01 01 01               ldy #$00
+   096f   39                     rts
+                        ;
+                        ;
+                        ;
+R  0970   01 01 01      IL__GS   lda $28                    ; Entry point for TBIL GS
+R  0973   01 01 01               sta $BC
+R  0976   01 01 01               lda $29
+R  0979   01 01 01               sta $BD
+   097c   bd 02 56               jsr LBL126
+R  097f   01 01 01               lda $C6
+R  0982   01 01 01               sta $26
+R  0985   01 01 01               lda $C7
+R  0988   01 01 01      LBL064   sta $27
+   098b   39            LBL129   rts
+                        ;
+                        ;
+                        ;
+U  098c   01 01 01      LBL063   lda ($C6),Y
+R  098f   01 01 01               sta $BC
+   0992   bd 09 9b               jsr LBL127
+U  0995   01 01 01               lda ($C6),Y
+R  0998   01 01 01               sta $BD
+   099b   7c 00 c6      LBL127   inc $C6
+   099e   26 03                  bne LBL128
+   09a0   7c 00 c7               inc $C7
+R  09a3   01 01 01      LBL128   lda $22
+R  09a6   01 01 01               cmp $C6
+R  09a9   01 01 01               lda $23
+R  09ac   01 01 01               sbc $C7
+   09af   25 da                  bcs LBL129
+   09b1   7e 01 a4               jmp LBL015
+   09b4   bd 09 c0      IL__US   jsr LBL130
+R  09b7   01 01 01               sta $BC
+O  09ba   01 01 01               tya
+   09bd   7e 04 d4               jmp LBL131
+   09c0   bd 06 bc      LBL130   jsr IL__SP
+R  09c3   01 01 01               lda $BC
+R  09c6   01 01 01               sta $B6
+   09c9   bd 06 bc               jsr IL__SP
+R  09cc   01 01 01               lda $BD
+R  09cf   01 01 01               sta $B7
+O  09d2   01 01 01               ldy $BC
+   09d5   bd 06 bc               jsr IL__SP
+   09d8   de b7                  ldx $B7
+R  09da   01 01 01               lda $B6
+   09dd   0c                     clc
+   09de   7e 00 bc               jmp ($00BC)
+   09e1   bd 09 e4      IL__LN   jsr IL__LB                 ; Entry point for TBIL LN
+   09e4   bd 04 2c      IL__LB   jsr LBL004                 ; Entry point for TBIL LB - Go read a byte from the IL table
+   09e7   7e 04 da               jmp LBL029
+   09ea   df 2d         LBL085   stx $2D
+   09ec   8c 00 00               cpx #$00
+   09ef   39                     rts
+                        ;
+                        ;
+                        ;
+O  09f0   01 01 01      ILRES2   ldy #$02                   ; These two entry points are for code that
+O  09f3   01 01 01      ILRES1   sty $BC                    ;  does not seem to get called.  Need more research.
+O  09f6   01 01 01               ldy #$29
+O  09f9   01 01 01               sty $BD
+O  09fc   01 01 01               ldy #$00
+U  09ff   01 01 01               lda ($BC),Y
+R  0a02   01 01 01               cmp #$08
+   0a05   26 03                  bne LBL133
+   0a07   7e 08 2f               jmp LBL117
+   0a0a   39            LBL133   rts
+                        ;
+                        ;
+                        ; Subroutine to decide which pad characters to print
+                        ;
+   0a0b   bd 00 0c      LBL089   jsr OUT_V                  ; Entry point with a character to print first
+R  0a0e   01 01 01      LBL087   lda #$FF                   ; Normal entry point - Set pad to $FF
+R  0a11   01 01 01               bit PCC                    ; Check if the pad flag is on
+   0a14   2b 03                  bmi LBL134                 ; Skip it if not
+R  0a16   01 01 01               lda #$00                   ; set pad to $00
+   0a19   7e 00 0c      LBL134   jmp OUT_V                  ; Go print it
+                        
+                        
+                        ;
+                        ; TBIL program table
+                        ;
+O  0a1c   01 01 01      ILTBL    .db $24, $3E, $91, $27, $10, $E1, $59, $C5, $2A, $56, $10, $11, $2C, $8B, $4C
+O  0a1f   01 01 01               .db $45, $D4, $A0, $80, $BD, $30, $BC, $E0, $13, $1D, $94, $47, $CF, $88, $54
+O  0a22   01 01 01               .db $CF, $30, $BC, $E0, $10, $11, $16, $80, $53, $55, $C2, $30, $BC, $E0, $14
+O  0a25   01 01 01               .db $16, $90, $50, $D2, $83, $49, $4E, $D4, $E5, $71, $88, $BB, $E1, $1D, $8F
+O  0a28   01 01 01               .db $A2, $21, $58, $6F, $83, $AC, $22, $55, $83, $BA, $24, $93, $E0, $23, $1D
+O  0a2b   01 01 01               .db $30, $BC, $20, $48, $91, $49, $C6, $30, $BC, $31, $34, $30, $BC, $84, $54
+O  0a2e   01 01 01               .db $48, $45, $CE, $1C, $1D, $38, $0D, $9A, $49, $4E, $50, $55, $D4, $A0, $10
+O  0a31   01 01 01               .db $E7, $24, $3F, $20, $91, $27, $E1, $59, $81, $AC, $30, $BC, $13, $11, $82
+O  0a34   01 01 01               .db $AC, $4D, $E0, $1D, $89, $52, $45, $54, $55, $52, $CE, $E0, $15, $1D, $85
+O  0a37   01 01 01               .db $45, $4E, $C4, $E0, $2D, $98, $4C, $49, $53, $D4, $EC, $24, $00, $00, $00
+O  0a3a   01 01 01               .db $00, $0A, $80, $1F, $24, $93, $23, $1D, $30, $BC, $E1, $50, $80, $AC, $59
+O  0a3d   01 01 01               .db $85, $52, $55, $CE, $38, $0A, $86, $43, $4C, $45, $41, $D2, $2B, $84, $52
+O  0a40   01 01 01               .db $45, $CD, $1D, $A0, $80, $BD, $38, $14, $85, $AD, $30, $D3, $17, $64, $81
+O  0a43   01 01 01               .db $AB, $30, $D3, $85, $AB, $30, $D3, $18, $5A, $85, $AD, $30, $D3, $19, $54
+O  0a46   01 01 01               .db $2F, $30, $E2, $85, $AA, $30, $E2, $1A, $5A, $85, $AF, $30, $E2, $1B, $54
+O  0a49   01 01 01               .db $2F, $98, $52, $4E, $C4, $0A, $80, $80, $12, $0A, $09, $29, $1A, $0A, $1A
+O  0a4c   01 01 01               .db $85, $18, $13, $09, $80, $12, $01, $0B, $31, $30, $61, $72, $0B, $04, $02
+O  0a4f   01 01 01               .db $03, $05, $03, $1B, $1A, $19, $0B, $09, $06, $0A, $00, $00, $1C, $17, $2F
+O  0a52   01 01 01               .db $8F, $55, $53, $D2, $80, $A8, $30, $BC, $31, $2A, $31, $2A, $80, $A9, $2E
+O  0a55   01 01 01               .db $2F, $A2, $12, $2F, $C1, $2F, $80, $A8, $30, $BC, $80, $A9, $2F, $83, $AC
+O  0a58   01 01 01               .db $38, $BC, $0B, $2F, $80, $A8, $52, $2F, $84, $BD, $09, $02, $2F, $8E, $BC
+O  0a5b   01 01 01               .db $84, $BD, $09, $93, $2F, $84, $BE, $09, $05, $2F, $09, $91, $2F, $80, $BE
+O  0a5e   01 01 01               .db $84, $BD, $09, $06, $2F, $84, $BC, $09, $95, $2F, $09, $04, $2F, $00, $00
+O  0a61   01 01 01               .db $00
+                        ;
+                        ; End of Tiny Basic
+                        
+                        
+                        
+                        ; Start of the OMS-03 Monitor - under contruction.....
+                        ;
+                        ; Set some symbols
+                        ;
+S  0a64   01 01 01      ACIAregs = $F000                    ; Base address of 6850
+S  0a67   01 01 01      ACIAdata = ACIAregs+$01             ; 6850 registers 
+                        
+                        
+O  0a6a   01 01 01               .ORG  $F800
+                        
+                        ;
+                        ; Begin base system initialization
+                        ;
+R  0a6d   01 01 01      FBLK     LDA #$03                   ; Reset the ACIA
+R  0a70   01 01 01               STA ACIAregs               ; Do the reset
+R  0a73   01 01 01               LDA #$11                   ; 8 bits, 2 stop, divide by 16
+R  0a76   01 01 01               STA ACIAregs               ; Do the configuration
+   0a79   bd 0a b0               jsr CLRSC                  ; Go clear the screen
+   0a7c   ce 00 00               ldx #$00                   ; Offset for welcome message and prompt
+   0a7f   bd 0a c3               jsr SNDMSG                 ; Go print it
+   0a82   bd 0a d3      ST_LP    jsr RCCHR                  ; Go get a character from the console
+R  0a85   01 01 01               cmp #$43                   ; Check for 'C'
+   0a88   26 03                  bne IS_WRM                 ; If not branch to next check
+   0a8a   7e 00 c5               jmp COLD_S                 ; Otherwise cold-start Tiny Basic
+R  0a8d   01 01 01      IS_WRM   cmp #$57                   ; Check for 'W'
+   0a90   26 03                  bne PRMPT                  ; If not, branch to re-prompt them
+   0a92   7e 01 23               jmp WARM_S                 ; Otherwise warm-start Tiny Basic
+   0a95   ce 00 51      PRMPT    LDX #$51                   ; Offset of prompt in message block
+   0a98   bd 0a c3               jsr SNDMSG                 ; Go print the prompt	 
+   0a9b   7e 0a 82               jmp ST_LP                  ; Go get the response
+                        
+                        ;
+                        ; The message block. It terminates with an FF.
+                        ;
+   0a9e                 MBLK
+O  0a9e   01 01 01               .db  "Open License Monitor, by Bill O'Neill V0.2.2"
+O  0aa1   01 01 01               .db  $0D, $0A, $0A
+O  0aa4   01 01 01               .db  "TINY BASIC - Copyright, Tom Pitman"
+O  0aa7   01 01 01               .db  $0D, $0A, $0A
+O  0aaa   01 01 01               .db  "Boot (C/W)? "
+O  0aad   01 01 01               .db  $07, $FF
+                        
+                        ;
+                        ; Begin BIOS subroutines
+                        ;
+                        
+                        ;
+                        ; Clear the screen
+                        ;
+   0ab0   ce 00 19      CLRSC    ldx #$19                   ; Load X - we're going tp print 25 lines
+R  0ab3   01 01 01               lda #$0D                   ; CR
+   0ab6   bd 0a de               jsr SNDCHR                 ; Send a carriage return
+R  0ab9   01 01 01               lda #$0A                   ; LF
+   0abc   bd 0a de      CSLP     jsr SNDCHR                 ; Send the line feed
+   0abf   09                     dex                        ; One less to do
+   0ac0   26 fa                  bne CSLP                   ; Go send another untill we're done
+   0ac2   39                     rts                        ; Return
+                        
+                        ;
+                        ; Print a message.
+                        ; This sub expects the message offset from MBLK in X.
+                        ;
+V  0ac3   01 01 01      SNDMSG   lda MBLK,X                 ; Get a character from the message block
+R  0ac6   01 01 01               cmp #$FF                   ; Look for end of message marker
+   0ac9   27 07                  beq EXSM                   ; Finish up if it is
+   0acb   bd 0a de               jsr SNDCHR                 ; Otherwise send the character
+   0ace   08                     inx                        ; Increment the pointer
+   0acf   7e 0a c3               jmp SNDMSG                 ; Go get next character
+   0ad2   39            EXSM     rts                        ; Return
+                        
+                        ;
+                        ; Get a character from the ACIA
+                        ; Runs into SNDCHR to provide echo
+                        ;
+R  0ad3   01 01 01      RCCHR    lda ACIAregs               ; GET STATUS FROM ACIA
+S  0ad6   01 01 01               lsr                        ; CHECK FOR A CHARACTER
+   0ad9   24 f8                  bcc RCCHR                  ; Loop until we get one
+R  0adb   01 01 01               LDA ACIAdata               ; GET CHARACTER
+                        
+                        ;
+                        ;Send a character to the ACIA
+                        ;
+R  0ade   01 01 01      SNDCHR   sta $FE                    ; Save the character to be printed
+R  0ae1   01 01 01               cmp #$FF                   ; Check for a bunch of characters
+   0ae4   27 25                  BEQ EXSC                   ; that we don't want to print to
+R  0ae6   01 01 01               cmp #$00                   ; the terminal and discard them to
+   0ae9   27 20                  beq EXSC                   ; clean up the output
+R  0aeb   01 01 01               cmp #$91                   ;
+   0aee   27 1b                  beq EXSC                   ;
+R  0af0   01 01 01               cmp #$93                   ;
+   0af3   27 16                  beq EXSC                   ;
+R  0af5   01 01 01               cmp #$80                   ;
+   0af8   27 11                  beq EXSC                   ;
+R  0afa   01 01 01      GETSTS   lda ACIAregs               ; GET ACIA STATUS
+S  0afd   01 01 01               lsr                        ; CHECK TO SEE IF TRANSMITER IS BUSY 
+S  0b00   01 01 01               lsr                        ;
+   0b03   24 f5                  bcc GETSTS                 ; IF STILL BUSY GO GET STATUS AGAIN
+R  0b05   01 01 01               lda $FE                    ; Restore the character
+R  0b08   01 01 01               STA ACIAdata               ; SEND CHARACTER
+   0b0b   39            EXSC     rts                        ; Return
+                        
+                        ;
+                        ; Break routine
+                        ; Any keystroke will produce a break condition (carry set)
+                        ;
+R  0b0c   01 01 01      BREAK    sta $FE                    ; Save A
+   0b0f   0c                     clc                        ; Clear carry 
+R  0b10   01 01 01               lda ACIAregs               ; Read the ACAI status to
+S  0b13   01 01 01               lsr                        ; Check if there is character in the receiver
+   0b16   24 04                  BCC NO_CHR                 ; Finnish up if no character typed
+   0b18   0d                     sec                        ; Set carry (break detected)
+R  0b19   01 01 01               lda ACIAdata               ; Get the character to reset ACIA status
+R  0b1c   01 01 01      NO_CHR   lda $FE                    ; Restore the saved A value
+   0b1f   39                     rts                        ; Return
+                        
+                        ;
+                        ; Setup reset vector         
+                        ;
+O  0b20   01 01 01               .ORG $FFFC                 ; Address of reset vector
+                        
+O  0b23   01 01 01               .DW  FBLK                  ; Reset vector
+*                       	END
+0a67  ACIAdata      0a64  ACIAregs      0b0c  BREAK         0012  BSC       
+000f  BV            0ab0  CLRSC         00c5  COLD_S        0abc  CSLP      
+0003  CV            00bc  ERRSTR        0b0b  EXSC          0ad2  EXSM      
+0a6d  FBLK          0afa  GETSTS        09f3  ILRES1        09f0  ILRES2    
+0a1c  ILTBL         0205  IL_BBR        0208  IL_FBR        0899  IL__AD    
+02b7  IL__BC        02eb  IL__BE        032f  IL__BN        02f4  IL__BV    
+03f4  IL__CP        04cb  IL__DS        07f8  IL__DV        08e6  IL__FV    
+0657  IL__GL        049b  IL__GO        0970  IL__GS        06c9  IL__IL    
+09e4  IL__LB        09e1  IL__LN        059f  IL__LS        08af  IL__MP    
+0102  IL__MT        0880  IL__NE        062b  IL__NL        04f6  IL__NO    
+043e  IL__NX        03c2  IL__PC        04ff  IL__PN        03db  IL__PQ    
+03e3  IL__PT        0937  IL__RB        04af  IL__RS        0922  IL__RT    
+0932  IL__SB        06bc  IL__SP        0896  IL__SU        08fd  IL__SV    
+09b4  IL__US        0477  IL__XQ        0009  IN_V          0a8d  IS_WRM    
+00c2  LBL002        042c  LBL004        016b  LBL005        0159  LBL006    
+018b  LBL007        002b  LBL008        04f7  LBL010        021a  LBL011    
+01dc  LBL012        0138  LBL014        01a4  LBL015        027f  LBL016    
+020d  LBL017        0264  LBL018        01f9  LBL019        02a2  LBL020    
+02b1  LBL021        017b  LBL022        031d  LBL023        0307  LBL024    
+02c3  LBL025        02f3  LBL026        02e8  LBL028        04da  LBL029    
+0315  LBL030        031a  LBL031        032e  LBL032        033a  LBL033    
+04d1  LBL034        03e0  LBL036        04bb  LBL037        03b0  LBL038    
+03a8  LBL039        0395  LBL040        03be  LBL041        03c7  LBL042    
+03bf  LBL043        03cf  LBL044        03d2  LBL045        03d3  LBL046    
+01f7  LBL048        0426  LBL049        043d  LBL050        043a  LBL051    
+041b  LBL052        0428  LBL053        0424  LBL054        0471  LBL055    
+0443  LBL056        046e  LBL057        0494  LBL058        0462  LBL059    
+01e5  LBL060        037e  LBL061        044d  LBL062        098c  LBL063    
+0988  LBL064        0389  LBL065        04a0  LBL066        04e6  LBL068    
+0512  LBL069        050f  LBL070        052a  LBL072        0541  LBL073    
+055b  LBL074        0569  LBL075        0599  LBL076        05f6  LBL077    
+05c4  LBL078        061e  LBL079        05e3  LBL080        05ff  LBL082    
+062a  LBL083        0618  LBL084        09ea  LBL085        0649  LBL086    
+0a0e  LBL087        0641  LBL088        0a0b  LBL089        0666  LBL090    
+0652  LBL091        064f  LBL092        0697  LBL093        069f  LBL094    
+06b1  LBL095        06ac  LBL096        04e9  LBL097        0954  LBL098    
+060c  LBL099        06f9  LBL100        06f3  LBL101        0722  LBL102    
+070d  LBL103        07c7  LBL104        076e  LBL105        075c  LBL106    
+07bb  LBL107        0764  LBL108        0748  LBL109        0797  LBL110    
+07a4  LBL111        07ae  LBL112        07f5  LBL113        07de  LBL114    
+01f4  LBL115        0806  LBL116        082f  LBL117        0882  LBL118    
+083d  LBL119        0865  LBL120        086c  LBL121        0895  LBL122    
+08e0  LBL123        08c1  LBL124        093a  LBL125        0256  LBL126    
+099b  LBL127        09a3  LBL128        098b  LBL129        09c0  LBL130    
+04d4  LBL131        0a0a  LBL133        0a19  LBL134        0580  LBL199    
+0015  LSC           0a9e  MBLK          00da  MEM_T         0b1c  NO_CHR    
+000c  OUT_V         0018  PCC           0021  PEEK          0a95  PRMPT     
+0630  P_NWLN        0ad3  RCCHR         00fa  SKP_PI        0ade  SNDCHR    
+0ac3  SNDMSG        0032  SRVT          001e  SSS           0a82  ST_LP     
+001b  TMC           0123  WARM_S        0006  WV            
+

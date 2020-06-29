@@ -1,0 +1,467 @@
+
+
+ ttl process constant expression
+ pag
+
+*
+* ppcexp
+*
+* Constant exp processor for preprocessor.
+*
+
+ppcexp pshs x,y,u save all regs
+ lda char save char and token
+ pshs a
+ clr char
+ lda token
+ pshs a
+ clr token
+ bsr cexp process constant exp
+ pshs cc,a save status
+ lda 2,s get old token
+ sta token
+ lda 3,s get old char
+ sta char
+ puls cc,a get status
+ leas 2,s clean stack
+ puls x,y,u,pc return
+
+
+*
+* cexp
+*
+
+cexp lbsr bldmat build expression matrix
+ beq cexper error?
+ lda matlev check for single operand
+ bne 2f
+ lda #LOD set up load op
+ lbsr ptmatb make entry
+2 lda matlev check matrix level counter
+ cmpa #1
+ bne 8f error?
+ lda emat+moprtr get operator
+ cmpa #LOD is it 'load'?
+ bne 8f
+ ldx emat+mo1loc get op1 location
+ lda 1,x get type
+ cmpa #CONST is it constant?
+ bne 8f
+ lda 0,x get type
+ cmpa #INT is it integer?
+ beq 5f
+ cmpa #CHR is it character
+ bne 8f if not - error
+ lda #INT change to integer
+ sta 0,x
+5 ldd 2,x get value
+ andcc #$fb set true
+ rts return
+8 ldb #50
+ jmp rpterr
+cexper clra set error
+ rts return
+
+
+*
+* Reduce matrix entry pointed at by x by doing any
+* possible constant operations.
+*
+
+conexp pshs x save entry
+ clr ccnt clear counter
+ tst mo1loc,x check op 1
+ beq 4f
+ ldu mo1loc,x get op1 ptr
+ jsr tcnst test for constant
+ beq 3f if not, exit
+ std conop1 save op1
+1 tst mo2loc,x check op2
+ bne 15f is it regular op
+ ldd mo2loc,x get value
+ bne 6f is it previous entry
+ std conop2 zero op 2
+ bra 2f
+15 ldu mo2loc,x get op2 ptr
+ jsr tcnst test for constant
+ beq 3f if not, exit
+ std conop2 save constant in op2
+2 jsr evcon evaluate constant entry
+ beq 3f if no result - exit
+ lda ccnt get constant entry count
+ ldb #MATSIZ set up entry size
+ mul
+ coma make negative offset
+ comb
+ addd #1
+ leax d,x point to back entry
+ tst doqms qm code?
+ bne 8f
+* lda #LOD set up load instruction
+* sta moprtr,x save as operator
+* ldu nxtcon get next constant slot
+* stu mo1loc,x save as op1 ptr
+* ldd #(INT<<8)|CONST set constant type
+* std 0,u++
+* ldd conres get constant result
+* std 0,u++
+* stu nxtcon save constants ptr
+* ldd #0 zero op2
+* std mo2loc,x
+* leax MATSIZ,x bump to next entry
+* stx nxtmat save pos
+* clr 0,x mark end
+* lda matlev get level count
+* suba ccnt adjust for backup
+* sta matlev
+* ldx tos get top of stack
+* ldd -2,x get top value
+* subb ccnt adjust level
+* std -2,x
+ stx nxtmat reset matrix
+ clr 0,x set term
+ lda matlev reset level count
+ deca
+ suba ccnt
+ sta matlev
+ ldx tos reset tos
+ leax -2,x
+ stx tos
+ ldd conres get constant result
+ std conbuf
+ lda #INT set con type
+ sta contyp
+ jsr xcon1 make constant entry to stack
+3 puls x,pc return
+4 ldd mo1loc,x get op1
+ beq 3b null?
+ bsr tlcnst test constant
+ beq 3b
+ std conop1 save op1 value
+ ldx 0,s reset entry ptr
+ bra 1b go do op2
+6 bsr tlcnst test constant
+ beq 3b
+ std conop2 save result in op2
+ ldx 0,s reset entry ptr
+ bra 2b go evaluate
+8 stx nxtmat reset matrix
+ clr 0,x set term
+ lda matlev reset mat level
+ suba ccnt
+ deca
+ sta matlev
+ clr doqms reset flag
+ bra 3b
+
+*
+* Test for constant at entry pointed at by u.
+*
+
+tcnst ldd stype,u get type info
+ cmpb #CONST is it constant?
+ bne 2f
+ cmpa #INT is it integer?
+ bne 2f
+ ldd 2,u get value
+ andcc #$fb set true
+ rts return
+2 clra set false
+ rts return
+
+*
+* Test matrix level in b for constant load instruction
+*
+
+tlcnst inc ccnt set constant level
+ lda #MATSIZ set entry size
+ decb adjust level
+ mul calc offset
+ ldx #emat point to matrix start
+ leax d,x point to entry
+ lda moprtr,x get operator
+ cmpa #LOD is it 'load' instruction?
+ bne 2f
+ ldu mo1loc,x get op1 location
+ bra tcnst test constant
+2 clra set false
+ rts return
+
+
+*
+* Evaluate constants conop1 and 2 with operator of
+* entry at 'x'.
+*
+
+evcon lda moprtr,x get operator
+ cmpa #UNM is it unary minus?
+ lbeq iunm
+ cmpa #COM is it compliment
+ lbeq icom
+ blo 2f
+ cmpa #XOR check for binop
+ bls 4f
+ cmpa #EQU is it relop?
+ blo 2f
+ cmpa #GRT
+ bls 6f
+ cmpa #CXB is it '?'
+ lbeq iqmc
+2 clra set false
+ rts return
+4 ldu #ibopt point to binop table
+ suba #ADD remove bias
+ asla
+ jmp [a,u] do routine
+6 ldu #irlopt point to relop table
+ suba #EQU remove bias
+ asla
+ jmp [a,u]
+
+* op tables for constant math operations
+
+ data
+ibopt fdb iadd
+ fdb isub
+ fdb imul
+ fdb idiv
+ fdb imod
+ fdb ishr
+ fdb ishl
+ fdb iand
+ fdb ibor
+ fdb ixor
+
+irlopt fdb iequ
+ fdb ineq
+ fdb ileq
+ fdb iles
+ fdb igeq
+ fdb igrt
+
+ text
+
+* unary minus
+
+iunm ldd conop1 get op
+ coma do unary minau
+ comb
+ addd #1
+iexit std conres save result
+ andcc #$fb set true
+ rts return
+
+* compliment
+
+icom ldd conop1 get op
+ coma
+ comb
+ bra iexit
+
+* add
+
+iadd ldd conop1 get op1
+ addd conop2 add op2
+ bra iexit
+
+* sub
+
+isub ldd conop1 get op1
+ subd conop2 subtract
+ bra iexit
+
+* multiply
+
+imul jsr ifixup fix signs
+ lda conop1+1
+ ldb conop2+1
+ mul
+ pshs d
+ lda conop2+1
+ ldb conop1
+ mul
+ pshs b
+ ldd conop1+1
+ mul
+ addb 0,s+
+ tfr b,a
+ clrb
+ addd 0,s++
+imul2 pshs d save result
+ lda cnrsn check sign
+ puls d get result
+ bpl 4f
+ coma
+ comb
+ addd #1
+4 bra iexit
+
+* divide
+
+idiv jsr dodiv do divide
+ bra iexit
+
+* mod
+
+imod jsr dodiv do divide
+ ldd conwrk get remainder
+ bra iexit
+
+* and
+
+iand ldd conop1 get op1
+ andb conop2+1
+ anda conop2
+ jmp iexit
+
+* or
+
+ibor ldd conop1 get op1
+ orb conop2+1
+ ora conop2
+ jmp iexit
+
+* xor
+
+ixor ldd conop1
+ eorb conop2+1
+ eora conop2
+ jmp iexit
+
+* equ
+
+iequ ldd conop1 get op1
+ cmpd conop2
+ beq iset1
+ bra iset0 set false
+
+* neq
+
+ineq ldd conop1 get op1
+ cmpd conop2
+ bne iset1 set true
+ bra iset0 set false
+
+* leq
+
+ileq ldd conop1 get op1
+ cmpd conop2
+ ble iset1 set true
+ bra iset0 set false
+
+* les
+
+iles ldd conop1 get op1
+ cmpd conop2
+ blt iset1 true
+ bra iset0 false
+
+* geq
+
+igeq ldd conop1
+ cmpd conop2
+ bge iset1 set true
+ bra iset0 false
+
+* grt
+
+igrt ldd conop1 get op1
+ cmpd conop2
+ bgt iset1 set true
+ bra iset0 false
+
+* set true
+
+iset1 ldd #1 set true
+ jmp iexit
+
+* set false
+
+iset0 ldd #0 set false
+ jmp iexit
+
+* shift right
+
+ishr ldd conop1 get op1
+ pshs d set for work
+ ldd conop2 get op2
+ beq 4f
+2 lsr 1,s shift 1 slot
+ ror 0,s
+ decb dec the count
+ bne 2b
+4 puls d get result
+ jmp iexit
+
+* shift left
+
+ishl ldd conop1 get op1
+ pshs d save in work area
+ ldd conop2 get shift count
+ beq 4f
+2 lsl 0,s shift slot
+ rol 1,s
+ decb dec count
+ bne 2b
+4 puls d get result
+ jmp iexit
+
+* do divide
+
+dodiv bsr ifixup set signs
+ ldd conop3 check for div by 0
+ lbeq iexit
+2 ldb #17 set count
+ pshs b save it
+ ldd #0
+ std conwrk setup workspace
+ bra 6f
+4 ldd conwrk get work
+ subd conop3
+ bcs 6f
+ std conwrk
+6 rol conop1+1
+ rol conop1
+ rol conwrk+1
+ rol conwrk
+ dec 0,s dec counter
+ bne 4b
+ com conop1
+ com conop1+1
+ lsr conwrk
+ ror conwrk+1
+ puls b fix stack
+ ldd conop1
+ jmp imul2
+
+* fix sign
+
+ifixup ldd conop1 get op1
+ sta cnasn save sign
+ bpl 1f
+ coma
+ comb
+ addd #1
+ std conop1
+1 ldd conop2 get op2 sign
+ eora cnasn
+ sta cnrsn save sign
+ ldd conop2 get op2
+ bpl 2f
+ coma
+ comb
+ addd #1
+2 std conop3
+ rts return
+
+* qm code
+
+iqmc ldd conop1 get result
+ beq 1f
+ lda #1 set true status
+ bra 2f
+1 lda #2 set false status
+2 sta doqms
+ sta qmsupf
+ rts return
+

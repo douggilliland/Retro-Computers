@@ -1,0 +1,1396 @@
+
+
+ ttl expression parser
+ pag
+
+*
+* process expressions for initializations
+*
+
+ibldmt ldx #astack init all stacks
+ stx tos
+ ldx #systrs
+ stx nxtsst
+ ldx #arybuf set up arrays
+ stx nxtary
+ ldx #contab
+ stx nxtcon
+ ldx #emat
+ stx nxtmat
+ clr matlev
+ ldd nxtdim save dim pointer
+ pshs d
+ lda dclass get class
+ beq abldmt if 0, then AUTO
+ cmpa #REG is it reg?
+ beq abldmt
+ jsr exp14 parse expression
+ beq ibldm6
+ jsr xfrdat transfer data to pool
+ibldm6 pshs cc save cc
+ ldd 1,s get dim pointer
+ std nxtdim reset stack
+ puls cc,d,pc return
+
+*
+* build expression for auto initializer
+*
+
+abldmt ldy tos get stack pointer
+ ldd intsym get symbol
+ std 0,y++ push variable
+ sty tos
+ jsr exp14 parse expression
+ beq ibldm6 error?
+ lda #80 set up '='
+ jsr putmat
+ lda #1 set auto init flag
+ sta autinf
+ bra ibldm6
+
+*
+* process expressions in parens
+*
+
+pexp lbsr getok get token
+ cmpa #6 is it "("?
+ beq pexp2 error?
+ ldb #42
+ jsr rpterr
+ bra pexp3
+pexp2 clr token
+pexp3 bsr exp
+* beq pexp8
+ lbsr getok get token
+ cmpa #7 is it ")"?
+ beq pexp4 error?
+ ldb #43
+ jsr rpterr
+ bra pexp5
+pexp4 clr token
+pexp5 andcc #$fb
+ rts
+pexp8 clra set false
+ rts
+
+*
+* process expression
+*
+
+exp lbsr bldmat build expression matrix
+ beq rrexp
+ lda matlev any entries?
+ bne expb
+ lda #102 set up load op ****
+ lbsr ptmatb make binary entry
+expb lbsr optmat optimize expression matrix
+ lbsr oexp generate expression code
+ jsr ostrgs output strings
+ lda #1
+rrexp rts
+
+*
+* process optional expression
+*
+
+optexp lbsr getok get next token
+ cmpa #1 is it ';'?
+ lbne exp
+ tsta set true
+ rts return
+
+*
+* process for expression 3 (step expression)
+*
+
+frexp lbsr bldmat build matrix
+* beq frexpe error?
+ lda matlev check level
+ bne frexp2
+ lda #1 set up load op
+ lbsr ptmatb make entry
+frexp2 ldy nxtfor point to stack
+ ldx #emat point to matrix
+ cmpx nxtmat empty?
+ beq 1f
+frexp3 lda 0,x+ move matrix to stack
+ sta 0,y+
+ cmpx nxtmat end of list?
+ bne frexp3
+1 sty nxtfor save stack pointer
+ cmpy #fortab+FRLEN overflow?
+ bhs 8f
+ ldy nxtfrc get constants
+ ldx #contab
+2 cmpx nxtcon end of constants?
+ beq 4f
+ lda 0,x+
+ sta 0,y+
+ bra 2b
+4 sty nxtfrc save new next
+ cmpy #frctab+FRCLEN overflow?
+ bhs 8f
+frexpe rts return
+8 ldd #137 set error
+ jmp error
+
+*
+* output for expression code
+*
+
+gfrexp cmpy nxtfor empty expression?
+ beq gfrex4
+ ldx #emat point to matrix
+ pshs y save for pointer
+gfrex2 lda 0,y+ move code from stack
+ sta 0,x+ to matrix
+ cmpy nxtfor finished?
+ bne gfrex2
+ clr 0,x set end
+ stx nxtmat set matrix end
+ puls y
+ sty nxtfor
+ cmpu nxtfrc any constants?
+ beq 5f
+ pshs u save position
+ ldx #contab point to constants
+3 lda 0,u+ get byte
+ sta 0,x+
+ cmpu nxtfrc end of list?
+ bne 3b
+ puls u get ptr
+ stu nxtfrc reset
+5 lbra expb do expression code
+gfrex4 andcc #$fb set true
+ rts return
+
+*
+* build the expression matrix
+*
+
+bldmat ldx #astack init all stacks
+ stx tos
+ ldx #systrs reset string symbols
+ stx nxtsst
+ ldx #arybuf
+ stx nxtary
+ ldx #strtab
+ stx nxtstr
+ ldx #contab
+ stx nxtcon
+ ldx #emat
+ stx nxtmat
+ clr matlev set level counter
+ ldd nxtdim save dim pointer
+ pshs d
+ bsr exp15 parse expression
+ pshs cc save status
+ ldd 1,s get dim pointer
+ std nxtdim
+ puls cc,d,pc return
+
+*
+* priority level 15
+*
+
+exp15 bsr exp14
+ beq exp154 error?
+ lbsr getok get next token
+ cmpa #9 is it ','?
+ bne exp154
+ clr token eat the token
+ lda #CMA set comma op
+ lbsr ptmata make entry
+ bra exp15 repeat
+exp154 rts return
+
+*
+* priority level 14: assignments
+*
+
+exp14 bsr exp13
+ beq exp144
+exp142 lbsr getok get next token
+ cmpa #80 is it '='?
+ bhi exp144
+ cmpa #70 check rest of assignments
+ blo exp144
+ pshs a
+ clr token eat the token
+ bsr exp14 right to left assoc.
+ puls a
+ beq exp144
+ lbsr putmat make matrix entry
+ bra exp142
+exp144 rts return
+
+*
+* priority level 13: conditional
+*
+
+exp13 jsr exp12 next level
+ lbeq exp136 error?
+exp132 lbsr getok get next token
+ cmpa #90 is it '?'?
+ lbne exp136
+ clr token eat it
+ lda qmsupf get sup flag
+ pshs a save it
+ clr qmsupf
+ jsr maklod
+ lda #CXB set up code
+ lbsr ptmata make entry
+ ldd tos save tos
+ pshs d
+ ldd nxtmat mark matrix level
+ pshs d
+ lda matlev
+ pshs a
+ bsr exp14 next level (r-l)
+ beq exp13r error?
+ lbsr getok get next token
+ cmpa #8 is it ':'?
+ bne exp13r if not, error!
+ clr token
+ tst qmsupf sup?
+ bne 1f
+ jsr maklod
+ lda #CBR conditional branch
+ lbsr ptmata make entry
+1 lda qmsupf check sup
+ beq 2f
+ deca check true or false (1=true)
+ beq 2f if ne - false
+ lda 0,s get mat level
+ sta matlev
+ ldy 1,s get mat entry
+ sty nxtmat
+ clr 0,y set term
+ ldd 3,s get tos
+ std tos
+2 ldd nxtmat reset matrix markers
+ std 1,s
+ lda matlev
+ sta 0,s
+ ldd tos save tos
+ std 3,s
+ jsr exp14 next expression
+ beq exp13r error?
+ tst qmsupf sup?
+ bne 3f
+ jsr maklod
+ lda #CEN end conditional
+ lbsr ptmatb make entry
+3 lda qmsupf sup?
+ beq 4f
+ deca check true or false
+ bne 4f eq is true
+ lda 0,s get mat level
+ sta matlev
+ ldy 1,s
+ sty nxtmat
+ clr 0,y set term
+ ldd 3,s reset tos
+ std tos
+4 leas 5,s clean stack
+ puls a get sup flag
+ sta qmsupf
+ jmp exp132 repeat
+exp13r leas 5,s clean stack
+ puls a get flag
+ sta qmsupf reset
+ clra
+exp136 rts return
+
+*
+* priority level 12: logical or
+*
+
+exp12 bsr exp11
+ beq exp126
+exp122 lbsr getok get next token
+ cmpa #54 is it '||'?
+ bne exp126
+exp123 clr token eat token
+ jsr ptorb make ORB entry
+ bsr exp11
+ beq exp126 error?
+ jsr ptore make ORE entry
+ bra exp122
+exp126 rts return
+
+*
+* priority level 11: logical and
+*
+
+exp11 bsr exp10
+ beq exp116 error?
+exp112 lbsr getok get next token
+ cmpa #53 is it '&&'?
+ bne exp116
+exp113 clr token eat the token
+ jsr ptanb make ANB entry
+ bsr exp10 next level
+ beq exp116
+ jsr ptane make ANE entry
+ bra exp112
+exp116 rts return
+
+*
+* priority level 10: bitwise or
+*
+
+exp10 bsr exp9
+ beq ex1006
+ex1002 lbsr getok get next token
+ cmpa #48 is it '|'?
+ bne ex1006
+ clr token eat the token
+ bsr exp9 next level
+ beq ex1006 error?
+ lda #48 set up op
+ lbsr putmat make matrix entry
+ bra ex1002 repeat
+ex1006 rts return
+
+*
+* priority level 9: bitwise exlusive or
+*
+
+exp9 bsr exp8
+ beq exp96
+exp92 lbsr getok get token
+ cmpa #49 is it '^'?
+ bne exp96
+ clr token eat the token
+ bsr exp8 next level
+ beq exp96 error?
+ lda #49 set up op
+ lbsr putmat make entry
+ bra exp92
+exp96 rts return
+
+*
+* priority level 8: bitwise and
+*
+
+exp8 bsr exp7
+ beq exp86
+exp82 lbsr getok get next token
+ cmpa #47 is it '&'?
+ bne exp86
+ clr token eat the token
+ bsr exp7 next level
+ beq exp86 error?
+ lda #47 set up op
+ lbsr putmat make entry
+ bra exp82
+exp86 rts return
+
+*
+* priority level 7: equalities
+*
+
+exp7 bsr exp6
+ beq exp76
+exp72 lbsr getok get a token
+ cmpa #60 is it '=='?
+ blo exp76
+ cmpa #61 check '!='
+ bhi exp76
+ pshs a
+ clr token eat the token
+ bsr exp6 do next level
+ puls a
+ beq exp76 error?
+ jsr putmat make matrix entry
+ bra exp72
+exp76 rts return
+
+*
+* priority level 6: relationals
+*
+
+exp6 bsr exp5
+ beq exp69
+exp62 lbsr getok get a token
+ cmpa #62 is it '<='?
+ blo exp69
+ cmpa #65 check rest of relationals
+ bhi exp69
+ pshs a
+ clr token eat the token
+ bsr exp5
+ puls a
+ beq exp69 error?
+ lbsr putmat make entry
+ bra exp62
+exp69 rts return
+
+*
+* priority level 5: shift operators
+*
+
+exp5 bsr exp4
+ beq exp56
+exp52 lbsr getok get next token
+ cmpa #45 is it '>>'?
+ blo exp56
+ cmpa #46
+ bhi exp56
+ pshs a
+ clr token eat the token
+ bsr exp4 next level
+ puls a
+ beq exp56
+ lbsr putmat make matrix entry
+ bra exp52
+exp56 rts return
+
+*
+* priority level 4: + -
+*
+
+exp4 bsr exp3
+ beq exp46
+exp42 lbsr getok get a token
+ cmpa #40 is it '+'?
+ blo exp46
+ cmpa #41
+ bhi exp46
+ pshs a
+ clr token eat the token
+ bsr exp3 next level
+ puls a
+ beq exp46 error?
+ lbsr putmat make matrix entry
+ bra exp42
+exp46 rts return
+
+*
+* priority level 3: multiplicative ops
+*
+
+exp3 bsr exp2 next level
+ beq exp36 error?
+exp32 lbsr getok get next token
+ cmpa #42 is it '*'?
+ blo exp36
+ cmpa #44 is it '%'?
+ bhi exp36
+ pshs a save op
+ clr token eat the token
+ bsr exp2 next level
+ puls a
+ beq exp36 error?
+ lbsr putmat make entry
+ bra exp32 repeat
+exp36 rts return
+
+*
+* priority level 2: unary operators
+*
+
+exp2 lbsr getok get next token
+ cmpa #30 is it ++
+ blo exp22
+ cmpa #34 is it '!'?
+ bhi exp22
+ beq exp21
+ clr token eat the token
+ pshs a save op
+ jsr exp2 do expr (r to l)
+ puls a get op back
+ beq exp26 error?
+ ldx tos make binary op
+ ldy #onecon set up constant one
+ sty 0,x++ put on stack
+ stx tos
+ jsr putmat make entry
+ bra exp255
+exp21 clr token eat the token
+exp210 pshs a
+ lbsr exp2 do expr (r to l)
+ puls a
+ beq exp26 error?
+ lbsr ptmatb put operator in matrix
+ bra exp255
+exp22 cmpa #47 is it '&'?
+ bne exp23
+ lda #35 set up op
+ bra exp21
+exp23 cmpa #42 is it '*'?
+ bne exp24
+ lda #36 set up op
+ bra exp21
+exp24 cmpa #41 is it '-'?
+ bne exp25
+ lda #37 set up unary minus
+ bra exp21
+exp25 cmpa #38 is it '~'?
+ beq exp21
+ cmpa #19 is it keyword?
+ bne exp252
+ lda toktyp check type
+ cmpa #22 is it 'sizeof'?
+ lbeq sizeof
+exp252 bsr exp1 do operand
+ beq exp26 error?
+exp255 lbsr getok get next token
+ cmpa #30 is it '++' or '--'
+ blo exp26
+ cmpa #31
+ bhi exp26
+ adda #2 make post op
+ clr token eat token
+ ldx tos put 1 on tos
+ ldy #onecon
+ sty 0,x++
+ stx tos
+ jsr putmat make matrix entry
+ lda #1 set true
+exp26 rts return
+
+*
+* priority level 1: operands
+*
+
+exp1 lbsr getok get next token
+ cmpa #20 is it a variable?
+ bne exp102
+ lbra xvar do variable
+exp102 cmpa #21 is it a constant?
+ bne exp103
+ lbra xcon process constant
+exp103 cmpa #22 is it string constant?
+ bne exp104
+ lbra xstr
+exp104 cmpa #6 is it '('?
+ lbeq xsub do subexpression
+ ldb #44 set error
+ jmp rpterr
+exp106 clra set error
+ rts return
+
+*
+* process a variable operand
+*
+
+xvar clr token eat the token
+ ldy tos get stack pointer
+ ldx symloc point to symbol
+ stx 0,y++ put pointer on stack
+ sty tos
+* ldb stype+1,x get type
+* andb #$30 check for pointer
+* beq 1f
+* cmpb #FNCT<<4
+* beq 1f
+* stx rcntpt save location of pointer
+1 cmpy #astack+ASLEN overflow?
+ blo 2f
+ ldd #138 set error
+ jmp error
+2 lbsr prexp check primary exp
+ rts
+
+*
+* process constant operand
+*
+
+xcon clr token eat the token
+xcon1 lda contyp check type
+ ldx nxtcon point to buffer
+ tfr x,y
+xcon2 sta 0,x+ set type
+ lda #CONST
+ sta 0,x+
+ ldd conbuf get constant
+ std 0,x++
+ lda contyp check for long type
+ cmpa #UNSND
+ bls xcon3
+ ldd conbuf+2
+ std 0,x++
+ lda contyp check for double type
+ cmpa #DUBLE
+ bne xcon3
+ ldd conbuf+4
+ std 0,x++
+ ldd conbuf+6
+ std 0,x++
+xcon3 stx nxtcon save buffer pos
+ cmpx #contab+CTLEN overflow?
+ blo 3f
+ ldd #139 set error
+ jmp error
+3 ldx tos get stack pointer
+ sty 0,x++ psh pointer
+ stx tos
+ cmpx #astack+ASLEN overflow?
+ blo 4f
+ ldd #138 set error
+ jmp error
+4 lbsr prexp check primary exp
+ rts return
+
+*
+* process string constant
+*
+
+xstr ldx nxtsst get next string symbol entry
+ stx symloc mark location
+ ldy toktyp get string location
+ ldd 0,y++ get symbol number
+ std sstore,x set in entry
+ lda #STAT make it static
+ sta sclass,x
+ ldb #(ARAY<<4)|CHR make pointer to character
+ clra
+ std stype,x set type
+ ldd #1
+2 tst 0,y+ count string length
+ beq 4f
+ addd #1
+ bra 2b
+4 ldu nxtdim make dim entry
+ stu ssubs,x
+ std 0,u++ save length
+ ldd #$ffff set term
+ std 0,u++
+ stu nxtdim mark end
+ cmpu #dimstk+DMLEN overflow?
+ blo 5f
+ ldd #135 set error
+ jmp error
+5 leax SYMSIZ,x mark next symbol entry
+ stx nxtsst
+ cmpx #systrs+SSLEN overflow?
+ blo 6f
+ ldd #133 set error
+ jmp error
+6 jmp xvar process as variable
+
+*
+* process subexpression
+*
+
+xsub clr token eat the token
+ lbsr getok get next token
+ cmpa #19 is it keyword?
+ beq 4f
+ cmpa #20 is it identifier?
+ bne xsub4
+ ldx symloc get symbol
+ lda sclass,x check for typedef
+ cmpa #TYPDF
+ bne xsub4
+* lda stype+1,x get type
+* anda #$30 check for pointer
+* beq 5f
+* cmpa #FNCT<<4
+* beq 5f
+ stx rcntpt save position
+ bra 5f
+4 lda toktyp check type
+ cmpa #9 is it 'type'
+ bhi xsub4
+5 lbsr typnam process type-name
+* beq xsub6 error?
+ lbsr getok get next token
+ cmpa #7 is it ')'?
+ beq xsub2
+ ldb #45
+ jsr rpterr
+ bra xsub3
+xsub2 clr token
+xsub3 ldd absent+stype get type of cast
+ pshs d save it
+ lbsr exp2 next level
+* beq xsub6
+ lda #CVC set op
+ lbsr ptmatb make entry
+ ldy nxtmat get last matrix entry
+ leay -MATSIZ,y
+ puls d get cast type
+ std mttype,y set in entry
+ lbra exp255
+xsub4 lbsr exp15 process expression
+* beq xsub6
+ lbsr getok get next token
+ cmpa #7 is it ')'?
+ beq xsub5
+ ldb #45
+ jsr rpterr
+ bra xsub55
+xsub5 clr token
+xsub55 bsr prexp check primary exp
+ rts return
+xsub6 clra set error
+ rts
+
+*
+* process primary expression
+*
+
+prexp lbsr getok get next token
+ cmpa #4 is it '['
+ bne prexp2
+ clr token eat the token
+ lbsr exp14 do expression
+* beq prexpe error?
+ lbsr getok get next token
+ cmpa #5 is it ']'?
+ beq prexp0 error?
+ ldb #46
+ jsr rpterr
+ bra prex05
+prexp0 clr token eat the token
+prex05 lda #40 (add)
+ lbsr putmat make entry
+* lbsr getok get next token
+* cmpa #70 check for assign type op
+* blo prexp1
+* cmpa #80
+* bls prexp
+prexp1 lda #36 setup ind op
+ lbsr ptmatb make entry
+ bra prexp
+prexp2 cmpa #6 is it '('?
+ bne prexp4
+ clr token eat the token
+ ldx symloc point to symbol
+ tst sclass,x clasified yet?
+ bne prex25
+ lda #EXTN set external type
+ sta sclass,x
+ lda #INT|(FNCT<<4) set function returning int
+ sta stype+1,x
+prex25 lda #103 start param list
+ jsr ptmatu make entry
+ lbsr explst process exp list
+* beq prexpe error?
+ lbsr getok get token
+ cmpa #7 is it ')'?
+ beq prexp3
+ ldb #47
+ jsr rpterr
+ bra prexp
+prexp3 clr token eat it
+ lda #100 function call **
+ lbsr ptmatb make entry
+ bra prexp
+prexp4 cmpa #120 is it '.'?
+ bne prexp6
+ clr token use the token
+prexp5 lbsr sident process structure identifier
+ beq prexp error?
+ lda #99 set op
+ lbsr putmat put in matrix
+ bra prexp
+prexp6 cmpa #50 is it '->'?
+ bne prexp8
+ clr token
+ lda #36 set * op
+ jsr ptmatb make entry
+ bra prexp5
+* lbsr sident process structure identififer
+* lbeq prexp error?
+* lda #50 put in matrix
+* lbsr putmat
+* lbra prexp
+prexp8 rts return
+prexpe clra error return
+ rts
+
+*
+* process expression list
+*
+
+explst lbsr getok get next token
+ cmpa #7 is it ')' (null list)?
+ beq expls4
+expls2 lda #104 set start of arg
+ jsr ptmatu
+ lbsr exp14 process expression
+* beq expls6 error?
+ lda #101 set arg type ***
+ lbsr ptmata make entry
+ lbsr getok next token
+ cmpa #9 is it ','?
+ bne expls4
+ clr token eat the comma
+ bra expls2 repeat
+expls4 andcc #$fb set true
+expls6 rts return
+
+*
+* sizeof operator
+*
+
+sizeof clr token eat the token
+ ldd tos save current exp status
+ pshs d
+ ldd nxtmat
+ pshs d
+ lda matlev
+ pshs a
+ jsr getok get next token
+ cmpa #6 is it '('?
+ beq 6f
+ jsr exp15 process expression
+1 ldx nxtmat get last exp entry
+ cmpx 1,s any code produced?
+ bne 16f
+ lda #102 set up load op
+ sta nochck
+ jsr ptmatb
+ clr nochck
+ ldx nxtmat get entry
+16 leax -MATSIZ,x
+2 lda moprtr,x get operator
+ cmpa #102 is it LOD?
+ beq 28f
+ ldd mttype,x get result type
+ bitb #$30 is it complex?
+ beq 24f
+ ldd #(PTR<<4)|INT set ptr type
+24 jsr esizit get size
+ jmp 8f
+28 ldd mo1loc,x check op 1
+ bne 3f
+ ldd #63 set error
+ jsr rpterr
+ ldd #0 set 0 size
+ jmp 8f
+3 tsta is it node?
+ beq 4f
+ tfr d,x point to entry
+ bra 5f
+4 lda #MATSIZ find node entry
+ decb
+ mul
+ ldx #emat point to exp matrix
+ leax d,x point to entry
+ bra 2b
+5 jsr sizit get entry size
+ jmp 8f
+6 clr token eat the paren
+ jsr getok get next token
+ cmpa #19 is it key word?
+ beq 7f
+ cmpa #20 is it identifier?
+ bne 65f
+ ldx symloc get symbol location
+ lda sclass,x get class
+ cmpa #TYPDF is it type define?
+ beq 75f
+65 jsr exp15 process expression
+ jsr getok get next token
+ cmpa #7 is it ')'?
+ bne 67f
+ clr token eat the paren
+ bra 1b
+67 ldd #48 set error
+ jsr rpterr
+ jmp 1b
+7 lda toktyp check token type
+ cmpa #9 is it 'type'?
+ bhi 65b
+75 jsr typnam process type name
+ jsr getok get next token
+ cmpa #7 is it ')'?
+ bne 77f
+ clr token eat the paren
+ bra 79f
+77 ldd #48 set error
+ jsr rpterr
+79 ldx symloc get symbol entry
+ bra 5b
+8 std conbuf set size as constant
+ lda #INT set type
+ sta contyp
+ puls a reset expression matrix
+ sta matlev
+ puls x
+ stx nxtmat
+ clr 0,x set term
+ puls d
+ std tos
+ jsr xcon1 process constant
+ jmp exp255 continue expression
+
+*
+* process a structure identifier
+*
+
+sident lda #1 set st flag
+ sta strflg
+ lbsr getok get next token
+ clr strflg
+ cmpa #20 is it name?
+ beq siden2 error?
+ ldb #49
+ jsr rpterr
+ bra siden3
+siden2 clr token eat the token
+siden3 ldy tos put on stack
+ ldx symloc point to sym
+ ldd stype,x check type
+ andb #$30
+ cmpb #ARAY<<4 is it array?
+ bne 2f
+ ldu nxtary get array table
+ stx 0,u++ make entry
+ stu nxtary save new pointer
+2 stx 0,y++ put pointer on stack
+ sty tos save tos
+ cmpy #astack+ASLEN overflow?
+ blo 4f
+ ldd #138 set error
+ jmp error
+4 rts return
+siden6 clra set error
+ rts return
+
+
+ pag
+
+*
+* maklod
+*
+* If tos is not a node level number, convert it into
+* a LOD instruction.
+*
+
+maklod ldx tos get tos
+ ldd -2,x get top operand
+ tsta is it node?
+ bne maklo2
+ rts if so - return
+maklo2 lda #102 set up LOD inst
+ jmp ptmatb make matrix entry
+
+*
+* make an entry in the expression matrix.
+* a has the operator.
+*
+
+putmat ldx tos get stack pointer
+ ldy nxtmat point to matrix
+ sta moprtr,y set operator
+ ldd #0 clear type
+ std mttype,y
+ ldd -2,x get tos operand
+ std mo2loc,y put in matrix
+ ldd -4,x get 2nd to tos operand
+ std mo1loc,y put in matrix
+ leax -4,x fix stack
+putma2 leay MATSIZ,y next matrix entry
+ clr moprtr,y
+ inc matlev bump matrix level count
+ clra
+ ldb matlev push result on stack
+ std 0,x++
+ stx tos save stack pointer
+ ldx nxtmat point to matrix entry
+ sty nxtmat update matrix level pointer
+ cmpy #emat+EMLEN overflow?
+ blo 4f
+ ldd #140 set error
+ jmp error
+4 jsr conexp reduce constants
+ jsr prctyp set matrix type
+ rts return
+
+*
+* put unary op in matrix
+*
+
+ptmatb ldx tos get stack pointer
+ ldy nxtmat point to next matrix slot
+ sta moprtr,y save operator
+ ldd #0 clear out type
+ std mttype,y
+ std mo2loc,y
+ ldd -2,x get tos
+ std mo1loc,y save operand
+ leax -2,x fix up stack
+ bra putma2
+
+*
+* put no operand entry in matrix
+*
+
+ptmatu ldy nxtmat point to entry
+ sta moprtr,y save op
+ ldd #0 clear rest
+ std mttype,y
+ std mo1loc,y
+ std mo2loc,y
+ptmtu2 leay MATSIZ,y next entry
+ clr moprtr,y
+ inc matlev
+ ldx nxtmat
+ sty nxtmat save level
+ cmpy #emat+EMLEN overflow?
+ blo 4f
+ ldd #140 set error
+ jmp error
+4 jsr conexp
+ jsr prctyp process types
+ rts
+
+*
+* put function call argument in matrix
+*
+
+ptmata ldx tos get stack pointer
+ ldy nxtmat point to matrix
+ sta moprtr,y set operator
+ ldd #0 clear others
+ std mttype,y
+ std mo2loc,y
+ ldd 0,--x get tos
+ std mo1loc,y put in matrix
+ stx tos reset stack
+ bra ptmtu2 finish up
+
+*
+* ptorb
+*
+* Make entry for ORB - does some optimization.
+*
+
+ptorb jsr maklod make load op if necessary
+ lda #ORB set up code
+ptor00 pshs a
+ptorb0 beq ptorb2
+ ldy nxtmat get matrix entry
+ leay -MATSIZ,y get to last entry
+ lda moprtr,y get op
+ cmpa #ORE is it or end?
+ bne ptorb2
+ ldb 0,s get code
+ cmpb #ORC already optimized?
+ beq ptorb2
+ sty nxtmat eat the entry
+ dec matlev
+ lda #ORC set new code
+ sta 0,s
+ bra ptorb0
+ptorb2 cmpa #ANE is it and end?
+ bne ptorb4
+ sty nxtmat eat the entry
+ dec matlev
+ puls a
+ bsr ptor00
+ jmp ptane reset end and op
+ptorb4 puls a get code
+ jmp ptmata put in matrix
+
+*
+* ptore
+*
+* Make entry for ORE - does optimization.
+*
+
+ptore jsr maklod
+ ldy nxtmat get matrix entry
+ leay -MATSIZ,y get last entry
+ lda moprtr,y get op at this level
+ cmpa #ORE already or end?
+ bne ptore2
+ rts return - no work
+ptore2 lda #ORE
+ jmp ptmatu
+
+*
+* ptanb
+*
+* Make entry for ANB
+*
+
+ptanb jsr maklod make load op if necessary
+ lda #ANB setup code
+ptan00 pshs a
+ptanb0 ldy nxtmat get matrix entry
+ leay -MATSIZ,y get to last entry
+ lda moprtr,y get op
+ cmpa #ANE is it and end?
+ bne ptanb2
+ ldb 0,s get code
+ cmpb #ANC already optimized?
+ beq ptanb2
+ sty nxtmat eat the entry
+ dec matlev
+ lda #ANC set new code
+ sta 0,s
+ bra ptanb0
+ptanb2 cmpa #ORE is it or end?
+ bne ptanb4
+ sty nxtmat eat the entry
+ dec matlev
+ puls a
+ bsr ptan00
+ jmp ptore reset end and op
+ptanb4 puls a get code
+ jmp ptmata put in matrix
+
+*
+* ptane
+*
+* Make entry for ANE
+*
+
+ptane jsr maklod
+ ldy nxtmat get matrix entry
+ leay -MATSIZ,y get last entry
+ lda moprtr,y get op at this level
+ cmpa #ANE already or end?
+ bne ptane2
+ rts return - no work
+ptane2 lda #ANE
+ jmp ptmatu
+
+
+*
+* transfer init data to data pool
+*
+
+xfrdat ldx eldptr get element pointer
+ lda 0,x get type
+ sta eltype set element type
+ lda matlev check for constant expression
+ bne 2f
+ lda #LOD make load op
+ jsr ptmatb
+2 ldd #0 zero offset word
+ std adrofs
+ lda matlev check level
+ cmpa #1
+ lbne xfrde1 if not 1 - error
+ lda emat+moprtr get operator
+ cmpa #LOD is it load?
+ beq 25f
+ jsr chkofs check for offset op
+ bne 26f
+ jmp xfrde1 error!
+25 ldx emat+mo1loc get op1 location
+26 ldd stype,x get type
+ cmpb #CONST is it constant?
+ lbeq xfrcon if so - go transfer
+ lda sclass,x get class
+ cmpa #STAT is it static? (string)
+ beq 3f
+ cmpa #EXTN is it external?
+ lbne xfrde1
+3 lda eltype get element type
+ bita #$30 is it complex?
+ bne 6f
+* cmpa stype+1,x same type?
+* lbne xfrde2 if not - error
+ lda sclass,x get class
+ cmpa #STAT is it static?
+ lbne xfrde1
+ ldd stype,x get type
+ cmpd #(ARAY<<4)|CHR is it array of char?
+ lbne xfrde1
+ tst istrfl doing structure?
+ beq 35f
+ ldu eldptr get element
+ ldd 1,u get size
+ ldu ssubs,x get subscripts
+ lbeq xfrde2
+ cmpd 0,u matching size?
+ lbne xfrde3
+ bra 45f
+35 tst aofchr is it array of chars?
+ beq xfrde2 if not - error
+ clr aofchr
+ ldu intsym get init symbol
+ ldu ssubs,u get its subscripts
+ beq xfrde2
+ ldy ssubs,x get string subscripts
+ ldd 0,u get init sym dim
+ bne 4f
+ ldd 0,y get string size
+ std 0,u set in symbol
+ bra 45f
+4 cmpd 0,y is size ok?
+ bne xfrde3
+45 ldx #strtab+2 point to string
+ ldu nxtdat point to data pool
+5 lda 0,x+ transfer string
+ sta 0,u+
+ bne 5b
+ stu nxtdat save data pointer
+ bra 7f
+6 anda #$f get basic type
+* cmpa dtype+1 match?
+ bra 65f *************
+ beq 65f
+ ldd #66 set error
+ jsr rpterr
+ bra 7f
+65 lda sclass,x get class
+ cmpa #EXTN is it external
+ beq 9f
+ ldu nxtdat get next data
+ clr 0,u+ set for label data
+ ldd adrofs get offset
+ std 0,u++
+ ldd sstore,x get label number
+ std 0,u++
+ stu nxtdat
+ jsr ostrgs output string data
+7 ldx eldptr get element pointer
+ leax 3,x advance to next
+ cmpx nxteld end of list?
+ bne 8f
+ ldd totlct get element count
+ addd #1 bump it
+ std totlct save new value
+ ldx #eldesc reset ptr
+8 stx eldptr save new one
+ ldd #strtab reset strings
+ std nxtstr
+ rts return
+xfrde1 ldd #50 set error
+ jmp rpterr
+xfrde2 ldd #66 set error
+ jmp rpterr
+xfrde3 ldd #67 set error
+ jmp rpterr
+9 ldu nxtdat get next data
+ lda #2 set for name type
+ sta 0,u+
+ ldd adrofs get offset
+ std 0,u++
+ lda #'_
+ sta 0,u+
+ ldb #7 set count
+95 lda sname,x get character
+ leax 1,x
+ sta 0,u+
+ beq 97f
+ decb
+ bne 95b
+ clr 0,u+
+97 stu nxtdat save data pointer
+ bra 7b
+
+*
+* transfer constant to data pool
+*
+
+xfrcon lda eltype get element type
+ bita #$30 is it complex?
+ beq 2f
+ lda #INT set as int
+2 pshs x save symbol
+ jsr concon convert constant types
+ puls x get symbol
+ lda eltype get type
+ bita #$30 complex?
+ bne 7f
+ lda 0,x get type
+ ldu #siztbl point to size table
+ deca remove bias
+ lda a,u get size
+ ldu nxtdat point to data pool
+ ldx #conbuf point to constant
+4 ldb 0,x+ transfer constant
+ stb 0,u+
+ deca dec the count
+ bne 4b
+5 stu nxtdat save pool ptr
+ ldx eldptr get next element
+ leax 3,x advance to next
+ cmpx nxteld end of list?
+ bne 6f
+ ldd totlct get element counter
+ addd #1 bump it
+ std totlct save new value
+ ldx #eldesc rest pointer
+6 stx eldptr save new
+ rts return
+7 ldu nxtdat get data pointer
+ lda #1 set for constant
+ sta 0,u+
+ ldd conbuf get constant
+ std 0,u++
+ bra 5b
+
+*
+* check for offset type operation
+*
+
+chkofs clra (return x pointing to name operand)
+ rts (and adrofs set with offset)
+
+*
+* convert constant type
+*
+
+concon cmpa 0,x need converting?
+ beq 2f
+ sta contyp save new type
+ beq 4f
+ cmpa #DUBLE
+ bhi 4f
+ deca remove bias
+ lsla adjust for table index
+ ldu #cvttbl point to list of routines
+ ldu a,u get routine
+ jmp 0,u go do conversion
+2 bsr putcon transfer constant to buffer
+ rts return
+4 swi ****** temp system error *****
+
+*
+* transfer constant to buffer
+*
+
+putcon lda 0,x get type
+ sta contyp
+ leax 2,x point to number
+6 ldy #conbuf transfer double
+ ldb #4 set count
+ pshs b
+7 ldd 0,x++
+ std 0,y++
+ dec 0,s finished?
+ bne 7b
+ puls b,pc return
+
+ data
+cvttbl fdb contoc,contoi,contoi,contoi,contol,contof,contod
+
+zrocon fcb INT,CONST,0,0
+onecon fcb INT,CONST,0,1
+twocon fcb INT,CONST,0,2
+thrcon fcb INT,CONST,0,3
+forcon fcb INT,CONST,0,4
+atecon fcb INT,CONST,0,8
+nincon fcb INT,CONST,0,9
+ text
+
+contoc lda 0,x get type
+ ldb #CHR make character
+ stb 0,x
+ leax 2,x
+ ldu #siztbl get size of data
+ deca
+ ldb a,u
+ decb
+ lda b,x get last byte of constant
+ sta conbuf
+ rts return
+
+contoi
+contol
+contof
+contod
+ swi ***** temp *****
+

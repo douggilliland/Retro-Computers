@@ -1,0 +1,695 @@
+ opt pag
+ ttl C Lexical Analyzer
+ pag
+ 
+
+*
+* getchar routine
+*
+
+getchr lda char test character
+ bne clsch
+ jsr nxtchr get next char
+ bcs chker error?
+ sta char save char
+ ldb class get class
+ rts return
+
+*
+* classify character
+*
+
+clsch sta char
+ cmpa #'0 check for numbers
+ blo 2f
+ cmpa #'9
+ bls 4f
+ cmpa #'_ is it underscore?
+ beq 6f if so - letter
+ cmpa #'A check for upper letters
+ blo 2f
+ cmpa #'Z
+ bls 6f
+ cmpa #'a check for lower letters
+ blo 2f
+ cmpa #'z
+ bls 6f
+2 clr class
+ clrb
+ rts
+4 ldb #2
+5 stb class
+ rts
+6 ldb #1
+ bra 5b
+
+*
+* check error
+*
+
+chker cmpa #$ff eof?
+ bne 2f
+ lda #EOF set eof
+1 clr class
+ clrb set class
+ rts return eof
+2 cmpa #$fc is it con exp term?
+ beq 1b
+4 stb toktyp
+ sta idtyp save id type
+ lda #'a fudge character
+ sta char save char
+ ldb #1 set letter
+ stb class
+ rts return
+
+
+*
+* get token routine
+*
+
+getok lda token check last token
+ beq 1f
+ rts return
+1 lbsr getchr get character
+ cmpa #$20 check if space
+ bhi 11f
+ clr char eat character
+ bra 1b
+11 cmpb #2 is it number?
+ bne 12f
+ lbsr docon do constant
+ lda token get token
+ rts return
+12 clr char eat character
+ tstb class?
+ beq 22f graphic
+ jmp donam do name
+22 cmpa #EOF is it eof?
+ lbeq 9f
+ cmpa #$fc is it con exp term?
+ lbeq 9f
+
+*
+* check for comment and strings
+*
+
+25 cmpa #'' is it char constant?
+ bne 27f
+ jmp doscon
+27 cmpa #'" is it string?
+ bne 28f
+ jmp dostrn do string
+28 cmpa #'- check for arrow
+ bne 3f
+ pshs a save char
+ jsr getchr get next
+ cmpa #'>
+ puls a
+ bne 3f
+ clr char eat character
+ lda #50 arraow token
+ staa token
+ rts
+
+*
+* check possible double characters
+*   =,+,-,&,|
+*
+
+3 cmpa #'=
+ beq double
+ cmpa #'+
+ beq double
+ cmpa #'-
+ beq double
+ cmpa #'&
+ beq double
+ cmpa #'|
+ beq double
+ cmpa #'<
+ beq double
+ cmpa #'>
+ beq double
+
+* check for equals relationals
+*   <=,>=,!=
+*
+
+35 cmpa #'<
+ beq equals
+ cmpa #'>
+ beq equals
+ cmpa #'!
+ beq equals
+
+* process single character
+*
+
+4 ldx #chrtab point to table
+5 cmpa 0,x++ check character
+ beq 6f
+ tst 0,x
+ bne 5b
+ lda #127
+ bra 7f
+6 lda -1,x get tken
+7 cmpa #40 check for assignment type
+ blo 9f
+ cmpa #49
+ bhi 9f
+ pshs a save token
+ lbsr getchr get next character
+ cmpa #'= is it equals?
+ puls a
+ bne 9f
+ clr char eat the character
+ adda #30 make assignment
+9 sta token set token
+ rts
+
+*
+* check for double character
+*
+
+double psha save character
+ lbsr getchr
+ cmpa 0,s
+ puls a
+ bne 35b
+doubl2 ldx #dchtab point to table
+doubl3 clr char use character
+ bra 5b go lookup
+
+*
+* check for equals comparison
+*
+
+equals psha
+ lbsr getchr
+ tab
+ pula
+ cmpb #'= is it equals?
+ bne 4b
+ ldx #eqctab equals table
+ bra doubl3
+
+*
+* process name
+*
+
+donam lda idtyp get id type
+ cmpa #$fd is it identifier?
+ bne dovar
+ lda #19 set token
+ sta token
+ rts return
+
+*
+* process variable name
+*
+
+dovar lbsr getsym get symbol
+ stx symloc save position
+dovar4 lda #20 name token
+dovar5 sta token
+ rts
+
+*
+* process constant
+*
+
+docon pshs a save char
+ ldd #0 clear work area
+ std num
+ std num+2
+ puls a
+ ldb #21 set constant token
+ stb token
+ cmpa #'0
+ beq 2f hex or octal?
+ lbra getdec do decimal
+2 clr char eat 0
+ jsr getchr get next
+ tstb check type
+ beq 4f
+ cmpb #2 is it number?
+ lbeq getoct
+ anda #$5f make upper
+ cmpa #'X
+ bne 4f
+ clr char
+ lbra gethex
+4 lbra getde4
+
+*
+* process character constant
+*
+
+doscon lda #21 set token
+ sta token
+ ldd #0
+ std num
+ std num+2
+ lbsr getchr get next char
+ clr char eat it
+ cmpa #'\ is it bslash?
+ bne 4f
+ lbsr getchr get next
+ cmpb #2 number?
+ beq 8f
+ clr char
+ bsr fnesc process escape
+4 sta num+3
+45 lbsr getchr get next
+ clr char
+ cmpa #'' end of constant?
+ beq 6f
+ cmpa #EOF end of file?
+ beq 6f
+ cmpa #NL is it new line?
+ beq 5f
+ ldb num+1 shift num 1 digit
+ stb num
+ ldb num+2
+ stb num+1
+ ldb num+3
+ stb num+2
+ bra 4b
+5 ldd #51 set error
+ jsr rpterr
+6 ldd num check for long
+ bne 7f
+ lda num+2 see if character
+ bne 63f
+ lda #CHR set character
+ bra 64f
+63 lda #INT set type
+64 sta contyp
+ ldd num+2
+ tsta check for single char
+ bne 65f
+ sex sign extend
+65 std conbuf set number
+ lda token pickup token
+ rts return
+7 lda #LONG set long type
+ sta contyp
+ ldd num transfer to buffer
+ std conbuf
+ ldd num+2
+ std conbuf+2
+ lda token get token type
+ rts return
+8 cmpa #'8 octal?
+ blo 9f
+ clr char
+ bra 4b
+9 lbsr getoct get octal
+ bra 45b
+
+*
+* find escape character
+*
+
+fnesc leax esctab,pcr
+ ldb #5 set count
+2 cmpa 0,x++
+ beq 3f
+ decb
+ bne 2b
+ bra 4f
+3 lda -1,x get character
+4 rts return
+
+* escape char table
+
+ data
+esctab fcb 'n,$d
+ fcb 't,$9
+ fcb 'b,$8
+ fcb 'r,$d
+ fcb 'f,$c
+
+ text
+
+*
+* process string
+*
+
+dostrn ldy nxtstr point to next avail
+ lda #22 set token
+ sta token
+ jsr nxtlab get next label
+ std 0,y++ save with string
+2 lbsr getchr get next char
+ clr char
+ cmpa #'\ escape?
+ bne 4f
+ lbsr getchr
+ cmpb #2 is it digit?
+ bne 3f
+ cmpa #'8 is it octal?
+ bhs 3f
+ jsr gtsoct get string octal digit
+ bra 5f
+3 clr char
+ cmpa #NL is it new line?
+ beq 2b if so, ignore
+ bsr fnesc find escape char
+ bra 5f
+4 cmpa #'" end of string?
+ beq 6f
+ cmpa #EOF end of file?
+ beq 6f
+ cmpa #NL is it new line?
+ bne 5f
+ ldd #52 set error
+ jsr rpterr
+ bra 6f
+5 sta 0,y+ save string char
+ bra 2b
+6 clr 0,y+ set null term
+ ldd nxtstr
+ sty nxtstr
+ cmpy #strtab+STRLEN check oflow
+ bhs 8f
+ std toktyp
+ lda token
+ rts return
+8 ldd #133 set error
+ jmp error
+
+*
+* process decimal constant (integer)
+*
+
+getdec lbsr getchr get next char
+ cmpb #2 number?
+ bne getde4
+ clr char use character
+ anda #$f mask digit
+ tfr a,b
+ clra make 16 bits
+ pshs d save new digit
+ ldd num do fancy X10
+ aslb
+ rola
+ pshs d
+ ldd num+2
+ rolb
+ rola
+ pshs d
+ ldb #3 set loop count
+2 asl num+3 multiply by 8
+ rol num+2
+ rol num+1
+ rol num
+ decb
+ bne 2b
+ puls d add in 2X number
+ addd num+2
+ std num+2
+ puls d
+ adcb num+1
+ adca num
+ std num save result
+ puls d get new digit
+ addd num+2
+ std num+2
+ ldd num
+ adcb #0
+ adca #0
+ std num save result
+ bra getdec
+getde4 jsr getchr get next char
+ cmpb #1 is it letter?
+ bne 3f
+ anda #$5f make upper case
+ cmpa #'L is long modifier?
+ bne 3f
+ clr char eat the L
+ bra 4f
+3 ldd num get number
+ bne 4f is it long?
+ lda #INT set type
+getde6 sta contyp
+ ldd num+2 set number
+ std conbuf
+ lda token
+ rts return
+4 ldd num get number to buffer
+ std conbuf
+ ldd num+2
+ std conbuf+2
+ lda #LONG set type
+ sta contyp
+ lda token get token
+ rts return
+
+*
+* process octal constant
+*
+
+getoct lbsr getchr get next character
+ cmpb #2 number?
+ bne getde4
+ cmpa #'7 is it octal?
+ bhi getde4
+ clr char eat character
+ anda #$f mask digit
+ ldb #3 set loop count
+2 asl num+3 shift 3 times
+ rol num+2
+ rol num+1
+ rol num
+ decb finished?
+ bne 2b
+ adda num+3 add in new
+ sta num+3
+ bra getoct repeat
+
+*
+* process hex constant
+*
+
+gethex lbsr getchr get character
+ tstb check type
+ beq getde4
+ cmpa #$5f
+ bls 1f upper case?
+ anda #$5f make it upper
+1 suba #'G check for hex digit
+ bpl getde4
+ adda #6
+ bpl 2f
+ adda #7
+ bpl getde4
+2 adda #10
+ bmi getde4
+ clr char use character
+ ldb #4 set shift count
+4 asl num+3 *16
+ rol num+2
+ rol num+1
+ rol num
+ decb
+ bne 4b
+ adda num+3 add in new
+ sta num+3
+ bra gethex repeat
+
+*
+* generate a new label
+*
+
+nxtlab ldd labels get last value
+ addd #1 bump by one
+ std labels save new
+ rts return
+
+*
+* get string octal constant
+*
+
+gtsoct ldd #0
+ std num do init stuff
+2 jsr getchr get next char
+ cmpb #2 is it digit?
+ bne 4f
+ cmpa #'7 is it octal
+ bhi 4f
+ clr char eat character
+ anda #$f
+ ldb #3 set count
+3 asl num
+ decb
+ bne 3b
+ adda num add in new digit
+ sta num
+ bra 2b
+4 lda num get digit
+ rts return
+
+ data
+
+* tables
+
+* key name table
+
+keytab
+ fcc "int"
+ fdb 1
+ fcc "char"
+ fdb 2
+ fcc "float"
+ fdb 3
+ fcc "double"
+ fdb 4
+ fcc "struct"
+ fdb 5
+ fcc "union"
+ fdb 6
+ fcc "long"
+ fdb 7
+ fcc "short"
+ fdb 8
+ fcc "unsigned"
+ fdb 9
+
+ fcc "auto"
+ fdb 10
+ fcc "extern"
+ fdb 11
+ fcc "register"
+ fdb 12
+ fcc "typedef"
+ fdb 13
+ fcc "static"
+ fdb 14
+
+ fcc "goto"
+ fdb 20
+ fcc "return"
+ fdb 21
+ fcc "sizeof"
+ fdb 22
+ fcc "break"
+ fdb 23
+ fcc "continue"
+ fdb 24
+ fcc "if"
+ fdb 25
+ fcc "else"
+ fdb 26
+ fcc "for"
+ fdb 27
+ fcc "do"
+ fdb 28
+ fcc "while"
+ fdb 29
+ fcc "switch"
+ fdb 30
+
+ fcc "case"
+ fdb 40
+ fcc "default"
+ fdb 41
+
+ fcc "entry"
+ fdb 50
+
+ fcb 0
+
+* double character table
+
+dchtab fcc '='
+ fcb 60
+ fcc '+'
+ fcb 30
+ fcc '-'
+ fcb 31
+ fcc '&'
+ fcb 53
+ fcc '|'
+ fcb 54
+ fcc '<'
+ fcb 46
+ fcc '>'
+ fcb 45
+
+* equals characters table
+
+eqctab fcc '<'
+ fcb 62
+ fcc '>'
+ fcb 64
+ fcc '!'
+ fcb 61
+
+* character table
+
+chrtab fcc '>'
+ fcb 65
+ fcc '<'
+ fcb 63
+ fcc '!'
+ fcb 34
+ fcc '+'
+ fcb 40
+ fcc '-'
+ fcb 41
+ fcc '*'
+ fcb 42
+ fcb '/
+ fcb 43
+ fcc '%'
+ fcb 44
+ fcc '='
+ fcb 80
+ fcc '('
+ fcb 6
+ fcc ')'
+ fcb 7
+ fcc '{'
+ fcb 2
+ fcc '}'
+ fcb 3
+ fcc ';'
+ fcb 1
+ fcc ","
+ fcb 9
+ fcc ':'
+ fcb 8
+ fcc '?'
+ fcb 90
+ fcc '.'
+ fcb 120
+ fcc '"'
+ fcb 122
+ fcc "'"
+ fcb 121
+ fcc '\'
+ fcb 117
+ fcc '&'
+ fcb 47
+ fcc '|'
+ fcb 48
+ fcc '#'
+ fcb 118
+ fcc '^'
+ fcb 49
+ fcc '['
+ fcb 4
+ fcc ']'
+ fcb 5
+ fcc '~'
+ fcb 38
+ fcc ' '
+ fcb 126
+ fcb $a newline
+ fcb 125
+ fcb 0
+
+ text
+

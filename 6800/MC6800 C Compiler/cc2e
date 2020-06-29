@@ -1,0 +1,637 @@
+ opt lis
+
+
+* Generate code for one expression table entry
+
+doentry bsr clsopr classify operator
+ clr nofree
+ ldb oprtor get operator
+ bpl 2f
+ cmpb #BRX is it branch?
+ lbeq brx
+ cmpb #BLX branch and label?
+ lbeq blx
+ jmp lbl do label
+2 clra
+ cmpd #NOP is it convert or nop?
+ lblo cvt do convert
+ lbeq noop do nop
+ subb #FPP remove bias
+ aslb *2 for table
+ ldu #opgen
+ jmp [d,u] do op gen
+
+* Classify operator to spcl, unary, binary, etc
+*   0 = special, 1 = unary, 2 = binary
+
+clsopr clr opcls clear out class
+ leau op1,x set op pointers
+ stu op1ptr
+ leau op2,x
+ stu op2ptr
+ ldd rtype,x
+ std entype save entry type
+ clra
+ cmpb #STRUCT is it structure?
+ bne 02f
+ ldb #10
+ bra 05f
+02 bitb #$30 complex type?
+ beq 05f
+ andb #$30 get type
+ cmpb #$10 is it pointer?
+ bne 03f
+ ldb #8 set type
+ bra 05f
+03 ldb #9 set type
+05 andb #$f get basic type
+ beq 1f
+ ldu #typcnv
+ decb
+ lda b,u get converted basic type
+1 ldb enbtyp
+ beq 2f
+ stb lstenb
+2 sta enbtyp sbve type
+ lda oprtr,x get operator from table entry
+ sta oprtor save operator
+ rts return
+
+typcnv fcb 0,2,2,2,4,6,6,8,10,12,2,2,2,2
+
+
+* generate address field for operand
+*  u points to operand on entry
+
+giadr ldd #0 clear out flags
+ std offval
+ sta spctos
+giadro lda 0,u get operand type
+ cmpa #NNODE is it node?
+ beq 7f
+ cmpa #NNAME is it name?
+ beq 2f
+ lda #'# output immediate symbol
+ jsr outch since its a constant
+ ldd 2,u get value
+ jsr gnmsns output value
+ jmp pcrlf print crlf & return
+2 lda 1,u get class
+ cmpa #AUTO is it auto type?
+ beq 3f
+ cmpa #STAT is it static?
+ beq 4f
+ cmpa #EXTN is it external
+ beq 6f
+3 ldd 4,u get offset
+ addd offval add in offset
+ jsr gnmsns output value
+ ldx #m36 outpiut ",y"
+ jsr ostr
+ jmp pcrlf output crlf & return
+4 lda #'L output label number
+ jsr outch
+ ldd 4,u get label number
+ jsr gnmnos output it
+ ldd offval get offset
+ beq 45f 0?
+ jsr plusv output plus offset value
+45 jmp pcrlf return
+6 leay 4,u point to name
+ jsr gxtnam generate name
+ ldd offval check offset
+ beq 65f 0?
+ jsr plusv output offset
+65 jmp pcrlf return
+7 ldb 2,u get node number
+ jsr fndnod find this node
+ ldd rslt,y get type
+ cmpd #TOS is it on tos?
+ bne 8f
+ pshs y save node pointer
+ ldx #m50 output '0,s+'
+ jsr ostr
+ puls y point to node
+ dec stksiz fix stack
+ tst spctos specal case?
+ bne 75f
+ ldd rtype,y get type
+ cmpb #CHR is it character
+ beq 75f
+ lda #'+ output second '+'
+ jsr outch
+ dec stksiz fix stack
+75 dec stklev
+ jmp pcrlf term line
+8 cmpd #BOS base of stack?
+ bne 9f
+ ldd offval any offset?
+ bne 85f
+ ldx #m59 output '0,s'
+82 jsr ostr
+ bra 75b exit
+85 ldx #m60 output '1,s'
+ bra 82b
+9 bhi 95f
+ swi comp error!
+95 tfr d,y get addr reg
+ jmp garadr generate address thru ar
+
+*
+* generate load code
+*
+
+load ldb 0,u get type
+ cmpb #NNODE is it node?
+ bne 2f
+ ldb 2,u get node number
+ jsr fndnod find node
+ ldd rslt,y get result location
+ cmpd #FPREG is it in register?
+ bhi 2f
+ rts return
+2 ldb enbtyp get basic type
+ ldy #ldtab
+ jmp [b,y] do load
+
+ldtab fdb chld,intld,lnld,fpld,ptld,arld
+
+chld ldy dcont check if d busy
+ beq 2f
+ jsr chkdar d in addres reg?
+ beq 2f
+ ldd rslt,y get location
+ cmpd #BREG is it b or d?
+ bne 1f
+ ldd #TOS change location
+ tst stklev stack empty?
+ bne 05f
+ ldd #BOS set base of stack
+05 std rslt,y
+ jsr cpsh push the b reg
+ bra 2f
+1 ldd #TOS change location
+ tst stklev stack empty?
+ bne 15f
+ ldd #BOS set base of stack
+15 std rslt,y
+ jsr ipsh push the d reg
+2 jsr oldb output 'ldb'
+ inc ccok
+ jmp giadr gen address
+intld ldy dcont is d reg busy?
+ beq 4f
+ jsr chkdar in adr reg?
+ beq 4f
+ ldd #TOS change location
+ tst stklev stack empty?
+ bne 3f
+ ldd #BOS set base of stack
+3 std rslt,y
+ jsr ipsh push the d reg
+4 jsr oldd output 'ldd'
+ inc ccok
+ jmp giadr generate address
+lnld swi
+fpld swi
+
+
+* set result types
+
+rsltb ldd #BREG
+ ldx codptr
+ stx dcont set d busy
+ bra 2f
+rsltd ldd entype check for unsigned
+ clr unscom
+ cmpd #UNSND
+ bne 1f
+ inc unscom set flag
+1 ldd #DREG
+ ldx codptr
+ stx dcont set d busy
+ bra 2f
+rsltx ldd #XREG
+ ldx codptr
+ stx xcont set x busy
+ bra 2f
+rsltu ldd #UREG
+ ldx codptr
+ bra 2f
+rsltl ldd #LNREG
+ ldx codptr
+ stx lcont set lr busy
+ bra 2f
+rsltf ldd #FPREG
+ ldx codptr
+ stx fcont set fp busy
+ bra 2f
+rsltt ldd #TOS
+ ldx codptr
+2 std rslt,x save in entry
+ leax EXPSIZ,x skip entry
+ stx codptr save it
+ rts return
+
+* find node in b - return in y
+
+fndnod lda #EXPSIZ get size
+ decb
+ mul
+ ldy #exptbl point to base of exp
+ leay d,y point to node
+ rts return
+
+* push regs on stack
+
+cpsh ldd #0 clear d cont
+ std dcont
+ tst stklev check if empty
+ bne 2f
+ jsr ostb0s output 'stb 0,s'
+ inc stklev
+ rts return
+2 jsr opshb output 'pshs b'
+ inc stklev bump stack level
+ ldd stksiz fix stack size
+ addd #1
+ std stksiz
+ rts return
+
+ipsh ldd #0 clear d cont
+ std dcont
+ tst stklev stack empty?
+ bne 2f
+ jsr ostd0s output 'std 0,s'
+ inc stklev
+ rts return
+2 jsr opshd output 'pshs d'
+ inc stklev bump level
+ ldd stksiz fix stack size
+ addd #2
+ std stksiz
+ rts return
+
+* clean 2 bytes off stack
+
+clntwo dec stklev fix level
+ beq 2f
+ jsr ols2s output 'leas 2,s'
+ ldd stksiz fix size
+ subd #2
+ std stksiz
+2 rts return
+
+* clean 1 byte off stack
+
+clnone dec stklev fix level
+ beq 2f
+ jsr ols1s output 'leas 1,s'
+ ldd stksiz fix size
+ subd #1
+ std stksiz
+2 rts return
+
+* output '+value' - value in D
+
+plusv pshs d save value
+ lda #'+ output plus
+ jsr outch
+ puls d
+ jmp gnmnos output number & return
+
+* move branches into expression table
+
+movbra ldx expptr point to end of exp
+ ldu #brtbl point to branches
+2 cmpu braptr end of branches?
+ bne 25f
+ rts return
+25 lda 0,u get type
+ cmpa #LABEL is it label?
+ beq 3f
+ cmpa #BRANCH branch?
+ beq 4f
+ ldb #BRX set op
+ stb oprtr,x
+ ldb 3,u get condition
+ stb op1,x
+ inc op1+1,x set regular label
+ ldd 1,u get label number
+ std op1+2,x set in exp
+ bra 5f
+3 ldb #LBL set label
+ stb oprtr,x
+ ldd 1,u get label number
+ std op1+1,x
+ inc op1,x set regular label
+ bra 5f
+4 ldb #BRX set branch
+ stb oprtr,x
+ ldb #2 set branch always
+ stb op1,x
+ inc op1+1,x set regular label
+ ldd 1,u get label number
+ std op1+2,x set in exp
+5 leax EXPSIZ,x move to next
+ leau 4,u next bra
+ stx expptr
+ bra 2b repeat
+
+* simplify branch groups
+
+simpbr ldx #exptbl point to expression
+1 cmpx expptr end of list?
+ bne 2f
+ rts return
+2 lda oprtr,x get operator
+ bmi 3f branch type?
+25 leax EXPSIZ,x next entry
+ bra 1b
+3 cmpa #LBL is it label?
+ bne 4f
+ jsr smplbl simplify label group
+ bra 25b
+4 cmpa #BLX branch with label?
+ beq 6f
+ lda op1,x get sense of condition
+ cmpa #2 is it bra always?
+ bne 5f
+ jsr smpbra simplify branch always
+ bne 25b anything done?
+5 lda op1,x get condition
+ cmpa #2 branch always?
+ beq 6f
+ jsr smpbrx simplify conditional branch
+ bne 25b anything done?
+6 lda oprtr,x get operator
+ jsr smpbl simplify branch - label
+ bra 25b
+
+* simplify label group
+
+smplbl jsr nxtbrn get next branch type op
+ bne 2f any there?
+1 rts return
+2 cmpa #BRX plain branch?
+ bne 1b
+ pshs u,x save position
+ leax 0,u
+ jsr nxtbrn any more branch types?
+ puls u,x
+ bne 1b
+ lda #BLX set label type branch
+ sta oprtr,u
+ clr op1+4,u set local label
+ jsr nxtloc get new label
+ std op1+5,u
+ rts return
+
+* simplify branch always group
+
+smpbra jsr nxtbrn any more branch types?
+ bne 2f
+1 rts return
+2 cmpa #LBL is it label?
+ beq 1b
+ lda #NOP nop out
+ sta oprtr,u
+ rts return
+
+* simplify conditional branch group
+
+smpbrx jsr nxtbrn any more branch types
+ bne 2f
+1 rts return
+2 cmpa #LBL is it label?
+ beq 1b
+ ldb op1,u get condition
+ cmpb #2 is it always?
+ bne 8f
+ cmpa #BLX branch-label op?
+ beq 4f
+ pshs u,x save posiyion
+ leax 0,u
+ jsr nxtbrn any more bra's?
+ puls u,x
+ beq 1b
+ cmpa #LBL is it label?
+ bne 8f
+4 lda op1,x get condition
+ beq 42f
+ clra reverse condition
+ bra 45f
+42 lda #1 reverse cond
+45 sta op1,u
+ lda #NOP set up nop op
+ sta oprtr,x
+ rts return
+8 sez set zero status
+ rts return
+
+* simplify branch label group
+
+smpbl cmpa #BLX branch with label?
+ beq 2f
+ jsr nxtbrn get next branch type
+ beq 6f
+ cmpa #LBL is it label?
+ bne 6f
+ ldd op1+2,x get label number
+ cmpd op1+1,u does it match?
+ bne 6f
+ lda op1+1,x both local or regular?
+ cmpa op1,u
+ bne 6f
+ lda #NOP set nop
+ sta oprtr,x
+ rts return
+2 ldd op1+2,x labels same?
+ cmpd op1+5,x
+ bne 6f
+ lda op1+1,x
+ cmpa op1+4,x
+ bne 6f
+ lda #LBL change to label op
+ sta oprtr,x
+ lda op1+4,x get label type
+ sta op1,x
+ ldd op1+5,x get number
+ std op1+1,x
+6 rts return
+
+* find next branch type op
+
+nxtbrn leau EXPSIZ,x skip entry
+2 cmpu expptr end of list?
+ beq 5f
+ lda oprtr,u get op
+ bmi 5f
+ cmpa #NOP skip nops
+ bne 4f
+ leau EXPSIZ,u next entry
+ bra 2b
+4 sez set false
+5 rts return
+
+* reduce logical branch types
+
+redlog ldx #exptbl point to expression
+ clr redcnt clear count
+1 cmpx expptr end of list?
+ bne 2f
+ rts return
+2 lda oprtr,x get operator
+ bmi 4f branch type?
+3 leax EXPSIZ,x skip to next entry
+ bra 1b
+4 cmpa #LBL is it label?
+ beq 3b
+ lda op1+1,x save label type
+ sta brntyp save type
+ ldd op1+2,x get label number
+ jsr fndlbl look for label
+ beq 3b find?
+ lda op1,x check branch condition
+ cmpa op1,u same type?
+ beq 5f
+ cmpa #2 is it branch always?
+ beq 3b
+ deca check if opposite types
+ adda op1,u
+ beq 6f if 0 - opposite
+5 ldd op1+2,u check if same
+ cmpd op1+2,x
+ bne 55f
+ lda op1+1,u
+ cmpa op1+1,x
+ beq 3b
+55 lda op1+1,u change label
+ sta op1+1,x
+ ldd op1+2,u
+ std op1+2,x
+ inc redcnt set count
+ bra 3b
+6 lda oprtr,u get type
+ cmpa #BLX is it branch-label
+ beq 8f
+62 leay EXPSIZ,u get to next entry
+ lda oprtr,y get operator
+ cmpa #LBL is it label
+ beq 7f
+ cmpa #NOP
+ bne 3b
+ leau EXPSIZ,u next entry
+ bra 62b
+7 ldd op1+1,y see if same
+ cmpd op1+2,x
+ bne 75f
+ lda op1,y
+ cmpa op1+1,x
+ lbeq 3b
+75 lda op1,y get label
+ sta op1+1,x and change
+ ldd op1+1,y
+ std op1+2,x
+ inc redcnt set flag
+ lbra 3b
+8 ldd op1+5,u see if same
+ cmpd op1+2,x
+ bne 85f
+ lda op1+4,u
+ cmpa op1+1,x
+ lbeq 3b
+85 lda op1+4,u
+ sta op1+1,x
+ ldd op1+5,u
+ std op1+2,x
+ inc redcnt set flag
+ lbra 3b
+
+* find label in d
+
+fndlbl pshs x,d save args
+2 leau EXPSIZ,x get to next
+22 cmpu expptr end of exp?
+ beq 6f
+ lda oprtr,u
+ bmi 25f
+ leau EXPSIZ,u get next
+ bra 22b
+25 cmpa #LBL is it label?
+ beq 4f
+ cmpa #BLX branch - label?
+ bne 3f
+ ldd 0,s get label number
+ cmpd op1+5,u see if match
+ bne 3f
+ lda brntyp get type
+ cmpa op1+4,u
+ beq 5f
+3 leax 0,u skip to next
+ bra 2b
+4 ldd 0,s get label
+ cmpd op1+1,u does it match?
+ bne 3b
+ lda brntyp
+ cmpa op1,u
+ bne 3b
+5 leax 0,u skip entry
+ jsr nxtbrn find next branch
+ beq 6f
+ cmpa #LBL is it label?
+ beq 5b
+6 puls d,x,pc return
+
+* remove doubled labels
+
+remlab ldx #exptbl point to expression
+ rts ************************************************
+1 cmpx expptr end of list?
+ bne 2f
+ rts return
+2 lda oprtr,x get operator
+ cmpa #LBL is it label?
+ bne 4f
+ tst op1,x check for local label
+ bne 4f
+ jsr nxtbrn find next branch type
+ beq 4f
+ cmpa #LBL is it label
+ bne 4f
+ lda #NOP replace label with nop
+ sta oprtr,x
+4 leax EXPSIZ,x next entry
+ bra 1b
+
+* check if d busy
+
+chkdb pshs x,y,u save regs
+ ldy dcont get d contents
+ beq 6f
+ cmpy #adregs in ar?
+ blo 2f
+ cmpy #adregs+ADRSIZ*NUMADR
+ bhs 2f
+ jsr redarg reduce ar
+ jsr reddof do reg offset
+ bra 6f
+2 ldd rslt,y get contents
+ cmpd #BREG in b reg?
+ bne 4f
+ ldd #TOS set stack location
+ tst stklev base of stack?
+ bne 3f
+ ldd #BOS set base
+3 std rslt,y set new location
+ jsr cpsh push b
+ bra 6f
+4 ldd #TOS set stack
+ tst stklev base of stack?
+ bne 5f
+ ldd #BOS set base
+5 std rslt,y
+ jsr ipsh push d reg
+6 puls x,y,u,pc return
+
+

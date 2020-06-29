@@ -1,0 +1,760 @@
+
+* code generation for standard binary ops
+
+* add code gen
+
+add ldb enbtyp check for pointer
+ cmpb #8
+ bhs 2f
+ ldu op1ptr get op1
+ jsr load generate load
+ ldb enbtyp get type
+2 ldu op2ptr point to op2
+ ldy #addtab
+ jmp [b,y]
+
+addtab fdb chadd,intadd,lnadd,fpadd,ptadd,aradd
+
+chadd jsr oaddb output 'addb'
+ jsr giadr generate address
+ inc ccok
+ jmp rsltb set result
+intadd jsr oaddd output 'addd'
+ jsr giadr gen address
+ inc ccok
+ jmp rsltd set result
+lnadd swi
+fpadd swi
+ptadd
+aradd clr ptsubf clear subtract flag
+ptadsb ldu op1ptr save operands
+ ldd op2ptr
+ pshs d,u
+ lda 0,u see if reversed
+ cmpa #NNODE
+ bne 2f
+ ldb 2,u get node number
+ jsr fndnod find node
+ ldd rtype,y get type
+ bitb #$30 is it pointer?
+ bne 4f if so - no reverse
+ bra 3f else reverse
+2 cmpa #NCON is it constant
+ beq 3f if so - reverse
+ ldb 3,u get type
+ bitb #$30 pointer?
+ bne 4f if not - reverse
+3 ldd op2ptr get op2
+ std op1ptr reverse pointers
+ stu op2ptr
+4 ldu op1ptr get pointer op
+ jsr load do load
+ ldy curadr get address reg
+ ldu op2ptr get op2
+ lda 0,u
+ cmpa #NCON is it constant?
+ bne 5f
+ ldd ar_off,y get value
+ tst ptsubf subtract?
+ beq 42f
+ subd 2,u subtract value
+ bra 45f
+42 addd 2,u add to offset
+45 std ar_off,y
+ bra 7f
+5 cmpa #NNODE
+ bne 55f
+ ldb 2,u get node number
+ jsr fndnod find node
+ ldu op2ptr
+ ldd rtype,y
+ andb #$f
+ cmpb #CHR
+ bne 62f
+ bra 58f
+55 ldb 3,u get type
+57 andb #$f mask type
+ cmpb #CHR is it character?
+ bne 6f
+ ldb enbtyp save type
+ pshs b
+ jsr clsnop class this guy
+ jsr load load op2
+ puls b reset type
+ stb enbtyp
+ tst ptsubf subtract?
+ beq 58f
+ jsr onegb output 'negb'
+58 ldy curadr get ar
+ lda #1 set b reg offset
+ sta ar_ofr,y
+ bra 65f
+6 ldb enbtyp save type
+ pshs b
+ jsr clsnop classify
+ jsr load load op2
+ puls b reset type
+ stb enbtyp
+ tst ptsubf subtract?
+ beq 62f
+ jsr onegd output 'negd'
+62 ldy curadr get ar
+ lda #2 set d reg offset
+ sta ar_ofr,y
+65 sty dcont set new d contents
+7 puls d,u reset ops
+ stu op1ptr
+ std op2ptr
+ jmp ptrfin
+
+* sub code generation
+
+sub ldb enbtyp get type
+ cmpb #8 is it pointer
+ blo 2f
+ stb ptsubf set flag for subtract
+ jmp ptadsb go do it
+2 jsr tstrev reversed operands?
+ beq rsub
+ ldu op1ptr get op1
+ jsr load load it
+ ldb enbtyp get type
+ ldu op2ptr get op2
+ ldy #subtab point to routines
+ jmp [b,y]
+
+subtab fdb chsub,intsub,lnsub,fpsub
+
+chsub jsr osubb output 'subb'
+ jsr giadr gen address
+ inc ccok
+ jmp rsltb set result
+intsub jsr osubd output 'subd'
+ jsr giadr gen address
+ inc ccok
+ jmp rsltd set result
+lnsub swi
+fpsub swi
+
+* sub code gen for reversed ops
+
+rsub ldu op2ptr get op2
+ jsr load do load
+ ldb enbtyp get type
+ ldu op1ptr point to op1
+ ldy #rsbtab
+ jmp [b,y]
+
+rsbtab fdb chrsub,inrsub,lnrsub,fprsub
+
+chrsub jsr onegb output 'negb'
+ jsr oaddb output 'addb'
+ jsr giadr gen address
+ inc ccok
+ jmp rsltb
+inrsub jsr onegd output 'negd'
+ jsr oaddd output 'addd'
+ inc ccok
+ jsr giadr gen address
+ jmp rsltd set result
+lnrsub swi
+fprsub swi
+
+* mul code generation
+
+mul ldu op2ptr check op2 location
+ lda 0,u
+ cmpa #NNODE is it node?
+ bne 4f
+ ldb 2,u get node number
+ jsr fndnod find the node
+ ldd rslt,y get node's location
+ cmpd #TOS is it on stack?
+ blo 4f
+ cmpd #BOS
+ bhi 4f
+ ldu op1ptr get op1
+ jsr load do load
+ ldy #mu2tab point to routine list
+ ldb enbtyp get type
+ jmp [b,y] do it
+4 ldu op1ptr get op1
+ jsr load do load
+ ldb enbtyp get type
+ ldu op2ptr point to op2
+ ldy #multab
+ jmp [b,y]
+
+multab fdb chmul,intmul,lnmul,fpmul
+mu2tab fdb chmu2,intmu2,lnmu2,fpmu2
+
+chmul jsr olda output 'lda'
+ jsr giadr gen address
+chmu2 jsr omul output 'mul'
+ inc ccok
+ jmp rsltb set result
+intmul jsr ipsh
+ ldu op2ptr
+ jsr load do load
+intmu2 jsr oimul output mul code
+ jsr clntwo clean stack
+ jmp rsltd set resulr
+lnmul swi
+lnmu2 swi
+fpmul swi
+fpmu2 swi
+
+div
+mod
+ jmp nop
+
+* shr code generation
+
+shr ldu op2ptr get op2
+ lda 0,u get entry type
+ cmpa #NCON is it constant?
+ bne 2f
+ ldu op1ptr get op1
+ jsr load do load
+ ldu op2ptr get op2
+ ldb enbtyp get basic type
+ ldy #shrctb point to constant routines
+ jmp [b,y]
+2 ldy op1ptr get op1
+ ldb 0,y get entry type
+ cmpa #NNODE is op2 node?
+ bne 4f
+ cmpb #NNODE is op1 node?
+ bne 6f
+ ldd 2,u get node number
+ cmpd 2,y > op1 node?
+ bhi 5f
+ bra 7f
+4 cmpb #NNODE check for TOS
+ bne 45f
+ ldb 2,y get node number
+ jsr fndnod find the node
+ ldd rslt,y get result location
+ cmpd #TOS on stack?
+ blo 45f
+ cmpd #BOS
+ bls 5f
+45 ldu op1ptr get op1
+ jsr load do load op1
+ ldu op2ptr get op2
+ ldb enbtyp get basic type
+ ldy #shrtab point to routines
+ jmp [b,y] go do it
+5 ldu op2ptr no psh - normal
+ ldb enbtyp get type
+ ldy #shrntb point to routines
+ jmp [b,y] go do it
+6 ldb 2,u push - reverse
+ jsr fndnod find the node
+ ldd rslt,y get result location
+ cmpd #TOS on stack?
+ blo 65f
+ cmpd #BOS
+ bls 7f
+65 ldu op2ptr get op2
+ jsr load load op2
+ ldu op1ptr get op1
+ ldb enbtyp get basic type
+ ldy #shrrtb point to routines
+ jmp [b,y]
+7 ldu op1ptr no psh - reverse
+ ldb enbtyp get type
+ ldy #shnrtb point to routines
+ jmp [b,y] go do it
+
+shrctb fdb chshrc,inshrc,lnshrc,fpshrc
+shrtab fdb chshr,intshr,lnshr,fpshr
+shrntb fdb chnshr,innshr,lnnshr,fpnshr
+shrrtb fdb chrshr,inrshr,lnrshr,fprshr
+shnrtb fdb chnshr,irnshr,lrnshr,frnshr
+
+chshrc ldd 2,u get constant
+ cmpd #8 greater than 8?
+ blo 2f
+ jsr osex output 'sex'
+ jsr otfrab output 'tfr a,b'
+ inc ccok
+1 jmp rsltb set result
+2 tstb count 0?
+ beq 1b
+ pshs b save count
+3 jsr oasrb output 'asrb'
+ dec 0,s dec the count
+ bne 3b
+ puls b reset stack
+ inc ccok
+ jmp rsltb set result
+inshrc ldd 2,u get constant
+ cmpd #0 0 shift?
+ beq 4f
+ cmpd #4 <4?
+ bls 2f
+ cmpd #8 ==8?
+ lblo intshr do jsr shift
+ cmpd #11
+ lbhi intshr
+ pshs d save count
+ jsr otfrab output 'tfr a,b'
+ ldb entype+1 check for unsigned
+ cmpb #UNSND
+ bne 1f
+ jsr oclra output 'clra'
+ bra 15f
+1 jsr osex output 'sex'
+15 puls d get count back
+ clr ccok
+ subd #8
+ beq 4f finished?
+2 pshs b save count
+3 ldb entype+1 get type
+ cmpb #UNSND is it unsigned?
+ bne 32f
+ jsr olsrd output 'lsrd'
+ clr ccok
+ bra 35f
+32 jsr oasrd output 'asrd'
+ clr ccok
+35 dec 0,s dec the count
+ bne 3b
+ puls b fix stack
+4 jmp rsltd set result
+lnshrc swi
+fpshrc swi
+
+chshr jsr cpsh push b reg
+chnshr ldu op2ptr get op2
+ ldb enbtyp save type
+ pshs b
+ jsr gettyp get op type
+ andb #$f
+ ldy #typcnv point to basic type table
+ decb adjust index
+ ldb b,y get new basic type
+ stb enbtyp
+ jsr load load it
+ puls b get type
+ stb enbtyp
+ jsr ocshr output 'jsr casr'
+ inc ccok
+ jsr clnone clean stack
+ jmp rsltb set result
+intshr jsr ipsh push reg
+innshr ldu op2ptr get op2
+ jsr load load it
+ ldb entype+1 get type
+ cmpb #UNSND is it unsigned?
+ bne 2f
+ jsr oilshr output 'jsr ilshr'
+ bra 3f
+2 jsr oishr output 'jsr ishr'
+3 jsr clntwo clean stack code
+ inc ccok
+ jmp rsltd set result
+lnshr swi
+fpshr swi
+
+lnnshr swi
+fpnshr swi
+
+chrshr jsr ipsh psh d reg
+crnshr ldu op1ptr get op1
+ jsr load load it
+ jsr ocrshr output 'jsr crasr'
+ jsr clntwo clean stack
+ clr ccok
+ jmp rsltb set result
+inrshr jsr ipsh push reg
+irnshr ldu op1ptr get op1
+ jsr load load it
+ ldb entype+1 get type
+ cmpb #UNSND is it unsigned?
+ bne 2f
+ jsr oirlshr output 'jsr irlshr'
+ bra 3f
+2 jsr oirshr output 'jsr irshr'
+3 jsr clntwo clean stack code
+ clr ccok
+ jmp rsltd set result
+lnrshr swi
+fprshr swi
+
+lrnshr swi
+frnshr swi
+
+* shl code generation
+
+shl ldu op2ptr get op2
+ lda 0,u get entry type
+ cmpa #NCON is it constant?
+ bne 2f
+ ldu op1ptr get op1
+ jsr load do load
+ ldu op2ptr get op2
+ ldb enbtyp get basic type
+ ldy #shlctb point to constant routines
+ jmp [b,y]
+2 ldy op1ptr get op1
+ ldb 0,y get entry type
+ cmpa #NNODE is op2 node?
+ bne 4f
+ cmpb #NNODE is op1 node?
+ bne 6f
+ ldd 2,u get node number
+ cmpd 2,y > op1 node?
+ bhi 5f
+ bra 7f
+4 cmpb #NNODE check for TOS
+ bne 45f
+ ldb 2,y get node number
+ jsr fndnod find the node
+ ldd rslt,y get result location
+ cmpd #TOS on stack?
+ blo 45f
+ cmpd #BOS
+ bls 5f
+45 ldu op1ptr get op1
+ jsr load do load op1
+ ldu op2ptr get op2
+ ldb enbtyp get basic type
+ ldy #shltab point to routines
+ jmp [b,y] go do it
+5 ldu op2ptr no psh - normal
+ ldb enbtyp get type
+ ldy #shlntb point to routines
+ jmp [b,y] go do it
+6 ldb 2,u push - reverse
+ jsr fndnod find the node
+ ldd rslt,y get result location
+ cmpd #TOS on stack?
+ blo 65f
+ cmpd #BOS
+ bls 7f
+65 ldu op2ptr get op2
+ jsr load load op2
+ ldu op1ptr get op1
+ ldb enbtyp get basic type
+ ldy #shlrtb point to routines
+ jmp [b,y]
+7 ldu op1ptr no psh - reverse
+ ldb enbtyp get type
+ ldy #slnrtb point to routines
+ jmp [b,y] go do it
+
+shlctb fdb chshlc,inshlc,lnshlc,fpshlc
+shltab fdb chshl,intshl,lnshl,fpshl
+shlntb fdb chnshl,innshl,lnnshl,fpnshl
+shlrtb fdb chrshl,inrshl,lnrshl,fprshl
+slnrtb fdb chnshl,irnshl,lrnshl,frnshl
+
+chshlc ldd 2,u get constant
+ cmpd #8 greater than 8?
+ blo 2f
+ jsr oclrb output 'clrb'
+ inc ccok
+1 jmp rsltb set result
+2 tstb count 0?
+ beq 1b
+ pshs b save count
+3 jsr olslb output 'lslb'
+ dec 0,s dec the count
+ bne 3b
+ puls b reset stack
+ inc ccok
+ jmp rsltb set result
+inshlc ldd 2,u get constant
+ cmpd #0 0 shift?
+ beq 4f
+ cmpd #4 <4?
+ bls 2f
+ cmpd #8 ==8?
+ lblo intshl do jsr shift
+ cmpd #11
+ lbhi intshl
+ pshs d save count
+ jsr otfrba output 'tfr b,a'
+ jsr oclrb output 'clrb'
+ clr ccok
+ puls d get count back
+ subd #8
+ beq 4f finished?
+2 pshs b save count
+3 jsr olsld output 'lsld'
+ dec 0,s dec the count
+ bne 3b
+ puls b fix stack
+ clr ccok
+4 jmp rsltd set result
+lnshlc swi
+fpshlc swi
+
+chshl jsr cpsh push b reg
+chnshl ldu op2ptr get op2
+ ldb enbtyp save type
+ pshs b
+ jsr gettyp get op type
+ andb #$f
+ ldy #typcnv point to basic type table
+ decb adjust index
+ ldb b,y get new basic type
+ stb enbtyp
+ jsr load load it
+ puls b get type
+ stb enbtyp
+ jsr ocshl output 'jsr clsl'
+ jsr clnone clean stack
+ inc ccok
+ jmp rsltb set result
+intshl jsr ipsh push reg
+innshl ldu op2ptr get op2
+ jsr load load it
+ jsr oilshl output 'jsr ilshl'
+ jsr clntwo clean stack code
+ inc ccok
+ jmp rsltd set result
+lnshl swi
+fpshl swi
+
+lnnshl swi
+fpnshl swi
+
+chrshl jsr ipsh psh d reg
+crnshl ldu op1ptr get op1
+ jsr load load it
+ jsr ocrshl output 'jsr crlsl'
+ jsr clntwo clean stack
+ clr ccok
+ jmp rsltb set result
+inrshl jsr ipsh push reg
+irnshl ldu op1ptr get op1
+ jsr load load it
+ jsr oirlshl output 'jsr irlshl'
+ jsr clntwo clean stack code
+ clr ccok
+ jmp rsltd set result
+lnrshl swi
+fprshl swi
+
+lrnshl swi
+frnshl swi
+
+
+* and code generation
+
+and ldu op1ptr get op1
+ jsr load do load
+ ldb enbtyp get basic type
+ ldu op2ptr get op2
+ ldy #andtab point to routines
+ jmp [b,y] do code gen
+
+andtab fdb chand,intand,lnand,fpand
+
+chand jsr oandb output 'andb'
+ jsr giadr output address
+ inc ccok
+ jmp rsltb set result
+intand lda 0,u get node type
+ cmpa #NCON is it constant?
+ bne 6f
+ ldd 2,u get constant
+ bita #$ff is top half 0?
+ bne 3f
+ pshs b
+ jsr oclra output 'clra'
+ puls b get constant
+ clr ccok
+ cmpb #$ff worth doing?
+ beq 2f
+ jsr oandb output 'andb'
+ jsr giadr gen address
+ inc ccok
+2 jmp rsltd set result
+3 bitb #$ff low half 0?
+ bne 4f
+ pshs a
+ jsr oclrb output 'clrb'
+ puls a get constant
+ clr ccok
+ cmpa #$ff worth doing?
+ beq 2b
+ jsr oanda output 'anda'
+ inc ccok
+ bra 5f
+4 cmpb #$ff worth doing?
+ beq 45f
+ jsr oandb output 'andb'
+ ldd 2,u get constant
+ jsr conlo8 output constant - lo half
+45 ldd 2,u get constant
+ cmpa #$ff worth doing?
+ beq 55f
+ jsr oanda output 'anda'
+ clr ccok
+5 ldd 2,u get constant
+ jsr consh8 output constant
+55 jmp rsltd set result
+6 lda #1 set address flags
+ sta spctos
+ ldd #0 clear offset
+ std offval
+ jsr oanda output 'anda'
+ jsr giadro gen address
+ jsr oandb output 'andb'
+ ldd #1 set offset
+ std offval
+ jsr giadro
+ clr ccok
+ jmp rsltd set result
+lnand swi
+fpand swi
+
+* bor code generation
+
+bor ldu op1ptr get op1
+ jsr load do load
+ ldb enbtyp get basic type
+ ldu op2ptr get op2
+ ldy #bortab point to routines
+ jmp [b,y]
+
+bortab fdb chbor,intbor,lnbor,fpbor
+
+chbor jsr oorb output 'orb'
+ jsr giadr gen address
+ inc ccok
+ jmp rsltb set result
+intbor lda 0,u get entry type
+ cmpa #NCON is it constant?
+ bne 6f
+ ldd 2,u get constant
+ bita #$ff hi part 0?
+ bne 3f
+ jsr oorb output 'orb'
+ jsr giadr gen address
+ inc ccok
+ jmp rsltd set result
+3 bitb #$ff lo part 0?
+ bne 4f
+ jsr oora output 'ora'
+ inc ccok
+ bra 5f
+4 jsr oorb output 'orb'
+ ldd 2,u get constant
+ jsr conlo8 output lo 8 bits
+ jsr oora output 'ora'
+ clr ccok
+5 ldd 2,u get constant
+ jsr consh8 output hi 8 bits
+ jmp rsltd set result
+6 lda #1 set specail flag
+ sta spctos
+ ldd #0 0 offset
+ std offval
+ jsr oora output 'ora'
+ jsr giadro gen address
+ jsr oorb output 'orb'
+ ldd #1 set offset to 1
+ std offval
+ jsr giadro gen address
+ clr ccok
+ jmp rsltd set result
+lnbor swi
+fpbor swi
+
+* xor code generation
+
+xor ldu op1ptr get op1
+ jsr load do load
+ ldb enbtyp get basic type
+ ldu op2ptr get op2
+ ldy #xortab point to routines
+ jmp [b,y]
+
+xortab fdb chxor,intxor,lnxor,fpxor
+
+chxor jsr oeorb output 'eorb'
+ jsr giadr gen address
+ inc ccok
+ jmp rsltb set result
+intxor lda 0,u get entry type
+ cmpa #NCON is it constant?
+ bne 6f
+ ldd 2,u get constant
+ bita #$ff hi part 0?
+ bne 3f
+ jsr oeorb output 'eorb'
+ jsr giadr gen address
+ inc ccok
+ jmp rsltd set result
+3 bitb #$ff lo part 0?
+ bne 4f
+ jsr oeora output 'eora'
+ inc ccok
+ bra 5f
+4 jsr oeorb output 'eorb'
+ ldd 2,u get constant
+ jsr conlo8 output lo 8 bits
+ jsr oeora output 'eora'
+ clr ccok
+5 ldd 2,u get constant
+ jsr consh8 output hi 8 bits
+ jmp rsltd set result
+6 lda #1 set specail flag
+ sta spctos
+ ldd #0 0 offset
+ std offval
+ jsr oeora output 'eora'
+ jsr giadro gen address
+ jsr oeorb output 'eorb'
+ ldd #1 set offset to 1
+ std offval
+ jsr giadro gen address
+ clr ccok
+ jmp rsltd set result
+lnxor swi
+fpxor swi
+
+* test for reversed operands
+
+tstrev ldu op1ptr get op1
+ ldy op2ptr get op2
+ lda 0,u get locations
+ ldb 0,y
+ cmpa #NNODE is it node?
+ beq 2f
+ cmpb #NNODE
+1 rts return
+2 cmpb #NNODE
+ bne 1b
+ ldd 1,u get node numbers
+ cmpd 1,y
+ bhi 1b
+ sez
+ rts return
+
+* output constant in d - shifted 8 right
+
+consh8 pshs d save value
+ lda #'# output #
+ jsr outch
+ puls d get value
+ tfr a,b get top half
+ clra
+ jsr gnmsns output number
+ jmp pcrlf term line
+
+* output low half only
+
+conlo8 pshs d save value
+ lda #'# output #
+ jsr outch
+ puls d
+ clra get rid of top half
+ jsr gnmsns output number
+ jmp pcrlf term line
+

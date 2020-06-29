@@ -1,0 +1,3 @@
+intflt() {}
+intdbl() {}
+chrdbl() {}

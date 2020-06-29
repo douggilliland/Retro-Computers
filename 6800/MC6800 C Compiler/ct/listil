@@ -1,0 +1,930 @@
+ opt pag,nol
+ lib sysdef
+ ttl C intermediate lang. lister
+ opt lis
+ pag
+
+*
+* C intermediate language lister
+*
+
+ lib ../il.def
+
+
+*
+* decst
+*
+* Convert the number in D into an ascii string
+* representing a decimal number.  The string
+* is pointed at by X (X should be set on entry!)
+* Also on exit, D has the length of the string.
+* The second entry point, 'decstn' will not print
+* leading spaces for leading zeroes, but will
+* suppress all leading zero info.  All strings
+* start with a space.
+*
+
+decst pshs x save user pointer
+ clr 0,-s set suppression flag
+ bra decst2
+*
+decstn pshs x save user pointer
+ clr 0,-s
+ inc 0,s set for no fielding
+decst2 pshs a
+* lda #$20 setup leading space
+* sta 0,x+ save in buffer
+ puls a
+ clr 0,-s set up bookkeeping
+ clr 0,-s
+ ldy #conlst point to constants
+decst4 cmpd 0,y compare number to constant
+ blo decst5
+ subd 0,y do subtraction of constant
+ inc 1,s bump digits counter
+ bra decst4
+decst5 pshs a save number
+ tst 2,s zero digit?
+ bne decst6
+ tst 1,s any numbers output yet?
+ bne decst6
+ tst 3,s doing suppression?
+ bne decst8
+ lda #$20 set up space
+ bra decst7
+decst6 lda 2,s get digit count
+ inc 1,s set 'got one' flag
+ ora #$30 make ascii
+decst7 sta 0,x+ save in buffer
+decst8 puls a reset number
+ clr 1,s clear out digit
+ leay 2,y bump constant ptr
+ cmpy #conend end of list?
+ bne decst4
+ leas 3,s clean up stack
+ orb #$30 make last digit
+ stb 0,x+ save in buffer
+ clr 0,x null terminate string
+ tfr x,d
+ subd 0,s calculate string length
+ puls x,pc return
+
+* constants for convert
+
+conlst fdb 10000
+ fdb 1000
+ fdb 100
+ fdb 10
+conend equ * end of list
+
+ pag
+
+* inch
+
+inch pshs b,x
+ ldx inchp get in pointer
+inch1 cmpx inche end of buffer?
+ bne inch4
+ ldd infd get file desc
+ sys read,inchb,512
+ bes inch8
+ cmpd #0 eof?
+ beq inch6
+ ldx #inchb reset ptrs
+ stx inchp
+ leax d,x set buffer end
+ stx inche
+ ldx inchp
+inch4 lda 0,x+ get character
+ stx inchp
+ sez set status
+ puls b,x,pc return
+inch6 inc eof set eof
+ puls b,x,pc return
+inch8 tfr b,a get error
+ puls b,x,pc return
+
+* outch
+
+outch pshs d,x
+ ldx outchp
+ cmpx #outchb+512 end of buffer
+ bne outch4
+ ldd outfd get file desc
+ sys write,outchb,512
+ ldx #outchb reset ptr
+outch4 lda 0,s get char
+ sta 0,x+ place in buffer
+ stx outchp save ptr
+ puls d,x,pc return
+
+* flush output
+
+flusho ldd outchp get count
+ subd #outchb
+ beq flush2
+ std iwrt2 save count in call
+ ldd outfd get file desc
+ sys ind,iwrt
+flush2 rts return
+
+* init io stuff
+
+ioinit ldx #inchb set ptrs
+ stx inchp
+ stx inche
+ ldx #outchb
+ stx outchp
+ ldd #0
+ std infd set file desc
+ ldd #1
+ std outfd set output file desc
+ clr eof
+ rts return
+
+* start here
+
+ill bsr ioinit init io
+* main loop here
+
+loop jsr inch get a character
+ tst eof end of file
+ beq ill2
+ jsr flusho fluch output
+ ldd #0 set status
+ sys term exit
+ill2 tsta check op type
+ lbpl xop expression op?
+ clr matlev
+ clr matlev+1
+ cmpa #161
+ bls ill3
+ jsr flusho
+ ldu #$0001
+ swi
+ill3 suba #128 remove bias
+ asla times 2
+ ldx #mopt point to table
+ jsr [a,x] goto routine
+ bra loop
+
+
+* mop table
+
+mopt fdb enditm
+ fdb begexp
+ fdb endexp
+ fdb nname
+ fdb ncon
+ fdb nnode
+ fdb label
+ fdb branch
+ fdb cbrnch
+ fdb begfnt
+ fdb endfnt
+ fdb swit
+ fdb stvar
+ fdb autvar
+ fdb regvar
+ fdb prfil
+ fdb text
+ fdb data
+ fdb bss
+ fdb sspace
+ fdb bytes
+ fdb words
+ fdb dname
+ fdb exters
+ fdb comdat
+ fdb cmnt
+ fdb strng
+ fdb begblk
+ fdb endblk
+ fdb begmod
+ fdb endmod
+ fdb clnstk
+ fdb global
+ fdb labels
+
+enditm
+endexp
+nname
+ncon
+nnode
+prfil
+exters
+comdat
+clnstk
+ rts
+
+
+* begin expression
+
+begexp ldx #m1 point to string
+ jsr ostr
+ jsr gonum output number
+ jsr pcrlf output cr
+ rts return
+
+* begin function
+
+begfnt ldx #m2
+ jsr ostr output message
+ jsr gostr print name
+ jsr pcrlf
+ rts
+
+* end function
+
+endfnt ldx #m3 output string
+ jsr ostr
+ jmp pcrlf return
+
+* branch
+
+branch ldx #m4
+ jsr ostr
+ jsr gonum output label number
+ jmp pcrlf
+
+* cbrnch
+
+cbrnch ldx #m15 point to string
+ jsr ostr output it
+ jsr inch get condition
+ tfr a,b
+ clra
+ jsr gonum2 output cond
+ lda #'L output L
+ jsr outch
+ jsr gonum
+ jmp pcrlf
+
+* label
+
+label ldx #m5 point to string
+ jsr ostr
+ jsr gonum
+ jmp pcrlf
+
+* pass comment
+
+cmnt lda #'* output comment char
+ jsr outch
+ lda #$20 output space
+ jsr outch
+ jsr inch get char
+ cmpa #$d
+ bne cmnt4
+cmnt2 jsr inch get char
+cmnt4 tsta is it null
+ beq cmnt6
+ jsr outch output it
+ cmpa #$d was it NL?
+ bne cmnt2
+ jsr inch get next char
+ tsta
+ beq cmnt6
+ pshs a save char
+ lda #'* output header
+ jsr outch
+ lda #$20
+ jsr outch
+ puls a
+ bra cmnt4
+cmnt6 rts return
+
+* output string
+
+strng ldx #m16 point to string
+ jsr ostr output it
+ jsr gonum get & print number
+ lda #$20 output space
+ jsr outch
+ lda #'" output "
+ jsr outch
+ jsr gostr output string
+ ldx #m17 output term string
+ jmp ostr
+
+* output switch code
+
+swit ldx #m6 output message
+ jsr ostr
+ jsr gonum output line number
+ lda #$20 output space
+ jsr outch
+ jsr gonum output default label
+swit2 jsr pcrlf output cr
+ jsr inch get next value
+ pshs d
+ jsr inch
+ sta 1,s
+ ldd 0,s++ get value
+ beq swit4 end of list?
+ pshs d save label
+ ldx #m7 point to string
+ jsr ostr output it
+ puls d
+ jsr gonum2 output number
+ lda #', output comma
+ jsr outch
+ jsr gonum output value
+ bra swit2 repeat
+swit4 rts return
+
+* output begin block
+
+begblk ldx #m18 output string
+ jsr ostr
+ jsr gonum
+ jmp pcrlf
+
+* output end block
+
+endblk ldx #m19 output string
+ jsr ostr
+ jsr gonum
+ jsr gonum
+ jsr inch get flag
+ tfr a,b
+ clra
+ jsr gonum2
+ jmp pcrlf
+
+* end module
+
+endmod ldx #m21
+ jmp ostr
+
+* begin module
+
+begmod ldx #m20 output string
+ jsr ostr
+ jsr gostr print name
+ jmp pcrlf
+
+* global
+
+global ldx #m25 print string
+ jsr ostr
+ jsr gostr print name
+ jmp pcrlf
+
+* text
+
+text ldx #m22
+ jmp ostr
+
+* data
+
+data ldx #m23
+ jmp ostr
+
+* bss
+
+bss ldx #m24
+ jmp ostr
+
+* stvar
+
+stvar ldx #m26 output string
+stvar2 jsr ostr
+ jsr gonum output number
+ jsr gostr output name
+ jmp pcrlf
+
+* autvar
+
+autvar ldx #m27 output string
+ bra stvar2
+
+* regvar
+
+regvar ldx #m28 output string
+ bra stvar2
+
+* sspace
+
+sspace ldx #m29 output string
+ jsr ostr
+ jsr gonum output size
+ jmp pcrlf
+
+* dname
+
+dname ldx #m30 output string
+ jsr ostr
+ jsr gostr output name
+ jmp pcrlf
+
+* bytes
+
+bytes ldx #m31 output string
+ jsr ostr
+ jsr inch get count
+ pshs a save count
+bytes2 lda #$20 output space
+ jsr outch
+ jsr inch get byte
+ tfr a,b
+ clra
+ jsr gonum2 output number
+ dec 0,s dec count
+ bne bytes2
+ puls a
+ jmp pcrlf
+
+* words
+
+words ldx #m32 output string
+ jsr ostr
+wl jsr inch get count
+ pshs a
+words2 lda #$20 output space
+ jsr outch
+ jsr gonum get number
+ dec 0,s
+ bne words2
+ puls a
+ jmp pcrlf
+
+* labels
+
+labels ldx #m33 output string
+ jsr ostr
+ jsr inch get count
+ pshs a save it
+label2 lda #$20 output space
+ jsr outch
+ jsr inch get type
+ cmpa #0 is it label
+ beq labt0
+ cmpa #1 is it constant?
+ beq labt1
+labt2 jsr gonum output number
+ lda #'+ output plus
+ jsr outch
+ jsr gostr output name
+ bra label4
+labt1 jsr gonum output number
+ bra label4
+labt0 jsr gonum get offset
+ lda #'+ output plus
+ jsr outch
+ lda #'L output label number
+ jsr outch
+ jsr gonum
+label4 dec 0,s dec the count
+ bne label2
+ puls a
+ jmp pcrlf
+
+* get and print number
+
+gonum jsr inch get number
+ pshs d
+ jsr inch
+ sta 1,s
+ puls d get in d
+ tsta is it neg?
+ bpl gonum2
+ pshs d
+ lda #'- output minus
+ jsr outch
+ puls d
+ coma
+ comb
+ addd #1
+gonum2 ldx #nbuf point to buffer
+ jsr decstn convert number
+ pshs b save count
+ ldx #nbuf point to buffer
+gonum4 lda 0,x+ get char
+ jsr outch
+ dec 0,s dec count
+ bne gonum4
+ lda #$20 output space
+ jsr outch
+ puls b,pc
+
+gostr jsr inch get char
+gostr1 tsta end of string?
+ beq gostr2
+ jsr outch
+ bra gostr
+gostr2 rts return
+
+* print cr 
+
+pcrlf lda #$d set up cr
+ jmp outch
+
+* output string
+
+ostr lda 0,x+ get char
+ beq ostr4
+ jsr outch
+ bra ostr
+ostr4 rts
+
+* xop
+
+xop
+ cmpa #5 check bounds
+ blo xoperr
+ cmpa #105
+ bls xop2
+xoperr jsr flusho
+ ldu #$0002
+ swi error!
+xop2 cmpa #40
+ lblo uop
+ cmpa #90
+ lblo bop
+ lbra sop
+
+* process unary operator
+
+uop jsr mlev do level info
+ jsr otyp
+ jsr oop output op
+ jsr pcrlf
+ lbra loop
+
+* binary op
+
+bop jsr mlev do level
+ jsr otyp output type
+ jsr oop output op1
+ ldx #m13
+ jsr ostr
+ jsr oop output op2
+ jsr pcrlf
+ lbra loop
+
+* no operator
+
+nop jsr mlev
+ jsr otyp
+ jsr pcrlf
+ jmp loop
+
+* special op
+
+sop cmpa #94
+ lblo uop
+ lbeq nop
+ cmpa #96
+ lblo uop
+ lbeq nop
+ cmpa #98
+ lbls uop
+ cmpa #99
+ lbls bop
+ cmpa #103
+ lbeq nop
+ cmpa #104
+ lbeq nop
+ lbra uop
+
+* mlev
+
+mlev pshs a save op
+ ldd matlev get level
+ addd #1 bump it
+ std matlev
+ ldx #m8
+ jsr ostr
+ ldd matlev get level
+ jsr gonum2 output it
+ ldx #m12
+ jsr ostr
+ puls b get op
+ decb adjust for index
+ lda #3
+ mul
+ ldx #oprtb point to table
+ leax d,x point to string
+ lda #'"
+ jsr outch
+ ldb #3 set count
+mlev4 lda 0,x+ get char
+ jsr outch
+ decb
+ bne mlev4
+ ldx #m14
+ jmp ostr
+
+* otype
+
+otype jmp gonum
+
+* output operand
+
+oop jsr inch get op
+ cmpa #NNODE
+ beq onode
+ cmpa #NNAME
+ beq oname
+ cmpa #NCON
+ beq ocon
+ jsr flusho
+ ldu #$0003
+ swi
+
+* output node
+
+onode ldx #m9
+ jsr ostr output message
+ jmp gonum output node number
+
+* output name
+
+oname ldx #m10 output message
+ jsr ostr output string
+ jsr inch get class
+ tfr a,b make 16 bits
+ clra
+ pshs b save class
+ jsr ocls output class
+ jsr otyp output type
+ puls b get class
+ cmpb #4 is it EXT?
+ beq onam4
+ jmp gonum output storage number
+onam4 jmp gostr output name
+
+* output constant
+
+ocon ldx #m11 output message
+ jsr ostr
+ jsr inch get type byte
+ tfr a,b
+ clra make 16 bits
+ pshs b save type
+ jsr octyp print it
+ jsr gonum output value
+ ldb 0,s get type
+ cmpb #4
+ bls ocon3
+ jsr gonum
+ ldb 0,s
+ cmpb #7 is it double?
+ bne ocon3
+ jsr gonum
+ jsr gonum
+ocon3 puls b,pc return
+
+* output class
+
+ocls aslb
+ aslb
+ ldx #cltab point to class strings
+ leax b,x
+ jsr ostr print it
+ lda #' 
+ jmp outch output space
+
+* output type
+
+octyp pshs d save type
+ bra otyp1
+otyp jsr inch get type
+ pshs d
+ jsr inch
+ sta 1,s
+otyp1 ldb #4
+ pshs b set count
+ ldd 1,s get type
+otyp2 lsra
+ rorb
+ dec 0,s
+ bne otyp2
+ leas 1,s fix stack
+otyp3 pshs d save type
+ andb #$3 get type
+ beq otyp4
+ ldx #tptab2 point to table
+ decb
+ aslb
+ leax b,x
+ jsr ostr print type
+ puls d
+ lsra
+ rorb get next type
+ lsra
+ rorb
+ bra otyp3
+otyp4 puls d fix stack
+ lda #'- output -
+ jsr outch
+ puls d get type
+ andb #$f
+ aslb
+ aslb
+ ldx #tptab1
+ leax b,x get type string
+ jsr ostr output it
+ lda #' 
+ jmp outch
+
+
+* operator table
+
+oprtb
+ fcc 'xxx' 1
+ fcc 'xxx' 2
+ fcc 'xxx' 3
+ fcc 'xxx' 4
+ fcc 'CVC' 5
+ fcc 'CVI' 6
+ fcc 'CVU' 7
+ fcc 'CVL' 8
+ fcc 'CVF' 9
+ fcc 'CVP' 10
+ fcc 'xxx' 11
+ fcc 'xxx' 12
+ fcc 'xxx' 13
+ fcc 'xxx' 14
+ fcc 'xxx' 15
+ fcc 'xxx' 16
+ fcc 'xxx' 17
+ fcc 'xxx' 18
+ fcc 'xxx' 19
+ fcc 'xxx' 20
+ fcc 'xxx' 21
+ fcc 'xxx' 22
+ fcc 'xxx' 23
+ fcc 'xxx' 24
+ fcc 'xxx' 25
+ fcc 'xxx' 26
+ fcc 'xxx' 27
+ fcc 'xxx' 28
+ fcc 'xxx' 29
+ fcc '++O' 30
+ fcc '--O' 31
+ fcc 'O++' 32
+ fcc 'O--' 33
+ fcc ' ! ' 34
+ fcc ' &O' 35
+ fcc ' *O' 36
+ fcc ' -O' 37
+ fcc ' ~O' 38
+ fcc 'xxx' 39
+ fcc ' + ' 40
+ fcc ' - ' 41
+ fcc ' * ' 42
+ fcc ' / ' 43
+ fcc ' % ' 44
+ fcc ' >>' 45
+ fcc ' <<' 46
+ fcc ' & ' 47
+ fcc ' | ' 48
+ fcc ' ^ ' 49
+ fcc 'xxx' 50
+ fcc 'xxx' 51
+ fcc 'xxx' 52
+ fcc ' &&' 53
+ fcc ' ||' 54
+ fcc 'xxx' 55
+ fcc 'xxx' 56
+ fcc 'xxx' 57
+ fcc 'xxx' 58
+ fcc 'xxx' 59
+ fcc ' ==' 60
+ fcc ' !=' 61
+ fcc ' <=' 62
+ fcc ' < ' 63
+ fcc ' >=' 64
+ fcc ' > ' 65
+ fcc 'xxx' 66
+ fcc 'xxx' 67
+ fcc 'xxx' 68
+ fcc 'xxx' 69
+ fcc ' +=' 70
+ fcc ' -=' 71
+ fcc ' *=' 72
+ fcc ' /=' 73
+ fcc ' %=' 74
+ fcc '>>=' 75
+ fcc '<<=' 76
+ fcc ' &=' 77
+ fcc ' |=' 78
+ fcc ' ^=' 79
+ fcc ' = ' 80
+ fcc 'xxx' 81
+ fcc 'xxx' 82
+ fcc 'xxx' 83
+ fcc 'xxx' 84
+ fcc 'xxx' 85
+ fcc 'xxx' 86
+ fcc 'xxx' 87
+ fcc 'xxx' 88
+ fcc 'xxx' 89
+ fcc 'CXB' 90
+ fcc 'CBR' 91
+ fcc 'CEN' 92
+ fcc 'ORB' 93
+ fcc 'ORE' 94
+ fcc 'ANB' 95
+ fcc 'ANE' 96
+ fcc 'ORC' 97
+ fcc 'ANC' 98
+ fcc ' . ' 99
+ fcc 'CAL' 100
+ fcc 'PSH' 101
+ fcc 'LOD' 102
+ fcc 'SPL' 103
+ fcc 'SPR' 104
+ fcc 'CMA' 105
+
+
+* storage
+
+m1 fcc '* Begin expression - ',0
+m2 fcc ' Start function ',0
+m3 fcc ' End function',0
+m4 fcc ' Branch L',0
+m5 fcc 'L',0
+m6 fcc ' Switch ',0
+m7 fcc '  ',0
+m8 fcc '    ( ',0
+m9 fcc 'Node ',0
+m10 fcc 'Var ',0
+m11 fcc 'Con ',0
+m12 fcc ')  ',0
+m13 fcc ' - ',0
+m14 fcc '" ',0
+m15 fcc ' Cbranch ',0
+m16 fcc ' String ',0
+m17 fcc '"',$d,0
+m18 fcc ' Enter block ',0
+m19 fcc ' End block ',0
+m20 fcc ' Begin module - ',0
+m21 fcc ' End module',$d,0
+m22 fcc ' Text',$d,0
+m23 fcc ' Data',$d,0
+m24 fcc ' Bss',$d,0
+m25 fcc ' Global ',0
+m26 fcc ' Static ',0
+m27 fcc ' Auto ',0
+m28 fcc ' Register ',0
+m29 fcc ' Variable space ',0
+m30 fcc ' Data name ',0
+m31 fcc ' Byte data -',0
+m32 fcc ' Word data -',0
+m33 fcc ' Label data -',0
+
+* type tables
+
+cltab fcc 'xxx',0
+ fcc 'aut',0
+ fcc 'stc',0
+ fcc 'reg',0
+ fcc 'ext',0
+ fcc 'typ',0
+ fcc 'stt',0
+ fcc 'unt',0
+ fcc 'mos',0
+ fcc 'mou',0
+
+tptab1 fcc 'xxx',0
+ fcc 'chr',0
+ fcc 'int',0
+ fcc 'shr',0
+ fcc 'uns',0
+ fcc 'lng',0
+ fcc 'flt',0
+ fcc 'dbl',0
+ fcc 'xxx',0
+ fcc 'xxx',0
+ fcc 'xxx',0
+ fcc 'xxx',0
+ fcc 'str',0
+ fcc 'unn',0
+ fcc 'con',0
+
+tptab2 fcc 'p',0
+ fcc 'f',0
+ fcc 'a',0
+
+iwrt fcb write
+ fdb outchb
+iwrt2 fdb 0
+
+eof fcb 0
+infd fdb 0
+outfd fdb 0
+inchp fdb 0
+inche fdb 0
+outchp fdb 0
+matlev fdb 0
+nbuf fdb 0,0,0,0,0
+
+ org $1000
+
+inchb rmb 512
+outchb rmb 512
+
+ end ill

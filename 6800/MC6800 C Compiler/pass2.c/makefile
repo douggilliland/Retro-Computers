@@ -1,0 +1,51 @@
+pass2.h::&.c; touch &.c
+pass2
+p2-basic
+p2-exp
+p2-aref
+p2-gen
+p2-gen0
+p2-gen1
+p2-gen2
+p2-gen3
+p2-gen4
+p2-gen5
+%
+il.h::&.c; touch &.c
+pass2
+p2-basic
+p2-exp
+p2-aref
+p2-gen
+p2-gen0
+p2-gen1
+p2-gen2
+p2-gen3
+p2-gen4
+p2-gen5
+%
+&.c::&.r; cc &.c +r
+pass2
+p2-basic
+p2-exp
+p2-aref
+p2-gen
+p2-gen0
+p2-gen1
+p2-gen2
+p2-gen3
+p2-gen4
+p2-gen5
+%
+&.r::p2; cc *.r +o=p2
+pass2
+p2-basic
+p2-exp
+p2-aref
+p2-gen
+p2-gen0
+p2-gen1
+p2-gen2
+p2-gen3
+p2-gen4
+p2-gen5

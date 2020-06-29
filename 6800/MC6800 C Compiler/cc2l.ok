@@ -1,0 +1,715 @@
+ opt lis
+
+* pointer code gen routines
+
+* load pointer if necessary
+
+ptld ldb #0 set pointer
+ bra 2f
+arld ldb #1 set array
+2 pshs b save ref
+ ldb 0,u get node type
+ cmpb #NNODE is it node?
+ bne 4f
+ ldb 2,u get node number
+ jsr fndnod find the node
+ ldd rslt,y get result location
+ cmpd #BOS on stack
+ bls 3f
+ std curadr save current addr reg
+ puls b,pc return
+3 pshs d save result
+ jsr gtareg get address reg
+ puls d
+ pshs x save code pointer
+ ldx #arftbl point to routines
+ decb
+ ldb b,x get reference code
+ puls x
+ stb ar_ref,y set ref code
+ bne 7f
+ swi
+4 jsr gtareg get addr reg
+ lda 0,u get node type
+ cmpa #NNAME is it name?
+ beq 5f
+ lda #CREF must be constant
+ sta ar_ref,y set reference
+ ldd 2,u get constant
+ std ar_nam,y
+ ldb #1 set adr mode
+ stb 0,s
+ dec ar_ind,y dec ind count ???
+ bra 7f
+5 lda 3,u get type
+ anda #$f0
+ cmpa #$50 is it ptr - ptr?
+ bne 52f
+ inc ar_ind,y bump ind count
+52 lda 1,u check name type
+ cmpa #AUTO
+ bne 53f
+ lda #YREF set y ref
+ sta ar_ref,y
+ ldd 4,u get offset
+ std ar_nam,y
+ bra 7f
+53 cmpa #STAT is it static?
+ bne 55f
+ lda #LREF set label ref
+ sta ar_ref,y
+ ldd 4,u get label number
+ std ar_nam,y
+ bra 7f
+55 cmpa #EXTN is it external?
+ bne 58f
+ lda #NREF set name ref
+ sta ar_ref,y
+ pshs x,y
+ leau 4,u point to name
+ leax ar_nam,y
+ ldb #8 set count
+56 lda 0,u+ get char
+ sta 0,x+
+ beq 57f
+ decb dec count
+ bne 56b
+57 puls u,x
+ bra 7f
+58 cmpa #REG is it register?
+ beq 6f
+* cmpa #MOS member of struxture?
+* blo 59f
+* cmpa #MOU
+* bhi 59f
+* lda #CREF set constant
+* sta ar_ref,y set ref as constant
+* ldd 4,u get constant
+* std ar_nam,y
+* bra 7f
+59 swi comp error!
+6 lda #UREF set u ref
+ sta ar_ref,y
+ dec ar_ind,y dec ind level
+7 puls b
+ stb ar_adr,y set address or value
+ ldx codptr get code pointer
+ stx ar_con,y set contents
+ sty curadr set current adr
+ rts return
+
+arftbl fcb NOREF,NOREF,XREF,UREF,NOREF,NOREF,TREF,SREF
+
+* get a new address register
+
+gtareg ldy #adregs point to list
+2 tst ar_ref,y this one busy?
+ beq 4f
+ leay ADRSIZ,y skip entry
+ cmpy #adregs+ADRSIZ*NUMADR end of list?
+ bne 2b
+ swi comp error!
+4 pshs y save reg
+ ldb #ADRSIZ set count
+5 clr 0,y+ zero entry
+ decb
+ bne 5b
+ puls y,pc return
+
+* reduce address register in y
+
+redarg ldb ar_ref,y get reference
+ cmpb #UREF is it x or u?
+ bne 05f
+ tst uflag
+ bne 1f
+ tst ar_ind,y chek indirection
+ blt 1f
+ bra 2f
+05 cmpb #XREF
+ bne 2f
+ tst uflag doing u?
+ bne 26f
+1 tst ar_ind,y indirect?
+ bgt 2f
+ tst ar_ofr,y reg offset?
+ bne 2f
+ ldd ar_off,y offset?
+ bne 2f
+ tst frcind
+ bne 2f
+ rts return
+2 tst uflag
+ bne 26f
+ ldd xcont check x
+ beq 25f
+ tst frcind indirection?
+ bne 25f
+ tst ar_ind,y check ind level
+ bgt 25f
+ pshs y save ar
+ cmpd 0,s++ same as x?
+ bne 25f
+ rts return
+25 jsr chkxb check for x busy
+26 lda ar_ind,y check for ind
+ cmpa #2
+ blt 3f
+ tst uflag doing u?
+ beq 27f
+ jsr oldu output 'ldu'
+ bra 28f
+27 jsr oldx output 'ldx'
+28 inc ccok set cc
+ dec ar_ind,y dec ind count
+ jsr gaadr generate address
+ clr frcind
+ jmp 8f
+3 lda ar_ref,y get reference
+ cmpa #SREF on stack?
+ lbeq 95f
+ cmpa #TREF
+ lbeq 97f
+ cmpa #UREF u reg?
+ beq 31f
+ cmpa #XREF
+ bne 32f
+31 tst uflag doing u?
+ bne 35f
+32 tst ar_adr,y check for value or address
+ beq 6f
+ clr ar_adr,y
+ tst frcind forcing indirection?
+ bne 65f
+* beq 35f
+* tst ar_ofr,y check for reg offset
+* beq 65f
+35 cmpa #UREF register ref?
+ bhi 4f
+ tst uflag doing u?
+ beq 36f
+ jsr oleau ouput 'leau'
+ clr ccok
+ bra 37f
+36 jsr oleax output 'leax'
+ inc ccok set cc ok
+37 lda ar_ind,y save ind count
+ pshs a
+ clr ar_ind,y
+ jsr gaadr gen address
+ puls a
+ sta ar_ind,y reset ind
+ bra 8f
+4 tst uflag doing u?
+ beq 42f
+ jsr oldu output 'ldu'
+ bra 43f
+42 jsr oldx output 'ldx'
+43 inc ccok
+ lda #'# output '#'
+ jsr outch
+ lda ar_ind,y save ind count
+ pshs a
+ clr ar_ind,y
+ jsr gaadr gen address
+ puls a reset ind
+ sta ar_ind,y
+ bra 8f
+6 tst frcind forced indirection?
+ bne 65f
+ tst ar_ind,y check ind
+ bgt 65f
+ cmpa #XREF in x already?
+ beq 8f
+65 tst uflag doing u?
+ beq 66f
+ jsr oldu output 'ldu'
+ bra 67f
+66 jsr oldx output 'ldx'
+67 inc ccok set cc ok
+* ldd entype
+* andb #$f0
+* cmpb #$50 ptr-ptr ????????????
+* beq 7f
+ dec ar_ind,y dec ind count
+7 jsr gaadr gen address
+ clr frcind
+8 tst frcind did we do ind?
+ lbne redarg
+ ldd codptr reset contents
+ std ar_con,y
+ tst uflag doing u?
+ beq 85f
+ lda #UREF set u ref
+ bra 86f
+85 sty xcont
+ lda #XREF set new reference
+86 sta ar_ref,y
+ rts return
+95 jsr opulsx output 'puls x'
+ clr ccok
+ ldd stksiz fix stak
+ subd #2
+ std stksiz
+ bra 98f
+97 jsr oldx0s output 'ldx 0,s'
+ inc ccok set cc ok
+98 dec stklev fix stack info
+ tst ar_ind,y ind set?
+ beq 8b
+ dec ar_ind,y adjust for pull
+ bra 8b
+
+* gen code to push x reg
+
+xpsh ldy curadr get ar
+ lda ar_ref,y check reference
+ cmpa #UREF is it u reg?
+ beq upsh
+ ldd #0 clear x busy
+ std xcont
+ tst stklev base of stack?
+ bne 2f
+ jsr ostx0s output 'stx 0,s'
+ inc stklev
+ rts return
+2 jsr opshx output 'pshs x'
+ inc stklev
+ ldd stksiz set stack size
+ addd #2
+ std stksiz
+ rts return
+upsh tst stklev check stack
+ bne 4f
+ jsr ostu0s output 'stu 0,s'
+ inc stklev
+ rts return
+4 jsr opshu output 'pshs u'
+ inc stklev
+ ldd stksiz fix stack size
+ addd #2
+ std stksiz
+ rts return
+
+* generate address code from address reg
+
+gaadr ldd #0 zero offsets
+ std offval
+ sta spctos
+ lda enbtyp check for pointer
+ cmpa #8
+ bne 2f
+ tst ar_ind,y ind count?
+ ble 2f
+ ldd ar_off,y get offset
+ pshs d
+ lda ar_ofr,y get reg offset
+ pshs a
+ ldd #0 zero offsets
+ std ar_off,y
+ sta ar_ofr,y
+ bsr doref do reference
+ puls a reset offsets
+ sta ar_ofr,y
+ puls d
+ std ar_off,y reset offset
+ rts
+2 bsr doref do ref
+ rts return
+
+* do refenced address generation
+
+doref tst ar_ind,y indirect?
+ ble 2f
+ jsr olsb output [
+2 bsr sndref do address gen
+ tst ar_ind,y indirect?
+ ble 4f
+ jsr orsb output ]
+ dec ar_ind,y dev ind count
+4 ldd ar_off,y check offset = 0?
+ bne 5f
+ lda ar_ref,y get reference
+ cmpa #XREF x ref?
+ bne 5f
+ clr ar_ofr,y clear reg offset
+ bra 6f
+5 ldd #0
+ std ar_off,y set offset to 0
+6 jmp pcrlf term line & return
+
+* generate ar address for giadr routine
+
+garadr sty curadr set current ar
+ lda ar_ref,y check reference
+ cmpa #XREF in x?
+ bne 1f
+ tst ar_ind,y check ind count
+ ble 2f
+ dec ar_ind,y
+1 tst ar_ind,y indirect?
+ ble 2f
+ jsr olsb output [
+2 jsr sndref do adr gen
+3 tst ar_ind,y indirect?
+ ble 4f
+ jsr orsb output ]
+4 jsr pcrlf output new line
+ ldd ar_inc,y check auto
+ beq 45f
+ ldd #0
+ std ar_inc,y zero inc
+ lda ar_ref,y get reference
+ cmpa #XREF x reg?
+ bne 45f
+ jsr stxaut do store x
+45 tst nofree free ar?
+ bne 6f
+ lda ar_ref,y check ref
+ cmpa #XREF is it x?
+ bne 5f
+ ldd #0
+ std xcont free x
+5 clr ar_ref,y free ar
+ ldd #0
+6 rts return
+
+
+* select and do reference
+
+sndref ldb ar_ref,y get ref type
+ bne 2f
+ swi comp error!
+2 ldx #gaatbl point to routines
+ decb
+ aslb
+ jmp [b,x]
+
+gaatbl fdb yref,xref,uref,tref,nref,lref,sref,cref
+
+* y reference
+
+yref ldd ar_nam,y get offset
+ addd ar_off,y
+ addd offval
+3 jsr gnmsns output offset
+ ldx #m36 point to string
+ jmp ostr output ',y'
+
+* x reference
+
+xref ldb #'x set for x
+ bra xuref
+
+* u reference
+
+uref ldb #'u set for u
+
+xuref pshs b save ref
+ ldd ar_off,y get offset
+ addd offval
+ bne 25f
+ ldb ar_ofr,y reg offset?
+ bne 21f
+ swi
+21
+ beq 25f
+ lda #'d set d reg
+ cmpb #2
+ beq 22f
+ lda #'b set b reg
+22 jsr outch
+ ldd #0
+ std dcont free d reg
+ sta ar_ofr,y
+ bra 27f
+25 jsr gnmsns output offset
+27 lda #', output comma
+ jsr outch
+ ldd ar_inc,y auto dec?
+ bge 3f
+ lda #'- output '-'
+ jsr outch
+ ldd ar_inc,y
+ cmpd #-1
+ beq 3f
+ lda #'-
+ jsr outch output 2nd '-'
+3 puls a get x or u
+4 jsr outch
+ ldd ar_inc,y check for auto inc?
+ ble 5f
+ lda #'+ output '+'
+ jsr outch
+ ldd ar_inc,y
+ cmpd #1
+ beq 5f
+ lda #'+
+ jsr outch
+5 rts return
+
+* stack references
+
+tref ldx #m59 output '0,s'
+ jsr ostr
+ dec stklev
+ rts
+sref jsr o0cspp output '0,s++'
+ dec stklev fix stack
+ ldd stksiz
+ subd #2
+ std stksiz
+ rts
+
+* namr reference
+
+nref pshs y save pointer
+ leay ar_nam,y point to name
+ jsr gxtnam output name
+ ldy 0,s reset y
+ jsr ptroff do offset
+ puls y,pc
+
+* label reference
+
+lref lda #'L output 'L'
+ jsr outch
+ ldd ar_nam,y get number
+ pshs y
+ jsr gnmnos output it
+ puls y
+ jmp ptroff do offset
+
+* constant reference
+
+cref ldd ar_nam,y get value
+ addd ar_off,y add in offset
+ addd offval
+ pshs y save y
+ jsr gnmsns output value
+ puls y,pc return
+
+* check for constant add
+
+adroff
+adcoff pshs u,y save regs
+ lda oprtor get operator
+ cmpa #DOT is it dot op?
+ beq 1f
+ lda enbtyp check type
+ cmpa #8 is it pointer?
+ bne 8f
+1 tst ar_ind,y ind count?
+ bgt 3f
+ cmpa #DOT dot operator?
+ beq 8f
+ pshs x,y,u
+ ldu op1ptr get op1
+ ldy codptr point to this entry
+ jsr gettyp get its type
+ lda oprtr,y get operator
+ puls x,y,u
+ cmpa #IND is it ind op?
+ bne 4f
+3 inc frcind set force indirection flag
+ jsr cmplar reduce ar
+ clr frcind
+ bra 8f
+4 lda ar_ref,y cjeck ref
+ cmpa #XREF x or u?
+ beq 8f
+ cmpa #UREF
+ beq 8f
+ jsr cmplar reduce ar
+8 puls u,y,pc return
+
+* force ar completion
+
+fcmpar
+
+* complete address reg code
+
+cmplar jsr redarg reduce ar
+ jsr redcof reduce constants
+ jsr reddof reduce d reg offsets
+ rts return
+
+* reduce d register offsets
+
+reddof lda ar_ofr,y any d offset?
+ bne 1f
+ rts return
+1 ldb ar_ref,y get reference
+ cmpb #UREF is it u?
+ beq 5f
+ cmpa #2 D register?
+ beq 3f
+ jsr oleaxb output 'leax b,x'
+ bra 4f
+3 jsr oleaxd output 'leax d,x'
+4 jsr ocmx output ',x'
+ inc ccok
+45 clr ar_ofr,y
+ ldd #0 free d reg
+ std dcont
+ rts return
+5 cmpa #2 is it d reg?
+ beq 6f
+ jsr oleaub output 'leau b'
+ bra 7f
+6 jsr oleaud output 'leau d'
+7 jsr ocmu output ',u'
+ clr ccok
+ bra 45b
+
+* reduce constant offsets
+
+redcof ldd ar_off,y any ofset?
+ bne 1f
+ rts return
+1 lda ar_ref,y check for u
+ cmpa #UREF
+ beq 5f
+ jsr oleax output 'leax'
+ ldd ar_off,y get offset
+ jsr gnmsns output offset
+ jsr ocmx output ',x'
+ inc ccok
+3 ldd #0 clear offset
+ std ar_off,y
+ rts return
+5 jsr oleau output 'leau'
+ ldd ar_off,y get offset
+ jsr gnmsns output it
+ jsr ocmu output ',u'
+ clr ccok
+ bra 3b
+
+* output pointer offset
+
+ptroff ldd ar_off,y get offset
+ addd offval
+ beq 2f any there?
+ pshs y
+ jsr plusv output '+value'
+ puls y
+ ldd #0 zero offset
+ std ar_off,y
+2 rts return
+
+* check d in address register
+
+chkdar cmpy #adregs in range of ar?
+ blo 4f
+ cmpy #adregs+ADRSIZ*NUMADR
+ bhs 4f
+ pshs y
+ tst nofree freeing ar when done?
+ bne 2f
+ ldb 0,u get node type
+ cmpb #NNODE
+ bne 2f
+ ldb 2,u get node number
+ jsr fndnod find the node
+ ldd 0,s get ar
+ cmpd rslt,y same as node?
+ bne 2f
+ ldy 0,s
+ jsr redarg reduce address reg
+ jsr redcof reduce constants
+ bra 3f
+2 ldy 0,s
+ jsr redarg reduce ar
+ jsr reddof reduce d offset
+3 puls y
+ sez set false
+ rts
+4 clz
+ rts return
+
+* check if x is busy
+
+chkxb pshs x,y,u
+ tst cleanx cleaning up x?
+ bne 6f
+ ldd xcont
+ beq 6f
+ cmpd curadr same as current ar?
+ beq 6f
+ cmpd #adregs
+ blo 5f
+ cmpd #adregs+ADRSIZ*NUMADR is it ar?
+ bhs 5f
+ inc cleanx set clean flag
+ tfr d,y
+ ldd ar_inc,y check for auto inc
+ beq 3f
+ bgt 2f
+ addd ar_off,y add to offset
+ std ar_off,y
+ ldd #0 zero inc
+ std ar_inc,y
+ jsr cmplar reduce ar
+ pshs y
+ jsr stxaut do store x
+ puls y
+ bra 35f
+2 pshs d save inc
+ addd ar_off,y add to offset
+ std ar_off,y
+ jsr cmplar reduce ar
+ pshs y
+ jsr stxaut stx
+ puls y
+ ldd #0 zero inc
+ std ar_inc,y
+ subd 0,s++ get neg inc amount
+ std ar_off,y
+3 jsr cmplar complete reduction
+35 lda #SREF set stack reference
+ tst stklev
+ bne 4f
+ lda #TREF set top of stack
+4 sta ar_ref,y set reference
+ clr ar_adr,y
+ inc ar_ind,y bump ind by 1
+ clr cleanx
+5 jsr xpsh go push x
+6 puls x,u,y,pc return
+
+* fix ar reference for split adrress mode
+
+fixar pshs y,u save regs
+ lda 0,u get node type
+ cmpa #NNODE is it node?
+ bne 4f
+ ldb 2,u get node number
+ jsr fndnod find the node
+ ldy rslt,y get result
+ cmpy #BOS in ar?
+ bls 4f
+ inc nofree set no free mode
+ tst ar_ind,y indirection set?
+ ble 5f
+ tst ar_ofr,y reg offset?
+ beq 3f
+ jsr redarg reduce ar
+3 inc frcind set force ind flag
+35 jsr redarg reduce ar
+ jsr reddof reduce d offset
+4 puls y,u,pc return
+5 tst ar_ofr,y reg offset?
+ beq 4b
+ bra 35b go reduce ar
+
+* output stx for auto inc or dec
+
+stxaut pshs u,y,x save regs
+ jsr ostx output 'stx'
+ ldu autptr get name
+ jsr giadr gen address
+ ldd #0 zero auto ptr
+ std autptr
+ clr ccok
+ puls x,y,u,pc return
+

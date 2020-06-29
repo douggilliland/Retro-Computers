@@ -1,0 +1,3 @@
+chaready(){
+        return(1);
+}

@@ -1,0 +1,105 @@
+	.macro	CLC
+		ANDCC	#$FE
+	.endm
+	.macro	SEC
+		ORCC	#1
+	.endm
+
+;	Title:			Multiple Precision Rotate Right
+;	Name:			MPRR
+;
+;	Purpose:		Rotate right a multi-byte operand N bits.
+;
+;	Entry:			TOP OF STACK 
+;				High byte of return address
+;				Low  byte of return address
+;				Number of bits to rotate
+;				Length of the operand in bytes 
+;				High byte of operand base address
+;				Low  byte of operand base address
+;
+;				The operand is stored with ARRAY[0] as its 
+;				Least significant byte and ARRAY[LENGTH-1]
+;				as its most significant byte
+;
+;				Operand rotated right
+;				Carry := Last bit shifted from least significant position.
+;
+;	Registers Used:		A,B,CC,U,X
+;
+;	Time:			48 cycles overhead plus
+;				((13 * Length) + 32) cycles per shift
+;
+;	Size:			Program 40 bytes
+;
+
+MPRR:	LDU	,S		; SAVE RETURN ADDRESS
+;
+;	EXIT IF LENGTH OF OPERAND OR NUMBER OF BITS TO ROTATE
+;	IS ZERO. CARRY IS CLEARED IN EITHER CASE
+;
+	CLC			; CLEAR CARRY INITIALLY
+	LDA	2,S		; GET NUMBER OF BITS TO ROTATE
+	BEQ	EXITRR		; EXIT IF NUMBER OF BITS TO ROTATE IS ZERO
+	LDA	3,S		; GET LENGTH OF OPERAND
+	BEQ	EXITRR		; EXIT IF LENGTH OF OPERAND IS ZERO
+;
+;	SAVE POINTER TO END OF OPERAND
+;
+	LDX	4,S		; GET BASE ADDRESS OF OPERAND
+	LEAX	A,X		; POINT TO END OF OPERAND
+	STX	,S		; SAVE POINTER TO END OF OPERAND
+
+				; ROTATE ENTIRE OPERAND RIGHT ONE BIT 
+				; USE PREVIOUS LEAST SIGNIFICANT BIT AS INITIAL 
+				; CARRY INPUT TO PRODUCE ROTATION
+
+	LDX	4,S		; POINT TO LEAST SIGNIFICANT BYTE
+	LDA	,X		; GET LEAST SIGNIFICANT BYTE
+	LSRA			; SHIFT BIT 0 TO CARRY FOR USE IN ROTATION
+	LDB	3,S		; GET LENGTH OF OPERAND IN BYTES
+	LDX	,S		; POINT TO END OF OPERAND
+				;
+				;	SHIFT EACH BYTE OF OPERAND RIGHT ONE BIT
+				;	START WITH MOST SIGNIFICANT BYTE
+RRLP1:
+	ROR	,-X		; SHIFT NEXT BYTE RIGHT
+	DECB
+	BNE	RRLP1		; CONTINUE THROUGH ALL BYTES
+
+				; COUNT NUMBER OF ROTATES
+
+	DEC	2,S		; DECREMENT NUMBER OF ROTATES
+	BNE	RRLP		; CONTINUE UNTIL DONE
+
+				; REMOVE PARAMETERS FROM STACK AND EXIT
+EXITRR:
+	LEAS	6,S		; REMOVE PARAMETERS FROM STACK
+	JMP	,U		; EXIT TO RETURN ADDRESS
+
+				; SAMPLE EXECUTION
+SC4F:
+	LDA	ROTATS		; GET NUMBER OF ROTATES
+	LDB	#SZAY		; GET LENGTH OF OPERAND IN BYTES
+	LDX	AYADR		; GET BASE ADDRESS OF OPERAND
+	PSHS	A,B,X		; SAVE PARAMETERS IN STACK
+	JSR	MPRR		; ROTATE RIGHT
+
+				; RESULT OF ROTATING AY=EDCBA087654321H
+				; 4 BITS IS AY=1EDCBA98765432H, C=0
+				;  IN MEMORY	AY   = 032H
+				;		AY+1 = 054H
+				;		AY+2 = 076H
+				;		AY+3 = 098H
+				;		AY+4 = 0BAH
+				;		AY+5 = 0DCH
+				;		AY+6 = 01EH
+;
+; DATA SECTION
+;
+SZAY	EQU	7		; LENGTH OF OPERAND IN BYTES
+ROTATS:	FCB	4		; NUMBER OF ROTATES
+AYADR:	FDB	AY		; BASE ADDRESS OF OPERAND
+AY:	FCB	$21,$43,$65,$87,$A9,$CB,$ED
+	END
+

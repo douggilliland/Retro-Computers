@@ -1,0 +1,263 @@
+
+ ttl Code generation - 1
+ pag
+
+*
+* Special group I
+*
+
+spclo lda moprtr,y get operator
+ cmpa #6 is it function brace?
+ beq calfun
+ cmpa #9
+ beq coma is it comma operator?
+ cmpa #1 is it load op?
+ lbeq lod
+ rts
+
+*
+* Process comma operator
+*
+
+coma clr dcont show d free
+ clr xcont
+ clr ycont
+ andcc #$fb set true
+ rts return
+
+*
+* Generate code for function call
+*
+
+calfun lda argcnt save function info
+ pshs a
+ lda argbyt
+ pshs a
+ ldd exitp
+ pshs d
+ leas -2,s save room for temp
+ lbsr ffend find function end
+ sty exitp save as exit position
+ clr argcnt clear counters
+ clr argbyt
+calfu1 leay -MATSIZ,y back up thru matrix
+ lda 0,y get this level's operator
+ cmpa #6 is it function begin (no params)
+ beq calfu7
+calfu2 lda -MATSIZ,y get previous operator
+ cmpa #6 start of fun?
+ beq calfu4
+ cmpa #2 nested functions?
+ beq calfu3
+ cmpa #8 function param load?
+ beq calfu4
+ leay -MATSIZ,y
+ bra calfu2
+calfu3 lbsr ffbeg find beginning of function
+calfu4 lbsr cntry what entry are we at?
+ sta matlev save entry level
+ inc argcnt account for arg
+calfu5 sty 0,s save position
+calf55 lda 0,y get operator
+ cmpa #8 is it load?
+ beq calfu6
+ lbsr cdntry do this entry
+ beq calfur error?
+ inc matlev get next level
+ leay MATSIZ,y
+ bra calf55 repeat
+calfu6 lbsr argld load up parameter
+ beq calfur error?
+ ldy 0,s reset matrix pointer
+ bra calfu1 repeat
+calfu7 ldy exitp get to end of function
+ leay MATSIZ,y next entry
+ lda 0,y get op
+ cmpa #2 is it function call?
+ bne calfur
+ lbsr funcal do call
+ beq calfur error?
+ bsr cntry get entry number
+ sta matlev set levels
+ inca update d cont **** only INT now !! ****
+ sta dcont
+ lda #1 set INT type *******************
+ sta mttype+1,y set result type
+ leas 2,s clean up befor leaving
+ puls d
+ std exitp
+ puls a
+ sta argbyt
+ puls a
+ sta argcnt
+ andcc #$fb set true
+ rts return
+calfur leas 2,s clean up
+ puls d
+ std exitp
+ puls a
+ sta argbyt
+ puls a
+ sta argcnt
+ clra set error
+ rts return
+
+
+*
+* Calculate which matrix entry y is pointing to
+*
+
+cntry ldx #emat point to first entry
+ clra clear counter
+cntry1 pshs x
+ cmpy 0,s++ at current pos?
+ beq cntry2
+ inca bump pos counter
+ leax MATSIZ,x next entry
+ bra cntry1
+cntry2 rts return
+
+
+*
+* Find function end
+*
+
+ffend clr fundp clear depth counter
+ffend1 leay MATSIZ,y next matrix entry
+ lda 0,y get operator
+ cmpa #7 right paren?
+ beq ffend2
+ cmpa #6 left paren?
+ bne ffend1
+ inc fundp bump depth count
+ bra ffend1 repeat
+ffend2 dec fundp dec depth count
+ bpl ffend1 finished?
+ rts return
+
+*
+* Find function beginning
+*
+
+ffbeg clr fundp clear depth counter
+ffbeg1 leay -MATSIZ,y backup one entry
+ lda 0,y get operator
+ cmpa #6 is it '('?
+ beq ffbeg2
+ cmpa #7 is it ')'?
+ bne ffbeg1
+ inc fundp bump depth
+ bra ffbeg1 repeat
+ffbeg2 dec fundp dec the nest count
+ bne ffbeg1
+ rts return
+
+
+*
+* Generate code for parameter passing
+*
+
+argld lbsr watgot check types
+ lbsr uncls classify operand type
+ lda op1loc check op location
+ cmpa #REGLOC is it in register?
+ beq argld2
+ lbsr ldfop load it if necessary
+argld2 clr dcont free d reg
+ ldx #argtb point to routines
+ lbsr douop do it!
+ beq argldr error?
+ lda curtyp get current type
+ cmpa #CHR is it char?
+ beq apch
+ cmpa #INT
+ beq apin
+ cmpa #LONG|INT is it long?
+ beq apli
+ bra apfp must be fp
+argldr rts return error
+
+argtb fdb arg0
+ fdb arg1
+ fdb arg2
+ fdb arg3
+
+* psh char param
+
+arg0 lbra otpshb
+
+* push int param
+
+arg1 lbra otpshd
+
+* push long param
+
+arg2 rts
+
+* push fp param
+
+arg3 rts
+
+*
+* update argument byte counter
+*
+
+apch ldb #1 set char size
+ bra apcnt
+apin ldb #2 set for int
+ bra apcnt
+apli
+apfp rts return
+apcnt addb argbyt add to what we got
+ stb argbyt save new
+ rts return
+
+
+*
+* Generate actual function call code
+*
+
+funcal lbsr watgot check types
+ lbsr otlbsr output 'lbsr'
+ ldx #op1loc point to op
+ lda 0,x get loc
+ cmpa #STKLOC is it stack?
+ beq funca2
+ ldx 3,x get address
+ tst sclass,x classed yet?
+ bne funca1
+ lda #EXTN set to external
+ sta sclass,x
+ lda #INT|(FNCT<<4) set integer
+ sta stype+1,x
+ sta op1cls set current class
+funca1 ldx #op1loc
+funca2 lda 2,x check type
+ anda #$30 mask it
+ cmpa #FNCT<<4 is it function?
+ bne funca7 error?
+ lbsr gadr generate address
+ ldb argbyt any pushed?
+ beq funca6
+ lbsr otleas output 'leas'
+ clra
+ ldb argbyt get arg byte count
+ std num save in reg
+ ldx #num point to it
+ lbsr outdec output number
+ lbsr otcms output ',s'
+funca6 andcc #$fb set true
+ rts return
+funca7 clra set error
+ rts return
+
+*
+* Generate simple load code
+*
+
+lod lbsr uncls classify type
+ lbsr ldfop load operand
+ andcc #$fb set true
+ rts return
+
+

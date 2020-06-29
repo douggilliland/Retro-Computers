@@ -1,0 +1,393 @@
+
+* generate a new label number
+
+genlab ldd nxtlab get old value
+ addd #1 bump by 1
+ std nxtlab save new value
+ rts return
+
+* get and print number
+
+gonum jsr inch get number
+ pshs d
+ jsr inch
+ sta 1,s
+ puls d get in d
+ tsta is it neg?
+ bpl gonum2
+ pshs d
+ lda #'- output minus
+ jsr outch
+ puls d
+ coma
+ comb
+ addd #1
+gonum2 ldx #nbuf point to buffer
+ jsr decstn convert number
+ pshs b save count
+ ldx #nbuf point to buffer
+4 lda 0,x+ get char
+ jsr outch
+ dec 0,s dec count
+ bne 4b
+ lda #$20 output space
+ jsr outch
+ puls b,pc
+
+* get number (16 bits)
+
+getnum jsr inch get first part
+ pshs d
+ jsr inch get rest
+ sta 1,s
+ puls d,pc return number
+
+* print number in d without space (signed)
+
+gnmsns tsta is it negative
+ bpl gnmnos if so - do regular
+ pshs d save number
+ lda #'- output minus sign
+ jsr outch
+ puls d get value
+ coma negate it
+ comb
+ addd #1
+
+* print number without spaces
+
+gnmnos ldx #nbuf point to buffer
+ jsr decstn convert number
+ pshs b save count
+ ldx #nbuf point to number
+2 lda 0,x+ get character
+ jsr outch output it
+ dec 0,s dec the count
+ bne 2b
+ puls b,pc return
+
+gostr jsr inch get char
+gostr1 tsta end of string?
+ beq 2f
+ jsr outch
+ bra gostr
+2 rts return
+
+* print cr
+
+pcrlf lda #$d set up cr
+ jmp outch
+
+* output string
+
+ostr lda 0,x+ get char
+ beq 4f
+ jsr outch
+ bra ostr
+4 rts
+
+* generate external name string
+*  y points to name
+
+gxtnam ldb #8 set count
+2 lda 0,y+ get character
+ beq 4f
+ jsr outch output it
+ decb dec the count
+ bne 2b
+4 rts return
+
+* generate local label
+
+gllab jsr gnmnos output number
+ lda #'f output 'f'
+ jmp outch
+
+* generate regular label
+
+grlab pshs d save number
+ lda #'L output 'L'
+ jsr outch
+ puls d get number
+ jmp gnmnos output it
+
+* produce next local label
+
+nxtloc ldd llabel get label
+ addd #1 bump by one
+ std llabel
+ rts return
+
+* generate false jump
+
+gbfals tst revcon reversed?
+ bne gbtru2
+gbfal2 clr revcon
+ ldy #gbtbl3 point to strings
+ tst unscom unsigned?
+ beq 2f
+ clr unscom clear flag
+ ldy #gbtbl4 point to strings
+2 bra grelbr go generate branch
+
+* generate true jump
+
+gbtrue tst revcon reversed?
+ bne gbfal2
+gbtru2 clr revcon
+ ldy #gbtbl1 point to strings
+ tst unscom unsigned?
+ beq 2f
+ clr unscom clear flag
+ ldy #gbtbl2 point to strings
+2 bra grelbr gen branch
+
+* generate branch instruction
+
+grelbr pshs d,y
+ lda #$20 output space
+ jsr outch
+ tst brntyp check branch type
+ beq 2f local?
+ lda #'l output 'l'
+ jsr outch
+2 ldy 2,s get strings
+ lda condit get condition
+ ldb #1 reset condition
+ stb condit
+ asla set index
+ ldx a,y get string
+ jsr ostr output string
+ puls d get label
+ leas 2,s fix stack
+ tst brntyp local?
+ bne 4f
+ jsr gllab gen label
+ jmp pcrlf
+4 jsr grlab gen label
+ jmp pcrlf
+
+* generate bra or jmp
+
+gbrnch pshs d save label
+ tst brntyp local?
+ bne 2f
+ jsr obra output 'bra'
+ puls d get label
+ jsr gllab output label
+ jmp pcrlf
+2 jsr ojmp output 'jmp'
+ puls d get label
+ jsr grlab output it
+ jmp pcrlf
+
+* branch tables
+
+gbtbl1 fdb m200,m201,m202,m203,m204,m205
+gbtbl2 fdb m200,m201,m206,m207,m208,m209
+gbtbl3 fdb m201,m200,m205,m204,m203,m202
+gbtbl4 fdb m201,m200,m209,m208,m207,m206
+
+* do expression processing
+
+doexp ldx #exptbl zero expression tables
+ stx expptr save start location
+1 clr 0,x+
+ cmpx #exptbl+EXPSIZ*MAXEXP end of table?
+ bne 1b
+ ldx #brtbl init branch table
+ stx braptr
+15 clr 0,x+ zero all entries
+ cmpx #brtbl+4*MAXBRS end of table?
+ bne 15b
+ ldx expptr get ptr
+ leax 2,x skip location cell
+ jsr gtexch get character
+2 tsta is it positive?
+ bpl 3f
+ cmpa #LABEL is it branch or label?
+ blo 25f
+ cmpa #CBRNCH
+ bhi 25f
+ jsr filbrs fill branch table
+25 sta sprchr save spare char for later
+ bra prcexp process expression
+3 sta 0,x+ save in table
+ stx expptr save pos
+ ldb #2
+ jsr gtmexc get 2 chars
+ stx expptr
+ jsr gtexch get character
+ cmpa #NNAME is it what we need?
+ blo 4f
+ cmpa #NNODE
+ bhi 4f
+ jsr getopr get operand
+ jsr gtexch get next char
+ cmpa #NNAME is it what we need?
+ blo 5f
+ cmpa #NNODE
+ bhi 5f
+ jsr getopr get operand
+ jsr gtexch get next char
+ bra 6f
+4 leax 12,x skip op 1
+5 leax 12,x skip op 2
+6 stx expptr save position
+ leax 2,x skip loc field
+ bra 2b repeat
+
+* clear variables for exp processing
+
+clrvar clr ccok set cc false
+ ldd #0 init values for code gen
+ std dcont
+ std xcont
+ std lcont
+ std fcont
+ sta revcon set reverse to null
+ sta opcls set class to null
+ sta stklev reset stack info
+ std stksiz
+ ldx #adregs clear address registers
+1 clr 0,x+
+ cmpx #adregs+ADRSIZ*NUMADR end of list?
+ bne 1b
+ rts return
+
+* process expression table entries
+
+prcexp bsr clrvar clear variables
+ lda #1 set condition
+ sta condit
+ clr unscom
+ ldd #9 init local labels
+ std llabel
+ ldd #andstk init stacks
+ std andptr
+ ldd #orstk
+ std orptr
+ ldd #cndstk
+ std cndptr
+ jsr movbra move branches into expression
+ jsr rplcnd replace conditionals
+ jsr simpbr simplify branch groups
+1 jsr redlog reduce logicals
+ tst redcnt any reductions?
+ bne 1b
+ jsr remlab remove labels
+ ldx #exptbl reset table pointer
+ stx codptr save position
+2 ldx codptr get position
+ cmpx expptr end of table?
+ beq 5f
+ jsr doentry process entry
+ bra 2b
+5 puls d get return address
+ lda sprchr get spare char
+ jmp loop2 go process
+
+
+* get operand for matrix table entry
+
+getopr ldx expptr get position
+ sta 0,x+ save type value
+ cmpa #NNAME is it name?
+ beq 2f
+ cmpa #NCON is it constant?
+ beq 6f
+ ldb #2 set count
+ jsr gtmexc get node number
+ leax 9,x skip rest of entry
+ stx expptr save pos
+ rts return
+2 ldb #3 set count
+ jsr gtmexc get class and type
+ lda -3,x get class
+ cmpa #4 is it EXT?
+ beq 3f
+ ldb #2 set count
+ jsr gtmexc get position number
+ leax 6,x skip rest of entry
+ stx expptr save pos
+ rts return
+3 ldb #8 set max name size
+4 jsr gtexch get character
+ sta 0,x+ save in entry
+ bne 42f
+ decb adjust count
+ bra 5f
+42 decb finished?
+ bne 4b
+45 jsr gtexch get next char
+ tsta is it null term?
+ bne 45b
+5 leax b,x skip rest of field
+ stx expptr save position
+ rts return
+6 jsr gtexch get next char
+ sta 0,x+
+ pshs a save type
+ ldb #2 set count
+ jsr gtmexc get value (2 bytes)
+ puls a get type
+ cmpa #4 is it only 2 bytes?
+ bls 7f
+ pshs a save type
+ ldb #2 set count
+ jsr gtmexc get 2 more bytes
+ puls a get type
+ cmpa #7 is it double?
+ beq 65f
+ leax 4,x skip rest
+ bra 9f
+65 ldb #4 set count
+ jsr gtmexc get rest of value
+ bra 9f
+7 leax 4,x skip rest of entry
+8 leax 2,x
+9 leax 2,x skip rest
+ stx expptr save pos
+ rts return
+
+* get multiple chars from temp file
+
+gtmexc pshs b save count
+2 bsr gtexch get char
+ sta 0,x+ save in entry
+ dec 0,s dec counter
+ bne 2b
+ puls b,pc return
+
+* get char from temp file
+
+gtexch jsr inch get character
+ tst eof eof?
+ beq 2f
+ jsr flusho flush output
+ ldd #0
+ sys term exit
+2 rts return char
+
+* fill branch table
+
+filbrs ldx braptr get current pos
+ sta 0,x+ save value
+ cmpa #CBRNCH is it conditional branch?
+ beq 6f
+ ldb #2 set char count
+ jsr gtmexc get 2 chars
+2 leax 1,x skip con byte
+ stx braptr save pos
+ jsr gtexch get next char
+ cmpa #LABEL label or branch?
+ blo 4f
+ cmpa #CBRNCH
+ bls filbrs repeat if so
+4 rts return
+6 jsr gtexch get next char
+ sta 2,x save condition
+ ldb #2 set count
+ jsr gtmexc get label value
+ bra 2b
+

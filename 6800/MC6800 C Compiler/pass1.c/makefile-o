@@ -1,0 +1,42 @@
+pass1.h::&.c; touch &.c
+pass1
+p1-mod
+p1-lex
+p1-dec
+p1-str
+p1-stm
+p1-exp
+p1-mat
+p1-typ
+p1-con
+p1-out
+p1-int
+%
+&.c::p1os; cc &.c +r +OS
+pass1
+p1-mod
+p1-lex
+p1-dec
+p1-str
+p1-stm
+p1-exp
+p1-mat
+p1-typ
+p1-con
+p1-out
+p1-int
+%
+&.r::p1os; cc *.r +o=p1os
+cp
+pass1
+p1-mod
+p1-lex
+p1-dec
+p1-str
+p1-stm
+p1-exp
+p1-mat
+p1-typ
+p1-con
+p1-out
+p1-int

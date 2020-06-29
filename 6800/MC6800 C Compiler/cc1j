@@ -1,0 +1,333 @@
+
+
+ ttl more statement parser
+ pag
+
+*
+* switch statement
+*
+* stack setup as follows:
+*   10 old def lab
+*    8 switch marker
+*    6 old brklab
+*    4 term label
+*    2 test label
+*    0 line number
+*
+
+switch clr token eat the token
+ ldd deflab save old default
+ pshs d
+ ldd #0 reset new default
+ std deflab
+ ldd nxtsw save old switch pointer
+ pshs d
+ ldd brklab save old break
+ pshs d
+ lbsr nxtlab get new break label
+ std brklab
+ pshs d save as term label
+ lbsr nxtlab get test code label
+ pshs d
+ ldd line get line number
+ pshs d
+ inc swflag set new switch level
+ lbsr pexp process paren expression
+* beq swerr error?
+ ldd #INT set up int cvt
+ jsr ocvt
+ ldd 2,s get test code label
+ jsr obrnch output branch
+ lbsr stmnt process statement part
+* beq swerr error?
+ ldd 4,s get term label
+ jsr obrnch
+ ldd 2,s get label
+ jsr olabel output label
+ ldd 0,s get line number
+ ldx 8,s get switch pointer
+ jsr oswtch output switch code
+ ldd 4,s get term label
+ jsr olabel output label
+ leas 6,s clean up stack
+ puls d reset break label
+ std brklab
+ puls d reset switch stack pointer
+ std nxtsw
+ puls d reset default
+ std deflab
+ dec swflag reset switch level
+ andcc #$fb set true
+ rts return
+swerr leas 6,s clean stack
+ puls d reset as above
+ std brklab
+ puls d
+ std nxtsw
+ puls d
+ std deflab
+ dec swflag
+ clra
+ rts error return
+
+
+*
+* for statement
+*
+
+for clr token eat the token
+ ldd brklab save labels
+ pshs d
+ ldd conlab
+ pshs d
+ lbsr nxtlab get loop label
+ pshs d
+ lbsr nxtlab get the break label
+ std brklab
+ lbsr nxtlab get contin label
+ std conlab
+ lbsr getok get next token
+ cmpa #6 is it '('?
+ beq 2f error?
+ ldb #32
+ jsr rpterr
+ bra 22f
+2 clr token use the token
+22 lbsr optexp process optional expression
+* beq forer error?
+ lbsr getok get token
+ cmpa #1 is it ';'?
+ beq 25f error?
+ ldb #31
+ jsr rptfnd
+25 clr token use it
+ ldd 0,s get loop label
+ jsr olabel output label
+ jsr getok get next token
+ cmpa #1 is it null exp?
+ beq 27f
+ lbsr optexp process expression
+* beq forer error?
+ ldu brklab get exit label
+ ldb #0 set false
+ jsr ocbr output cond branch
+ lbsr getok get next token
+ cmpa #1 is it ';'?
+ beq 27f error?
+ ldb #31
+ jsr rptfnd
+27 clr token eat the token
+ ldd nxtfor point to for stack
+ pshs d save current position
+ ldd nxtfrc save constants
+ pshs d
+ lbsr getok get next token
+ cmpa #7 is it ')' (null exp)?
+ beq 4f
+ lbsr frexp process for expression 3
+* beq forerr
+ lbsr getok get token
+ cmpa #7 is it ')'?
+ beq 4f error?
+ ldb #32
+ jsr rpterr
+ bra forerr
+4 clr token eat it
+ lbsr stmnt process statement
+* beq forerr error?
+ ldd conlab output continue label
+ jsr olabel
+ puls u get constants
+ puls y get for stack pointer
+ lbsr gfrexp process for expression
+ ldd 0,s get loop label
+ jsr obrnch output branch
+ ldd brklab output break label
+ jsr olabel
+ lbra while4 finish up
+forerr leas 4,s fix stack
+forer leas 2,s
+ puls d reset contin label
+ std conlab
+ puls d
+ std brklab and break label
+ clra set error
+ rts return
+
+
+*
+* break statement
+*
+
+xbreak clr token eat the token
+ ldd brklab get break label
+ bne 2f
+ ldb #34
+ jsr rpterr
+ ldd #0
+2 lbsr obrnch output the label
+ lbsr getok get next token
+ cmpa #1 is it ';'?
+ beq 4f
+ ldb #31
+ jsr rptfnd
+4 clr token eat the token
+ andcc #$fb set true
+ rts return
+brkerr clra set error
+ rts
+
+*
+* continue statement
+*
+
+contin clr token eat the token
+ ldd conlab get continue label
+ bne 2b
+ ldb #35 set error
+ jsr rpterr
+ ldd #0
+ bra 2b
+conerr clra set error
+ rts
+
+
+*
+* case statement (label)
+*
+
+case clr token eat token
+ tst swflag must be in switch statement!
+ bne 2f error?
+ ldb #36 set error
+ jsr rpterr
+2 lbsr cexp process constant expression
+ beq caserr
+ ldx nxtsw point to switch stack
+ std 0,x++ save value
+ lbsr nxtlab get a new label
+ std 0,x++ save in stack
+ stx nxtsw save position
+ cmpx #swttab+SWLEN overflow?
+ blo 3f
+ ldd #136 set error
+ jmp error
+3 jsr olabel output label
+ lbsr getok get next token
+ cmpa #8 is it ':'?
+ beq 4f
+ ldb #37
+ jsr rpterr
+ lbra stmnt
+4 clr token eat the token
+ lbra stmnt do statement
+caserr clra set error
+ rts return
+
+*
+* default statement (label)
+*
+
+defalt clr token eat token
+ lbsr getok get next token
+ cmpa #8 is it ':'?
+ beq 2f
+ ldb #38
+ jsr rpterr
+ bra 3f
+2 clr token eat the token
+3 ldd deflab default already defined?
+ beq 4f
+ ldb #38
+ jsr rpterr
+4 tst swflag doing switch?
+ bne 5f
+ ldb #36
+ jsr rpterr
+5 lbsr nxtlab get a new label
+ std deflab
+ jsr olabel output label
+ lbra stmnt do statement
+deferr clra set error
+ rts
+
+*
+* goto statement
+*
+
+goto clr token eat the token
+ lbsr getok get next
+ cmpa #20 is it name?
+ beq 2f error?
+ ldb #40
+ jmp rptfnd
+2 clr token
+ ldx symloc point to symbol
+ lda sflags,x check flags
+ cmpa #FLAB is it label?
+ beq 4f
+ tsta null flags?
+ bne 3f
+ ldd stype,x check type
+ bne 3f must be null
+ lda sclass,x check class
+ beq 35f error?
+3 ldb #40 set error
+ jsr rpterr
+ bra goto 37
+35 lda #FLAB set flag type
+ sta sflags,x
+37 lbsr nxtlab get next label
+ ldx symloc
+ std sstore,x set value in table
+4 ldx symloc point to label
+ ldd sstore,x get value
+ jsr obrnch output branch
+ lbsr getok get next token
+ cmpa #1 is it ';'?
+ beq 5f
+ ldb #31
+ jsr rptfnd
+5 clr token eat the token
+ andcc #$fb set true
+ rts return
+gotoer clra set error
+ rts return
+
+*
+* process a line label
+*
+
+dolab clr token eat the token
+ ldx symloc point to the label
+ ldd stype,x check the type
+ bne dolabr error?
+ lda sclass,x check class
+ bne dolabr must be null
+ lda sflags,x check flags
+ beq 4f
+ cmpa #FLAB is it label?
+ bne dolabr error?
+ ldd sstore,x get value
+ bra 5f
+4 lda #FLAB set label type
+ sta sflags,x
+ lbsr nxtlab get next label value
+ ldx symloc
+ std sstore,x set value
+5 lbsr olabel output label
+ lbra stmnt do statement
+dolabr ldb #41 set error
+ jsr rpterr
+ lbra stmnt
+
+*
+* generate a series 1 label
+*
+
+nxtlb1 ldd label1 get last value
+ addd #1 bump by one
+ std label1 save new
+ rts return
+
+

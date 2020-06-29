@@ -1,0 +1,169 @@
+
+* code generation for conditionals
+
+cnd lda oprtor get operator
+ suba #EQU remove bias
+ sta condit set condition for compare
+ clr unscom
+ ldu op1ptr get op1
+ jsr clsnop
+ ldu op1ptr get op1
+ jsr load do load
+ ldd entype get type of op1
+ cmpd #UNSND is it unsigned?
+ bne 05f
+ inc unscom set uns mode
+05 ldb enbtyp get basic type
+ cmpb #8 ptr type?
+ blo 1f
+ ldy curadr get ar
+ jsr cmplar gen code
+ ldb enbtyp get type
+1 ldu op2ptr get op2
+ lda 0,u get entry type
+ cmpa #NCON is it constant?
+ bne 2f
+ tst ccok cc ok?
+ beq 2f
+ ldy #cndctb point to routines
+ jmp [b,y] do it
+2 ldy #cndtab point to routines
+ jmp [b,y] do it
+
+cndctb fdb chccnd,inccnd,lnccnd,fpccnd,ptccnd,arccnd
+cndtab fdb chcnd,intcnd,lncnd,fpcnd,ptcnd,arcnd
+
+chccnd ldd 2,u check constant
+ bne chcnd
+ ldd #0
+ std dcont free d reg
+ jmp cndfin go finish
+inccnd ldd 2,u check constant = 0?
+ bne intcnd
+ ldd #0 free d reg
+ std dcont
+ jmp cndfin
+lnccnd swi
+fpccnd swi
+ptccnd
+arccnd ldd 2,u check for 0
+ bne ptcnd
+ bra ptcnd2
+
+chcnd jsr ocmpb output 'cmpb'
+ jsr giadr gen address
+ inc ccok
+ ldd #0 free d reg
+ std dcont
+ bra cndfin
+intcnd jsr ocmpd output 'cmpd'
+ jsr giadr
+ inc ccok
+ ldd #0 free d reg
+ std dcont
+ bra cndfin
+lncnd swi
+fpcnd swi
+ptcnd
+arcnd ldy curadr get ar
+ lda ar_ref,y is it u ref?
+ cmpa #UREF
+ bne 4f
+ ldu op2ptr get op2
+ lda 0,u where is it?
+ cmpa #NNODE
+ bne 3f
+ ldb 2,u get node number
+ jsr fndnod
+ ldy rslt,y get location
+ cmpy #BOS
+ bls 3f
+ lda ar_ref,y check for x ref
+ cmpa #XREF
+ bne 3f
+ jsr ocmpux compare u and x
+ bra 55f
+3 jsr ocmpu output 'cmpu'
+ bra 5f
+4 ldu op2ptr get op2
+ lda 0,u where is it?
+ cmpa #NNAME is it name?
+ bne 45f
+ lda 1,u is it register var?
+ cmpa #REG
+ bne 45f
+ jsr ocmpxu compare x and u
+ bra 55f
+45 jsr ocmpx output 'cmpx'
+5 jsr giadr gen address
+55 inc ccok set cc
+ptcnd2 ldy curadr get ar
+ inc unscom set unsigned mode
+ lda ar_ref,y x ref?
+ cmpa #XREF
+ bne 6f
+ ldd #0 free x
+ std xcont
+6 bra cndfin go finish
+
+* finish up compare code
+
+cndfin ldx codptr get code pointer
+ leax EXPSIZ,x skip to next entry
+ stx codptr
+2 cmpx expptr end of expression?
+ beq 5f
+ lda oprtr,x get next operator
+ bpl 3f branch type?
+ cmpa #LBL is it label?
+ bne 5f
+ stx codptr save code pointer
+ leau op1,x point to op1
+ stu op1ptr
+ jsr lbl output label
+ ldx codptr get code pointer
+ bra 2b
+25 leax EXPSIZ,x next entry
+ bra 2b
+3 cmpa #NOP is it nop?
+ beq 25b
+4 bsr onezro output one - zero code
+5 rts return
+
+* generate one - zero code for compare
+
+onezro ldd #1 set label number
+ clr brntyp set to local label
+ jsr gbtrue gen branch true
+ jsr o10c output code
+ inc ccok set cc ok
+ ldd #DREG set reg contents
+ ldx codptr
+ leax -EXPSIZ,x get last guy
+ std rslt,x set result
+ stx dcont
+ rts return
+
+
+* classify new op in u
+
+clsnop jsr gettyp get type
+  std entype save it
+ clra
+ bitb #$30 complex?
+ beq 2f
+ andb #$30
+ cmpb #$10 pointer?
+ bne 1f
+ ldb #8
+ bra 2f
+1 ldb #9
+2 andb #$f get type
+ pshs x
+ ldx #typcnv get types
+ decb
+ ldb b,x
+ puls x
+ stb enbtyp save basic type
+ rts return
+

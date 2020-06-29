@@ -1,0 +1,721 @@
+ ttl Intermediate code output
+ pag
+
+* Intermediate code output
+
+*
+* olabel
+*
+* Output the label in d.
+*
+
+olabel pshs d save it
+ jsr otext
+ lda #LABEL get code
+ jsr outch output it
+olabl2 lda 0,s get label number
+ jsr outch
+ lda 1,s
+ jsr outch
+ puls d,pc return
+
+*
+* output a branch to label in d.
+*
+
+obrnch pshs d save label
+ jsr otext
+ lda #BRANCH get code
+ jsr outch output it
+ bra olabl2 go do label
+
+* Output conditional branch
+*
+
+ocbr pshs u,b
+ jsr otext
+ lda #CBRNCH get code
+ jsr outch output it
+ lda 0,s get cond
+ jsr outch
+ ldd 1,s get label
+ jsr onum output it
+ puls b,u,pc return
+
+*
+* obfnct
+*
+* Output function begin sequence
+*
+
+obfnct pshs x save values
+ jsr otext set text mode
+ ldx 0,s get name
+ ldb sclass,x get class
+ cmpb #STAT is it static?
+ beq 2f
+ jsr oglobl output global code
+2 lda #BEGFNT get code
+ jsr outch output it
+ lda #'_ output name
+ jsr outch
+ ldx 0,s get name ptr
+ bsr otnm
+ puls x,pc return
+
+*
+* Output name pointed at by x
+*
+
+otnm ldb #8 set max length
+2 lda sname,x get char of name
+ beq 4f end of name?
+ leax 1,x skip to next
+ jsr outch output char
+ decb dec the count
+ bne 2b finished?
+4 clra set term
+ jsr outch
+ rts return
+
+*
+* Outout end function stuff
+*
+
+oefnct jsr otext
+ lda #ENDFNT get code
+ jmp outch output it
+
+*
+* oexp
+*
+
+oexp jsr otext
+ lda #BEGEXP set code
+ jsr outch
+ ldd line
+ jsr onum output number
+ clr matlev
+ ldy #emat point to matrix
+2 bsr oentry output entry
+ beq 8f
+ inc matlev bump level
+ leay MATSIZ,y get to next entry
+ tst 0,y end of list?
+ bne 2b
+ andcc #$fb set true
+8 rts return
+
+* output matrix entry
+
+oentry lda 0,y get operator
+ jsr outch output it
+ ldd 1,y get type
+ jsr onum output it
+ ldx mo1loc,y get op1
+ beq 4f
+ bsr oop process operand
+ ldx mo2loc,y get op2
+ beq 4f is it null?
+ bsr oop process operand
+4 andcc #$fb set true
+ rts return
+
+* process operand
+
+oop pshs x sav ptr
+ tst 0,s is it node number?
+ bne 2f
+ lda #NNODE output node code
+ jsr outch
+ puls d get node number
+ jmp onum output it
+2 puls x
+ lda 1,x get type flag
+ anda #$f mask lo bits
+ cmpa #CONST is it constant?
+ beq ocons
+*
+ovar lda #NNAME output code
+ jsr outch
+ lda sclass,x get class
+ cmpa #STAT is it static
+ bne 2f
+ ldb stype+1,x get type
+ andb #$30
+ cmpb #FNCT<<4 is it function
+ bne 2f
+ lda #EXTN set external
+ sta sclass,x reset class
+2 jsr outch output it
+ ldd stype,x get type
+ jsr onum output it
+ lda sclass,x get class
+ cmpa #EXTN is it external?
+ beq 4f
+ ldd sstore,x get storage value
+ jmp onum output it
+4 lda #'_
+ jsr outch output _
+ jmp otnm
+
+* output constant
+
+ocons lda #NCON set code
+ jsr outch output it
+ lda 0,x get type byte
+ jsr outch output it
+ ldd 2,x get integer value
+ bsr onum output it
+ lda 0,x check type
+ cmpa #UNSND
+ bls 2f
+ ldd 4,x
+ bsr onum
+ lda 0,x check for double
+ cmpa #DUBLE
+ bne 2f
+ ldd 6,x
+ bsr onum
+ ldd 8,x
+ bsr onum
+2 rts
+
+
+* output number in d
+
+onum pshs d save it
+ lda 0,s get hi part
+ jsr outch
+ lda 1,s get lo part
+ jsr outch
+ puls d,pc return
+
+* output switch code
+
+oswtch pshs d,x save params
+ lda #SWIT output code
+ jsr outch
+ puls d get line number
+ jsr onum output it
+ ldd deflab get default label
+ jsr onum output it
+ puls x get switch pointer
+2 cmpx nxtsw end of list?
+ beq 6f
+ ldd 2,x get label number
+ jsr onum output it
+ ldd 0,x get value
+ jsr onum output it
+ leax 4,x skip entry
+ bra 2b repeat
+6 ldd #0 output null term
+ jsr onum
+ lda #1 set data space
+ sta cspace
+ rts return
+
+* output collected strings
+
+ostrgs ldx #strtab point to strings
+2 cmpx nxtstr end of strings?
+ beq 8f
+ pshs x
+ jsr odata
+ puls x
+ lda #STRNG set string code
+ jsr outch output it
+ lda 0,x+ get label number
+ jsr outch
+ lda 0,x+
+ jsr outch
+4 lda 0,x+ get string character
+ beq 6f
+ jsr outch
+ bra 4b
+6 jsr outch output term
+ bra 2b
+8 ldd #strtab reset string table
+ std nxtstr
+ rts return
+
+* output start block code
+
+ostblk pshs d save label number
+ lda #BEGBLK get code
+ jsr outch output it
+ jmp olabl2 do label
+
+* output end block code
+
+oenblk pshs d,x save label and auto size
+ lda #ENDBLK get code
+ jsr outch
+ ldd 2,s get label number
+ jsr onum
+ ldd 0,s get auto size
+ jsr onum
+ lda blklev get block level
+ deca set flag 0 if block 1
+ jsr outch
+ puls d,x,pc return
+
+* output global code
+
+oglobl pshs x save name pointer
+ lda #GLOBAL set code
+ jsr outch
+ lda #'_
+ jsr outch
+ puls x get name
+ jmp otnm output name
+
+* output begin module code
+
+obgmod pshs x save name
+ lda #BEGMOD output code
+ jsr outch
+ puls x get name
+2 lda 0,x+ get character
+ beq 4f term?
+ jsr outch
+ bra 2b repeat
+4 jsr outch output term
+ lda #TEXT force text mode
+ jmp outch
+
+* output end module code
+
+oenmod lda #ENDMOD set code
+ jmp outch
+
+* output text space
+
+otext tst cspace check if in text
+ beq 2f
+ clr cspace set text
+ lda #TEXT output code
+ jsr outch
+2 rts return
+
+* output data space
+
+odata lda #1 1=data
+ cmpa cspace in data?
+ beq 2f
+ sta cspace set data space
+ lda #DATA set code
+ jsr outch
+2 rts return
+
+* output bss space
+
+obss lda #2 2=bss
+ cmpa cspace in bss?
+ beq 2f
+ sta cspace set bss
+ lda #BSS set code
+ jsr outch
+2 rts return
+
+* output external definition
+
+oextdf tst initfl initialized?
+ lbne oiextd
+ pshs d,x save values
+ jsr obss output bss
+ ldx 2,s get name
+ jsr oglobl make global
+ ldx 2,s get name
+ bsr odnam output it
+oextd2 ldd 0,s get size
+ bsr osspac output space
+ puls d,x,pc return
+
+* output data name
+
+odnam pshs x save name
+ lda #DNAME output code
+ jsr outch
+ lda #'_ output '_'
+ jsr outch
+ puls x get name
+ jmp otnm output name
+
+* osspac
+
+osspac pshs d save size
+ lda #SSPACE output code
+ jsr outch
+ puls d
+ jmp onum output size
+
+* oautvr
+
+oautvr pshs d,x save name and size
+ lda #AUTVAR output code
+oautv2 jsr outch
+ puls d get size
+ jsr onum output it
+ puls x get name
+ jmp otnm output it
+
+* output reg dec
+
+oregvr pshs d,x save name and size
+ lda #REGVAR setup code
+ bra oautv2
+
+* output statis dec
+
+ostcvr pshs d,x save name and size
+ tst initfl initialized?
+ beq 2f
+ jsr odata set data space
+ bra 3f
+2 jsr obss output bss
+3 lda #STVAR setup code
+ jsr outch output it
+ ldx 2,s get symbol
+ ldd sstore,x get label number
+ jsr onum
+ ldx 2,s get name
+ jsr otnm
+ tst initfl initialized?
+ lbeq oextd2
+ jsr oidata output init data
+ puls d,x,pc return
+
+* output parameter lists
+
+oprms ldy #prmlnk point to list
+2 cmpy nxtprm end of list?
+ beq 4f
+ ldx 0,y++ get entry
+ beq 4f end of list?
+ pshs y
+ ldd sstore,x get storage value
+ bsr oautvr output auto dec
+ puls y
+ bra 2b repeat
+4 rts return
+
+* output initialized data
+
+oidata ldx nxtdat check for empty data list
+ cmpx #datapl
+ bne 1f
+ rts return
+1 ldd errcnt
+ beq 12f
+ rts return
+12 ldx intsym get symbol location
+ ldd stype,x get type
+ bitb #$f type ok?
+ bne 15f
+ orb dtype+1 set in type
+15 pshs d
+ bitb #$30 check for complex type
+ beq 4f
+2 andb #$30 mask complex type
+ cmpb #FNCT<<4 is it function?
+ beq 6f error if so
+ cmpb #PTR<<4 is it pointer
+ beq 4f
+ ldd 0,s get type
+ andb #$f save basic type
+ pshs b
+ ldb 2,s get original back
+ lsra eat complex bits
+ rorb
+ lsra
+ rorb
+ andb #$f0 mask out basic type
+ orb 0,s+ put basic back in
+ std 0,s save new type
+ bitb #$30 still complex?
+ bne 2b
+4 leas 2,s clean stack
+ bitb #$30 is it pointer?
+ lbne oglab output label group
+ cmpb #CHR is it char?
+ lbeq ogbyt output bytes
+ cmpb #DUBLE is it double?
+ lbls ogwrd output words
+ cmpb #STRUCT is it structure?
+ lbeq ogstrt output structures
+ bra 7f
+6 leas 2,s clean stack
+7 ldd #65 set error
+ jmp rpterr
+
+* output group of bytes
+
+ogbyt ldx #datapl point to data
+ ldd nxtdat get end pointer
+ subd #datapl calculate data byte count
+ogbyt2 pshs d save count
+4 cmpd #16 do at most 16 bytes
+ bls 6f
+ ldd #16 set count
+ bsr obyts output bytes
+ ldd 0,s get count
+ subd #16 dec by 16
+ std 0,s save new count
+ bra 4b repeat
+6 leas 2,s clean stack
+
+* output bytes
+
+obyts pshs b,x save pointer and count
+ tstb count 0?
+ beq 5f
+ lda #BYTES set up il code
+ jsr outch
+ lda 0,s get count
+ jsr outch
+ ldx 1,s point to data
+2 lda 0,x+ get byte
+ jsr outch output it
+ dec 0,s dec the count
+ bne 2b
+5 leas 3,s clean stack
+ rts return
+
+* output group of words
+
+ogwrd ldx #datapl point to data
+ ldd nxtdat get end pointer
+ subd #datapl calculate data byte count
+ lsra
+ rorb
+ogwrd2 pshs d save count
+4 cmpd #16 do at most 16 bytes
+ bls 6f
+ ldd #16 set count
+ bsr owrds output bytes
+ ldd 0,s get count
+ subd #16 dec by 16
+ std 0,s save new count
+ bra 4b repeat
+6 leas 2,s
+
+* output words
+
+owrds pshs b,x save pointer and count
+ tstb count 0?
+ beq 5f
+ lda #WORDS set up il code
+ jsr outch
+owrds2 lda 0,s get count
+ jsr outch
+ ldx 1,s point to data
+2 lda 0,x+ get byte
+ jsr outch output it
+ lda 0,x+ get next byte
+ jsr outch output it
+ dec 0,s dec the count
+ bne 2b
+5 leas 3,s clean stack
+ rts return
+
+* output group of labels
+
+oglab ldx #datapl point to data
+ ldd #0
+ pshs d init counter to 0
+2 cmpx nxtdat end of list?
+ bhs 3f
+ lda 0,x get label type
+ bne 22f
+ leax 5,x skip item
+ bra 28f
+22 cmpa #1 is it constant?
+ bne 24f
+ leax 3,x skip it
+ bra 28f
+24 leax 3,x skip to name
+25 tst 0,x+
+ bne 25b
+28 ldd 0,s bump item count
+ addd #1
+ std 0,s
+ bra 2b
+3 puls d get count
+ ldx #datapl
+oglab2 pshs d save count
+4 cmpd #16 do at most 16 bytes
+ bls 6f
+ ldd #16 set count
+ bsr olabs output bytes
+ ldd 0,s get count
+ subd #16 dec by 16
+ std 0,s save new count
+ bra 4b repeat
+6 leas 2,s clean stack
+
+* output labels
+
+olabs pshs b,x save pointer and count
+ tstb count 0?
+ beq 5f
+ lda #LABELS set up il code
+ jsr outch
+ lda 0,s get count
+ jsr outch
+ ldx 1,s get data pointer
+2 lda 0,x get type
+ bne 22f
+ ldb #5
+ bsr olbent output entry
+ bra 3f
+22 cmpa #1 is it constant?
+ bne 25f
+ ldb #3
+ bsr olbent output entry
+ bra 3f
+25 ldb #3
+ bsr olbent output 1st part
+26 lda 0,x+ output name
+ beq 27f
+ jsr outch
+ bra 26b
+27 jsr outch
+3 dec 0,s dec the count
+ bne 2b
+5 leas 3,s clean stack
+ rts return
+
+* olbent
+
+olbent pshs b save count
+2 lda 0,x+ get byte
+ jsr outch output it
+ dec 0,s dec count
+ bne 2b
+ puls b,pc
+
+* output group of structures
+
+ogstrt jsr simpds simplify descriptor list
+ ldd #eldesc check for one descriptor
+ addd #2
+ cmpd nxteld
+ bne 2f
+ ldb eldesc get element type
+ bitb #$30 is it complex?
+ lbne oglab if so - do pointers
+ cmpb #CHR is it character?
+ lbeq ogbyt do bytes
+ jmp ogwrd do words
+2 ldx #datapl point to data
+ ldu #eldesc point to descriptors
+3 cmpx nxtdat end of data?
+ beq 7f
+ ldb 0,u+ get descriptor type
+ bitb #$30 is it complex?
+ bne 5f
+ cmpb #CHR is it character?
+ bne 4f
+ ldd 0,u++ get count
+ pshs u save pointer
+ jsr ogbyt2 output bytes
+ bra 6f
+4 ldd 0,u++ get count
+ pshs u
+ jsr ogwrd2 output words
+ bra 6f
+5 ldd 0,u++ get count
+ pshs u
+ jsr oglab2 output labels
+6 puls u get desc pointer
+ cmpu nxteld end of descs?
+ bne 3b
+ ldu #eldesc reset descriptor pointer
+ bra 3b
+7 rts return
+
+* simplify descriptor list
+
+simpds ldx #eldesc point to desc
+1 lda 0,x get type
+ bita #$30 is it complex?
+ bne 5f
+ cmpa #CHR is it character?
+ beq 5f
+ cmpa #UNSND is it 2 byte size?
+ bhi 3f
+2 lda #INT make int type
+ sta 0,x
+ bra 5f
+3 cmpa #FLOAT is it 4 bytes?
+ bhi 4f
+ ldd 1,x make into 2 ints
+ lslb X 2
+ rola
+ std 1,x save new count
+ bra 2b
+4 ldd 1,x must be double
+ lslb
+ rola
+ lslb
+ rola make X 4 ints
+ std 1,x save new count
+ bra 2b
+5 leax 3,x get to next desc
+ cmpx nxteld end of list?
+ bne 1b repeat
+ bsr compds compact descriptors
+ rts return
+
+* compact descriptor list
+
+compds ldx #eldesc point to descs
+1 leax 3,x point to next desc
+2 cmpx nxteld end of list?
+ beq 6f
+ ldb -3,x get previous type
+ cmpb 0,x same is this one?
+ bne 1b
+ ldd 1,x combine counts
+ addd -2,x
+ std -2,x save new count
+ pshs x save position
+3 leax 3,x remove current entry
+ cmpx nxteld end of list?
+ beq 4f
+ ldb 0,x move data down
+ stb -3,x
+ ldd 1,x
+ std -2,x
+ bra 3b repeat
+4 leax -3,x set new end
+ stx nxteld
+ puls x get old position
+ bra 2b repeat
+6 rts return
+
+* output initialized external data
+
+oiextd pshs d,x save data
+ jsr odata make data space
+ ldx 2,s get name
+ jsr oglobl make global
+ ldx 2,s get name
+ jsr odnam output data name
+ jsr oidata output init data
+ puls d,x,pc return
+
+* output cvt op
+
+ocvt pshs d
+ lda #CVC
+ jsr outch
+ puls d get type
+ jsr onum
+ lda #NNODE set up node type
+ jsr outch
+ ldb matlev get matrix level
+ clra
+ jmp onum
+

@@ -1,0 +1,313 @@
+
+ ttl Code generation - 2
+ pag
+
+*
+* Code generation for unary operators
+*
+
+unry lda moprtr,y get operator
+ ldb #61 set default compare type
+ stb comtyp (!=)
+ cmpa #30 is it sizeof?
+ lblo sizop
+ cmpa #33 is it inc-dec op?
+ lbls autop
+ cmpa #34
+ lbeq notop not operator?
+ cmpa #36 is it address operator?
+ lbls adrop
+ cmpa #37 is it negate?
+ lbeq negop
+
+*
+* Generate code for compliment operator
+*
+
+comop lbsr intchk check for integral types
+ beq comopr
+ lbsr ldfop load up operand
+ ldd #0 clear current var name
+ std crdvar
+ ldx #comtb point to routines
+ lbra douop go do it
+comopr rts return error
+
+comtb fdb com0
+ fdb com1
+ fdb com2
+
+
+* comp char
+
+com0 lbra otcomb output "comb"
+
+* comp int
+
+com1 lbra otcomd output "comd"
+
+* comp long
+
+com2 rts
+
+
+*
+* common routine select code
+*
+
+douop ldb oppair get op type
+ aslb
+ ldx b,x point to routine
+ pshs x
+ ldx #op1loc point to operand
+ jsr [0,s++]
+ lbra gtcuru set current type
+
+
+*
+* generate negate code
+*
+
+negop lbsr nopchk check for no pointer
+ beq negopr error?
+ lbsr ldfop load first op
+ ldd #0 clear current name
+ std crdvar
+ ldx #negtb point to routines
+ lbra douop go do routine
+negopr rts return error
+
+negtb fdb neg0
+ fdb neg1
+ fdb neg2
+ fdb neg3
+
+
+* negate character
+
+neg0 lbra otnegb output "negb"
+
+* negate int
+
+neg1 lbra otnegd output "negd"
+
+* negate long
+
+neg2 rts
+
+* negate fp
+
+neg3 rts
+
+
+*
+* classify unary operand
+*
+
+uncls clr ptrref
+ clr oppair
+ clrb zero counter
+ lda op1cls get class
+ bita #$30 pointer to ... ?
+ beq uncls1
+ inc ptrref set ptr reference
+ lda #INT make integer type
+uncls1 cmpa #CHR is it character?
+ beq uncls4
+ incb bump index
+ cmpa #INT is it integer?
+ beq uncls4
+ incb
+ cmpa #LONG|INT is it long int?
+ beq uncls4
+ incb bump index
+uncls4 stb oppair set type
+ andcc #$fb set true
+ rts return
+
+
+*
+* check for integral unary operand
+*
+
+intchk bsr uncls classify unary op
+ lda oppair get type
+ cmpa #3 is it fp?
+ beq intchr
+ andcc #$fb set true
+ rts return
+intchr clra set error
+ rts return
+
+*
+* check for no pointer type
+*
+
+nopchk bsr uncls check operand
+ tst ptrref pointer referenced?
+ bne intchr
+ andcc #$fb set true
+ rts return
+
+*
+* Address operator (*)
+*
+
+adrop cmpa #35 is it '&'?
+ beq adrsop
+indop lbsr uncls classify operand
+ tst ptrref is it pointer?
+ beq indopr error?
+ lda op1loc get location
+ cmpa #MEMLOC is it memory?
+ beq indop3
+ lda op1loc get location info
+ cmpa #XLOC is it in x?
+ bne indop1
+ lda matlev update level info
+ inca
+ sta xcont
+ lda mo1loc+1,y get entry level
+ lbsr flstop
+ cmpa #36 is it '*'?
+ bne indop3
+ tst xmod+mind indirect?
+ beq indo05
+ clr xmod+mind clear ind mode
+ pshs x
+ lbsr otxind output "ldx [0,x]"
+ puls x
+ bra indop3
+indo05 inc xmod+mind set ind mode
+ bra indop3
+indop1 cmpa #YLOC in y?
+ bne indo12
+ lda matlev update level
+ inca
+ sta ycont
+ lda mo1loc+1,y get location
+ lbsr flstop get op of previous
+ cmpa #36 is it '*'?
+ bne indop3
+ tst ymod+mind indirect?
+ beq indo11
+ clr ymod+mind clear ind mode
+ pshs x
+ lbsr otyind outout "ldy [0,y]"
+ puls x
+ bra indop3
+indo11 inc ymod+mind set ind mode
+ bra indop3
+indo12 lbsr ldfop load operand
+ ldd #0 clr variable name
+ std crdvar ***** ???? *****
+indop3 ldd op1clh get type info
+ lbsr rmtlv remove top level
+ std op1clh save new type
+ lbra gtcuru set type in matrix
+indopr clra set error
+ rts return
+
+*
+* Generate code for unary &
+*
+
+adrsop lda op1loc get op location
+ cmpa #MEMLOC in memory?
+ beq adrso1
+ ldd op1clh get type
+ tsta
+ bne adrsor error?
+ andb #$f0 check if straight type
+ bne adrsor
+ bra adrso6
+adrso1 tst xcont x busy?
+ beq adrso2
+ tst ycont y busy?
+ beq adrso4
+ lbsr pshxr push x reg
+adrso2 lbsr otleax output 'leax'
+ lda matlev set x contents
+ inca to current level
+ sta xcont
+ bra adrso5
+adrso4 lbsr otleay output 'leay'
+ lda matlev set y contents
+ inca to current level
+ sta ycont
+adrso5 ldx #op1loc point to op 1
+ inc eaflg set e.a. mode
+ lbsr gadr generate address
+adrso6 ldd op1clh get op type
+ pshs b
+ andb #$f0 remove type
+ lslb shift for new mod
+ rolb
+ bcs adrsor error?
+ lslb
+ rolb
+ bcs adrsor error?
+ orb #PTR<<4 make a pointer to
+ pshs b
+ ldb 1,s get original
+ andb #$f get type
+ orb 0,s
+ leas 2,s fix stack
+ lbra gtcur2 set new type
+adrsor clra set error
+ rts return
+
+*
+* Remove top type level. (Type in D)
+*
+
+rmtlv pshs b save low half
+ andb #$c0 remove low bits
+ lsra shift to new position
+ rorb
+ lsra
+ rorb
+ pshs b save new low
+ ldb 1,s get old low
+ andb #$f mask type
+ orb 0,s or in new
+ leas 2,s adjust stack
+ rts return
+
+*
+* Find current levels next operator
+*
+
+fclop ldb matlev get level
+ incb
+ clra
+ leax MATSIZ,y get to next entry
+fclop2 cmpd mo1loc,x look for entry
+ beq fclop4
+ cmpd mo2loc,x
+ beq fclop4
+ leax MATSIZ,x next entry
+ bra fclop2 repeat
+fclop4 lda moprtr,x get operator at this level
+ rts return it
+
+*
+* Find last referenced entry operator
+*
+
+flstop pshs x
+ ldx #emat point to exp matrix
+ ldb #MATSIZ
+ deca
+ mul
+ leax d,x point to entry
+ lda moprtr,x get operator
+ puls x,pc return
+
+
+sizop
+autop
+notop
+ rts
+
+

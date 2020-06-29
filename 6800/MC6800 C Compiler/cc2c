@@ -1,0 +1,509 @@
+
+* start here
+
+pass2 bsr ioinit init io
+* main loop here
+
+loop jsr inch get a character
+ tst eof end of file
+ beq 2f
+ jsr flusho fluch output
+ ldd #0 set status
+ sys term exit
+2 tsta check op type
+ bpl 25f
+loop2 cmpa #161
+ bls 3f
+25 jsr flusho
+ ldu #$0001
+ swi
+3 suba #128 remove bias
+ asla times 2
+ ldx #mopt point to table
+ jsr [a,x] goto routine
+ bra loop
+
+
+ data
+
+* mop table
+
+mopt fdb enditm
+ fdb begexp
+ fdb endexp
+ fdb nname
+ fdb ncon
+ fdb nnode
+ fdb label
+ fdb branch
+ fdb cbrnch
+ fdb begfnt
+ fdb endfnt
+ fdb swit
+ fdb stvar
+ fdb autvar
+ fdb regvar
+ fdb prfil
+ fdb text
+ fdb data
+ fdb bss
+ fdb sspace
+ fdb bytes
+ fdb words
+ fdb dname
+ fdb exters
+ fdb comdat
+ fdb cmnt
+ fdb strng
+ fdb begblk
+ fdb endblk
+ fdb begmod
+ fdb endmod
+ fdb clnstk
+ fdb global
+ fdb labels
+
+ text
+
+enditm
+endexp
+nname
+ncon
+nnode
+prfil
+exters
+comdat
+clnstk
+ rts
+
+
+* begin expression
+
+begexp ldx #m1 point to string
+ jsr ostr
+ jsr gonum output number
+ jsr pcrlf output cr
+ jmp doexp go do expression
+
+* begin function
+
+begfnt jsr gostr print name
+ ldx #m2
+ jmp ostr output string
+
+* end function
+
+endfnt ldx #m3 output string
+ jmp ostr
+
+* branch
+
+branch ldx #m4
+ jsr ostr
+ jsr gonum output label number
+ jmp pcrlf
+
+* cbrnch
+
+cbrnch jsr inch get condition
+ tsta
+ beq 2f
+ lda #$ff set to all ones
+2 tst revcon reverse sense?
+ beq 3f
+ coma do reverse
+3 tsta
+ beq 6f
+ ldx #m35 output bne code
+ bra 7f
+6 ldx #m355 output beq code
+7 jsr ostr
+ jsr getnum get label number
+ jsr gnmnos output number
+ jmp pcrlf
+
+* label
+
+label lda #'L output L
+ jsr outch
+ jsr gonum
+ jmp pcrlf
+
+* pass comment
+
+cmnt lda #'* output comment char
+ jsr outch
+ lda #$20 output space
+ jsr outch
+ jsr inch get char
+ cmpa #$d
+ bne 4f
+2 jsr inch get char
+4 tsta is it null
+ beq 6f
+ jsr outch output it
+ cmpa #$d was it NL?
+ bne 2b
+ jsr inch get next char
+ tsta
+ beq 6f
+ pshs a save char
+ lda #'* output header
+ jsr outch
+ lda #$20
+ jsr outch
+ puls a
+ bra 4b
+6 rts return
+
+* output string
+
+strng jsr label print label header
+2 lda #16 set max value counter
+ pshs a
+ ldx #m16 print 'fcb' string
+ jsr ostr
+4 jsr inch get character
+ tfr a,b set up 16 bits
+ clra
+ tstb is it null term?
+ beq 6f
+ jsr gnmnos generate number field
+ dec 0,s dec max counter
+ beq 5f
+ lda #', output a comma
+ jsr outch
+ bra 4b repeat
+5 jsr pcrlf get to new line
+ puls a get counter
+ bra 2b repeat
+6 jsr gnmnos generate null term
+ puls a fix stack
+ jmp pcrlf do new line & exit
+
+* output switch code
+
+swit jsr getnum get line number
+ jsr getnum get default label
+ pshs d save on stack
+ cmpd #0 is there a default?
+ bne 2f
+ jsr genlab generate a term label
+2 pshs d save term label
+ jsr genlab generate loop label
+ pshs d save it
+ jsr genlab generate label label
+ pshs d save it
+ jsr genlab generate list label
+ pshs d save it
+ ldx #swtlst point to switch list buffer
+4 jsr getnum xfr values to buffer
+ std 0,x++
+ beq 42f
+ jsr getnum get value
+ std 0,x++
+ bra 4b
+42 ldx #m34 output ldx code
+ jsr ostr
+ ldd 0,s get list label
+ jsr swtlbl
+ ldx #m341 output  std code
+ jsr ostr
+ ldd 2,s get label label
+ jsr swtlbl output it
+ ldd 4,s get loop label
+ jsr swtlbl output it
+ ldx #m342 output cmpd code
+ jsr ostr
+ ldd 4,s get loop label
+ jsr swtlbl output it
+ ldx #m343 output jmp code
+ jsr ostr
+ ldd 2,s get label label
+ jsr gnmnos output number
+ ldx #m344 output -L part
+ jsr ostr
+ ldd 0,s get list swtlbl
+ jsr gnmnos output number
+ ldx #m345 output rest of jmp code line
+ jsr ostr
+ ldd 0,s get list label
+ jsr swtlbl output it
+ ldu #swtlst point to switch buffer
+5 lda #16 set max counter
+ pshs a
+ ldx #m32 output fdb
+ jsr ostr
+6 ldd 0,u check for list termination
+ beq 7f
+ ldd 2,u get value
+ jsr gnmnos output number
+ ldd 4,u check if last item
+ beq 67f
+ dec 0,s dec max counter
+ bne 65f
+ jsr pcrlf get to new line
+ puls a fix stack
+ leau 4,u bump to next value
+ bra 5b repeat
+65 lda #', output comma
+ jsr outch
+67 leau 4,u get to next item
+ bra 6b repeat
+7 jsr pcrlf new line time
+ puls a fix stack
+ ldd 2,s get label label
+ jsr swtlbl output it
+ ldx #m346 output fdb 0 code
+ jsr ostr
+ ldu #swtlst point to switch buffer
+75 lda #16 set max counter
+ pshs a
+ ldx #m32 output fdb
+ jsr ostr
+8 lda #'L output label L
+ jsr outch
+ ldd 0,u get label number
+ beq 9f end of list?
+ jsr gnmnos output number
+ dec 0,s dec the max counter
+ bne 85f
+ jsr pcrlf need a new line
+ puls a fix stack
+ leau 4,u get to next item
+ bra 75b repeat
+85 lda #', output comma
+ jsr outch
+ leau 4,u next item
+ bra 8b repeat
+9 puls a fix stack
+ ldd 8,s get default label
+ bne 92f
+ ldd 6,s use term label
+92 jsr gnmnos output number
+ jsr pcrlf term line
+ ldd 8,s is there a default?
+ bne 95f if not -
+ jsr text output text segment
+ ldd 6,s output term label
+ jsr swtlbl
+95 leas 10,s fix stack
+ rts return
+
+* output switch label
+
+swtlbl pshs d save number
+ lda #'L output L
+ jsr outch
+ puls d
+ jsr gnmnos output number
+ jmp pcrlf do new line
+
+* output begin block
+
+begblk jsr getnum get number
+ cmpd #0 is it zero?
+ bne 4f if so - exit
+ rts return
+4 pshs d save label number
+ ldx #m18 point to string
+ jsr ostr
+ puls d get label
+ jsr gnmnos output number
+ ldx #m185 output rest of string
+ jmp ostr then exit
+
+* output end block
+
+endblk jsr getnum get label number
+ pshs d
+ jsr getnum get value
+ addd #2 EXTRA for 0,s stuff ***** needs ln and fp too (12 more) ***
+ pshs d
+ jsr inch get flag
+ pshs a
+ ldd 3,s check label for 0
+ beq 6f
+ ldx #m5 output label header
+ jsr ostr
+ ldd 3,s get label number
+ jsr gonum2 output it
+ ldx #m19 point to equ string
+ jsr ostr
+ ldd 1,s get value
+ jsr gnmnos output the value
+ jsr pcrlf get to new line
+ ldb 0,s check flag
+ beq 6f
+ ldx #m195 point to leas string
+ jsr ostr
+ ldd 1,s get value
+ jsr gnmnos output it
+ ldx #m196 term string
+ jsr ostr
+6 leas 5,s clean stack
+ rts return
+
+* end module
+
+endmod ldx #m21
+ jmp ostr
+
+* begin module
+
+begmod ldx #m20 output string
+ jsr ostr
+ jsr gostr print name
+ jmp pcrlf
+
+* global
+
+global ldx #m25 print string
+ jsr ostr
+ jsr gostr print name
+ jmp pcrlf
+
+* text
+
+text ldx #m22
+ jmp ostr
+
+* data
+
+data ldx #m23
+ jmp ostr
+
+* bss
+
+bss ldx #m24
+ jmp ostr
+
+* stvar
+
+stvar ldx #m26 output string
+stvar2 jsr ostr
+ jsr getnum get label number
+ pshs d
+ jsr gostr output name
+ jsr pcrlf
+ lda #'L output label
+ jsr outch
+ puls d
+ jmp gnmnos
+
+* autvar
+
+autvar ldx #m27 output string
+ bra regva2
+
+* regvar
+
+regvar ldx #m28 output string
+regva2 jsr ostr output string
+ jsr gonum output number
+ jsr gostr output name
+ jmp pcrlf term line
+
+* sspace
+
+sspace ldx #m29 output string
+ jsr ostr
+ jsr gonum output size
+ jmp pcrlf
+
+* dname
+
+dname ldx #m30 output string
+ jsr ostr
+ jmp gostr output name
+
+* bytes
+
+bytes ldx #m31 output string
+ jsr ostr
+ jsr inch get count
+ pshs a save count
+1 lda #16 set max value counter
+ pshs a
+2 jsr inch get byte
+ tfr a,b
+ clra
+ jsr gnmnos output number
+ dec 1,s dec the value counter
+ beq 6f
+ dec 0,s dec max counter
+ beq 4f
+ lda #', output comma
+ jsr outch
+ bra 2b repeat
+4 jsr pcrlf get to new line
+ puls a pull max counter
+ bra 1b
+6 jsr pcrlf print new line
+ puls d,pc
+
+* words
+
+words ldx #m32 output string
+ jsr ostr
+wl jsr inch get count
+ pshs a
+1 lda #16 set max counter
+ pshs a
+2 jsr getnum get word value
+ jsr gnmnos output it
+ dec 1,s dec data counter
+ beq 6f
+ dec 0,s dec max counter
+ beq 4f
+ lda #', output comma
+ jsr outch
+ bra 2b
+4 jsr pcrlf get to new line
+ puls a fix stack
+ bra 1b repeat
+6 jsr pcrlf print new line
+ puls d,pc return
+
+* labels
+
+labels ldx #m32 output string
+ jsr ostr
+ jsr inch get count
+ pshs a save it
+2 jsr inch get type
+ cmpa #0 is it label
+ beq labt0
+ cmpa #1 is it constant?
+ beq labt1
+labt2 jsr getnum get value
+ pshs d save it
+ jsr gostr output name
+ ldd 0,s get offset
+ beq label4
+ bra 5f
+labt1 jsr getnum output number
+ pshs d
+ jsr gnmnos output number
+ bra label4
+labt0 jsr getnum get offset
+ pshs d
+ lda #'L output label number
+ jsr outch
+ jsr getnum
+ jsr gnmnos output it
+ ldd 0,s get value
+ beq label4
+5 lda #'+ output offset
+ jsr outch
+ ldd 0,s get value
+ jsr gnmnos output number
+label4 leas 2,s fix stack
+ dec 0,s dec the count
+ beq 8f
+ lda #', output comma
+ jsr outch
+ bra 2b
+8 puls a
+ jmp pcrlf
+
