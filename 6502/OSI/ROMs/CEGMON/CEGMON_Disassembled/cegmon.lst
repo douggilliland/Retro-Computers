@@ -26,6 +26,10 @@ Current file: cegmon.s
 00F800  1               EDFLAG			:= $0204	; EDFLAG Editor flag 00-disable edit cursor, ff-enabe edit cursor
 00F800  1               BSAVEFL         := $0205	; BASIC Save Flag
 00F800  1               SDELAY 			:= $0206 	; Print-delay value for SCREEN delay is delay-value times approx. 400 machine-cycles (ie times 400 micro-seconds at 1MHz)
+00F800  1               CCFLAG			:= $0212 	; BASIC CTRL-C flag 00-enables CTRL-C break, 01-disables CTRL-C break
+00F800  1               COUNTR			:= $0214 	; Auto-repeat counter for GETKEY
+00F800  1               SCRTCH			:= $0215	; Returns from GETKEY with final ASCII value of key
+00F800  1               LSTCHR			:= $0216 	; Pre-shift value of last key left here by GETKEY to test auto-repeat
 00F800  1               BINVECT         := $0218	; BASIC Input Vector
 00F800  1               BOUTVEC			:= $021A	; BASIC Output Vector
 00F800  1               BCTLCVC			:= $021C	; BASIC CTRL-C Check Vector
@@ -33,7 +37,12 @@ Current file: cegmon.s
 00F800  1               BSAVECT			:= $0220	; BASIC Save Vector
 00F800  1               L0227           := $0227
 00F800  1               L022A           := $022A
+00F800  1               ECDISPL			:= $022F 	; DISP edit-cursor displacement from start of editors current line
+00F800  1               CURCHR			:= $0230 	; Store for char beneath edit cursor
+00F800  1               CURSLO			:= $0231	; Contains start of edit cursors current line on screen
+00F800  1               CURSHI			:= $0232  	; Contains start of edit cursors current line on screen
 00F800  1               USERLO          := $0233	; Location of start of user routine called by machine code monitors U command
+00F800  1               USERHI			:= $0234 	; Location of start of user routine called by machine code monitors U command
 00F800  1               ;
 00F800  1               L2F44           := $2F44
 00F800  1               L415A           := $415A
@@ -44,6 +53,10 @@ Current file: cegmon.s
 00F800  1               LBF2D           := $BF2D
 00F800  1               ; Video RAM addresses
 00F800  1               LD08C           := $D08C
+00F800  1               ; ACIA addresses
+00F800  1               ACIAST			:= $F000	; ACIA Status Register
+00F800  1               ACIADR			:= $F001	; ACIA Data Register
+00F800  1               
 00F800  1               ; Start of ROM code
 00F800  1  A5 0E        LF800:  lda     $0E
 00F802  1  F0 06                beq     LF80A
@@ -80,23 +93,23 @@ Current file: cegmon.s
 00F846  1  AC 06 02     LF846:  ldy     SDELAY		; $0206 SDELAY print-delay value for SCREEN delay is delay-value times approx. 400 machine-cycles (ie times 400 micro-seconds at 1MHz)
 00F849  1  F0 03                beq     LF84E
 00F84B  1  20 E1 FC             jsr     DELAY2
-00F84E  1  C9 5F        LF84E:  cmp     #$5F
+00F84E  1  C9 5F        LF84E:  cmp     #$5F		; Underscore
 00F850  1  F0 AE                beq     LF800
-00F852  1  C9 0C                cmp     #$0C
+00F852  1  C9 0C                cmp     #$0C		; Form Feed
 00F854  1  D0 0B                bne     LF861
 00F856  1  20 8C FF             jsr     SCOUT
 00F859  1  20 D1 FF             jsr     CURHOM
 00F85C  1  8E 00 02             stx     CURDIS		; $0200 CURDIS cursor displacement on current line
 00F85F  1  F0 6E                beq     LF8CF
-00F861  1  C9 0A        LF861:  cmp     #$0A
+00F861  1  C9 0A        LF861:  cmp     #$0A		; Line Feed character
 00F863  1  F0 27                beq     LF88C
-00F865  1  C9 1E                cmp     #$1E
+00F865  1  C9 1E                cmp     #$1E		; Record Separator
 00F867  1  F0 77                beq     LF8E0
-00F869  1  C9 0B                cmp     #$0B
+00F869  1  C9 0B                cmp     #$0B		; Vertical Tab
 00F86B  1  F0 10                beq     LF87D
-00F86D  1  C9 1A                cmp     #$1A
+00F86D  1  C9 1A                cmp     #$1A		; SUB key
 00F86F  1  F0 67                beq     LF8D8
-00F871  1  C9 0D                cmp     #$0D
+00F871  1  C9 0D                cmp     #$0D		; Carriage Return
 00F873  1  D0 05                bne     LF87A
 00F875  1  20 6D FF             jsr     LFF6D
 00F878  1  D0 58                bne     LF8D2
@@ -194,7 +207,7 @@ Current file: cegmon.s
 00F94D  1  40                   rti
 00F94E  1  A2 03        LF94E:  ldx     #$03
 00F950  1  BD 4B FA     LF950:  lda     LFA4B,x
-00F953  1  9D 34 02             sta     $0234,x		; $0233 USERHI contains location of start of user routine called by machine code monitors U command
+00F953  1  9D 34 02             sta     USERHI,x	; $0234 USERHI contains location of start of user routine called by machine code monitors U command
 00F956  1  CA                   dex
 00F957  1  D0 F7                bne     LF950
 00F959  1  20 8D FE             jsr     GETNEW
@@ -221,17 +234,17 @@ Current file: cegmon.s
 00F983  1  84 FB                sty     $FB
 00F985  1  20 E0 FB             jsr     LFBE0
 00F988  1  20 8D FE     LF988:  jsr     GETNEW
-00F98B  1  C9 4D                cmp     #$4D
+00F98B  1  C9 4D                cmp     #$4D		; 'M'
 00F98D  1  F0 A4                beq     LF933
-00F98F  1  C9 52                cmp     #$52
+00F98F  1  C9 52                cmp     #$52		; 'R'
 00F991  1  F0 A8                beq     LF93B
-00F993  1  C9 5A                cmp     #$5A
+00F993  1  C9 5A                cmp     #$5A		; 'Z'
 00F995  1  F0 B7                beq     LF94E
-00F997  1  C9 53                cmp     #$53
+00F997  1  C9 53                cmp     #$53		; 'S'
 00F999  1  F0 CD                beq     LF968
-00F99B  1  C9 4C                cmp     #$4C
+00F99B  1  C9 4C                cmp     #$4C		; 'L'
 00F99D  1  F0 CC                beq     LF96B
-00F99F  1  C9 55                cmp     #$55
+00F99F  1  C9 55                cmp     #$55		; 'U'
 00F9A1  1  D0 33                bne     LF9D6
 00F9A3  1  6C 33 02             jmp     (USERLO)
 00F9A6  1  20 8D FE     TWOQAD: jsr     GETNEW		; $F9A6 TWOQAD - collect two addresses first stored in (FE) pair, second in (F9)
@@ -269,19 +282,19 @@ Current file: cegmon.s
 00F9F4  1  D0 06                bne     LF9FC
 00F9F6  1  20 F9 FE             jsr     BUMP
 00F9F9  1  4C E8 F9             jmp     LF9E8
-00F9FC  1  C9 0A        LF9FC:  cmp     #$0A
+00F9FC  1  C9 0A        LF9FC:  cmp     #$0A		; Line Feed
 00F9FE  1  F0 16                beq     LFA16
-00FA00  1  C9 0D                cmp     #$0D
+00FA00  1  C9 0D                cmp     #$0D		; Carriage Return
 00FA02  1  F0 17                beq     LFA1B
-00FA04  1  C9 5E                cmp     #$5E
+00FA04  1  C9 5E                cmp     #$5E		; Up arrow
 00FA06  1  F0 19                beq     LFA21
-00FA08  1  C9 27                cmp     #$27
+00FA08  1  C9 27                cmp     #$27		; Single quote
 00FA0A  1  F0 2E                beq     LFA3A
 00FA0C  1  20 BE F9             jsr     GETPRC
 00FA0F  1  A5 FC                lda     $FC
-00FA11  1  91 FE                sta     (L00FE),y		; $00FE LOFROM store current address for most routines the from address in save move
+00FA11  1  91 FE                sta     (L00FE),y	; $00FE LOFROM store current address for most routines the from address in save move
 00FA13  1  4C E8 F9     LFA13:  jmp     LF9E8
-00FA16  1  A9 0D        LFA16:  lda     #$0D
+00FA16  1  A9 0D        LFA16:  lda     #$0D		; Carriage Return
 00FA18  1  20 EE FF             jsr     OUTVEC
 00FA1B  1  20 F9 FE     LFA1B:  jsr     BUMP
 00FA1E  1  4C 31 FA             jmp     LFA31
@@ -364,19 +377,19 @@ Current file: cegmon.s
 00FAC0  1  48                   pha
 00FAC1  1  AD 04 02             lda     EDFLAG		; $0204 EDFLAG Editor flag 00-disable edit cursor, ff-enabe edit cursor
 00FAC4  1  10 59                bpl     LFB1F
-00FAC6  1  AC 2F 02     LFAC6:  ldy     $022F		; $022F DISP edit-cursor displacement from start of editors current line
-00FAC9  1  AD 31 02             lda     $0231		; $0231 CURSLO contain start of edit cursors current line on screen
+00FAC6  1  AC 2F 02     LFAC6:  ldy     ECDISPL		; $022F DISP edit-cursor displacement from start of editors current line
+00FAC9  1  AD 31 02             lda     CURSLO		; $0231 CURSLO contain start of edit cursors current line on screen
 00FACC  1  85 E4                sta     $E4			; Break table K register - stack pointer
-00FACE  1  AD 32 02             lda     $0232		; $0232 CURSHI contain start of edit cursors current line on screen
+00FACE  1  AD 32 02             lda     CURSHI		; $0232 CURSHI contain start of edit cursors current line on screen
 00FAD1  1  85 E5                sta     $E5			; Break table PCL - low byte of program counter
 00FAD3  1  B1 E4                lda     ($E4),y		; Break table K register - stack pointer
-00FAD5  1  8D 30 02             sta     $0230		; $0230 CURCHR store for char beneath edit cursor
+00FAD5  1  8D 30 02             sta     CURCHR		; $0230 CURCHR store for char beneath edit cursor
 00FAD8  1  A9 A1                lda     #$A1
 00FADA  1  91 E4                sta     ($E4),y		; Break table K register - stack pointer
 00FADC  1  20 00 FD             jsr     GETKEY
-00FADF  1  AD 30 02             lda     $0230		; $0230 CURCHR store for char beneath edit cursor
+00FADF  1  AD 30 02             lda     CURCHR		; $0230 CURCHR store for char beneath edit cursor
 00FAE2  1  91 E4                sta     ($E4),y		; Break table K register - stack pointer
-00FAE4  1  AD 15 02             lda     $0215		; $0215 SCRTCH returns from GETKEY with final ASCII value of key
+00FAE4  1  AD 15 02             lda     SCRTCH		; $0215 SCRTCH returns from GETKEY with final ASCII value of key
 00FAE7  1  C9 11                cmp     #$11
 00FAE9  1  F0 28                beq     LFB13
 00FAEB  1  C9 01                cmp     #$01
@@ -395,8 +408,8 @@ Current file: cegmon.s
 00FB0A  1  4C C6 FA             jmp     LFAC6
 00FB0D  1  20 19 FE     LFB0D:  jsr     LFE19
 00FB10  1  4C C6 FA             jmp     LFAC6
-00FB13  1  AD 30 02     LFB13:  lda     $0230		; $0230 CURCHR store for char beneath edit cursor
-00FB16  1  8D 15 02             sta     $0215		; $0215 SCRTCH returns from GETKEY with final ASCII value of key
+00FB13  1  AD 30 02     LFB13:  lda     CURCHR		; $0230 CURCHR store for char beneath edit cursor
+00FB16  1  8D 15 02             sta     SCRTCH		; $0215 SCRTCH returns from GETKEY with final ASCII value of key
 00FB19  1  20 6B FB             jsr     LFB6B
 00FB1C  1  4C 43 FB             jmp     LFB43
 00FB1F  1  20 00 FD     LFB1F:  jsr     GETKEY
@@ -407,11 +420,11 @@ Current file: cegmon.s
 00FB2B  1  8D 04 02             sta     EDFLAG		; $0204 EDFLAG Editor flag 00-disable edit cursor, ff-enabe edit cursor
 00FB2E  1  10 EF                bpl     LFB1F
 00FB30  1  AD 2B 02             lda     $022B
-00FB33  1  8D 31 02             sta     $0231		; $0231 CURSLO contain start of edit cursors current line on screen
+00FB33  1  8D 31 02             sta     CURSLO		; $0231 CURSLO contain start of edit cursors current line on screen
 00FB36  1  AD 2C 02             lda     $022C
-00FB39  1  8D 32 02             sta     $0232		; $0232 CURSHI contain start of edit cursors current line on screen
+00FB39  1  8D 32 02             sta     CURSHI		; $0232 CURSHI contain start of edit cursors current line on screen
 00FB3C  1  A2 00                ldx     #$00
-00FB3E  1  8E 2F 02             stx     $022F		; $022F DISP edit-cursor displacement from start of editors current line
+00FB3E  1  8E 2F 02             stx     ECDISPL		; $022F DISP edit-cursor displacement from start of editors current line
 00FB41  1  F0 83                beq     LFAC6
 00FB43  1  4C D3 FD     LFB43:  jmp     LFDD3
 00FB46  1  2C 03 02             bit     BLOADFL		; $FB46 - Input vector points to there??? - seems off???
@@ -422,10 +435,10 @@ Current file: cegmon.s
 00FB50  1  A9 10                lda     #$10
 00FB52  1  2C 00 DF             bit     $DF00
 00FB55  1  F0 0A                beq     LFB61
-00FB57  1  AD 00 F0     TAPIN:  lda     $F000		; TAPIN - collects char from ACIA exits via EDITOR if SPACE hit.
+00FB57  1  AD 00 F0     TAPIN:  lda     ACIAST		; TAPIN - collects char from ACIA exits via EDITOR if SPACE hit.
 00FB5A  1  4A                   lsr     a
 00FB5B  1  90 EE                bcc     LFB4B
-00FB5D  1  AD 01 F0             lda     $F001
+00FB5D  1  AD 01 F0             lda     ACIADR
 00FB60  1  60                   rts
 00FB61  1               
 00FB61  1  A9 00        LFB61:  lda     #$00
@@ -433,26 +446,26 @@ Current file: cegmon.s
 00FB65  1  8D 03 02             sta     BLOADFL		; $0203 LDFLAG BASIC load flag 00=no load, FF-load from ACIA
 00FB68  1  4C BD FA     LFB68:  jmp     EDITOR
 00FB6B  1  AE 22 02     LFB6B:  ldx     $0222
-00FB6E  1  EC 2F 02             cpx     $022F		; $022F DISP edit-cursor displacement from start of editors current line
+00FB6E  1  EC 2F 02             cpx     ECDISPL		; $022F DISP edit-cursor displacement from start of editors current line
 00FB71  1  F0 04                beq     LFB77
-00FB73  1  EE 2F 02             inc     $022F		; $022F DISP edit-cursor displacement from start of editors current line
+00FB73  1  EE 2F 02             inc     ECDISPL		; $022F DISP edit-cursor displacement from start of editors current line
 00FB76  1  60                   rts
 00FB77  1               
 00FB77  1  A2 00        LFB77:  ldx     #$00
-00FB79  1  8E 2F 02             stx     $022F		; $022F DISP edit-cursor displacement from start of editors current line
+00FB79  1  8E 2F 02             stx     ECDISPL		; $022F DISP edit-cursor displacement from start of editors current line
 00FB7C  1  18           LFB7C:  clc
-00FB7D  1  AD 31 02             lda     $0231		; $0231 CURSLO contain start of edit cursors current line on screen
+00FB7D  1  AD 31 02             lda     CURSLO		; $0231 CURSLO contain start of edit cursors current line on screen
 00FB80  1  69 40                adc     #$40
-00FB82  1  8D 31 02             sta     $0231		; $0231 CURSLO contain start of edit cursors current line on screen
-00FB85  1  AD 32 02             lda     $0232		; $0232 CURSHI contain start of edit cursors current line on screen
+00FB82  1  8D 31 02             sta     CURSLO		; $0231 CURSLO contain start of edit cursors current line on screen
+00FB85  1  AD 32 02             lda     CURSHI		; $0232 CURSHI contain start of edit cursors current line on screen
 00FB88  1  69 00                adc     #$00
 00FB8A  1  C9 D8                cmp     #$D8
 00FB8C  1  D0 02                bne     LFB90
 00FB8E  1  A9 D0                lda     #$D0
-00FB90  1  8D 32 02     LFB90:  sta     $0232		; $0232 CURSHI contain start of edit cursors current line on screen
+00FB90  1  8D 32 02     LFB90:  sta     CURSHI		; $0232 CURSHI contain start of edit cursors current line on screen
 00FB93  1  60           LFB93:  rts
 00FB94  1               
-00FB94  1  AD 12 02             lda     $0212		; $0212 CCFLAG BASIC CTRL-C flag 00-enables CTRL-C break, 01-disables CTRL-C break
+00FB94  1  AD 12 02             lda     CCFLAG		; $0212 CCFLAG BASIC CTRL-C flag 00-enables CTRL-C break, 01-disables CTRL-C break
 00FB97  1  D0 FA                bne     LFB93
 00FB99  1  A9 FE                lda     #$FE
 00FB9B  1  8D 00 DF             sta     $DF00
@@ -508,6 +521,7 @@ Current file: cegmon.s
 00FBFA  1  A9 0A                lda     #$0A
 00FBFC  1  4C EE FF             jmp     OUTVEC
 00FBFF  1  40                   rti
+00FC00  1               ; Disk stuff follows - may be non-sense code
 00FC00  1  20 0C FC     DISK:   jsr     LFC0C		; $FC00 DISK entry to disc bootstrap
 00FC03  1  6C FD 00             jmp     (L00FD)
 00FC06  1  20 0C FC             jsr     LFC0C
@@ -582,20 +596,20 @@ Current file: cegmon.s
 00FCA0  1  90 FA                bcc     LFC9C
 00FCA2  1  AD 11 C0             lda     $C011
 00FCA5  1  60           LFCA5:  rts
-00FCA6  1               
+00FCA6  1               ; Serial stuff
 00FCA6  1  A9 03        RSACIA: lda     #$03		; $FCA6 - RSACIA initialize ACIA
-00FCA8  1  8D 00 F0             sta     $F000
+00FCA8  1  8D 00 F0             sta     ACIAST
 00FCAB  1  A9 11                lda     #$11
-00FCAD  1  8D 00 F0             sta     $F000
+00FCAD  1  8D 00 F0             sta     ACIAST
 00FCB0  1  60                   rts
 00FCB1  1               
 00FCB1  1  48           TAPOUT: pha					; $FCB1 - output to tape
-00FCB2  1  AD 00 F0     LFCB2:  lda     $F000
+00FCB2  1  AD 00 F0     LFCB2:  lda     ACIAST
 00FCB5  1  4A                   lsr     a
 00FCB6  1  4A                   lsr     a
 00FCB7  1  90 F9                bcc     LFCB2
 00FCB9  1  68                   pla
-00FCBA  1  8D 01 F0             sta     $F001
+00FCBA  1  8D 01 F0             sta     ACIADR
 00FCBD  1  60                   rts
 00FCBE  1               
 00FCBE  1  49 FF        KEYWRT: eor     #$FF		; $FCBE - KEYWRT write-to-keyboard invert for C1
@@ -652,41 +666,41 @@ Current file: cegmon.s
 00FD1D  1  D0 31                bne     LFD50
 00FD1F  1  20 86 FE     LFD1F:  jsr     LFE86
 00FD22  1  98                   tya
-00FD23  1  8D 15 02             sta     $0215		; $0215 SCRTCH returns from GETKEY with final ASCII value of key
+00FD23  1  8D 15 02             sta     SCRTCH		; $0215 SCRTCH returns from GETKEY with final ASCII value of key
 00FD26  1  0A                   asl     a
 00FD27  1  0A                   asl     a
 00FD28  1  0A                   asl     a
 00FD29  1  38                   sec
-00FD2A  1  ED 15 02             sbc     $0215		; $0215 SCRTCH returns from GETKEY with final ASCII value of key
-00FD2D  1  8D 15 02             sta     $0215		; $0215 SCRTCH returns from GETKEY with final ASCII value of key
+00FD2A  1  ED 15 02             sbc     SCRTCH		; $0215 SCRTCH returns from GETKEY with final ASCII value of key
+00FD2D  1  8D 15 02             sta     SCRTCH		; $0215 SCRTCH returns from GETKEY with final ASCII value of key
 00FD30  1  8A                   txa
 00FD31  1  4A                   lsr     a
 00FD32  1  0A                   asl     a
 00FD33  1  20 86 FE             jsr     LFE86
 00FD36  1  F0 0F                beq     LFD47
 00FD38  1  A9 00                lda     #$00
-00FD3A  1  8D 16 02     LFD3A:  sta     $0216		; $0216 LSTCHR pre-shift value of last key left here by GETKEY to test auto-repeat
+00FD3A  1  8D 16 02     LFD3A:  sta     LSTCHR		; $0216 LSTCHR pre-shift value of last key left here by GETKEY to test auto-repeat
 00FD3D  1  8D 13 02     LFD3D:  sta     $0213
 00FD40  1  A9 02                lda     #$02
-00FD42  1  8D 14 02             sta     $0214		; $0214 COUNTR auto-repeat counter for GETKEY
+00FD42  1  8D 14 02             sta     COUNTR		; $0214 COUNTR auto-repeat counter for GETKEY
 00FD45  1  D0 BD                bne     LFD04
 00FD47  1  18           LFD47:  clc
 00FD48  1  98                   tya
-00FD49  1  6D 15 02             adc     $0215		; $0215 SCRTCH returns from GETKEY with final ASCII value of key
+00FD49  1  6D 15 02             adc     SCRTCH		; $0215 SCRTCH returns from GETKEY with final ASCII value of key
 00FD4C  1  A8                   tay
 00FD4D  1  B9 3B FF             lda     LFF3B,y
 00FD50  1  CD 13 02     LFD50:  cmp     $0213
 00FD53  1  D0 E8                bne     LFD3D
-00FD55  1  CE 14 02             dec     $0214		; $0214 COUNTR auto-repeat counter for GETKEY
+00FD55  1  CE 14 02             dec     COUNTR		; $0214 COUNTR auto-repeat counter for GETKEY
 00FD58  1  F0 05                beq     LFD5F
 00FD5A  1  20 DF FC             jsr     KDELAY
 00FD5D  1  F0 A5                beq     LFD04
 00FD5F  1  A2 64        LFD5F:  ldx     #$64
-00FD61  1  CD 16 02             cmp     $0216		; $0216 LSTCHR pre-shift value of last key left here by GETKEY to test auto-repeat
+00FD61  1  CD 16 02             cmp     LSTCHR		; $0216 LSTCHR pre-shift value of last key left here by GETKEY to test auto-repeat
 00FD64  1  D0 02                bne     LFD68
 00FD66  1  A2 0F                ldx     #$0F
-00FD68  1  8E 14 02     LFD68:  stx     $0214		; $0214 COUNTR auto-repeat counter for GETKEY
-00FD6B  1  8D 16 02             sta     $0216		; $0216 LSTCHR pre-shift value of last key left here by GETKEY to test auto-repeat
+00FD68  1  8E 14 02     LFD68:  stx     COUNTR		; $0214 COUNTR auto-repeat counter for GETKEY
+00FD6B  1  8D 16 02             sta     LSTCHR		; $0216 LSTCHR pre-shift value of last key left here by GETKEY to test auto-repeat
 00FD6E  1  C9 21                cmp     #$21
 00FD70  1  30 5E                bmi     LFDD0
 00FD72  1  C9 5F                cmp     #$5F
@@ -694,10 +708,10 @@ Current file: cegmon.s
 00FD76  1  A9 01                lda     #$01
 00FD78  1  20 BE FC             jsr     KEYWRT
 00FD7B  1  20 CF FC             jsr     KYREAD
-00FD7E  1  8D 15 02             sta     $0215		; $0215 SCRTCH returns from GETKEY with final ASCII value of key
+00FD7E  1  8D 15 02             sta     SCRTCH		; $0215 SCRTCH returns from GETKEY with final ASCII value of key
 00FD81  1  29 01                and     #$01
 00FD83  1  AA                   tax
-00FD84  1  AD 15 02             lda     $0215		; $0215 SCRTCH returns from GETKEY with final ASCII value of key
+00FD84  1  AD 15 02             lda     SCRTCH		; $0215 SCRTCH returns from GETKEY with final ASCII value of key
 00FD87  1  29 06                and     #$06
 00FD89  1  D0 17                bne     LFDA2
 00FD8B  1  2C 13 02             bit     $0213
@@ -707,7 +721,7 @@ Current file: cegmon.s
 00FD93  1  29 01                and     #$01
 00FD95  1  F0 24                beq     LFDBB
 00FD97  1  A9 20                lda     #$20
-00FD99  1  2C 15 02             bit     $0215		; $0215 SCRTCH returns from GETKEY with final ASCII value of key
+00FD99  1  2C 15 02             bit     SCRTCH		; $0215 SCRTCH returns from GETKEY with final ASCII value of key
 00FD9C  1  50 25                bvc     LFDC3
 00FD9E  1  A9 C0                lda     #$C0
 00FDA0  1  D0 21                bne     LFDC3
@@ -723,22 +737,22 @@ Current file: cegmon.s
 00FDB5  1  A9 F0                lda     #$F0
 00FDB7  1  D0 02                bne     LFDBB
 00FDB9  1  A9 10        LFDB9:  lda     #$10
-00FDBB  1  2C 15 02     LFDBB:  bit     $0215		; $0215 SCRTCH returns from GETKEY with final ASCII value of key
+00FDBB  1  2C 15 02     LFDBB:  bit     SCRTCH		; $0215 SCRTCH returns from GETKEY with final ASCII value of key
 00FDBE  1  50 03                bvc     LFDC3
 00FDC0  1  18                   clc
 00FDC1  1  69 C0                adc     #$C0
 00FDC3  1  18           LFDC3:  clc
 00FDC4  1  6D 13 02             adc     $0213
 00FDC7  1  29 7F                and     #$7F
-00FDC9  1  2C 15 02             bit     $0215		; $0215 SCRTCH returns from GETKEY with final ASCII value of key
+00FDC9  1  2C 15 02             bit     SCRTCH		; $0215 SCRTCH returns from GETKEY with final ASCII value of key
 00FDCC  1  10 02                bpl     LFDD0
 00FDCE  1  09 80                ora     #$80
-00FDD0  1  8D 15 02     LFDD0:  sta     $0215		; $0215 SCRTCH returns from GETKEY with final ASCII value of key
+00FDD0  1  8D 15 02     LFDD0:  sta     SCRTCH		; $0215 SCRTCH returns from GETKEY with final ASCII value of key
 00FDD3  1  68           LFDD3:  pla
 00FDD4  1  A8                   tay
 00FDD5  1  68                   pla
 00FDD6  1  AA                   tax
-00FDD7  1  AD 15 02             lda     $0215		; $0215 SCRTCH returns from GETKEY with final ASCII value of key
+00FDD7  1  AD 15 02             lda     SCRTCH		; $0215 SCRTCH returns from GETKEY with final ASCII value of key
 00FDDA  1  60                   rts
 00FDDB  1               
 00FDDB  1  20 F9 FE     LFDDB:  jsr     BUMP
@@ -772,23 +786,23 @@ Current file: cegmon.s
 00FE12  1  84 FE                sty     L00FE		; $00FE LOFROM store current address for most routines the from address in save move
 00FE14  1  84 FF                sty     $FF
 00FE16  1  4C 7E F9             jmp     MSTART
-00FE19  1  AE 2F 02     LFE19:  ldx     $022F		; $022F DISP edit-cursor displacement from start of editors current line
+00FE19  1  AE 2F 02     LFE19:  ldx     ECDISPL		; $022F DISP edit-cursor displacement from start of editors current line
 00FE1C  1  F0 04                beq     LFE22
-00FE1E  1  CE 2F 02             dec     $022F		; $022F DISP edit-cursor displacement from start of editors current line
+00FE1E  1  CE 2F 02             dec     ECDISPL		; $022F DISP edit-cursor displacement from start of editors current line
 00FE21  1  60                   rts
 00FE22  1               
 00FE22  1  AE 22 02     LFE22:  ldx     $0222
-00FE25  1  8E 2F 02             stx     $022F		; $022F DISP edit-cursor displacement from start of editors current line
+00FE25  1  8E 2F 02             stx     ECDISPL		; $022F DISP edit-cursor displacement from start of editors current line
 00FE28  1  38           LFE28:  sec
-00FE29  1  AD 31 02             lda     $0231		; $0231 CURSLO contain start of edit cursors current line on screen
+00FE29  1  AD 31 02             lda     CURSLO		; $0231 CURSLO contain start of edit cursors current line on screen
 00FE2C  1  E9 40                sbc     #$40
-00FE2E  1  8D 31 02             sta     $0231		; $0231 CURSLO contain start of edit cursors current line on screen
-00FE31  1  AD 32 02             lda     $0232		; $0232 CURSHI contain start of edit cursors current line on screen
+00FE2E  1  8D 31 02             sta     CURSLO		; $0231 CURSLO contain start of edit cursors current line on screen
+00FE31  1  AD 32 02             lda     CURSHI		; $0232 CURSHI contain start of edit cursors current line on screen
 00FE34  1  E9 00                sbc     #$00
 00FE36  1  C9 CF                cmp     #$CF
 00FE38  1  D0 02                bne     LFE3C
 00FE3A  1  A9 D7                lda     #$D7
-00FE3C  1  8D 32 02     LFE3C:  sta     $0232		; $0232 CURSHI contain start of edit cursors current line on screen
+00FE3C  1  8D 32 02     LFE3C:  sta     CURSHI		; $0232 CURSHI contain start of edit cursors current line on screen
 00FE3F  1  60                   rts
 00FE40  1               
 00FE40  1  A0 1C        LFE40:  ldy     #$1C
@@ -798,7 +812,7 @@ Current file: cegmon.s
 00FE49  1  10 F7                bpl     LFE42
 00FE4B  1  A0 07                ldy     #$07
 00FE4D  1  A9 00                lda     #$00
-00FE4F  1  8D 12 02             sta     $0212		; $0212 CCFLAG BASIC CTRL-C flag 00-enables CTRL-C break, 01-disables CTRL-C break
+00FE4F  1  8D 12 02             sta     CCFLAG		; $0212 CCFLAG BASIC CTRL-C flag 00-enables CTRL-C break, 01-disables CTRL-C break
 00FE52  1  99 FF 01     LFE52:  sta     $01FF,y
 00FE55  1  88                   dey
 00FE56  1  D0 FA                bne     LFE52
@@ -894,7 +908,7 @@ Current file: cegmon.s
 00FEE6  1  D0 F8                bne     LFEE0
 00FEE8  1  60                   rts
 00FEE9  1               
-00FEE9  1  A5 FB        GETCHR:  lda     $FB		; $FEE9 - GETCHR get char from keyboard or ACIA
+00FEE9  1  A5 FB        GETCHR: lda     $FB			; $FEE9 - GETCHR get char from keyboard or ACIA
 00FEEB  1  D0 93                bne     MCACIA
 00FEED  1  4C 00 FD             jmp     GETKEY
 00FEF0  1  B1 FE        PRBYTE: lda     (L00FE),y	; $FEF0 PRBYTE print data at current address pointed to by (FE) to display. Assumes Y=0!
