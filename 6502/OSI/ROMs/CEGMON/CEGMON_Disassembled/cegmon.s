@@ -6,6 +6,11 @@
 ;
 ; DGG 2019-04-11 - Added labels from CEGMON users guide found at:
 ; http://uk101.sourceforge.net/docs/pdf/cegmon.pdf
+; 
+; Assemble using AS65 (from the CC65 suite)
+;	https://cc65.github.io/doc/ca65.html
+; Command line:
+;	ca65.exe cegmon.s -v -l cegmon.lst
 
         .org $F800
 
@@ -18,9 +23,9 @@ L00FE           := $00FE	; $00FE LOFROM store current address for most routines 
 CURDIS			:= $0200	; Cursor displacement on current line
 OLDCHR			:= $0201	; Stores current character during SCREEN; exits containing char beneath the cursor
 NEWCHPK			:= $0202	; Park for new char for SCREEN
-BLOADFL         := $0203	; BASIC Load Flag
+BLOADFL         := $0203	; BASIC Load Flag ($80 means load from tape)
 EDFLAG			:= $0204	; EDFLAG Editor flag 00-disable edit cursor, ff-enabe edit cursor
-BSAVEFL         := $0205	; BASIC Save Flag
+BSAVEFL         := $0205	; BASIC Save Flag (0 means not SAVE mode)
 SDELAY 			:= $0206 	; Print-delay value for SCREEN delay is delay-value times approx. 400 machine-cycles (ie times 400 micro-seconds at 1MHz)
 CCFLAG			:= $0212 	; BASIC CTRL-C flag 00-enables CTRL-C break, 01-disables CTRL-C break
 COUNTR			:= $0214 	; Auto-repeat counter for GETKEY
@@ -46,7 +51,7 @@ L415A           := $415A
 LA34B           := $A34B
 LA374           := $A374
 LA636           := $A636
-LBF2D           := $BF2D
+LBF2D           := $BF2D	; CRT routine
 ; Video RAM addresses
 LD08C           := $D08C
 ; ACIA addresses
@@ -914,31 +919,32 @@ BUMP:   inc     L00FE		; $FEF9 BUMP increment current address at (FE)
         bne     LFEFF
         inc     $FF
 LFEFF:  rts
-
-RESET:  cld					; $FF00 RESET start of BREAK/RESET routine.
-        ldx     #$28
+; Original monitor ROM started here
+RESET:  cld					; $FF00 RESET start of BREAK/RESET routine. SUPPORT ROM: Clear decimal mode
+        ldx     #$28		; Initialize stack to $28
         txs
-        jsr     RSACIA
-        jsr     LFE40
-        jsr     SCNCLR
+        jsr     RSACIA		; Initialize 6850 ACIA
+        jsr     LFE40		
+        jsr     SCNCLR		; clear the screen
         jsr     CURHOM
 LFF10:  lda     LFCEA,y
         jsr     OUTVEC
         iny
         cpy     #$16
         bne     LFF10
+		; Get D/C/W/M selection
         jsr     INVEC		; Input vector
         and     #$DF
-        cmp     #'D'
+        cmp     #'D'		; DCWM selection
         bne     LFF27
         jmp     DISK
-LFF27:  cmp     #$4D
+LFF27:  cmp     #'M'
         bne     LFF2E
         jmp     NEWMON
-LFF2E:  cmp     #$57
+LFF2E:  cmp     #'W'
         bne     LFF35
         jmp     L0000
-LFF35:  cmp     #$43
+LFF35:  cmp     #'C'
         bne     RESET
         .byte   $4C
         .byte   $11
