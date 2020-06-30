@@ -9,32 +9,45 @@
 
         .org $F800
 
+; Page zero
 L0000           := $0000
 L002E           := $002E
 L00FD           := $00FD
 L00FE           := $00FE	; $00FE LOFROM store current address for most routines the from address in save move and tabular display
-L0218           := $0218
-L021A           := $021A
-L021C           := $021C
-L021E           := $021E
-L0220           := $0220
+; CEGMON uses BASIC flags and routines for I/O
+CURDIS			:= $0200	; Cursor displacement on current line
+OLDCHR			:= $0201	; Stores current character during SCREEN; exits containing char beneath the cursor
+NEWCHPK			:= $0202	; Park for new char for SCREEN
+BLOADFL         := $0203	; BASIC Load Flag
+EDFLAG			:= $0204	; EDFLAG Editor flag 00-disable edit cursor, ff-enabe edit cursor
+BSAVEFL         := $0205	; BASIC Save Flag
+SDELAY 			:= $0206 	; Print-delay value for SCREEN delay is delay-value times approx. 400 machine-cycles (ie times 400 micro-seconds at 1MHz)
+BINVECT         := $0218	; BASIC Input Vector
+BOUTVEC			:= $021A	; BASIC Output Vector
+BCTLCVC			:= $021C	; BASIC CTRL-C Check Vector
+BLDVECT			:= $021E	; BASIC Load Vector
+BSAVECT			:= $0220	; BASIC Save Vector
 L0227           := $0227
 L022A           := $022A
-L0233           := $0233	; $0233 USERLO contains location of start of user routine called by machine code monitors U command
+USERLO          := $0233	; Location of start of user routine called by machine code monitors U command
+;
 L2F44           := $2F44
 L415A           := $415A
+; BASIC-in-ROM addresses
 LA34B           := $A34B
 LA374           := $A374
 LA636           := $A636
 LBF2D           := $BF2D
+; Video RAM addresses
 LD08C           := $D08C
+; Start of ROM code
 LF800:  lda     $0E
         beq     LF80A
         dec     $0E
         beq     LF80A
         dec     $0E
-LF80A:  lda     #$20
-        sta     $0201		; $0201 OLDCHR stores current character during SCREEN; exits containing char beneath the cursor
+LF80A:  lda     #$20		; SPACE char to fill screen
+        sta     OLDCHR		; $0201 OLDCHR stores current character during SCREEN; exits containing char beneath the cursor
         jsr     LFF8F
         bpl     LF82D
         sec
@@ -47,20 +60,20 @@ LF80A:  lda     #$20
         jsr     ENDCHK
         bcs     LF82D
         jsr     CURHOM
-LF82D:  stx     $0200		; $0200 CURDIS cursor displacement on current line
+LF82D:  stx     CURDIS		; $0200 CURDIS cursor displacement on current line
         jsr     LFF88
         jmp     LF8D2
-SCREEN: sta     $0202		; $F836 - SCREEN - new screen handler
+SCREEN: sta     NEWCHPK		; $F836 - SCREEN - new screen handler
 							; $0202 NEWCHR park for new char for SCREEN
         pha
         txa
         pha
         tya
         pha
-        lda     $0202		; $0202 NEWCHR park for new char for SCREEN
+        lda     NEWCHPK		; $0202 NEWCHR park for new char for SCREEN
         bne     LF846
         jmp     LF8D2
-LF846:  ldy     $0206		; $0206 SDELAY print-delay value for SCREEN delay is delay-value times approx. 400 machine-cycles (ie times 400 micro-seconds at 1MHz)
+LF846:  ldy     SDELAY		; $0206 SDELAY print-delay value for SCREEN delay is delay-value times approx. 400 machine-cycles (ie times 400 micro-seconds at 1MHz)
         beq     LF84E
         jsr     DELAY2
 LF84E:  cmp     #$5F
@@ -69,7 +82,7 @@ LF84E:  cmp     #$5F
         bne     LF861
         jsr     SCOUT
         jsr     CURHOM
-        stx     $0200		; $0200 CURDIS cursor displacement on current line
+        stx     CURDIS		; $0200 CURDIS cursor displacement on current line
         beq     LF8CF
 LF861:  cmp     #$0A
         beq     LF88C
@@ -83,9 +96,9 @@ LF861:  cmp     #$0A
         bne     LF87A
         jsr     LFF6D
         bne     LF8D2
-LF87A:  sta     $0201		; $0201 OLDCHR stores current character during SCREEN; exits containing char beneath the cursor
+LF87A:  sta     OLDCHR		; $0201 OLDCHR stores current character during SCREEN; exits containing char beneath the cursor
 LF87D:  jsr     SCOUT
-        inc     $0200		; $0200 CURDIS cursor displacement on current line
+        inc     CURDIS		; $0200 CURDIS cursor displacement on current line
         inx
         cpx     $0222
         bmi     LF8CF
@@ -126,7 +139,7 @@ LF8D2:  pla
         rts
 
 LF8D8:  jsr     SCNCLR
-        sta     $0201		; $0201 OLDCHR stores current character during SCREEN; exits containing char beneath the cursor
+        sta     OLDCHR		; $0201 OLDCHR stores current character during SCREEN; exits containing char beneath the cursor
         beq     LF904
 LF8E0:  lda     #$20
         jsr     LFF8F
@@ -135,7 +148,7 @@ LF8E8:  ldx     $0222
         lda     #$20
 LF8ED:  jsr     L022A
         bpl     LF8ED
-        sta     $0201		; $0201 OLDCHR stores current character during SCREEN; exits containing char beneath the cursor
+        sta     OLDCHR		; $0201 OLDCHR stores current character during SCREEN; exits containing char beneath the cursor
         ldy     #$02
         jsr     LFBD2
         bcs     LF904
@@ -143,7 +156,7 @@ LF8ED:  jsr     L022A
         jsr     LFDEE
         jmp     LF8E8
 LF904:  jsr     CURHOM
-        stx     $0200		; $0200 CURDIS cursor displacement on current line
+        stx     CURDIS		; $0200 CURDIS cursor displacement on current line
         beq     LF8D2
 LF90C:  jsr     TWOQAD
 LF90F:  jsr     CRLF
@@ -216,7 +229,7 @@ LF988:  jsr     GETNEW
         beq     LF96B
         cmp     #$55
         bne     LF9D6
-        jmp     (L0233)
+        jmp     (USERLO)
 TWOQAD: jsr     GETNEW		; $F9A6 TWOQAD - collect two addresses first stored in (FE) pair, second in (F9)
         jsr     GETQDE
         jsr     LFBE3
@@ -339,13 +352,13 @@ LFA97:  jsr     PRBYTE
         lda     #$47
         jsr     OUTVEC
         jsr     LFFAC
-        sty     $0205		; $0205 SVFLAG BASIC save flag 0=skip save, 1=enable save to ACIA
+        sty     BSAVEFL		; $0205 SVFLAG BASIC save flag 0=skip save, 1=enable save to ACIA
         jmp     MSTART		; entry to command/address mode
 EDITOR: txa					; $FABD - entry to screen editor
         pha
         tya
         pha
-        lda     $0204		; $0204 EDFLAG Editor flag 00-disable edit cursor, ff-enabe edit cursor
+        lda     EDFLAG		; $0204 EDFLAG Editor flag 00-disable edit cursor, ff-enabe edit cursor
         bpl     LFB1F
 LFAC6:  ldy     $022F		; $022F DISP edit-cursor displacement from start of editors current line
         lda     $0231		; $0231 CURSLO contain start of edit cursors current line on screen
@@ -385,9 +398,9 @@ LFB13:  lda     $0230		; $0230 CURCHR store for char beneath edit cursor
 LFB1F:  jsr     GETKEY
 LFB22:  cmp     #$05
         bne     LFB43
-        lda     $0204		; $0204 EDFLAG Editor flag 00-disable edit cursor, ff-enabe edit cursor
+        lda     EDFLAG		; $0204 EDFLAG Editor flag 00-disable edit cursor, ff-enabe edit cursor
         eor     #$FF
-        sta     $0204		; $0204 EDFLAG Editor flag 00-disable edit cursor, ff-enabe edit cursor
+        sta     EDFLAG		; $0204 EDFLAG Editor flag 00-disable edit cursor, ff-enabe edit cursor
         bpl     LFB1F
         lda     $022B
         sta     $0231		; $0231 CURSLO contain start of edit cursors current line on screen
@@ -397,7 +410,7 @@ LFB22:  cmp     #$05
         stx     $022F		; $022F DISP edit-cursor displacement from start of editors current line
         beq     LFAC6
 LFB43:  jmp     LFDD3
-        bit     $0203		; $FB46 - Input vector points to there??? - seems off???
+        bit     BLOADFL		; $FB46 - Input vector points to there??? - seems off???
 							; $0203 LDFLAG BASIC load flag 00=no load, FF-load from ACIA
         bpl     LFB68
 LFB4B:  lda     #$FD
@@ -413,7 +426,7 @@ TAPIN:  lda     $F000		; TAPIN - collects char from ACIA exits via EDITOR if SPA
 
 LFB61:  lda     #$00
         sta     $FB
-        sta     $0203		; $0203 LDFLAG BASIC load flag 00=no load, FF-load from ACIA
+        sta     BLOADFL		; $0203 LDFLAG BASIC load flag 00=no load, FF-load from ACIA
 LFB68:  jmp     EDITOR
 LFB6B:  ldx     $0222
         cpx     $022F		; $022F DISP edit-cursor displacement from start of editors current line
@@ -598,9 +611,9 @@ KYREAD: lda     $DF00		; $FCCF - KYREAD - read-A-from-keyboard invert for C1
         eor     #$FF
         rts
 
-        cmp     #$5F
+        cmp     #$5F		; underscore character
         beq     LFCDC
-        jmp     LA374
+        jmp     LA374		; $A374
 LFCDC:  jmp     LA34B
 KDELAY: ldy     #$10		; $FCDF - KDELAY approx. 6500 cycle delayl exits with X and Y registers zero
 DELAY2: ldx     #$40		; $FCE1 - DELAY2 approx 400xY register cycles delay
@@ -611,7 +624,8 @@ LFCE3:  dex
         rts
 
 LFCEA:  .byte "CEGMON(C)1980 D/C/W/M?"
-
+; Scanned keyboard code follows
+; Keyboard consists of 
 GETKEY: txa					; $FD00 - GETKEY wait till key pressed, return with ASCII value in A register
         pha
         tya
@@ -748,7 +762,7 @@ NEWMON: ldx     #$28		; $FE00 NEWMON entry to m/c monitor - reset stack, vectors
         nop
         nop
 MENTRY: jsr     SCNCLR		; $FE0C MENTRY non-reset entry to m/c monitor - clear screen, zero 'current address'
-        sta     $0201		; $0201 OLDCHR stores current character during SCREEN; exits containing char beneath the cursor
+        sta     OLDCHR		; $0201 OLDCHR stores current character during SCREEN; exits containing char beneath the cursor
         sty     L00FE		; $00FE LOFROM store current address for most routines the from address in save move
         sty     $FF
         jmp     MSTART
@@ -773,7 +787,7 @@ LFE3C:  sta     $0232		; $0232 CURSHI contain start of edit cursors current line
 
 LFE40:  ldy     #$1C
 LFE42:  lda     LFBB2,y
-        sta     L0218,y		
+        sta     BINVECT,y		
         dey
         bpl     LFE42
         ldy     #$07
@@ -799,9 +813,9 @@ LFE65:  sta     ($F9),y
         rts
 
         pha
-        dec     $0203		; $0203 LDFLAG BASIC load flag 00=no load, FF-load from ACIA
+        dec     BLOADFL		; $0203 LDFLAG BASIC load flag 00=no load, FF-load from ACIA
         lda     #$00
-LFE76:  sta     $0205		; $0205 SVFLAG BASIC save flag 0=skip save, 1=enable save to ACIA
+LFE76:  sta     BSAVEFL		; $0205 SVFLAG BASIC save flag 0=skip save, 1=enable save to ACIA
         pla
         rts
 
@@ -921,25 +935,25 @@ LFF3B:  .byte   $BD
         .byte   "_-:0987654321"
 LFF6D:  jsr     SCOUT
 LFF70:  ldx     #$00
-        stx     $0200		; $0200 CURDIS cursor displacement on current line
-LFF75:  ldx     $0200		; $0200 CURDIS cursor displacement on current line
+        stx     CURDIS		; $0200 CURDIS cursor displacement on current line
+LFF75:  ldx     CURDIS		; $0200 CURDIS cursor displacement on current line
         lda     #$BD
         sta     L022A
         jsr     L022A
-        sta     $0201		; $0201 OLDCHR stores current character during SCREEN; exits containing char beneath the cursor
+        sta     OLDCHR		; $0201 OLDCHR stores current character during SCREEN; exits containing char beneath the cursor
         lda     #$9D
         sta     L022A
 LFF88:  lda     #$5F
         bne     LFF8F
-SCOUT:  lda     $0201		; SCOUT - print chr at cursor location
+SCOUT:  lda     OLDCHR		; SCOUT - print chr at cursor location
 							; $0201 OLDCHR stores current character during SCREEN; exits containing char beneath the cursor
-LFF8F:  ldx     $0200		; $0200 CURDIS cursor displacement on current line
+LFF8F:  ldx     CURDIS		; $0200 CURDIS cursor displacement on current line
         jmp     L022A
         jsr     LBF2D
         jmp     LFF9E
         jsr     SCREEN		; $F836 is SCREEN - new screen handler
 LFF9E:  pha
-        lda     $0205		; $0205 SVFLAG BASIC save flag 0=skip save, 1=enable save to ACIA
+        lda     BSAVEFL		; $0205 SVFLAG BASIC save flag 0=skip save, 1=enable save to ACIA
         beq     LFFBB
         pla
         jsr     TAPOUT
@@ -980,11 +994,11 @@ LFFD3:  lda     $0222,x
 LFFE3:  lda     #$2E
         jsr     OUTVEC
         jmp     QDDATD
-INVEC:  jmp     (L0218)		; $FFEB = INVEC - normally points to INPUT $FB46
-OUTVEC: jmp     (L021A)		; $FFEE = OUTVEC - normally points to OUTPUT $FF9B
-CCVEC:  jmp     (L021C)		; $FFF1 = CCVEC - normally points to CTRLC $FB94
-LDVEC:  jmp     (L021E)		; $FFF4 = LDVEC - normally points to SETLOD $FE70
-SVVEC:  jmp     (L0220)		; $FFF7 = SVVEC - normally points to SETSAV $FE7B
+INVEC:  jmp     (BINVECT)		; $FFEB = INVEC - normally points to INPUT $FB46
+OUTVEC: jmp     (BOUTVEC)		; $FFEE = OUTVEC - normally points to OUTPUT $FF9B
+CCVEC:  jmp     (BCTLCVC)		; $FFF1 = CCVEC - normally points to CTRLC $FB94
+LDVEC:  jmp     (BLDVECT)		; $FFF4 = LDVEC - normally points to SETLOD $FE70
+SVVEC:  jmp     (BSAVECT)		; $FFF7 = SVVEC - normally points to SETSAV $FE7B
         .word   $0237       ; NMI vector
         .word   RESET       ; Reset vector
         .word   $0235       ; BRK/IRQ vector
