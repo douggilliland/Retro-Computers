@@ -491,7 +491,7 @@ CRLF:   lda     #$0D		; $FBF5 CRLF print carriage-return/line-feed to display
         lda     #$0A
         jmp     OUTVEC
         rti
-DISK:   jsr     LFC0C		: $FC00 DISK entry to disc bootstrap
+DISK:   jsr     LFC0C		; $FC00 DISK entry to disc bootstrap
         jmp     (L00FD)
         jsr     LFC0C
         jmp     NEWMON
