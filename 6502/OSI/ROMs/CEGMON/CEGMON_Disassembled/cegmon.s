@@ -22,6 +22,10 @@ BLOADFL         := $0203	; BASIC Load Flag
 EDFLAG			:= $0204	; EDFLAG Editor flag 00-disable edit cursor, ff-enabe edit cursor
 BSAVEFL         := $0205	; BASIC Save Flag
 SDELAY 			:= $0206 	; Print-delay value for SCREEN delay is delay-value times approx. 400 machine-cycles (ie times 400 micro-seconds at 1MHz)
+CCFLAG			:= $0212 	; BASIC CTRL-C flag 00-enables CTRL-C break, 01-disables CTRL-C break
+COUNTR			:= $0214 	; Auto-repeat counter for GETKEY
+SCRTCH			:= $0215	; Returns from GETKEY with final ASCII value of key
+LSTCHR			:= $0216 	; Pre-shift value of last key left here by GETKEY to test auto-repeat
 BINVECT         := $0218	; BASIC Input Vector
 BOUTVEC			:= $021A	; BASIC Output Vector
 BCTLCVC			:= $021C	; BASIC CTRL-C Check Vector
@@ -29,7 +33,12 @@ BLDVECT			:= $021E	; BASIC Load Vector
 BSAVECT			:= $0220	; BASIC Save Vector
 L0227           := $0227
 L022A           := $022A
+ECDISPL			:= $022F 	; DISP edit-cursor displacement from start of editors current line
+CURCHR			:= $0230 	; Store for char beneath edit cursor
+CURSLO			:= $0231	; Contains start of edit cursors current line on screen
+CURSHI			:= $0232  	; Contains start of edit cursors current line on screen
 USERLO          := $0233	; Location of start of user routine called by machine code monitors U command
+USERHI			:= $0234 	; Location of start of user routine called by machine code monitors U command
 ;
 L2F44           := $2F44
 L415A           := $415A
@@ -40,6 +49,10 @@ LA636           := $A636
 LBF2D           := $BF2D
 ; Video RAM addresses
 LD08C           := $D08C
+; ACIA addresses
+ACIAST			:= $F000	; ACIA Status Register
+ACIADR			:= $F001	; ACIA Data Register
+
 ; Start of ROM code
 LF800:  lda     $0E
         beq     LF80A
@@ -76,23 +89,23 @@ SCREEN: sta     NEWCHPK		; $F836 - SCREEN - new screen handler
 LF846:  ldy     SDELAY		; $0206 SDELAY print-delay value for SCREEN delay is delay-value times approx. 400 machine-cycles (ie times 400 micro-seconds at 1MHz)
         beq     LF84E
         jsr     DELAY2
-LF84E:  cmp     #$5F
+LF84E:  cmp     #$5F		; Underscore
         beq     LF800
-        cmp     #$0C
+        cmp     #$0C		; Form Feed
         bne     LF861
         jsr     SCOUT
         jsr     CURHOM
         stx     CURDIS		; $0200 CURDIS cursor displacement on current line
         beq     LF8CF
-LF861:  cmp     #$0A
+LF861:  cmp     #$0A		; Line Feed character
         beq     LF88C
-        cmp     #$1E
+        cmp     #$1E		; Record Separator
         beq     LF8E0
-        cmp     #$0B
+        cmp     #$0B		; Vertical Tab
         beq     LF87D
-        cmp     #$1A
+        cmp     #$1A		; SUB key
         beq     LF8D8
-        cmp     #$0D
+        cmp     #$0D		; Carriage Return
         bne     LF87A
         jsr     LFF6D
         bne     LF8D2
@@ -190,7 +203,7 @@ LF93B:  ldx     $E4			; Break table K register - stack pointer
         rti
 LF94E:  ldx     #$03
 LF950:  lda     LFA4B,x
-        sta     $0234,x		; $0233 USERHI contains location of start of user routine called by machine code monitors U command
+        sta     USERHI,x	; $0234 USERHI contains location of start of user routine called by machine code monitors U command
         dex
         bne     LF950
         jsr     GETNEW
@@ -217,17 +230,17 @@ MSTART: jsr     CRLF		; $F97E MSTART entry to command/address mode
         sty     $FB
         jsr     LFBE0
 LF988:  jsr     GETNEW
-        cmp     #$4D
+        cmp     #$4D		; 'M'
         beq     LF933
-        cmp     #$52
+        cmp     #$52		; 'R'
         beq     LF93B
-        cmp     #$5A
+        cmp     #$5A		; 'Z'
         beq     LF94E
-        cmp     #$53
+        cmp     #$53		; 'S'
         beq     LF968
-        cmp     #$4C
+        cmp     #$4C		; 'L'
         beq     LF96B
-        cmp     #$55
+        cmp     #$55		; 'U'
         bne     LF9D6
         jmp     (USERLO)
 TWOQAD: jsr     GETNEW		; $F9A6 TWOQAD - collect two addresses first stored in (FE) pair, second in (F9)
@@ -265,19 +278,19 @@ LF9F2:  cmp     #$2C
         bne     LF9FC
         jsr     BUMP
         jmp     LF9E8
-LF9FC:  cmp     #$0A
+LF9FC:  cmp     #$0A		; Line Feed
         beq     LFA16
-        cmp     #$0D
+        cmp     #$0D		; Carriage Return
         beq     LFA1B
-        cmp     #$5E
+        cmp     #$5E		; Up arrow
         beq     LFA21
-        cmp     #$27
+        cmp     #$27		; Single quote
         beq     LFA3A
         jsr     GETPRC
         lda     $FC
-        sta     (L00FE),y		; $00FE LOFROM store current address for most routines the from address in save move
+        sta     (L00FE),y	; $00FE LOFROM store current address for most routines the from address in save move
 LFA13:  jmp     LF9E8
-LFA16:  lda     #$0D
+LFA16:  lda     #$0D		; Carriage Return
         jsr     OUTVEC
 LFA1B:  jsr     BUMP
         jmp     LFA31
@@ -360,19 +373,19 @@ EDITOR: txa					; $FABD - entry to screen editor
         pha
         lda     EDFLAG		; $0204 EDFLAG Editor flag 00-disable edit cursor, ff-enabe edit cursor
         bpl     LFB1F
-LFAC6:  ldy     $022F		; $022F DISP edit-cursor displacement from start of editors current line
-        lda     $0231		; $0231 CURSLO contain start of edit cursors current line on screen
+LFAC6:  ldy     ECDISPL		; $022F DISP edit-cursor displacement from start of editors current line
+        lda     CURSLO		; $0231 CURSLO contain start of edit cursors current line on screen
         sta     $E4			; Break table K register - stack pointer
-        lda     $0232		; $0232 CURSHI contain start of edit cursors current line on screen
+        lda     CURSHI		; $0232 CURSHI contain start of edit cursors current line on screen
         sta     $E5			; Break table PCL - low byte of program counter
         lda     ($E4),y		; Break table K register - stack pointer
-        sta     $0230		; $0230 CURCHR store for char beneath edit cursor
+        sta     CURCHR		; $0230 CURCHR store for char beneath edit cursor
         lda     #$A1
         sta     ($E4),y		; Break table K register - stack pointer
         jsr     GETKEY
-        lda     $0230		; $0230 CURCHR store for char beneath edit cursor
+        lda     CURCHR		; $0230 CURCHR store for char beneath edit cursor
         sta     ($E4),y		; Break table K register - stack pointer
-        lda     $0215		; $0215 SCRTCH returns from GETKEY with final ASCII value of key
+        lda     SCRTCH		; $0215 SCRTCH returns from GETKEY with final ASCII value of key
         cmp     #$11
         beq     LFB13
         cmp     #$01
@@ -391,8 +404,8 @@ LFB07:  jsr     LFB6B
         jmp     LFAC6
 LFB0D:  jsr     LFE19
         jmp     LFAC6
-LFB13:  lda     $0230		; $0230 CURCHR store for char beneath edit cursor
-        sta     $0215		; $0215 SCRTCH returns from GETKEY with final ASCII value of key
+LFB13:  lda     CURCHR		; $0230 CURCHR store for char beneath edit cursor
+        sta     SCRTCH		; $0215 SCRTCH returns from GETKEY with final ASCII value of key
         jsr     LFB6B
         jmp     LFB43
 LFB1F:  jsr     GETKEY
@@ -403,11 +416,11 @@ LFB22:  cmp     #$05
         sta     EDFLAG		; $0204 EDFLAG Editor flag 00-disable edit cursor, ff-enabe edit cursor
         bpl     LFB1F
         lda     $022B
-        sta     $0231		; $0231 CURSLO contain start of edit cursors current line on screen
+        sta     CURSLO		; $0231 CURSLO contain start of edit cursors current line on screen
         lda     $022C
-        sta     $0232		; $0232 CURSHI contain start of edit cursors current line on screen
+        sta     CURSHI		; $0232 CURSHI contain start of edit cursors current line on screen
         ldx     #$00
-        stx     $022F		; $022F DISP edit-cursor displacement from start of editors current line
+        stx     ECDISPL		; $022F DISP edit-cursor displacement from start of editors current line
         beq     LFAC6
 LFB43:  jmp     LFDD3
         bit     BLOADFL		; $FB46 - Input vector points to there??? - seems off???
@@ -418,10 +431,10 @@ LFB4B:  lda     #$FD
         lda     #$10
         bit     $DF00
         beq     LFB61
-TAPIN:  lda     $F000		; TAPIN - collects char from ACIA exits via EDITOR if SPACE hit.
+TAPIN:  lda     ACIAST		; TAPIN - collects char from ACIA exits via EDITOR if SPACE hit.
         lsr     a
         bcc     LFB4B
-        lda     $F001
+        lda     ACIADR
         rts
 
 LFB61:  lda     #$00
@@ -429,26 +442,26 @@ LFB61:  lda     #$00
         sta     BLOADFL		; $0203 LDFLAG BASIC load flag 00=no load, FF-load from ACIA
 LFB68:  jmp     EDITOR
 LFB6B:  ldx     $0222
-        cpx     $022F		; $022F DISP edit-cursor displacement from start of editors current line
+        cpx     ECDISPL		; $022F DISP edit-cursor displacement from start of editors current line
         beq     LFB77
-        inc     $022F		; $022F DISP edit-cursor displacement from start of editors current line
+        inc     ECDISPL		; $022F DISP edit-cursor displacement from start of editors current line
         rts
 
 LFB77:  ldx     #$00
-        stx     $022F		; $022F DISP edit-cursor displacement from start of editors current line
+        stx     ECDISPL		; $022F DISP edit-cursor displacement from start of editors current line
 LFB7C:  clc
-        lda     $0231		; $0231 CURSLO contain start of edit cursors current line on screen
+        lda     CURSLO		; $0231 CURSLO contain start of edit cursors current line on screen
         adc     #$40
-        sta     $0231		; $0231 CURSLO contain start of edit cursors current line on screen
-        lda     $0232		; $0232 CURSHI contain start of edit cursors current line on screen
+        sta     CURSLO		; $0231 CURSLO contain start of edit cursors current line on screen
+        lda     CURSHI		; $0232 CURSHI contain start of edit cursors current line on screen
         adc     #$00
         cmp     #$D8
         bne     LFB90
         lda     #$D0
-LFB90:  sta     $0232		; $0232 CURSHI contain start of edit cursors current line on screen
+LFB90:  sta     CURSHI		; $0232 CURSHI contain start of edit cursors current line on screen
 LFB93:  rts
 
-        lda     $0212		; $0212 CCFLAG BASIC CTRL-C flag 00-enables CTRL-C break, 01-disables CTRL-C break
+        lda     CCFLAG		; $0212 CCFLAG BASIC CTRL-C flag 00-enables CTRL-C break, 01-disables CTRL-C break
         bne     LFB93
         lda     #$FE
         sta     $DF00
@@ -504,6 +517,7 @@ CRLF:   lda     #$0D		; $FBF5 CRLF print carriage-return/line-feed to display
         lda     #$0A
         jmp     OUTVEC
         rti
+; Disk stuff follows - may be non-sense code
 DISK:   jsr     LFC0C		; $FC00 DISK entry to disc bootstrap
         jmp     (L00FD)
         jsr     LFC0C
@@ -578,20 +592,20 @@ LFC9C:  lda     $C010
         bcc     LFC9C
         lda     $C011
 LFCA5:  rts
-
+; Serial stuff
 RSACIA: lda     #$03		; $FCA6 - RSACIA initialize ACIA
-        sta     $F000
+        sta     ACIAST
         lda     #$11
-        sta     $F000
+        sta     ACIAST
         rts
 
 TAPOUT: pha					; $FCB1 - output to tape
-LFCB2:  lda     $F000
+LFCB2:  lda     ACIAST
         lsr     a
         lsr     a
         bcc     LFCB2
         pla
-        sta     $F001
+        sta     ACIADR
         rts
 
 KEYWRT: eor     #$FF		; $FCBE - KEYWRT write-to-keyboard invert for C1
@@ -646,41 +660,41 @@ LFD13:  lsr     a
         bne     LFD50
 LFD1F:  jsr     LFE86
         tya
-        sta     $0215		; $0215 SCRTCH returns from GETKEY with final ASCII value of key
+        sta     SCRTCH		; $0215 SCRTCH returns from GETKEY with final ASCII value of key
         asl     a
         asl     a
         asl     a
         sec
-        sbc     $0215		; $0215 SCRTCH returns from GETKEY with final ASCII value of key
-        sta     $0215		; $0215 SCRTCH returns from GETKEY with final ASCII value of key
+        sbc     SCRTCH		; $0215 SCRTCH returns from GETKEY with final ASCII value of key
+        sta     SCRTCH		; $0215 SCRTCH returns from GETKEY with final ASCII value of key
         txa
         lsr     a
         asl     a
         jsr     LFE86
         beq     LFD47
         lda     #$00
-LFD3A:  sta     $0216		; $0216 LSTCHR pre-shift value of last key left here by GETKEY to test auto-repeat
+LFD3A:  sta     LSTCHR		; $0216 LSTCHR pre-shift value of last key left here by GETKEY to test auto-repeat
 LFD3D:  sta     $0213
         lda     #$02
-        sta     $0214		; $0214 COUNTR auto-repeat counter for GETKEY
+        sta     COUNTR		; $0214 COUNTR auto-repeat counter for GETKEY
         bne     LFD04
 LFD47:  clc
         tya
-        adc     $0215		; $0215 SCRTCH returns from GETKEY with final ASCII value of key
+        adc     SCRTCH		; $0215 SCRTCH returns from GETKEY with final ASCII value of key
         tay
         lda     LFF3B,y
 LFD50:  cmp     $0213
         bne     LFD3D
-        dec     $0214		; $0214 COUNTR auto-repeat counter for GETKEY
+        dec     COUNTR		; $0214 COUNTR auto-repeat counter for GETKEY
         beq     LFD5F
         jsr     KDELAY
         beq     LFD04
 LFD5F:  ldx     #$64
-        cmp     $0216		; $0216 LSTCHR pre-shift value of last key left here by GETKEY to test auto-repeat
+        cmp     LSTCHR		; $0216 LSTCHR pre-shift value of last key left here by GETKEY to test auto-repeat
         bne     LFD68
         ldx     #$0F
-LFD68:  stx     $0214		; $0214 COUNTR auto-repeat counter for GETKEY
-        sta     $0216		; $0216 LSTCHR pre-shift value of last key left here by GETKEY to test auto-repeat
+LFD68:  stx     COUNTR		; $0214 COUNTR auto-repeat counter for GETKEY
+        sta     LSTCHR		; $0216 LSTCHR pre-shift value of last key left here by GETKEY to test auto-repeat
         cmp     #$21
         bmi     LFDD0
         cmp     #$5F
@@ -688,10 +702,10 @@ LFD68:  stx     $0214		; $0214 COUNTR auto-repeat counter for GETKEY
         lda     #$01
         jsr     KEYWRT
         jsr     KYREAD
-        sta     $0215		; $0215 SCRTCH returns from GETKEY with final ASCII value of key
+        sta     SCRTCH		; $0215 SCRTCH returns from GETKEY with final ASCII value of key
         and     #$01
         tax
-        lda     $0215		; $0215 SCRTCH returns from GETKEY with final ASCII value of key
+        lda     SCRTCH		; $0215 SCRTCH returns from GETKEY with final ASCII value of key
         and     #$06
         bne     LFDA2
         bit     $0213
@@ -701,7 +715,7 @@ LFD68:  stx     $0214		; $0214 COUNTR auto-repeat counter for GETKEY
         and     #$01
         beq     LFDBB
         lda     #$20
-        bit     $0215		; $0215 SCRTCH returns from GETKEY with final ASCII value of key
+        bit     SCRTCH		; $0215 SCRTCH returns from GETKEY with final ASCII value of key
         bvc     LFDC3
         lda     #$C0
         bne     LFDC3
@@ -717,22 +731,22 @@ LFDAA:  ldy     $0213
         lda     #$F0
         bne     LFDBB
 LFDB9:  lda     #$10
-LFDBB:  bit     $0215		; $0215 SCRTCH returns from GETKEY with final ASCII value of key
+LFDBB:  bit     SCRTCH		; $0215 SCRTCH returns from GETKEY with final ASCII value of key
         bvc     LFDC3
         clc
         adc     #$C0
 LFDC3:  clc
         adc     $0213
         and     #$7F
-        bit     $0215		; $0215 SCRTCH returns from GETKEY with final ASCII value of key
+        bit     SCRTCH		; $0215 SCRTCH returns from GETKEY with final ASCII value of key
         bpl     LFDD0
         ora     #$80
-LFDD0:  sta     $0215		; $0215 SCRTCH returns from GETKEY with final ASCII value of key
+LFDD0:  sta     SCRTCH		; $0215 SCRTCH returns from GETKEY with final ASCII value of key
 LFDD3:  pla
         tay
         pla
         tax
-        lda     $0215		; $0215 SCRTCH returns from GETKEY with final ASCII value of key
+        lda     SCRTCH		; $0215 SCRTCH returns from GETKEY with final ASCII value of key
         rts
 
 LFDDB:  jsr     BUMP
@@ -766,23 +780,23 @@ MENTRY: jsr     SCNCLR		; $FE0C MENTRY non-reset entry to m/c monitor - clear sc
         sty     L00FE		; $00FE LOFROM store current address for most routines the from address in save move
         sty     $FF
         jmp     MSTART
-LFE19:  ldx     $022F		; $022F DISP edit-cursor displacement from start of editors current line
+LFE19:  ldx     ECDISPL		; $022F DISP edit-cursor displacement from start of editors current line
         beq     LFE22
-        dec     $022F		; $022F DISP edit-cursor displacement from start of editors current line
+        dec     ECDISPL		; $022F DISP edit-cursor displacement from start of editors current line
         rts
 
 LFE22:  ldx     $0222
-        stx     $022F		; $022F DISP edit-cursor displacement from start of editors current line
+        stx     ECDISPL		; $022F DISP edit-cursor displacement from start of editors current line
 LFE28:  sec
-        lda     $0231		; $0231 CURSLO contain start of edit cursors current line on screen
+        lda     CURSLO		; $0231 CURSLO contain start of edit cursors current line on screen
         sbc     #$40
-        sta     $0231		; $0231 CURSLO contain start of edit cursors current line on screen
-        lda     $0232		; $0232 CURSHI contain start of edit cursors current line on screen
+        sta     CURSLO		; $0231 CURSLO contain start of edit cursors current line on screen
+        lda     CURSHI		; $0232 CURSHI contain start of edit cursors current line on screen
         sbc     #$00
         cmp     #$CF
         bne     LFE3C
         lda     #$D7
-LFE3C:  sta     $0232		; $0232 CURSHI contain start of edit cursors current line on screen
+LFE3C:  sta     CURSHI		; $0232 CURSHI contain start of edit cursors current line on screen
         rts
 
 LFE40:  ldy     #$1C
@@ -792,7 +806,7 @@ LFE42:  lda     LFBB2,y
         bpl     LFE42
         ldy     #$07
         lda     #$00
-        sta     $0212		; $0212 CCFLAG BASIC CTRL-C flag 00-enables CTRL-C break, 01-disables CTRL-C break
+        sta     CCFLAG		; $0212 CCFLAG BASIC CTRL-C flag 00-enables CTRL-C break, 01-disables CTRL-C break
 LFE52:  sta     $01FF,y
         dey
         bne     LFE52
@@ -888,7 +902,7 @@ LFEE0:  rol     a
         bne     LFEE0
         rts
 
-GETCHR:  lda     $FB		; $FEE9 - GETCHR get char from keyboard or ACIA
+GETCHR: lda     $FB			; $FEE9 - GETCHR get char from keyboard or ACIA
         bne     MCACIA
         jmp     GETKEY
 PRBYTE: lda     (L00FE),y	; $FEF0 PRBYTE print data at current address pointed to by (FE) to display. Assumes Y=0!
