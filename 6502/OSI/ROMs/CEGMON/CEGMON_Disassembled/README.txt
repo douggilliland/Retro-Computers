@@ -5,8 +5,7 @@ keyboard scan routine, and BASIC.
 The source code came from various sources including disassembly of the
 ROMs.
 
-This version builds with the CC65 assembler. In some cases I have also
-added additional comments to the code.
+This version builds with the AR65 assembler (part of CC65). In some cases I have also added additional comments to the code.
 
 Included here are a couple of optional patches to BASIC. One fixes the
 display of error messages, and the other addresses the well-known
