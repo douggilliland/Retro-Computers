@@ -2,7 +2,7 @@ If you just want to use the srecord tools, you can stop reading here.
 
 Following are instructions how I (Jens Heilig) built the srecord tools on Windows:
 
-How to build srecord 1.63 tools on Windows:
+How to build srecord 1.64 tools on Windows:
 
 PREREQUISITES:
 ==============
@@ -41,9 +41,9 @@ BUILDING SRECORD TOOLS
 ======================
 cd to the directory where you unpacked the srecord source code.
 
-Starting with srecord version 1.63, it is necessary to modify Makefile.in:
-In line 4091 remove the text "bin/test_gecos", so the line becomes:
-                bin/test_crc16 bin/test_fletcher16 \
+Starting with srecord version 1.63 (and including version 1.64), it is necessary to modify Makefile.in:
+In line 4096 remove the text "bin/test_gecos", so the line becomes:
+                bin/test_crc16 bin/test_fletcher16 \               
 
 Reason: This test program cannot be built because it requires the pwd.h header and Linux functions which are not available in MinGW
 
@@ -70,4 +70,4 @@ Finally, move srec_cat.exe, srec_info.exe and srec_cmp.exe from the bin director
 You should now have working srecord tools!
 
 Good Luck!
-Jens Heilig, 2014-04-18
+Jens Heilig, 2014-06-22
