@@ -1,0 +1,4747 @@
+* TITLE 68000 eForth adapted by Paul R. Santa-Maria
+*
+* Target: Motorola MC68000 Education Computer Board
+* Host:   MS-DOS -- Quelo 68020 cross assembler
+*
+        TTL   eFORTH on MECB for 68K assemblers
+        OPT   p=68000
+*===================================================================
+*
+*	eForth 1.0 by Bill Muench and C. H. Ting, 1990
+*	Much of the code is derived from the following sources:
+*		8086 figForth by Thomas Newman, 1981 and Joe smith, 1983
+*		aFORTH by John Rible
+*		bFORTH by Bill Muench
+*	68000 eForth 1.0 by Richard E. Haskell
+*		eFORTH 1.1 by C. H. Ting to assemble Motorola byte order.
+*
+*	The goal of this implementation is to provide a simple eForth Model
+*	which can be ported easily to many 8, 16, 24 and 32 bit CPU's.
+*	The following attributes make it suitable for CPU's of the '90:
+*
+*		small machine dependent kernel and portable high level code
+*		source code in the MASM format
+*		direct threaded code
+*		separated code and name dictionaries
+*		simple vectored terminal and file interface to host computer
+*		aligned with the proposed ANS Forth Standard
+*		easy upgrade path to optimize for specific CPU
+*
+*	You are invited to implement this Model on your favorite CPU and
+*	contribute it to the eForth Library for public use. You may use
+*	a portable implementation to advertise more sophisticated and
+*	optimized version for commercial purposes. However, you are
+*	expected to implement the Model faithfully. The eForth Working
+*	Group reserves the right to reject implementation which deviates
+*	significantly from this Model.
+*
+*	As the ANS Forth Standard is still evolving, this Model will
+*	change accordingly. Implementations must state clearly the
+*	version number of the Model being tracked.
+*
+*	Representing the eForth Working Group in the Silicon Valley FIG Chapter.
+*	Send contributions to:
+*
+*		Dr. C. H. Ting
+*		156 14th Avenue
+*		San Mateo, CA 94402
+*		(415) 571-7639
+*
+*===============================================================
+*
+* 	68ke4th.asm implimentation notes by Bill Kibler
+*
+* 	This version of EFORTH has been created to be assembled
+*	on 68K assemblers. The code has not been changed from
+*       Haskell in any other way than to produce the exact same
+*   	code as was produced using MASM. A listing was made using
+*	MASM and then various changes were made to the code to
+*	produce the same output from the 68K assembler.
+*
+*	You will see that all MACROs have been removed and not
+*	used. This was necessary because 68K assemblers do NOT
+*	treat strings the same. A number of FORTHs operators,
+*	such as <>', all mean different things inside the MACROs
+*	and would cause false results. The use of ORG caused a
+*	problem with MICROTEK crossassembler. Microtek only allows
+*	so many segment and orgs before they run out of table
+*	space. That meant that ORGing twice in each CODE$ MACRO
+*	could not be done. That is why the NAME table is presented
+*	at the tail end of the code.
+*
+*	The dc.w CALLL was replaced with the true JSR instruction
+*	as were the MACRO NEXT$ instructions. Labels had to be changed
+*	as most were unacceptable. The $ is used to indicate hex
+*	values and as such can NOT precede anything except hex
+*	numbers. Align is used to cause EVEN code generation
+*	(word or long boundary). Align may need different size
+*	numbers for some work as AND masks, others set byte size.
+*	(Avocet use 3, Microtek use 4). Personally I like the
+*	Avocet without macros (has macro pre processor) and the
+*	Microtek is better if using macros but very poor with
+*	ORGs and Section usage.
+*
+*	I have tested the code for assembly ability only, I do
+*	NOT have access to an ECB. I will be testing it on other
+*	68K systems later. It appears to assemble correctly on 
+*	several of the assemblers available to me. Please contact
+*	me on GENIE with changes or enhancements.
+*
+*       5/7/91 Found the supplied UM/MOD 68000 assembly code
+*       did not work properly and so replaced it with one that
+*       does. Also the : function inserted the wrong JSR
+*       value and replaced with NOP JSR to be able to use the 
+*       system on larger than 64K addresses.
+*
+*===============================================================
+*
+*       MVME167 installation notes -- Pete Zawasky  10/21/93
+*
+*       This installation of eForth is specific to the Motorola
+*       MVME167 Single Board Computer and the Motorola Toolware
+*       M68000 Family Structured Assembler.  It assembles and runs,
+*       although not every word has been exhaustively checked.  It
+*       is being expanded for test and diagnostic s/w in a VME system
+*       used as an embedded control module in an E-Beam lithography
+*       system.
+*
+*       Not only must everything be aligned to 32 bit parameters
+*       but the output of the assembler must be monitored to be
+*       certain that 'fill' words are 0000h not 4E71h (NOP).  In
+*       particular, look at the name dictionary listing.
+*
+*                       Pete Zawasky
+*                       PZEF Co.
+*                       263 W. Warren St.
+*                       Washington, NJ 07882
+*                       (908) 689-7450
+*
+*===================================================================
+*
+* Motorola MC68000 Educational Computer Board ("MECB") notes
+* Paul R. Santa-Maria (GEnie PAUL.RSM) 02 Jan 1994
+*
+* GEnie history:
+*	I have followed the GEnie 68000 Forth trail from 
+*	file 2341 (Ting's upload of Haskell's code) to 
+*	file 2427 (Kibler's conversion of Ting's upload) to 
+*	file 2733 (Zawasky's fixes of Kibler's converstion).
+*	This file started as Zawasky's file.
+*
+* Modifications:
+*	Minor formatting and assembler directive changes.
+*	Converted I/O and memory allocations back to MECB.
+*	Converted 8080 XOR r,r style to 68000 CLR.L r style.
+*
+*===================================================================
+*
+*	68000 Registers used in eForth model
+*	A7 = SP = Data Stack Pointer, SP
+*	A6 = Return Stack Pointer, RP
+*	A5 = Interpreter Pointer, IP
+*	Stack and all variables and tokens are 32-bits wide.
+*
+*   Equates from/for embedded applications
+*   using direct calls to existing ROM I/O routines
+*   will be replaced at later date with proper I/O calls
+*   to actual uart used on co-processor board
+*
+*
+*  version control
+*
+
+VER		EQU	1			*major release version
+EXT		EQU	1			*minor extension
+
+* Constants
+
+TRUEE		EQU	$FFFFFFFF		*true flag (-1)
+
+COMPO		EQU	$040
+COMPOL		EQU	$40000000		*lexicon compile only bit
+IMEDD		EQU	$080
+IMEDDL		EQU	$80000000		*lexicon immediate bit
+MASKK		EQU	$1F7F7F7F		*lexicon bit mask
+
+ALGNUM          EQU     3                       *alignment number that causes cellls
+CELLL		EQU	4			*size of a cell - 32-bit Forth
+BASEE		EQU	10			*default radix
+VOCSS		EQU	8			*depth of vocabulary stack
+
+BKSPP		EQU	8			*back space
+LF		EQU	10			*line feed
+CRR		EQU	13			*carriage return
+ERR		EQU	27			*error escape
+TIC		EQU	39			*tick
+char$		equ	36			* '$'
+char_		equ	95			* '_'
+chminus		equ	45			*'-'
+char0		equ	48			*'0'
+charq		equ	34			*'"'
+chblnk		equ	32			*' '
+charbr		equ	41			*')'
+*
+CALLL		EQU	$4E714EB9       *NOP JSR LONG opcodes - was 4EB8
+*                                       *used by call, to set jump to
+*                                       *dolst & other do... must be long
+*                                       *if address larger than 64K, was
+*                                       *calculating relative addresses in
+*                                       *efth86 and also doing word ops!!!
+*
+* Memory allocation
+*	MECB memory map: (MC68000 address range = $00000000-$00FFFFFF)
+*	$00000000-$00000007	ROM System memory (exception vector table)
+*	$00000008-$000003FF	RAM System memory (exception vector table)
+*	$00000400-$000008FF	RAM Tutor firmware scratchpad
+*	$00000900-$00007FFF	RAM user memory
+*	$00008000-$0000BFFF	ROM Tutor firmware
+*	$0000C000-$0000FFFF	not used
+*	$00010000-$0001FFFF	I/O devices (with redundant mapping)
+*	$00020000-$0002FFFF	not used
+*	$00030000-$0003FFFF	not used (special bus interface signal)
+*	$00040000-$00FFFFFF	not used
+
+EM		EQU	$00008000		*top of RAM + 1
+US		EQU	64*CELLL		*user area size in cells
+RTS		EQU	64*CELLL		*return stack/TIB size
+SPS		EQU	64*CELLL		*data stack size in cells
+*
+*  *** changed the equates below to more accurately reflect
+*      documentation of the stack allocation **** bdk
+*
+RPP		EQU	EM			*start of return stack (RP0)
+SPP		EQU	EM-RTS			*start of data stack (SP0)
+TIBB		EQU	SPP *+$10		*terminal input buffer (TIB)
+NAMEE		EQU	SPP-(US+SPS)		*name dictionary
+UPP		EQU	NAMEE *+$10		*start of user area (UP0)
+
+
+COLDD		EQU	$00000100		*cold start vector
+COLD68		EQU	$00001000		*68000 cold start vector
+CODEE		EQU	COLD68+US		*code dictionary
+
+* Initialize assembly variables
+
+LINK_	set	0				*force a null link
+NAME_	set	NAMEE				*initialize name pointer
+CODE_	set	CODEE				*initialize code pointer
+USER_	set	4*CELLL				*first user variable offset
+
+* Define assembly macros
+* orginally used to create actual code
+*	Compile a code definition header.
+*
+*CODE$	MACRO	LEX,NAME,LABEL
+*LABEL	equ	*				*assembly label
+*	ENDM
+*
+*NAME$   MACRO   LEX,NAME,LABEL
+*LEN_	set	(LEX&$01F)/CELLL		*string cell count, round down
+*NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*	ENDM
+*
+*	Compile a colon definition header.
+*
+*COLON$	MACRO	LEX,NAME,LABEL
+*	CODE$	LEX,NAME,LABEL
+*	bsr	DOLST				*include BSR doLIST
+*	ENDM
+*
+*	Compile a user variable header.
+*
+*USER$	MACRO	LEX,NAME,LABEL
+*	CODE$	LEX,NAME,LABEL
+*	bsr	DOLST				*include BSR doLIST
+*	dc.l	DOUSE,USER_			*followed by doUSER and offset
+*USER_	set	USER_+CELLL			*update user area offset
+*	ENDM
+*
+*	Assemble inline direct threaded code ending.
+*
+*NEXT$	MACRO
+*	MOVEA.L	(A5)+,A0
+*	JMP	(A0)
+*	ENDM
+*
+* Main entry points and COLD start data
+
+
+	ORG	COLDD			*beginning of cold boot area
+	JMP	ORIG
+
+	ORG	COLD68
+ORIG	equ	*
+	LEA.L	SPP,SP			*set stack ptrs
+	LEA.L	RPP,A6
+	LEA.L	COLD1,A5
+	MOVEA.L	(A5)+,A0		*NEXT$
+	JMP	(A0)
+
+
+* COLD start moves the following to USER variables.
+* MUST BE IN SAME ORDER AS USER VARIABLES.
+
+		DS.L 0
+
+UZERO		dcb.l	4,0			*reserved space in user area
+		dc.l	SPP			*SP0
+		dc.l	RPP			*RP0
+		dc.l	QRX			*'?KEY
+		dc.l	TXSTO			*'EMIT
+		dc.l	ACCEP			*'EXPECT
+		dc.l	KTAP			*'TAP
+		dc.l	TXSTO			*'ECHO
+		dc.l	DOTOK			*'PROMPT
+		dc.l	BASEE			*BASE
+		dc.l	0			*tmp
+		dc.l	0			*SPAN
+		dc.l	0			*>IN
+		dc.l	0			*#TIB
+		dc.l	TIBB			*TIB
+		dc.l	0			*CSP
+		dc.l	INTER			*'EVAL
+		dc.l	NUMBQ			*'NUMBER
+		dc.l	0			*HLD
+		dc.l	0			*HANDLER
+		dc.l	0			*CONTEXT pointer
+		dcb.l	VOCSS,0			*vocabulary stack
+		dc.l	0			*CURRENT pointer
+		dc.l	0			*vocabulary link pointer
+		dc.l	CTOP			*CP
+		dc.l	NTOP			*NP
+		dc.l	LASTN			*LAST
+ULAST	equ	*
+
+	ORG	CODEE				*beginning of the code dictionary
+
+* Device dependent I/O
+
+*   BYE		( -- )
+*		Exit eForth.
+*		CODE$	3,'BYE',BYE
+LEN_	set	(3&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+BYE	equ	*				*assembly BYE
+		MOVE.B	#229,D7			*<PSM> Tutor START function
+		TRAP	#14
+
+*   ?RX		( -- c T | F )
+*		Return input character and true, or a false if no input.
+*		CODE$	3,'?RX',QRX
+LEN_	set	(3&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+QRX	equ	*				*assembly QRX
+		CLR.L	D1			*set FALSE flag
+		CLR.L	D0
+* Input a character from the console (Port 1) into register D0.
+		BTST	#0,$00010040		*is character ready?
+		BEQ.B	QRX1			*=>no
+		MOVE.B	$00010042,D0		*yes, get the character
+		AND.B	#$7F,D0			*clear high bit
+		MOVEQ.L	#TRUEE,D1		*set TRUE flag
+		MOVE.L	D0,-(SP)		*align STACK for eForth
+QRX1		MOVE.L	D1,-(SP)
+		MOVEA.L	(A5)+,A0		*NEXT$
+		JMP	(A0)
+
+*   TX!		( c -- )
+*		Send character c to the output device.
+*		CODE$	3,'TX!',TXSTO
+LEN_	set	(3&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+TXSTO	equ	*				*assembly TXSTO
+		MOVE.L	(SP)+,D0		*align STACK
+TXSTO2		BTST	#1,$00010040		*is port 1 ready for a character?
+		BEQ	TXSTO2			*=>no
+		MOVE.B	D0,$00010042		*yes, out it goes.
+		MOVEA.L	(A5)+,A0		*NEXT$
+		JMP	(A0)
+
+*   !IO		( -- )
+*		Initialize the serial I/O devices.
+*		CODE$	3,'!IO',STOIO
+LEN_	set	(3&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+STOIO	equ	*				*assembly STOIO
+		MOVEA.L	(A5)+,A0		*NEXT$
+		JMP	(A0)
+
+* The kernel
+
+*   doLIT	( -- w )
+*		Push an inline literal.
+*		CODE$	COMPO+5,'doLIT',DOLIT
+LEN_	set	(5&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+DOLIT	equ	*				*assembly DOLIT
+		MOVE.L	(A5)+,-(SP)
+		MOVEA.L	(A5)+,A0		*NEXT$
+		JMP	(A0)
+
+*   doLIST	( a -- )
+*		Process colon list.
+*		CODE$	COMPO+6,'doLIST',DOLST
+LEN_	set	(6&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+DOLST	equ	*				*assembly DOLST
+		MOVE.L	A5,-(A6)
+		MOVEA.L	(SP)+,A5
+		MOVEA.L	(A5)+,A0		*NEXT$
+		JMP	(A0)
+
+*   next	( -- )
+*		Run time code for the single index loop.
+*		: next ( -- ) \ hilevel model
+*		  r> r> dup if 1 - >r @ >r exit then drop cell+ >r *
+*		CODE$	COMPO+4,'next',DONXT
+LEN_	set	(4&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+DONXT	equ	*				*assembly DONXT
+		SUBQ.L	#1,(A6)
+		BMI.s	DONXT1
+		MOVEA.L	(A5),A5
+		MOVEA.L	(A5)+,A0		*NEXT$
+		JMP	(A0)
+
+DONXT1          LEA.L	4(A6),A6
+		LEA.L	4(A5),A5
+		MOVEA.L	(A5)+,A0	        *NEXT$
+		JMP	(A0)
+
+*   ?branch	( f -- )
+*		Branch if flag is zero.
+*		CODE$	COMPO+7,'?branch',QBRAN
+LEN_	set	(7&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+QBRAN	equ	*				*assembly QBRAN
+		MOVE.L	(SP)+,D0
+		OR.L	D0,D0
+		BNE.s	QBRAN1
+		MOVEA.L	(A5),A5
+		MOVEA.L	(A5)+,A0	        *NEXT$
+		JMP	(A0)
+
+QBRAN1          LEA.L	4(A5),A5
+		MOVEA.L	(A5)+,A0		*NEXT$
+		JMP	(A0)
+
+*   branch	( -- )
+*		Branch to an inline address.
+*		CODE$	COMPO+6,'branch',BRAN
+LEN_	set	(6&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+BRAN	equ	*				*assembly BRAN
+		MOVEA.L	(A5),A5
+		MOVEA.L	(A5)+,A0		*NEXT$
+		JMP	(A0)
+
+*   EXECUTE	( ca -- )
+*		Execute the word at ca.
+*		CODE$	7,'EXECUTE',EXECU
+LEN_	set	(7&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+EXECU	equ	*				*assembly EXECU
+		MOVEA.L	(SP)+,A0		*NEXT$
+		JMP	(A0)
+
+*   EXIT	( -- )
+*		Terminate a colon definition.
+*		CODE$	4,'EXIT',EXIT
+LEN_	set	(4&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+EXIT	equ	*				*assembly EXIT
+		MOVEA.L	(A6)+,A5
+		MOVEA.L	(A5)+,A0		*NEXT$
+		JMP	(A0)
+
+*   !		( w a -- )
+*		Pop the data stack to memory.
+*		CODE$	1,'!',STORE
+LEN_	set	(1&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+STORE	equ	*				*assembly STORE
+		MOVEA.L	(SP)+,A0
+		MOVE.L	(SP)+,(A0)
+		MOVEA.L	(A5)+,A0		*NEXT$
+		JMP	(A0)
+
+*   @		( a -- w )
+*		Push memory location to the data stack.
+*		CODE$	1,'@',AT
+LEN_	set	(1&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+AT	equ	*				*assembly AT
+		MOVEA.L	(SP)+,A0
+		MOVE.L	(A0),-(SP)
+		MOVEA.L	(A5)+,A0		*NEXT$
+		JMP	(A0)
+
+*   C!		( c b -- )
+*		Pop the data stack to byte memory.
+*		CODE$	2,'C!',CSTOR
+LEN_	set	(2&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+CSTOR	equ	*				*assembly CSTOR
+		MOVEA.L	(SP)+,A0
+		MOVE.L	(SP)+,D0
+		MOVE.B	D0,(A0)
+		MOVEA.L	(A5)+,A0		*NEXT
+		JMP	(A0)
+
+*   C@		( b -- c )
+*		Push byte memory location to the data stack.
+*		CODE$	2,'C@',CAT
+LEN_	set	(2&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+CAT	equ	*				*assembly CAT
+		MOVEA.L	(SP)+,A0
+		CLR.L	D0
+		MOVE.B	(A0),D0
+		MOVE.L	D0,-(SP)
+		MOVEA.L	(A5)+,A0		*NEXT$
+		JMP	(A0)
+
+*   RP@		( -- a )
+*		Push the current RP to the data stack.
+*		CODE$	3,'RP@',RPAT
+LEN_	set	(3&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+RPAT	equ	*				*assembly RPAT
+		MOVE.L	A6,-(SP)
+		MOVEA.L	(A5)+,A0		*NEXT$
+		JMP	(A0)
+
+*   RP!		( a -- )
+*		Set the return stack pointer.
+*		CODE$	COMPO+3,'RP!',RPSTO
+LEN_	set	(3&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+RPSTO	equ	*				*assembly RPSTO
+		MOVEA.L	(SP)+,A6
+		MOVEA.L	(A5)+,A0		*NEXT$
+		JMP	(A0)
+
+*   R>		( -- w )
+*		Pop the return stack to the data stack.
+*		CODE$	COMPO+2,'R>',RFROM
+LEN_	set	(2&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+RFROM	equ	*				*assembly RFROM
+		MOVE.L	(A6)+,-(SP)
+		MOVEA.L	(A5)+,A0		*NEXT$
+		JMP	(A0)
+
+*   R@		( -- w )
+*		Copy top of return stack to the data stack.
+*		CODE$	2,'R@',RAT
+LEN_	set	(2&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+RAT	equ	*				*assembly RAT
+		MOVE.L	(A6),-(SP)
+		MOVEA.L	(A5)+,A0		*NEXT$
+		JMP	(A0)
+
+*   >R		( w -- )
+*		Push the data stack to the return stack.
+*		CODE$	COMPO+2,'>R',TOR
+LEN_	set	(2&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+TOR	equ	*				*assembly TOR
+		MOVE.L	(SP)+,-(A6)
+		MOVEA.L	(A5)+,A0		*NEXT$
+		JMP	(A0)
+
+*   SP@		( -- a )
+*		Push the current data stack pointer.
+*		CODE$	3,'SP@',SPAT
+LEN_	set	(3&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+SPAT	equ	*				*assembly SPAT
+		MOVE.L	A7,-(SP)
+		MOVEA.L	(A5)+,A0		*NEXT$
+		JMP	(A0)
+
+*   SP!		( a -- )
+*		Set the data stack pointer.
+*		CODE$	3,'SP!',SPSTO
+LEN_	set	(3&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+SPSTO	equ	*				*assembly SPSTO
+		MOVE.L	(SP)+,A7
+		MOVEA.L	(A5)+,A0		*NEXT$
+		JMP	(A0)
+
+*   DROP	( w -- )
+*		Discard top stack item.
+*		CODE$	4,'DROP',DROP
+LEN_	set	(4&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+DROP	equ	*				*assembly DROP
+		LEA.L	4(SP),SP
+		MOVEA.L	(A5)+,A0		*NEXT$
+		JMP	(A0)
+
+*   DUP		( w -- w w )
+*		Duplicate the top stack item.
+*		CODE$	3,'DUP',DUPP
+LEN_	set	(3&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+DUPP	equ	*				*assembly DUPP
+		MOVE.L	(SP),-(SP)
+		MOVEA.L	(A5)+,A0		NEXT$
+		JMP	(A0)
+
+*   SWAP	( w1 w2 -- w2 w1 )
+*		Exchange top two stack items.
+*		CODE$	4,'SWAP',SWAP
+LEN_	set	(4&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+SWAP	equ	*				*assembly SWAP
+		MOVE.L	(SP)+,D0
+		MOVE.L	(SP)+,D1
+		MOVE.L	D0,-(SP)
+		MOVE.L	D1,-(SP)
+		MOVEA.L	(A5)+,A0		*NEXT$
+		JMP	(A0)
+
+*   OVER	( w1 w2 -- w1 w2 w1 )
+*		Copy second stack item to top.
+*		CODE$	4,'OVER',OVER
+LEN_	set	(4&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+OVER	equ	*				*assembly OVER
+		MOVE.L	4(SP),-(SP)
+		MOVEA.L	(A5)+,A0		*NEXT$
+		JMP	(A0)
+
+*   0<		( n -- t )
+*		Return true if n is negative.
+*		CODE$	2,'0<',ZLESS
+LEN_	set	(2&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+ZLESS	equ	*				*assembly ZLESS
+		MOVE.L	(SP)+,D0
+		MOVE.L	#31,D1
+		ASR.L	D1,D0
+		MOVE.L	D0,-(SP)
+		MOVEA.L	(A5)+,A0		*NEXT$
+		JMP	(A0)
+
+*   AND		( w w -- w )
+*		Bitwise AND.
+*		CODE$	3,'AND',ANDD
+LEN_	set	(3&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+ANDD	equ	*				*assembly ANDD
+		MOVE.L	(SP)+,D0
+		MOVE.L	(SP)+,D1
+		AND.L	D1,D0
+		MOVE.L	D0,-(SP)
+		MOVEA.L	(A5)+,A0		*NEXT$
+		JMP	(A0)
+
+*   OR		( w w -- w )
+*		Bitwise inclusive OR.
+*		CODE$	2,'OR',ORR
+LEN_	set	(2&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+ORR	equ	*				*assembly ORR
+		MOVE.L	(SP)+,D0
+		MOVE.L	(SP)+,D1
+		OR.L	D1,D0
+		MOVE.L	D0,-(SP)
+		MOVEA.L	(A5)+,A0		*NEXT$
+		JMP	(A0)
+
+*   XOR		( w w -- w )
+*		Bitwise exclusive OR.
+*		CODE$	3,'XOR',XORR
+LEN_	set	(3&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+XORR	equ	*				*assembly XORR
+		MOVE.L	(SP)+,D0
+		MOVE.L	(SP)+,D1
+		EOR.L	D1,D0
+		MOVE.L	D0,-(SP)
+		MOVEA.L	(A5)+,A0		*NEXT$
+		JMP	(A0)
+
+*   UM+		( u u -- udsum )
+*		Add two unsigned single numbers and return a double sum.
+*		CODE$	3,'UM+',UPLUS
+LEN_	set	(3&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+UPLUS	equ	*				*assembly UPLUS
+		CLR.L	D2
+		MOVE.L	(SP)+,D0
+		MOVE.L	(SP)+,D1
+		ADD.L	D1,D0
+		ROXL.L	#1,D2
+		MOVE.L	D0,-(SP)
+		MOVE.L	D2,-(SP)
+		MOVEA.L	(A5)+,A0		*NEXT$
+		JMP	(A0)
+
+* System and user variables
+
+*   doVAR	( -- a )
+*		Run time routine for VARIABLE and CREATE.
+*		COLON$	COMPO+5,'doVAR',DOVAR
+LEN_	set	(5&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+DOVAR	equ	*				*assembly DOVAR
+		bsr	DOLST			*include BSR doLIST
+		dc.l	RFROM,EXIT
+
+
+*   UP		( -- a )
+*		Pointer to the user area.
+*		COLON$	2,'UP',UP
+LEN_	set	(2&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+UP	equ	*				*assembly UP
+		bsr	DOLST			*include BSR doLIST
+		dc.l	DOVAR
+		dc.l	UPP
+
+*   doUSER	( -- a )
+*		Run time routine for user variables.
+*		COLON$	COMPO+6,'doUSER',DOUSE
+LEN_	set	(6&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+DOUSE	equ	*				*assembly DOUSE
+		bsr	DOLST			*include BSR doLIST
+		dc.l	RFROM,AT,UP,AT,PLUS,EXIT
+
+
+*   SP0		( -- a )
+*		Pointer to bottom of the data stack.
+*		USER$	3,'SP0',SZERO
+LEN_	set	(3&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+SZERO	equ	*				*assembly SZERO
+		bsr	DOLST			*include BSR doLIST
+		dc.l	DOUSE,USER_		*followed by doUSER and offset
+USER_	set	USER_+CELLL			*update user area offset
+
+*   RP0		( -- a )
+*		Pointer to bottom of the return stack.
+*		USER$	3,'RP0',RZERO
+LEN_	set	(3&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+RZERO	equ	*				*assembly RZERO
+		bsr	DOLST			*include BSR doLIST
+		dc.l	DOUSE,USER_		*followed by doUSER and offset
+USER_	set	USER_+CELLL			*update user area offset
+
+*   '?KEY	( -- a )
+*		Execution vector of ?KEY.
+*		USER$	5,'''?KEY',TQKEY
+LEN_	set	(5&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+TQKEY	equ	*				*assembly TQKEY
+		bsr	DOLST			*include BSR doLIST
+		dc.l	DOUSE,USER_		*followed by doUSER and offset
+USER_	set	USER_+CELLL			*update user area offset
+
+*   'EMIT	( -- a )
+*		Execution vector of EMIT.
+*		USER$	5,'''EMIT',TEMIT
+LEN_	set	(5&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+TEMIT	equ	*				*assembly TEMIT
+		bsr	DOLST			*include BSR doLIST
+		dc.l	DOUSE,USER_		*followed by doUSER and offset
+USER_	set	USER_+CELLL			*update user area offset
+
+*   'EXPECT	( -- a )
+*		Execution vector of EXPECT.
+*		USER$	7,'''EXPECT',TEXPE
+LEN_	set	(7&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+TEXPE	equ	*				*assembly TEXPE
+		bsr	DOLST			*include BSR doLIST
+		dc.l	DOUSE,USER_		*followed by doUSER and offset
+USER_	set	USER_+CELLL			*update user area offset
+
+*   'TAP	( -- a )
+*		Execution vector of TAP.
+*		USER$	4,'''TAP',TTAP
+LEN_	set	(4&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+TTAP	equ	*				*assembly TTAP
+		bsr	DOLST			*include BSR doLIST
+		dc.l	DOUSE,USER_		*followed by doUSER and offset
+USER_	set	USER_+CELLL			*update user area offset
+
+*   'ECHO	( -- a )
+*		Execution vector of ECHO.
+*		USER$	5,'''ECHO',TECHO
+LEN_	set	(5&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+TECHO	equ	*				*assembly TECHO
+		bsr	DOLST			*include BSR doLIST
+		dc.l	DOUSE,USER_		*followed by doUSER and offset
+USER_	set	USER_+CELLL			*update user area offset
+
+*   'PROMPT	( -- a )
+*		Execution vector of PROMPT.
+*		USER$	7,'''PROMPT',TPROM
+LEN_	set	(7&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+TPROM	equ	*				*assembly TPROM
+		bsr	DOLST			*include BSR doLIST
+		dc.l	DOUSE,USER_		*followed by doUSER and offset
+USER_	set	USER_+CELLL			*update user area offset
+
+*   BASE	( -- a )
+*		Storage of the radix base for numeric I/O.
+*		USER$	4,'BASE',BASE
+LEN_	set	(4&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+BASE	equ	*				*assembly BASE
+		bsr	DOLST			*include BSR doLIST
+		dc.l	DOUSE,USER_		*followed by doUSER and offset
+USER_	set	USER_+CELLL			*update user area offset
+
+*   tmp		( -- a )
+*		A temporary storage location used in parse and find.
+*		USER$	COMPO+3,'tmp',TEMP
+LEN_	set	(3&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+TEMP	equ	*				*assembly TEMP
+		bsr	DOLST			*include BSR doLIST
+		dc.l	DOUSE,USER_		*followed by doUSER and offset
+USER_	set	USER_+CELLL			*update user area offset
+
+*   SPAN	( -- a )
+*		Hold character count received by EXPECT.
+*		USER$	4,'SPAN',SPAN
+LEN_	set	(4&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+SPAN	equ	*				*assembly SPAN
+		bsr	DOLST			*include BSR doLIST
+		dc.l	DOUSE,USER_		*followed by doUSER and offset
+USER_	set	USER_+CELLL			*update user area offset
+
+*   >IN		( -- a )
+*		Hold the character pointer while parsing input stream.
+*		USER$	3,'>IN',INN
+LEN_	set	(3&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+INN	equ	*				*assembly INN
+		bsr	DOLST			*include BSR doLIST
+		dc.l	DOUSE,USER_		*followed by doUSER and offset
+USER_	set	USER_+CELLL			*update user area offset
+
+*   #TIB	( -- a )
+*		Hold the current count in and address of the terminal input buffer.
+*		USER$	4,'#TIB',NTIB
+LEN_	set	(4&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+NTIB	equ	*				*assembly NTIB
+		bsr	DOLST			*include BSR doLIST
+		dc.l	DOUSE,USER_		*followed by doUSER and offset
+USER_	set	USER_+CELLL			*update user area offset
+USER_	set	USER_+CELLL			*hold the base address of the terminal
+
+*   CSP		( -- a )
+*		Hold the stack pointer for error checking.
+*		USER$	3,'CSP',CSP
+LEN_	set	(3&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+CSP	equ	*				*assembly CSP
+		bsr	DOLST			*include BSR doLIST
+		dc.l	DOUSE,USER_		*followed by doUSER and offset
+USER_	set	USER_+CELLL			*update user area offset
+
+*   'EVAL	( -- a )
+*		Execution vector of EVAL.
+*		USER$	5,'''EVAL',TEVAL
+LEN_	set	(5&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+TEVAL	equ	*				*assembly TEVAL
+		bsr	DOLST			*include BSR doLIST
+		dc.l	DOUSE,USER_		*followed by doUSER and offset
+USER_	set	USER_+CELLL			*update user area offset
+
+*   'NUMBER	( -- a )
+*		Execution vector of NUMBER?.
+*		USER$	7,'''NUMBER',TNUMB
+LEN_	set	(7&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+TNUMB	equ	*				*assembly TNUMB
+		bsr	DOLST			*include BSR doLIST
+		dc.l	DOUSE,USER_		*followed by doUSER and offset
+USER_	set	USER_+CELLL			*update user area offset
+
+*   HLD		( -- a )
+*		Hold a pointer in building a numeric output string.
+*		USER$	3,'HLD',HLD
+LEN_	set	(3&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+HLD	equ	*				*assembly HLD
+		bsr	DOLST			*include BSR doLIST
+		dc.l	DOUSE,USER_		*followed by doUSER and offset
+USER_	set	USER_+CELLL			*update user area offset
+
+*   HANDLER	( -- a )
+*		Hold the return stack pointer for error handling.
+*		USER$	7,'HANDLER',HANDL
+LEN_	set	(7&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+HANDL	equ	*				*assembly HANDL
+		bsr	DOLST			*include BSR doLIST
+		dc.l	DOUSE,USER_		*followed by doUSER and offset
+USER_	set	USER_+CELLL			*update user area offset
+
+*   CONTEXT	( -- a )
+*		A area to specify vocabulary search order.
+*		USER$	7,'CONTEXT',CNTXT
+LEN_	set	(7&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+CNTXT	equ	*				*assembly CNTXT
+		bsr	DOLST			*include BSR doLIST
+		dc.l	DOUSE,USER_		*followed by doUSER and offset
+USER_	set	USER_+CELLL			*update user area offset
+USER_	set	USER_+VOCSS*CELLL		*vocabulary stack
+
+*   CURRENT	( -- a )
+*		Point to the vocabulary to be extended.
+*		USER$	7,'CURRENT',CRRNT
+LEN_	set	(7&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+CRRNT	equ	*				*assembly CRRNT
+		bsr	DOLST			*include BSR doLIST
+		dc.l	DOUSE,USER_		*followed by doUSER and offset
+USER_	set	USER_+CELLL			*update user area offset
+USER_	set	USER_+CELLL			*vocabulary link pointer
+
+*   CP		( -- a )
+*		Point to the top of the code dictionary.
+*		USER$	2,'CP',CP
+LEN_	set	(2&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+CP	equ	*				*assembly CP
+		bsr	DOLST			*include BSR doLIST
+		dc.l	DOUSE,USER_		*followed by doUSER and offset
+USER_	set	USER_+CELLL			*update user area offset
+
+*   NP		( -- a )
+*		Point to the bottom of the name dictionary.
+*		USER$	2,'NP',NP
+LEN_	set	(2&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+NP	equ	*				*assembly NP
+		bsr	DOLST			*include BSR doLIST
+		dc.l	DOUSE,USER_		*followed by doUSER and offset
+USER_	set	USER_+CELLL			*update user area offset
+
+*   LAST	( -- a )
+*		Point to the last name in the name dictionary.
+*		USER$	4,'LAST',LAST
+LEN_	set	(4&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+LAST	equ	*				*assembly LAST
+		bsr	DOLST			*include BSR doLIST
+		dc.l	DOUSE,USER_		*followed by doUSER and offset
+USER_	set	USER_+CELLL			*update user area offset
+
+* Common functions
+
+*   doVOC	( -- )
+*		Run time action of VOCABULARY's.
+*		COLON$	COMPO+5,'doVOC',DOVOC
+LEN_	set	(5&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+DOVOC	equ	*				*assembly DOVOC
+		bsr	DOLST			*include BSR doLIST
+		dc.l	RFROM,CNTXT,STORE,EXIT
+
+*   FORTH	( -- )
+*		Make FORTH the context vocabulary.
+*		COLON$	5,'FORTH',FORTH
+LEN_	set	(5&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+FORTH	equ	*				*assembly FORTH
+		bsr	DOLST			*include BSR doLIST
+		dc.l	DOVOC
+		dc.l	0			*vocabulary head pointer
+		dc.l	0			*vocabulary link pointer
+
+*   ?DUP	( w -- w w | 0 )
+*		Dup tos if its is not zero.
+*		COLON$	4,'?DUP',QDUP
+LEN_	set	(4&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+QDUP	equ	*				*assembly QDUP
+		bsr	DOLST			*include BSR doLIST
+		dc.l	DUPP
+		dc.l	QBRAN,QDUP1
+		dc.l	DUPP
+QDUP1		dc.l	EXIT
+
+*   ROT		( w1 w2 w3 -- w2 w3 w1 )
+*		Rot 3rd item to top.
+*		COLON$	3,'ROT',ROT
+LEN_	set	(3&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+ROT	equ	*				*assembly ROT
+		bsr	DOLST			*include BSR doLIST
+		dc.l	TOR,SWAP,RFROM,SWAP,EXIT
+
+*   2DROP	( w w -- )
+*		Discard two items on stack.
+*		COLON$	5,'2DROP',DDROP
+LEN_	set	(5&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+DDROP	equ	*				*assembly DDROP
+		bsr	DOLST			*include BSR doLIST
+		dc.l	DROP,DROP,EXIT
+
+
+*   2DUP	( w1 w2 -- w1 w2 w1 w2 )
+*		Duplicate top two items.
+*		COLON$	4,'2DUP',DDUP
+LEN_	set	(4&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+DDUP	equ	*				*assembly DDUP
+		bsr	DOLST			*include BSR doLIST
+		dc.l	OVER,OVER,EXIT
+
+
+*   +		( w w -- sum )
+*		Add top two items.
+*		COLON$	1,'+',PLUS
+LEN_	set	(1&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+PLUS	equ	*				*assembly PLUS
+		bsr	DOLST			*include BSR doLIST
+		dc.l	UPLUS,DROP,EXIT
+
+
+*   NOT		( w -- w )
+*		One's complement of tos.
+*		COLON$	3,'NOT',INVER
+LEN_	set	(3&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+INVER	equ	*				*assembly INVER
+		bsr	DOLST			*include BSR doLIST
+		dc.l	DOLIT,$ffffffff,XORR,EXIT
+
+
+*   NEGATE	( n -- -n )
+*		Two's complement of tos.
+*		COLON$	6,'NEGATE',NEGAT
+LEN_	set	(6&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+NEGAT	equ	*				*assembly NEGAT
+		bsr	DOLST			*include BSR doLIST
+		dc.l	INVER,DOLIT,1,PLUS,EXIT
+
+*   DNEGATE	( d -- -d )
+*		Two's complement of top double.
+*		COLON$	7,'DNEGATE',DNEGA
+LEN_	set	(7&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+DNEGA	equ	*				*assembly DNEGA
+		bsr	DOLST			*include BSR doLIST
+		dc.l	INVER,TOR,INVER
+		dc.l	DOLIT,1,UPLUS
+		dc.l	RFROM,PLUS,EXIT
+
+
+*   -		( n1 n2 -- n1-n2 )
+*		Subtraction.
+*		COLON$	1,chminus,SUBB
+LEN_	set	(1&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+SUBB	equ	*				*assembly SUBB
+		bsr	DOLST			*include BSR doLIST
+		dc.l	NEGAT,PLUS,EXIT
+
+
+*   ABS		( n -- n )
+*		Return the absolute value of n.
+*		COLON$	3,'ABS',ABSS
+LEN_	set	(3&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+ABSS	equ	*				*assembly ABSS
+		bsr	DOLST			*include BSR doLIST
+		dc.l	DUPP,ZLESS
+		dc.l	QBRAN,ABS1
+
+		dc.l	NEGAT
+ABS1		dc.l	EXIT
+
+*   =		( w w -- t )
+*		Return true if top two are equal.
+*		COLON$	1,'=',EQUAL
+LEN_	set	(1&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+EQUAL	equ	*				*assembly EQUAL
+		bsr	DOLST			*include BSR doLIST
+		dc.l	XORR
+		dc.l	QBRAN,EQU1
+
+		dc.l	DOLIT,0,EXIT
+EQU1		dc.l	DOLIT,TRUEE,EXIT
+
+
+*   U<		( u u -- t )
+*		Unsigned compare of top two items.
+*		COLON$	2,'U<',ULESS
+LEN_	set	(2&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+ULESS	equ	*				*assembly
+		bsr	DOLST			*include BSR doLIST
+		dc.l	DDUP,XORR,ZLESS
+		dc.l	QBRAN,ULES1
+
+		dc.l	SWAP,DROP,ZLESS,EXIT
+ULES1		dc.l	SUBB,ZLESS,EXIT
+
+
+*   <		( n1 n2 -- t )
+*		Signed compare of top two items.
+*		COLON$	1,'<',LESS
+LEN_	set	(1&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+LESS	equ	*				*assembly LESS
+		bsr	DOLST			*include BSR doLIST
+		dc.l	DDUP,XORR,ZLESS
+		dc.l	QBRAN,LESS1
+
+		dc.l	DROP,ZLESS,EXIT
+LESS1		dc.l	SUBB,ZLESS,EXIT
+
+
+*   MAX		( n n -- n )
+*		Return the greater of two top stack items.
+*		COLON$	3,'MAX',MAX
+LEN_	set	(3&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+MAX	equ	*				*assembly MAX
+		bsr	DOLST			*include BSR doLIST
+		dc.l	DDUP,LESS
+		dc.l	QBRAN,MAX1
+
+		dc.l	SWAP
+MAX1		dc.l	DROP,EXIT
+
+*   MIN		( n n -- n )
+*		Return the smaller of top two stack items.
+*		COLON$	3,'MIN',MIN
+LEN_	set	(3&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+MIN	equ	*				*assembly MIN
+		bsr	DOLST			*include BSR doLIST
+		dc.l	DDUP,SWAP,LESS
+		dc.l	QBRAN,MIN1
+
+		dc.l	SWAP
+MIN1		dc.l	DROP,EXIT
+
+
+*   WITHIN	( u ul uh -- t )
+*		Return true if u is within the range of ul and uh. ( ul <= u < uh )
+*		COLON$	6,'WITHIN',WITHI
+LEN_	set	(6&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+WITHI	equ	*				*assembly WITHI
+		bsr	DOLST			*include BSR doLIST
+		dc.l	OVER,SUBB,TOR
+		dc.l	SUBB,RFROM,ULESS,EXIT
+
+
+* Divide
+
+*   UM/MOD	( udl udh un -- ur uq )
+*		Unsigned divide of a double by a single. Return mod and quotient.
+*		CODE$	6,'UM/MOD',UMMOD
+LEN_	set	(6&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+UMMOD	equ	*				*assembly UMMOD
+		MOVE.L	(SP)+,D2
+		MOVE.L	(SP)+,D0
+		MOVE.L	(SP)+,D1
+***************************************************************
+*                                                             *
+*     unsigned divide of long into quad                       *
+*                                                             *
+***************************************************************
+divuql:
+  move.L	d2,d3                 check if high word = zero
+  swap    d3
+  tst.w   d3
+  beq.s     qdivuql               use quick divide
+
+  moveq.L	#31,d3                32 bits to divide
+
+divql	equ	*
+  lsl.L	#1,d1                 shift all 64 bits left
+  roxl.L	#1,d0
+*  if.L	d2 <ls> d0   then
+   cmp.L	d2,d0
+   bcs.s    divql1
+      sub.L	d2,d0             do subtract
+      addq.b  #1,d1             add into result
+*  endi
+divql1	equ	*
+  dbra    d3,divql              go though all 32 bits
+
+		MOVE.L	D0,-(SP)
+		MOVE.L	D1,-(SP)
+		MOVEA.L	(A5)+,A0		*NEXT$
+		JMP	(A0)
+*
+*     quick divide signed long by unsigned word
+*
+qdivuql:
+*
+*     quick divide logic           d0         d1
+*                               high low   high low
+*                                d3   d2    d1   d0
+  swap    d0                     d2   d3    d1   d0
+  swap    d1                     d2   d3    d0   d1
+  move.w  d1,d0                  d2   d1    d0   d1
+  divu    d2,d0                  d.5  q1    d0   d1
+  move.w  d0,d1                  d.5  q1    d0   q1
+  swap    d1                     d.5  q1    q1   d0
+  move.w  d1,d0                  d.5  d0    q1   d0
+  divu    d2,d0                  r    q0    q1   d0
+  move.w  d0,d1                  r    q0    q1   q0
+  clr.w   d0                     r    0     q1   q0
+  swap    d0                     0    r     q1   q0
+		MOVE.L	D0,-(SP)
+		MOVE.L	D1,-(SP)
+		MOVEA.L	(A5)+,A0		*NEXT$
+		JMP	(A0)
+
+*
+*               DS.L 0
+*   M/MOD	( d n -- r q )
+*		Signed floored divide of double by single. Return mod and quotient.
+*		COLON$	5,'M/MOD',MSMOD
+LEN_	set	(5&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+MSMOD	equ	*				*assembly MSMOD
+		bsr	DOLST			*include BSR doLIST
+		dc.l	DUPP,ZLESS,DUPP,TOR
+		dc.l	QBRAN,MMOD1
+
+		dc.l	NEGAT,TOR,DNEGA,RFROM
+MMOD1		dc.l	TOR,DUPP,ZLESS
+		dc.l	QBRAN,MMOD2
+
+		dc.l	RAT,PLUS
+MMOD2		dc.l	RFROM,UMMOD,RFROM
+		dc.l	QBRAN,MMOD3
+
+		dc.l	SWAP,NEGAT,SWAP
+MMOD3		dc.l	EXIT
+
+*   /MOD	( n n -- r q )
+*		Signed divide. Return mod and quotient.
+*		COLON$	4,'/MOD',SLMOD
+LEN_	set	(4&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+SLMOD	equ	*				*assembly SLMOD
+		bsr	DOLST			*include BSR doLIST
+		dc.l	OVER,ZLESS,SWAP,MSMOD,EXIT
+
+
+*   MOD		( n n -- r )
+*		Signed divide. Return mod only.
+*		COLON$	3,'MOD',MODD
+LEN_	set	(3&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+MODD	equ	*				*assembly MODD
+		bsr	DOLST			*include BSR doLIST
+		dc.l	SLMOD,DROP,EXIT
+
+*   /		( n n -- q )
+*		Signed divide. Return quotient only.
+*		COLON$	1,'/',SLASH
+LEN_	set	(1&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+SLASH	equ	*				*assembly SLASH
+		bsr	DOLST			*include BSR doLIST
+		dc.l	SLMOD,SWAP,DROP,EXIT
+
+
+* Multiply
+
+*   UM*		( u u -- ud )
+*		Unsigned multiply. Return double product.
+*		CODE$	3,'UM*',UMSTA
+LEN_	set	(3&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+UMSTA	equ	*				*assembly UMSTA
+		MOVE.L	(SP)+,D0
+		MOVE.L	(SP)+,D1
+		MOVE.W	D0,D2
+		MOVE.W	D1,D3
+		MULU	D3,D2
+		SWAP	D0
+		MOVE.W	D0,D4
+		MULU	D3,D4
+		SWAP	D1
+		MOVE.W	D1,D5
+		MOVE.W	D0,D3
+		MULU	D5,D3
+		SWAP	D0
+		MULU	D0,D5
+		MOVE.L	D4,D6
+		SWAP	D6
+		MOVE.W	#0,D6
+		ADD.L	D6,D2
+		MOVE.L	D4,D6
+		MOVE.W	#0,D6
+		SWAP	D6
+		ADDX.L	D6,D3
+		MOVE.L	D5,D6
+		SWAP	D6
+		MOVE.W	#0,D6
+		ADD.L	D6,D2
+		MOVE.L	D5,D6
+		MOVE.W	#0,D6
+		SWAP	D6
+		ADDX.L	D6,D3
+		MOVE.L	D2,-(SP)
+		MOVE.L	D3,-(SP)
+		MOVEA.L	(A5)+,A0		*NEXT$
+		JMP	(A0)
+                dcb.b   $24,0
+*
+*		ALIGN    ALGNUM
+*
+*   *		( n n -- n )
+*		Signed multiply. Return single product.
+*		COLON$	1,'*',STAR
+LEN_	set	(1&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+STAR	equ	*				*assembly STAR
+		bsr	DOLST			*include BSR doLIST
+		dc.l	UMSTA,DROP,EXIT
+
+
+*   M*		( n n -- d )
+*		Signed multiply. Return double product.
+*		COLON$	2,'M*',MSTAR
+LEN_	set	(2&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+MSTAR	equ	*				*assembly MSTAR
+		bsr	DOLST			*include BSR doLIST
+		dc.l	DDUP,XORR,ZLESS,TOR
+		dc.l	ABSS,SWAP,ABSS,UMSTA
+		dc.l	RFROM
+		dc.l	QBRAN,MSTA1
+
+		dc.l	DNEGA
+MSTA1:		dc.l	EXIT
+
+*   */MOD	( n1 n2 n3 -- r q )
+*		Multiply n1 and n2, then divide by n3. Return mod and quotient.
+*		COLON$	5,'*/MOD',SSMOD
+LEN_	set	(5&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+SSMOD	equ	*				*assembly SSMOD
+		bsr	DOLST			*include BSR doLIST
+		dc.l	TOR,MSTAR,RFROM,MSMOD,EXIT
+
+
+*   */		( n1 n2 n3 -- q )
+*		Multiply n1 by n2, then divide by n3. Return quotient only.
+*		COLON$	2,'*/',STASL
+LEN_	set	(2&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+STASL	equ	*				*assembly STASL
+		bsr	DOLST			*include BSR doLIST
+		dc.l	SSMOD,SWAP,DROP,EXIT
+
+
+* Miscellaneous
+
+*   CELL+	( a -- a )
+*		Add cell size in byte to address.
+*		COLON$	5,'CELL+',CELLP
+LEN_	set	(5&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+CELLP	equ	*				*assembly CELLP
+		bsr	DOLST			*include BSR doLIST
+		dc.l	DOLIT,CELLL,PLUS,EXIT
+
+
+*   CELL-	( a -- a )
+*		Subtract cell size in byte from address.
+*		COLON$	5,'CELL-',CELLM
+LEN_	set	(5&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+CELLM	equ	*				*assembly CELLM
+		bsr	DOLST			*include BSR doLIST
+		dc.l	DOLIT
+		dc.l	0-CELLL
+		dc.l	PLUS,EXIT
+
+
+*   CELLS	( n -- n )
+*		Multiply tos by cell size in bytes.
+*		COLON$	5,'CELLS',CELLS
+LEN_	set	(5&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+CELLS	equ	*				*assembly CELLS
+		bsr	DOLST			*include BSR doLIST
+		dc.l	DOLIT,CELLL,STAR,EXIT
+
+*   ALIGNED	( b -- a )
+*		Align address to the cell boundary.
+*		COLON$	7,'ALIGNED',ALGND
+LEN_	set	(7&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+ALGND	equ	*				*assembly ALGND
+*		bsr	DOLST			*include BSR doLIST
+*		dc.l	DUPP,DOLIT,0,DOLIT,CELLL
+*		dc.l	UMMOD,DROP,DUPP
+*		dc.l	QBRAN,ALGN1
+*
+*		dc.l	DOLIT,CELLL,SWAP,SUBB
+*ALGN1		dc.l	PLUS,EXIT
+*
+* I had problems with alignment not working and the above code was just
+* too much to do so little, so the below assembler code takes the place.
+*  bdk 4/28/91 (program would work on 68020 not 68000 till this change).
+*
+                move.L	(sp)+,d0       * get address to be aligned
+                add.L	#3,d0          * increase by cell-1
+                and.L	#$fffffffc,d0  * mask off added value leaving
+                move.L	d0,-(sp)       * increased value if needed
+		MOVEA.L	(A5)+,A0		*NEXT$
+		JMP	 (A0)
+
+*
+*   BL		( -- 32 )
+*		Return 32, the blank character.
+*		COLON$	2,'BL',BLANK
+LEN_	set	(2&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+BLANK	equ	*				*assembly BLANK
+		bsr	DOLST			*include BSR doLIST
+		dc.l	DOLIT,chblnk,EXIT
+
+
+*   >CHAR	( c -- c )
+*		Filter non-printing characters.
+*		COLON$	5,'>CHAR',TCHAR
+LEN_	set	(5&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+TCHAR	equ	*				*assembly TCHAR
+		bsr	DOLST			*include BSR doLIST
+		dc.l	DOLIT,$07F,ANDD,DUPP	*mask msb
+		dc.l	DOLIT,127,BLANK,WITHI	*check for printable
+		dc.l	QBRAN,TCHA1
+
+		dc.l	DROP,DOLIT,char_		*replace non-printables
+TCHA1		dc.l	EXIT
+
+*   DEPTH	( -- n )
+*		Return the depth of the data stack.
+*		COLON$	5,'DEPTH',DEPTH
+LEN_	set	(5&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+DEPTH	equ	*				*assembly DEPTH
+		bsr	DOLST			*include BSR doLIST
+		dc.l	SPAT,SZERO,AT,SWAP,SUBB
+		dc.l	DOLIT,CELLL,SLASH,EXIT
+
+
+*   PICK	( ... +n -- ... w )
+*		Copy the nth stack item to tos.
+*		COLON$	4,'PICK',PICK
+LEN_	set	(4&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+PICK	equ	*				*assembly PICK
+		bsr	DOLST			*include BSR doLIST
+		dc.l	DOLIT,1,PLUS,CELLS
+		dc.l	SPAT,PLUS,AT,EXIT
+
+
+* Memory access
+
+*   +!		( n a -- )
+*		Add n to the contents at address a.
+*		COLON$	2,'+!',PSTOR
+LEN_	set	(2&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+PSTOR	equ	*				*assembly PSTOR
+		bsr	DOLST			*include BSR doLIST
+		dc.l	SWAP,OVER,AT,PLUS
+		dc.l	SWAP,STORE,EXIT
+
+
+*   2!		( d a -- )
+*		Store the double integer to address a.
+*		COLON$	2,'2!',DSTOR
+LEN_	set	(2&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+DSTOR	equ	*				*assembly DSTOR
+		bsr	DOLST			*include BSR doLIST
+		dc.l	SWAP,OVER,STORE
+		dc.l	CELLP,STORE,EXIT
+
+
+*   2@		( a -- d )
+*		Fetch double integer from address a.
+*		COLON$	2,'2@',DAT
+LEN_	set	(2&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+DAT	equ	*				*assembly DAT
+		bsr	DOLST			*include BSR doLIST
+		dc.l	DUPP,CELLP,AT
+		dc.l	SWAP,AT,EXIT
+
+
+*   COUNT	( b -- b +n )
+*		Return count byte of a string and add 1 to byte address.
+*		COLON$	5,'COUNT',COUNT
+LEN_	set	(5&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+COUNT	equ	*				*assembly COUNT
+		bsr	DOLST			*include BSR doLIST
+		dc.l	DUPP,DOLIT,1,PLUS
+		dc.l	SWAP,CAT,EXIT
+
+
+*   HERE	( -- a )
+*		Return the top of the code dictionary.
+*		COLON$	4,'HERE',HERE
+LEN_	set	(4&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+HERE	equ	*				*assembly HERE
+		bsr	DOLST			*include BSR doLIST
+		dc.l	CP,AT,EXIT
+
+
+*   PAD		( -- a )
+*		Return the address of the text buffer above the code dictionary.
+*		COLON$	3,'PAD',PAD
+LEN_	set	(3&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+PAD	equ	*				*assembly PAD
+		bsr	DOLST			*include BSR doLIST
+		dc.l	HERE,DOLIT,80,PLUS,EXIT
+
+
+
+*   TIB		( -- a )
+*		Return the address of the terminal input buffer.
+*		COLON$	3,'TIB',TIB
+LEN_	set	(3&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+TIB	equ	*				*assembly TIB
+		bsr	DOLST			*include BSR doLIST
+		dc.l	NTIB,CELLP,AT,EXIT
+
+
+
+*   @EXECUTE	( a -- )
+*		Execute vector stored in address a.
+*		COLON$	8,'@EXECUTE',ATEXE
+LEN_	set	(8&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+ATEXE	equ	*				*assembly ATEXE
+		bsr	DOLST			*include BSR doLIST
+		dc.l	AT,QDUP			*?address or zero
+		dc.l	QBRAN,EXE1
+
+		dc.l	EXECU			*execute if non-zero
+EXE1		dc.l	EXIT			*do nothing if zero
+
+*   CMOVE	( b1 b2 u -- )
+*		Copy u bytes from b1 to b2.
+*		COLON$	5,'CMOVE',CMOVE
+LEN_	set	(5&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+CMOVE	equ	*				*assembly CMOVE
+		bsr	DOLST			*include BSR doLIST
+		dc.l	TOR
+		dc.l	BRAN,CMOV2
+
+CMOV1		dc.l	TOR,DUPP,CAT
+		dc.l	RAT,CSTOR
+		dc.l	DOLIT,1,PLUS
+		dc.l	RFROM,DOLIT,1,PLUS
+
+CMOV2		dc.l	DONXT,CMOV1
+		dc.l	DDROP,EXIT
+
+
+*   FILL	( b u c -- )
+*		Fill u bytes of character c to area beginning at b.
+*		COLON$	4,'FILL',FILL
+LEN_	set	(4&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+FILL	equ	*				*assembly FILL
+		bsr	DOLST			*include BSR doLIST
+		dc.l	SWAP,TOR,SWAP
+		dc.l	BRAN,FILL2
+
+FILL1		dc.l	DDUP,CSTOR,DOLIT,1,PLUS
+
+FILL2		dc.l	DONXT,FILL1
+		dc.l	DDROP,EXIT
+
+
+*   -TRAILING	( b u -- b u )
+*		Adjust the count to eliminate trailing white space.
+*		COLON$	9,'-TRAILING',DTRAI
+LEN_	set	(9&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+DTRAI	equ	*				*assembly DTRAI
+		bsr	DOLST			*include BSR doLIST
+		dc.l	TOR
+		dc.l	BRAN,DTRA2
+
+DTRA1		dc.l	BLANK,OVER,RAT,PLUS,CAT,LESS
+		dc.l	QBRAN,DTRA2
+
+		dc.l	RFROM,DOLIT,1,PLUS,EXIT
+DTRA2		dc.l	DONXT,DTRA1
+		dc.l	DOLIT,0,EXIT
+
+
+*   PACK$	( b u a -- a )
+*		Build a counted string with u characters from b. Null fill.
+*		COLON$	5,'PACK$',PACKS
+LEN_	set	(5&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+PACKS	equ	*				*assembly PACKS
+		bsr	DOLST			*include BSR doLIST
+		dc.l	ALGND,DUPP,TOR		*strings only on cell boundary
+		dc.l	OVER,DUPP,DOLIT,0
+		dc.l	DOLIT,CELLL,UMMOD,DROP	*count mod cell
+		dc.l	SUBB,OVER,PLUS
+		dc.l	DOLIT,0,SWAP,STORE	*null fill cell
+		dc.l	DDUP,CSTOR,DOLIT,1,PLUS	*save count
+		dc.l	SWAP,CMOVE,RFROM,EXIT	*move string
+
+
+* Numeric output, single precision
+
+*   DIGIT	( u -- c )
+*		Convert digit u to a character.
+*		COLON$	5,'DIGIT',DIGIT
+LEN_	set	(5&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+DIGIT	equ	*				*assembly DIGIT
+		bsr	DOLST			*include BSR doLIST
+		dc.l	DOLIT,9,OVER,LESS
+		dc.l	DOLIT,7,ANDD,PLUS
+		dc.l	DOLIT,char0,PLUS,EXIT
+
+
+*   EXTRACT	( n base -- n c )
+*		Extract the least significant digit from n.
+*		COLON$	7,'EXTRACT',EXTRC
+LEN_	set	(7&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+EXTRC	equ	*				*assembly EXTRC
+		bsr	DOLST			*include BSR doLIST
+		dc.l	DOLIT,0,SWAP,UMMOD
+		dc.l	SWAP,DIGIT,EXIT
+
+
+*   <#		( -- )
+*		Initiate the numeric output process.
+*		COLON$	2,'<#',BDIGS
+LEN_	set	(2&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+BDIGS	equ	*				*assembly
+		bsr	DOLST			*include BSR doLIST
+		dc.l	PAD,HLD,STORE,EXIT
+
+
+
+*   HOLD	( c -- )
+*		Insert a character into the numeric output string.
+*		COLON$	4,'HOLD',HOLD
+LEN_	set	(4&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+HOLD	equ	*				*assembly HOLD
+		bsr	DOLST			*include BSR doLIST
+		dc.l	HLD,AT,DOLIT,1,SUBB
+		dc.l	DUPP,HLD,STORE,CSTOR,EXIT
+
+
+*   #		( u -- u )
+*		Extract one digit from u and append the digit to output string.
+*		COLON$	1,'#',DIG
+LEN_	set	(1&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+DIG	equ	*				*assembly DIG
+		bsr	DOLST			*include BSR doLIST
+		dc.l	BASE,AT,EXTRC,HOLD,EXIT
+
+
+*   #S		( u -- 0 )
+*		Convert u until all digits are added to the output string.
+*		COLON$	2,'#S',DIGS
+LEN_	set	(2&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+DIGS	equ	*				*assembly DIGS
+		bsr	DOLST			*include BSR doLIST
+DIGS1		dc.l	DIG,DUPP
+		dc.l	QBRAN,DIGS2
+
+		dc.l	BRAN,DIGS1
+DIGS2		dc.l	EXIT
+
+*   SIGN	( n -- )
+*		Add a minus sign to the numeric output string.
+*		COLON$	4,'SIGN',SIGN
+LEN_	set	(4&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+SIGN	equ	*				*assembly SIGN
+		bsr	DOLST			*include BSR doLIST
+		dc.l	ZLESS
+		dc.l	QBRAN,SIGN1
+
+		dc.l	DOLIT,chminus,HOLD
+SIGN1		dc.l	EXIT
+
+*   #>		( w -- b u )
+*		Prepare the output string to be TYPE'd.
+*		COLON$	2,'#>',EDIGS
+LEN_	set	(2&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+EDIGS	equ	*				*assembly EDIGS
+		bsr	DOLST			*include BSR doLIST
+		dc.l	DROP,HLD,AT
+		dc.l	PAD,OVER,SUBB,EXIT
+
+
+*   str		( w -- b u )
+*		Convert a signed integer to a numeric string.
+*		COLON$	3,'str',STR
+LEN_	set	(3&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+STR	equ	*				*assembly STR
+		bsr	DOLST			*include BSR doLIST
+		dc.l	DUPP,TOR,ABSS
+		dc.l	BDIGS,DIGS,RFROM
+		dc.l	SIGN,EDIGS,EXIT
+
+
+*   HEX		( -- )
+*		Use radix 16 as base for numeric conversions.
+*		COLON$	3,'HEX',HEX
+LEN_	set	(3&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+HEX	equ	*				*assembly HEX
+		bsr	DOLST			*include BSR doLIST
+		dc.l	DOLIT,16,BASE,STORE,EXIT
+
+
+*   DECIMAL	( -- )
+*		Use radix 10 as base for numeric conversions.
+*		COLON$	7,'DECIMAL',DECIM
+LEN_	set	(7&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+DECIM	equ	*				*assembly DECIM
+		bsr	DOLST			*include BSR doLIST
+		dc.l	DOLIT,10,BASE,STORE,EXIT
+
+
+* Numeric input, single precision
+
+*   DIGIT?	( c base -- u t )
+*		Convert a character to its numeric value. A flag indicates success.
+*		COLON$	6,'DIGIT?',DIGTQ
+LEN_	set	(6&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+DIGTQ	equ	*				*assembly DIGTQ
+		bsr	DOLST			*include BSR doLIST
+		dc.l	TOR,DOLIT,char0,SUBB
+		dc.l	DOLIT,9,OVER,LESS
+		dc.l	QBRAN,DGTQ1
+
+		dc.l	DOLIT,7,SUBB
+		dc.l	DUPP,DOLIT,10,LESS,ORR
+DGTQ1		dc.l	DUPP,RFROM,ULESS,EXIT
+
+*   NUMBER?	( a -- n T | a F )
+*		Convert a number string to integer. Push a flag on tos.
+*		COLON$	7,'NUMBER?',NUMBQ
+LEN_	set	(7&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+NUMBQ	equ	*				*assembly NUMBQ
+		bsr	DOLST			*include BSR doLIST
+		dc.l	BASE,AT,TOR,DOLIT,0,OVER,COUNT
+		dc.l	OVER,CAT,DOLIT,char$,EQUAL
+		dc.l	QBRAN,NUMQ1
+
+		dc.l	HEX,SWAP,DOLIT,1,PLUS
+		dc.l	SWAP,DOLIT,1,SUBB
+NUMQ1		dc.l	OVER,CAT,DOLIT,chminus,EQUAL,TOR
+		dc.l	SWAP,RAT,SUBB,SWAP,RAT,PLUS,QDUP
+		dc.l	QBRAN,NUMQ6
+
+		dc.l	DOLIT,1,SUBB,TOR
+NUMQ2		dc.l	DUPP,TOR,CAT,BASE,AT,DIGTQ
+		dc.l	QBRAN,NUMQ4
+
+		dc.l	SWAP,BASE,AT,STAR,PLUS,RFROM
+		dc.l	DOLIT,1,PLUS
+		dc.l	DONXT,NUMQ2
+
+		dc.l	RAT,SWAP,DROP
+		dc.l	QBRAN,NUMQ3
+
+		dc.l	NEGAT
+NUMQ3		dc.l	SWAP
+		dc.l	BRAN,NUMQ5
+
+NUMQ4		dc.l	RFROM,RFROM,DDROP,DDROP,DOLIT,0
+
+NUMQ5		dc.l	DUPP
+NUMQ6		dc.l	RFROM,DDROP
+		dc.l	RFROM,BASE,STORE,EXIT
+
+
+* Basic I/O
+
+*   ?KEY	( -- c T | F )
+*		Return input character and true, or a false if no input.
+*		COLON$	4,'?KEY',QKEY
+LEN_	set	(4&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+QKEY	equ	*				*assembly QKEY
+		bsr	DOLST			*include BSR doLIST
+		dc.l	TQKEY,ATEXE,EXIT
+
+
+*   KEY		( -- c )
+*		Wait for and return an input character.
+*		COLON$	3,'KEY',KEY
+LEN_	set	(3&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+KEY	equ	*				*assembly KEY
+		bsr	DOLST			*include BSR doLIST
+KEY1		dc.l	QKEY
+		dc.l	QBRAN,KEY1
+
+		dc.l	EXIT
+
+*   EMIT	( c -- )
+*		Send a character to the output device.
+*		COLON$	4,'EMIT',EMIT
+LEN_	set	(4&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+EMIT	equ	*				*assembly EMIT
+		bsr	DOLST			*include BSR doLIST
+		dc.l	TEMIT,ATEXE,EXIT
+
+
+*   NUF?	( -- t )
+*		Return false if no input, else pause and if CR return true.
+*		COLON$	4,'NUF?',NUFQ
+LEN_	set	(4&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+NUFQ	equ	*				*assembly NUFQ
+		bsr	DOLST			*include BSR doLIST
+		dc.l	QKEY,DUPP
+		dc.l	QBRAN,NUFQ1
+
+		dc.l	DDROP,KEY,DOLIT,CRR,EQUAL
+NUFQ1		dc.l	EXIT
+
+*   PACE	( -- )
+*		Send a pace character for the file downloading process.
+*		COLON$	4,'PACE',PACE
+LEN_	set	(4&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+PACE	equ	*				*assembly PACE
+		bsr	DOLST			*include BSR doLIST
+		dc.l	DOLIT,11,EMIT,EXIT
+
+
+
+*   SPACE	( -- )
+*		Send the blank character to the output device.
+*		COLON$	5,'SPACE',SPACE
+LEN_	set	(5&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+SPACE	equ	*				*assembly SPACE
+		bsr	DOLST			*include BSR doLIST
+		dc.l	BLANK,EMIT,EXIT
+
+
+*   SPACES	( +n -- )
+*		Send n spaces to the output device.
+*		COLON$	6,'SPACES',SPACS
+LEN_	set	(6&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+SPACS	equ	*				*assembly SPACS
+		bsr	DOLST			*include BSR doLIST
+		dc.l	DOLIT,0,MAX,TOR
+		dc.l	BRAN,CHAR2
+
+CHAR1		dc.l	SPACE
+CHAR2		dc.l	DONXT,CHAR1
+
+		dc.l	EXIT
+
+*   TYPE	( b u -- )
+*		Output u characters from b.
+*		COLON$	4,'TYPE',TYPES
+LEN_	set	(4&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+TYPES	equ	*				*assembly TYPES
+		bsr	DOLST			*include BSR doLIST
+		dc.l	TOR
+		dc.l	BRAN,TYPE2
+
+TYPE1		dc.l	DUPP,CAT,EMIT
+		dc.l	DOLIT,1,PLUS
+TYPE2		dc.l	DONXT,TYPE1
+
+		dc.l	DROP,EXIT
+
+
+*   CR		( -- )
+*		Output a carriage return and a line feed.
+*		COLON$	2,'CR',CR
+LEN_	set	(2&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+CR	equ	*				*assembly CR
+		bsr	DOLST			*include BSR doLIST
+		dc.l	DOLIT,CRR,EMIT
+		dc.l	DOLIT,LF,EMIT,EXIT
+
+
+*   do$		( -- a )
+*		Return the address of a compiled string.
+*		COLON$ COMPO+3,'do$',DOSTR
+LEN_	set	(3&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+DOSTR	equ	*				*assembly DOSTR
+		bsr	DOLST			*include BSR doLIST
+		dc.l	RFROM,RAT,RFROM,COUNT,PLUS
+		dc.l	ALGND,TOR,SWAP,TOR,EXIT
+
+
+*   $"|		( -- a )
+*		Run time routine compiled by $". Return address of a compiled string.
+*		COLON$	COMPO+3,'$"|',STRQP
+LEN_	set	(3&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+STRQP	equ	*				*assembly STRQP
+		bsr	DOLST			*include BSR doLIST
+		dc.l	DOSTR,EXIT		*force a call to do$
+
+
+*   ."|		( -- )
+*		Run time routine of ." . Output a compiled string.
+*		COLON$	COMPO+3,'."|',DOTQP
+LEN_	set	(3&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+DOTQP	equ	*				*assembly DOTQP
+		bsr	DOLST			*include BSR doLIST
+		dc.l	DOSTR,COUNT,TYPES,EXIT
+
+
+*   .R		( n +n -- )
+*		Display an integer in a field of n columns, right justified.
+*		COLON$	2,'.R',DOTR
+LEN_	set	(2&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+DOTR	equ	*				*assembly DOTR
+		bsr	DOLST			*include BSR doLIST
+		dc.l	TOR,STR,RFROM,OVER,SUBB
+		dc.l	SPACS,TYPES,EXIT
+
+
+*   U.R		( u +n -- )
+*		Display an unsigned integer in n column, right justified.
+*		COLON$	3,'U.R',UDOTR
+LEN_	set	(3&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+UDOTR	equ	*				*assembly UDOTR
+		bsr	DOLST			*include BSR doLIST
+		dc.l	TOR,BDIGS,DIGS,EDIGS
+		dc.l	RFROM,OVER,SUBB
+		dc.l	SPACS,TYPES,EXIT
+
+
+*   U.		( u -- )
+*		Display an unsigned integer in free format.
+*		COLON$	2,'U.',UDOT
+LEN_	set	(2&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+UDOT	equ	*				*assembly UDOT
+		bsr	DOLST			*include BSR doLIST
+		dc.l	BDIGS,DIGS,EDIGS
+		dc.l	SPACE,TYPES,EXIT
+
+
+*   .		( w -- )
+*		Display an integer in free format, preceeded by a space.
+*		COLON$	1,'.',DOT
+LEN_	set	(1&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+DOT	equ	*				*assembly DOT
+		bsr	DOLST			*include BSR doLIST
+		dc.l	BASE,AT,DOLIT,10,XORR	*?decimal
+		dc.l	QBRAN,DOT1
+
+		dc.l	UDOT,EXIT		*no, display unsigned
+DOT1		dc.l	STR,SPACE,TYPES,EXIT	*yes, display signed
+
+
+*   ?		( a -- )
+*		Display the contents in a memory cell.
+*		COLON$	1,'?',QUEST
+LEN_	set	(1&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+QUEST	equ	*				*assembly QUEST
+		bsr	DOLST			*include BSR doLIST
+		dc.l	AT,DOT,EXIT
+
+
+* Parsing
+
+*   parse	( b u c -- b u delta * <string> )
+*		Scan string delimited by c. Return found string and its offset.
+*		COLON$	5,'parse',PARS
+LEN_	set	(5&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+PARS	equ	*				*assembly PARS
+		bsr	DOLST			*include BSR doLIST
+		dc.l	TEMP,STORE,OVER,TOR,DUPP
+		dc.l	QBRAN,PARS8
+
+		dc.l	DOLIT,1,SUBB,TEMP,AT,BLANK,EQUAL
+		dc.l	QBRAN,PARS3
+
+		dc.l	TOR
+PARS1		dc.l	BLANK,OVER,CAT		*skip leading blanks ONLY
+		dc.l	SUBB,ZLESS,INVER
+		dc.l	QBRAN,PARS2
+
+		dc.l	DOLIT,1,PLUS
+		dc.l	DONXT,PARS1
+
+		dc.l	RFROM,DROP,DOLIT,0,DUPP,EXIT
+
+PARS2		dc.l	RFROM
+PARS3		dc.l	OVER,SWAP
+		dc.l	TOR
+PARS4		dc.l	TEMP,AT,OVER,CAT,SUBB	*scan for delimiter
+		dc.l	TEMP,AT,BLANK,EQUAL
+		dc.l	QBRAN,PARS5
+
+		dc.l	ZLESS
+PARS5		dc.l	QBRAN,PARS6
+
+		dc.l	DOLIT,1,PLUS
+		dc.l	DONXT,PARS4
+
+		dc.l	DUPP,TOR
+		dc.l	BRAN,PARS7
+
+PARS6		dc.l	RFROM,DROP,DUPP
+		dc.l	DOLIT,1,PLUS,TOR
+PARS7		dc.l	OVER,SUBB
+		dc.l	RFROM,RFROM,SUBB,EXIT
+
+PARS8		dc.l	OVER,RFROM,SUBB,EXIT
+
+*   PARSE	( c -- b u * <string> )
+*		Scan input stream and return counted string delimited by c.
+*		COLON$	5,'PARSE',PARSE
+LEN_	set	(5&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+PARSE	equ	*				*assembly PARSE
+		bsr	DOLST			*include BSR doLIST
+		dc.l	TOR,TIB,INN,AT,PLUS	*current input buffer pointer
+		dc.l	NTIB,AT,INN,AT,SUBB	*remaining count
+		dc.l	RFROM,PARS,INN,PSTOR,EXIT
+
+*   .(		( -- )
+*		Output following string up to next ) .
+*		COLON$	IMEDD+2,'.(',DOTPR
+LEN_	set	(2&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+DOTPR	equ	*				*assembly DOTPR
+		bsr	DOLST			*include BSR doLIST
+		dc.l	DOLIT,charbr,PARSE,TYPES,EXIT
+
+
+
+*   (		( -- )
+*		Ignore following string up to next ) . A comment.
+*		COLON$	IMEDD+1,'(',PAREN
+LEN_	set	(1&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+PAREN	equ	*				*assembly PAREN
+		bsr	DOLST			*include BSR doLIST
+		dc.l	DOLIT,charbr,PARSE,DDROP,EXIT
+
+
+*   \		( -- )
+*		Ignore following text till the end of line.
+*		COLON$	IMEDD+1,'\',BKSLA
+LEN_	set	(1&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+BKSLA	equ	*				*assembly BKSLA
+		bsr	DOLST			*include BSR doLIST
+		dc.l	NTIB,AT,INN,STORE,EXIT
+
+
+*   CHAR	( -- c )
+*		Parse next word and return its first character.
+*		COLON$	4,'CHAR',CHAR
+LEN_	set	(4&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+CHAR	equ	*				*assembly CHAR
+		bsr	DOLST			*include BSR doLIST
+		dc.l	BLANK,PARSE,DROP,CAT,EXIT
+
+*   TOKEN	( -- a * <string> )
+*		Parse a word from input stream and copy it to name dictionary.
+*		COLON$	5,'TOKEN',TOKEN
+LEN_	set	(5&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+TOKEN	equ	*				*assembly TOKEN
+		bsr	DOLST			*include BSR doLIST
+		dc.l	BLANK,PARSE,DOLIT,31,MIN
+		dc.l	NP,AT,OVER,SUBB,CELLM
+		dc.l	PACKS,EXIT
+
+*   WORD	( c -- a * <string> )
+*		Parse a word from input stream and copy it to code dictionary.
+*		COLON$	4,'WORD',WORDD
+LEN_	set	(4&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+WORDD	equ	*				*assembly WORDD
+		bsr	DOLST			*include BSR doLIST
+		dc.l	PARSE,HERE,PACKS,EXIT
+
+
+* Dictionary search
+
+*   NAME>	( na -- ca )
+*		Return a code address given a name address.
+*		COLON$	5,'NAME>',NAMET
+LEN_	set	(5&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+NAMET	equ	*				*assembly NAMET
+		bsr	DOLST			*include BSR doLIST
+		dc.l	CELLM,CELLM,AT,EXIT
+
+
+*   SAME?	( a a u -- a a f \ -0+ )
+*		Compare u cells in two strings. Return 0 if identical.
+*		COLON$	5,'SAME?',SAMEQ
+LEN_	set	(5&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+SAMEQ	equ	*				*assembly SAMEQ
+		bsr	DOLST			*include BSR doLIST
+		dc.l	TOR
+		dc.l	BRAN,SAME2
+
+SAME1		dc.l	OVER,RAT,CELLS,PLUS,AT
+		dc.l	OVER,RAT,CELLS,PLUS,AT
+		dc.l	SUBB,QDUP
+		dc.l	QBRAN,SAME2
+
+		dc.l	RFROM,DROP,EXIT
+SAME2		dc.l	DONXT,SAME1
+
+		dc.l	DOLIT,0,EXIT
+
+
+*   find	( a va -- ca na | a F )
+*		Search a vocabulary for a string. Return ca and na if succeeded.
+*		COLON$	4,'find',FIND
+LEN_	set	(4&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+FIND	equ	*				*assembly FIND
+		bsr	DOLST			*include BSR doLIST
+		dc.l	SWAP,DUPP,CAT
+		dc.l	DOLIT,CELLL,SLASH,TEMP,STORE
+		dc.l	DUPP,AT,TOR,CELLP,SWAP
+
+FIND1		dc.l	AT,DUPP
+		dc.l	QBRAN,FIND6
+
+		dc.l	DUPP,AT,DOLIT,MASKK,ANDD,RAT,XORR
+		dc.l	QBRAN,FIND2
+
+		dc.l	CELLP,DOLIT,$ffffffff
+		dc.l	BRAN,FIND3
+
+FIND2		dc.l	CELLP,TEMP,AT,SAMEQ
+FIND3		dc.l	BRAN,FIND4
+
+FIND6		dc.l	RFROM,DROP
+		dc.l	SWAP,CELLM,SWAP,EXIT
+
+FIND4		dc.l	QBRAN,FIND5
+		dc.l	CELLM,CELLM
+		dc.l	BRAN,FIND1
+
+FIND5		dc.l	RFROM,DROP,SWAP,DROP
+		dc.l	CELLM
+		dc.l	DUPP,NAMET,SWAP,EXIT
+
+
+*   NAME?	( a -- ca na | a F )
+*		Search all context vocabularies for a string.
+*		COLON$	5,'NAME?',NAMEQ
+LEN_	set	(5&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+NAMEQ	equ	*				*assembly NAMEQ
+		bsr	DOLST			*include BSR doLIST
+		dc.l	CNTXT,DUPP,DAT,XORR
+		dc.l	QBRAN,NAMQ1
+
+		dc.l	CELLM
+NAMQ1		dc.l	TOR
+NAMQ2		dc.l	RFROM,CELLP,DUPP,TOR
+		dc.l	AT,QDUP
+		dc.l	QBRAN,NAMQ3
+
+		dc.l	FIND,QDUP
+		dc.l	QBRAN,NAMQ2
+
+		dc.l	RFROM,DROP,EXIT
+NAMQ3		dc.l	RFROM,DROP
+		dc.l	DOLIT,0,EXIT
+
+
+* Terminal response
+
+*   ^H		( bot eot cur -- bot eot cur )
+*		Backup the cursor by one character.
+*		COLON$	2,'^H',BKSP
+LEN_	set	(2&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+BKSP	equ	*				*assembly BKSP
+		bsr	DOLST			*include BSR doLIST
+		dc.l	TOR,OVER,RFROM,SWAP,OVER,XORR
+		dc.l	QBRAN,BACK1
+
+		dc.l	DOLIT,BKSPP,TECHO,ATEXE,DOLIT,1,SUBB
+		dc.l	BLANK,TECHO,ATEXE
+		dc.l	DOLIT,BKSPP,TECHO,ATEXE
+BACK1		dc.l	EXIT
+
+*   TAP		( bot eot cur c -- bot eot cur )
+*		Accept and echo the key stroke and bump the cursor.
+*		COLON$	3,'TAP',TAP
+LEN_	set	(3&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+TAP	equ	*				*assembly TAP
+		bsr	DOLST			*include BSR doLIST
+		dc.l	DUPP,TECHO,ATEXE
+		dc.l	OVER,CSTOR,DOLIT,1,PLUS,EXIT
+
+
+*   kTAP	( bot eot cur c -- bot eot cur )
+*		Process a key stroke, CR or backspace.
+*		COLON$	4,'kTAP',KTAP
+LEN_	set	(4&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+KTAP	equ	*				*assembly KTAP
+		bsr	DOLST			*include BSR doLIST
+		dc.l	DUPP,DOLIT,CRR,XORR
+		dc.l	QBRAN,KTAP2
+
+		dc.l	DOLIT,BKSPP,XORR
+		dc.l	QBRAN,KTAP1
+
+		dc.l	BLANK,TAP,EXIT
+KTAP1		dc.l	BKSP,EXIT
+
+KTAP2		dc.l	DROP,SWAP,DROP,DUPP,EXIT
+
+
+*   accept	( b u -- b u )
+*		Accept characters to input buffer. Return with actual count.
+*		COLON$	6,'accept',ACCEP
+LEN_	set	(6&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+ACCEP	equ	*				*assembly ACCEP
+		bsr	DOLST			*include BSR doLIST
+		dc.l	OVER,PLUS,OVER
+ACCP1		dc.l	DDUP,XORR
+		dc.l	QBRAN,ACCP4
+
+		dc.l	KEY,DUPP
+*		dc.l	BLANK,SUBB,DOLIT,95,ULESS
+		dc.l	BLANK,DOLIT,127,WITHI
+		dc.l	QBRAN,ACCP2
+
+		dc.l	TAP
+		dc.l	BRAN,ACCP3
+
+ACCP2		dc.l	TTAP,ATEXE
+ACCP3		dc.l	BRAN,ACCP1
+
+ACCP4		dc.l	DROP,OVER,SUBB,EXIT
+
+
+*   EXPECT	( b u -- )
+*		Accept input stream and store count in SPAN.
+*		COLON$	6,'EXPECT',EXPEC
+LEN_	set	(6&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+EXPEC	equ	*				*assembly EXPEC
+		bsr	DOLST			*include BSR doLIST
+		dc.l	TEXPE,ATEXE,SPAN,STORE,DROP,EXIT
+
+
+*   QUERY	( -- )
+*		Accept input stream to terminal input buffer.
+*		COLON$	5,'QUERY',QUERY
+LEN_	set	(5&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+QUERY	equ	*				*assembly QUERY
+		bsr	DOLST			*include BSR doLIST
+		dc.l	TIB,DOLIT,80,TEXPE,ATEXE,NTIB,STORE
+		dc.l	DROP,DOLIT,0,INN,STORE,EXIT
+
+* Error handling
+
+*   CATCH	( ca -- 0 | err# )
+*		Execute word at ca and set up an error frame for it.
+*		COLON$	5,'CATCH',CATCH
+LEN_	set	(5&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+CATCH	equ	*				*assembly CATCH
+		bsr	DOLST			*include BSR doLIST
+		dc.l	SPAT,TOR,HANDL,AT,TOR	*save error frame
+		dc.l	RPAT,HANDL,STORE,EXECU	*execute
+		dc.l	RFROM,HANDL,STORE	*restore error frame
+		dc.l	RFROM,DROP,DOLIT,0,EXIT	*no error
+
+*   THROW	( err# -- err# )
+*		Reset system to current local error frame an update error flag.
+*		COLON$	5,'THROW',THROW
+LEN_	set	(5&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+THROW	equ	*				*assembly THROW
+		bsr	DOLST			*include BSR doLIST
+		dc.l	HANDL,AT,RPSTO		*restore return stack
+		dc.l	RFROM,HANDL,STORE	*restore handler frame
+		dc.l	RFROM,SWAP,TOR,SPSTO	*restore data stack
+		dc.l	DROP,RFROM,EXIT
+
+*   NULL$	( -- a )
+*		Return address of a null string with zero count.
+*		COLON$	5,'NULL$',NULLS
+LEN_	set	(5&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+NULLS	equ	*				*assembly NULLS
+		bsr	DOLST			*include BSR doLIST
+		dc.l	DOVAR			*emulate CREATE
+		dc.l	0
+		dc.b	99,111,121,111		*,116,101
+
+*   ABORT	( -- )
+*		Reset data stack and jump to QUIT.
+*		COLON$	5,'ABORT',ABORT
+LEN_	set	(5&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+ABORT	equ	*				*assembly ABORT
+		bsr	DOLST			*include BSR doLIST
+		dc.l	NULLS,THROW
+
+
+*   abort"	( f -- )
+*		Run time routine of ABORT" . Abort with a message.
+*		COLON$	COMPO+6,'abort"',ABORQ
+LEN_	set	(6&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+ABORQ	equ	*				*assembly ABORQ
+		bsr	DOLST			*include BSR doLIST
+		dc.l	QBRAN,ABOR1		*text flag
+
+		dc.l	DOSTR,THROW		*pass error string
+ABOR1		dc.l	DOSTR,DROP,EXIT		*drop error
+
+
+* The text interpreter
+
+*   $INTERPRET	( a -- )
+*		Interpret a word. If failed, try to convert it to an integer.
+*		COLON$	10,'$INTERPRET',INTER
+LEN_	set	(10&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+INTER	equ	*				*assembly INTER
+		bsr	DOLST			*include BSR doLIST
+		dc.l	NAMEQ,QDUP		*?defined
+		dc.l	QBRAN,INTE1
+
+		dc.l	AT,DOLIT,COMPOL,ANDD	*?compile only lexicon bits
+		dc.l	ABORQ
+		dc.b	15,' compile only  '
+		dc.l	EXECU,EXIT		*execute defined word
+
+INTE1		dc.l	TNUMB,ATEXE		*convert a number
+		dc.l	QBRAN,INTE2
+
+		dc.l	EXIT
+INTE2		dc.l	THROW			*error
+
+*   [		( -- )
+*		Start the text interpreter.
+*		COLON$	IMEDD+1,'[',LBRAC
+LEN_	set	(1&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+LBRAC	equ	*				*assembly LBRAC
+		bsr	DOLST			*include BSR doLIST
+		dc.l	DOLIT,INTER,TEVAL,STORE,EXIT
+
+
+*   .OK		( -- )
+*		Display 'ok' only while interpreting.
+*		COLON$	3,'.OK',DOTOK
+LEN_	set	(3&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+DOTOK	equ	*				*assembly DOTOK
+		bsr	DOLST			*include BSR doLIST
+		dc.l	DOLIT,INTER,TEVAL,AT,EQUAL
+		dc.l	QBRAN,DOTO1
+
+		dc.l	DOTQP
+		dc.b	3,' ok'
+DOTO1		dc.l	CR,EXIT
+
+*   ?STACK	( -- )
+*		Abort if the data stack underflows.
+*		COLON$	6,'?STACK',QSTAC
+LEN_	set	(6&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+QSTAC	equ	*				*assembly QSTAC
+		bsr	DOLST			*include BSR doLIST
+		dc.l	DEPTH,ZLESS		*check only for underflow
+		dc.l	ABORQ
+		dc.b	11,' underflow '
+		dc.l	EXIT
+
+*   EVAL	( -- )
+*		Interpret the input stream.
+*		COLON$	4,'EVAL',EVAL
+LEN_	set	(4&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+EVAL	equ	*				*assembly EVAL
+		bsr	DOLST			*include BSR doLIST
+EVAL1		dc.l	TOKEN,DUPP,CAT		*?input stream empty
+		dc.l	QBRAN,EVAL2
+
+		dc.l	TEVAL,ATEXE,QSTAC	*evaluate input, check stack
+		dc.l	BRAN,EVAL1
+
+EVAL2		dc.l	DROP,TPROM,ATEXE,EXIT	*prompt
+
+
+* Shell
+
+*   PRESET	( -- )
+*		Reset data stack pointer and the terminal input buffer.
+*		COLON$	6,'PRESET',PRESE
+LEN_	set	(6&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+PRESE	equ	*				*assembly PRESE
+		bsr	DOLST			*include BSR doLIST
+		dc.l	SZERO,AT,SPSTO
+		dc.l	DOLIT,TIBB,NTIB,CELLP,STORE,EXIT
+
+
+*   xio		( a a a -- )
+*		Reset the I/O vectors 'EXPECT, 'TAP, 'ECHO and 'PROMPT.
+*		COLON$	COMPO+3,'xio',XIO
+LEN_	set	(3&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+XIO	equ	*				*assembly XIO
+		bsr	DOLST			*include BSR doLIST
+		dc.l	DOLIT,ACCEP,TEXPE,DSTOR
+		dc.l	TECHO,DSTOR,EXIT
+
+
+*   FILE	( -- )
+*		Select I/O vectors for file download.
+*		COLON$	4,'FILE',FILE
+LEN_	set	(4&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+FILE	equ	*				*assembly FILE
+		bsr	DOLST			*include BSR doLIST
+		dc.l	DOLIT,PACE,DOLIT,DROP
+		dc.l	DOLIT,KTAP,XIO,EXIT
+
+*   HAND	( -- )
+*		Select I/O vectors for terminal interface.
+*		COLON$	4,'HAND',HAND
+LEN_	set	(4&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+HAND	equ	*				*assembly HAND
+		bsr	DOLST			*include BSR doLIST
+		dc.l	DOLIT,DOTOK,DOLIT,EMIT
+		dc.l	DOLIT,KTAP,XIO,EXIT
+
+*   I/O		( -- a )
+*		Array to store default I/O vectors.
+*		COLON$	3,'I/O',ISLO
+LEN_	set	(3&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+ISLO	equ	*				*assembly ISLO
+		bsr	DOLST			*include BSR doLIST
+		dc.l	DOVAR			*emulate CREATE
+		dc.l	QRX,TXSTO		*default I/O vectors
+
+
+*   CONSOLE	( -- )
+*		Initiate terminal interface.
+*		COLON$	7,'CONSOLE',CONSO
+LEN_	set	(7&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+CONSO	equ	*				*assembly CONSO
+		bsr	DOLST			*include BSR doLIST
+		dc.l	ISLO,DAT,TQKEY,DSTOR	*restore default I/O device
+		dc.l	HAND,EXIT		*keyboard input
+
+
+*   QUIT	( -- )
+*		Reset return stack pointer and start text interpreter.
+*		COLON$	4,'QUIT',QUIT
+LEN_	set	(4&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+QUIT	equ	*				*assembly QUIT
+		bsr	DOLST			*include BSR doLIST
+		dc.l	RZERO,AT,RPSTO		*reset return stack pointer
+QUIT1		dc.l	LBRAC			*start interpretation
+QUIT2		dc.l	QUERY			*get input
+		dc.l	DOLIT,EVAL,CATCH,QDUP	*evaluate input
+		dc.l	QBRAN,QUIT2		*continue till error
+
+		dc.l	TPROM,AT,TOR		*save input device
+		dc.l	CONSO,NULLS,OVER,XORR	*?display error message
+		dc.l	QBRAN,QUIT3
+
+		dc.l	SPACE,COUNT,TYPES	*error message
+		dc.l	DOTQP
+		dc.b	3,' ? '			*error prompt
+QUIT3		dc.l	RFROM,DOLIT,DOTOK,XORR	*?file input
+		dc.l	QBRAN,QUIT4
+
+		dc.l	DOLIT,ERR,EMIT		*file error, tell host
+QUIT4		dc.l	PRESE			*some cleanup
+		dc.l	BRAN,QUIT1
+
+
+* The compiler
+
+*   '		( -- ca )
+*		Search context vocabularies for the next word in input stream.
+*		COLON$	1,'''',TICK		*"'"
+LEN_	set	(1&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+TICK	equ	*				*assembly TICK
+		bsr	DOLST			*include BSR doLIST
+		dc.l	TOKEN,NAMEQ		*?defined
+		dc.l	QBRAN,TICK1
+
+		dc.l	EXIT			*yes, push code address
+TICK1		dc.l	THROW			*no, error
+
+*   ALLOT	( n -- )
+*		Allocate n bytes to the code dictionary.
+*		COLON$	5,'ALLOT',ALLOT
+LEN_	set	(5&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+ALLOT	equ	*				*assembly ALLOT
+		bsr	DOLST			*include BSR doLIST
+		dc.l	CP,PSTOR,EXIT		*adjust code pointer
+
+
+*   ,		( w -- )
+*		Compile an integer into the code dictionary.
+*		COLON$	1,',',COMMA		*','
+LEN_	set	(1&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+COMMA	equ	*				*assembly COMMA
+		bsr	DOLST			*include BSR doLIST
+		dc.l	HERE,DUPP,CELLP		*cell boundary
+		dc.l	CP,STORE,STORE,EXIT	*adjust code pointer and compile
+
+
+*   [COMPILE]	( -- * <string> )
+*		Compile the next immediate word into code dictionary.
+*		COLON$	IMEDD+9,'[COMPILE]',BCOMP
+LEN_	set	(9&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+BCOMP	equ	*				*assembly BCOMP
+		bsr	DOLST			*include BSR doLIST
+		dc.l	TICK,COMMA,EXIT
+
+
+*   COMPILE	( -- )
+*		Compile the next address in colon list to code dictionary.
+*		COLON$	COMPO+7,'COMPILE',COMPI
+LEN_	set	(7&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+COMPI	equ	*				*assembly COMPI
+		bsr	DOLST			*include BSR doLIST
+		dc.l	RFROM,DUPP,AT,COMMA	*compile address
+		dc.l	CELLP,TOR,EXIT		*adjust return address
+
+
+*   LITERAL	( w -- )
+*		Compile tos to code dictionary as an integer literal.
+*		COLON$	IMEDD+7,'LITERAL',LITER
+LEN_	set	(7&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+LITER	equ	*				*assembly LITER
+		bsr	DOLST			*include BSR doLIST
+		dc.l	COMPI,DOLIT,COMMA,EXIT
+
+
+
+*   $,"		( -- )
+*		Compile a literal string up to next " .
+*		COLON$	3,'$,"',STRCQ
+LEN_	set	(3&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+STRCQ	equ	*				*assembly $,"
+		bsr	DOLST			*include BSR doLIST
+		dc.l	DOLIT,charq,WORDD		*move string to code dictionary
+		dc.l	COUNT,PLUS,ALGND	*calculate aligned end of string
+		dc.l	CP,STORE,EXIT		*adjust the code pointer
+
+
+*   RECURSE	( -- )
+*		Make the current word available for compilation.
+*		COLON$	IMEDD+7,'RECURSE',RECUR
+LEN_	set	(7&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+RECUR	equ	*				*assembly RECUR
+		bsr	DOLST			*include BSR doLIST
+		dc.l	LAST,AT,NAMET,COMMA,EXIT
+
+
+* Structures
+
+*   FOR		( -- a )
+*		Start a FOR-NEXT loop structure in a colon definition.
+*		COLON$	IMEDD+3,'FOR',FOR
+LEN_	set	(3&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+FOR	equ	*				*assembly FOR
+		bsr	DOLST			*include BSR doLIST
+		dc.l	COMPI,TOR,HERE,EXIT
+
+*   BEGIN	( -- a )
+*		Start an infinite or indefinite loop structure.
+*		COLON$	IMEDD+5,'BEGIN',BEGIN
+LEN_	set	(5&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+BEGIN	equ	*				*assembly BEGIN
+		bsr	DOLST			*include BSR doLIST
+		dc.l	HERE,EXIT
+
+
+*   NEXT	( a -- )
+*		Terminate a FOR-NEXT loop structure.
+*		COLON$	IMEDD+4,'NEXT',NEXT
+LEN_	set	(4&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+NEXT	equ	*				*assembly NEXT
+		bsr	DOLST			*include BSR doLIST
+		dc.l	COMPI,DONXT,COMMA,EXIT
+
+
+
+*   UNTIL	( a -- )
+*		Terminate a BEGIN-UNTIL indefinite loop structure.
+*		COLON$	IMEDD+5,'UNTIL',UNTIL
+LEN_	set	(5&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+UNTIL	equ	*				*assembly UNTIL
+		bsr	DOLST			*include BSR doLIST
+		dc.l	COMPI,QBRAN,COMMA,EXIT
+
+
+
+*   AGAIN	( a -- )
+*		Terminate a BEGIN-AGAIN infinite loop structure.
+*		COLON$	IMEDD+5,'AGAIN',AGAIN
+LEN_	set	(5&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+AGAIN	equ	*				*assembly AGAIN
+		bsr	DOLST			*include BSR doLIST
+		dc.l	COMPI,BRAN,COMMA,EXIT
+
+
+
+*   IF		( -- A )
+*		Begin a conditional branch structure.
+*		COLON$	IMEDD+2,'IF',IFF
+LEN_	set	(2&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+IFF	equ	*				*assembly IFF
+		bsr	DOLST			*include BSR doLIST
+		dc.l	COMPI,QBRAN,HERE
+
+		dc.l	DOLIT,0,COMMA,EXIT
+
+
+
+*   AHEAD	( -- A )
+*		Compile a forward branch instruction.
+*		COLON$	IMEDD+5,'AHEAD',AHEAD
+LEN_	set	(5&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+AHEAD	equ	*				*assembly AHEAD
+		bsr	DOLST			*include BSR doLIST
+		dc.l	COMPI,BRAN,HERE,DOLIT,0,COMMA,EXIT
+
+
+*   REPEAT	( A a -- )
+*		Terminate a BEGIN-WHILE-REPEAT indefinite loop.
+*		COLON$	IMEDD+6,'REPEAT',REPEA
+LEN_	set	(6&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+REPEA	equ	*				*assembly REPEA
+		bsr	DOLST			*include BSR doLIST
+		dc.l	AGAIN,HERE,SWAP,STORE,EXIT
+
+
+*   THEN	( A -- )
+*		Terminate a conditional branch structure.
+*		COLON$	IMEDD+4,'THEN',THENN
+LEN_	set	(4&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+THENN	equ	*				*assembly THENN
+		bsr	DOLST			*include BSR doLIST
+		dc.l	HERE,SWAP,STORE,EXIT
+
+
+*   AFT		( a -- a A )
+*		Jump to THEN in a FOR-AFT-THEN-NEXT loop the first time through.
+*		COLON$	IMEDD+3,'AFT',AFT
+LEN_	set	(3&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+AFT	equ	*				*assembly AFT
+		bsr	DOLST			*include BSR doLIST
+		dc.l	DROP,AHEAD,BEGIN,SWAP,EXIT
+
+
+*   ELSE	( A -- A )
+*		Start the false clause in an IF-ELSE-THEN structure.
+*		COLON$	IMEDD+4,'ELSE',ELSEE
+LEN_	set	(4&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+ELSEE	equ	*				*assembly ELSEE
+		bsr	DOLST			*include BSR doLIST
+		dc.l	AHEAD,SWAP,THENN,EXIT
+
+
+*   WHILE	( a -- A a )
+*		Conditional branch out of a BEGIN-WHILE-REPEAT loop.
+*		COLON$	IMEDD+5,'WHILE',WHILE
+LEN_	set	(5&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+WHILE	equ	*				*assembly WHILE
+		bsr	DOLST			*include BSR doLIST
+		dc.l	IFF,SWAP,EXIT
+
+
+*   ABORT"	( -- * <string> )
+*		Conditional abort with an error message.
+*		COLON$	IMEDD+6,'ABORT"',ABRTQ
+LEN_	set	(6&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+ABRTQ	equ	*				*assembly ABRTQ
+		bsr	DOLST			*include BSR doLIST
+		dc.l	COMPI,ABORQ,STRCQ,EXIT
+
+
+
+*   $"		( -- * <string> )
+*		Compile an inline string literal.
+*		COLON$	IMEDD+2,'$"',STRQ
+LEN_	set	(2&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+STRQ	equ	*				*assembly STRQ
+		bsr	DOLST			*include BSR doLIST
+		dc.l	COMPI,STRQP,STRCQ,EXIT
+
+
+*   ."		( -- * <string> )
+*		Compile an inline string literal to be typed out at run time.
+*		COLON$	IMEDD+2,'."',DOTQ
+LEN_	set	(2&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+DOTQ	equ	*				*assembly DOTQ
+		bsr	DOLST			*include BSR doLIST
+		dc.l	COMPI,DOTQP,STRCQ,EXIT
+
+
+* Name compiler
+
+*   ?UNIQUE	( a -- a )
+*		Display a warning message if the word already exists.
+*		COLON$	7,'?UNIQUE',UNIQU
+LEN_	set	(7&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+UNIQU	equ	*				*assembly UNIQU
+		bsr	DOLST			*include BSR doLIST
+		dc.l	DUPP,NAMEQ		*?name exists
+		dc.l	QBRAN,UNIQ1
+
+		dc.l	DOTQP			*redefinitions are OK
+		dc.b	7,' reDef '		*but the user should be warned
+		dc.l	OVER,COUNT,TYPES	*just in case its not planned
+UNIQ1		dc.l	DROP,EXIT
+
+
+*   $,n		( na -- )
+*		Build a new dictionary name using the string at na.
+*		COLON$	3,'$,n',SNAME
+LEN_	set	(3&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+SNAME	equ	*				*assembly '$,n'
+		bsr	DOLST			*include BSR doLIST
+		dc.l	DUPP,CAT		*?null input
+		dc.l	QBRAN,PNAM1
+
+		dc.l	UNIQU			*?redefinition
+		dc.l	DUPP,LAST,STORE		*save na for vocabulary link
+		dc.l	HERE,ALGND,SWAP		*align code address
+		dc.l	CELLM			*link address
+		dc.l	CRRNT,AT,AT,OVER,STORE
+		dc.l	CELLM,DUPP,NP,STORE	*adjust name pointer
+		dc.l	STORE,EXIT		*save code pointer
+
+PNAM1		dc.l	STRQP
+		dc.b	7,' name  '		*null input
+		dc.l	THROW
+
+* FORTH compiler
+
+*   $COMPILE	( a -- )
+*		Compile next word to code dictionary as a token or literal.
+*		COLON$	8,'$COMPILE',SCOMP
+LEN_	set	(8&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+SCOMP	equ	*				*assembly SCOMP
+		bsr	DOLST			*include BSR doLIST
+		dc.l	NAMEQ,QDUP		*?defined
+		dc.l	QBRAN,SCOM2
+
+		dc.l	AT,DOLIT,IMEDDL,ANDD	*?immediate
+		dc.l	QBRAN,SCOM1
+
+		dc.l	EXECU,EXIT		*its immediate, execute
+SCOM1		dc.l	COMMA,EXIT		*its not immediate, compile
+SCOM2		dc.l	TNUMB,ATEXE		*try to convert to number
+		dc.l	QBRAN,SCOM3
+
+		dc.l	LITER,EXIT		*compile number as integer
+SCOM3		dc.l	THROW			*error
+
+*   OVERT	( -- )
+*		Link a new word into the current vocabulary.
+*		COLON$	5,'OVERT',OVERT
+LEN_	set	(5&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+OVERT	equ	*				*assembly OVERT
+		bsr	DOLST			*include BSR doLIST
+		dc.l	LAST,AT,CRRNT,AT,STORE,EXIT
+
+
+*   ;		( -- )
+*		Terminate a colon definition.
+*		COLON$	IMEDD+COMPO+1,';',SEMIS
+LEN_	set	(1&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+SEMIS	equ	*				*assembly SEMIS
+		bsr	DOLST			*include BSR doLIST
+		dc.l	COMPI,EXIT,LBRAC,OVERT,EXIT
+
+*   ]		( -- )
+*		Start compiling the words in the input stream.
+*		COLON$	1,']',RBRAC
+LEN_	set	(1&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+RBRAC	equ	*				*assembly RBRAC
+		bsr	DOLST			*include BSR doLIST
+		dc.l	DOLIT,SCOMP,TEVAL,STORE,EXIT
+
+*   call,	( ca -- )
+*		Assemble a call instruction to ca.
+*		COLON$	5,'call,',CALLC
+LEN_	set	(5&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+CALLC	equ	*				*assembly call,
+		bsr	DOLST			*include BSR doLIST
+		dc.l	DOLIT
+		dc.l	CALLL,COMMA	       *put 'NOP JSR' long into memory
+*
+*		dc.l	HERE			*Direct Threaded Code
+*		dc.l	CELLP,SUBB		*DTC 8086 relative call
+*                                               *NOT NEEDED IN 68K AS NOT
+*                                               *DOING relative JUMPS
+		dc.l	COMMA,EXIT		*put long address in mem
+
+*   :		( -- * <string> )
+*		Start a new colon definition using next word as its name.
+*		COLON$	1,':',COLON
+LEN_	set	(1&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+COLON	equ	*				*assembly COLON
+		bsr	DOLST			*include BSR doLIST
+		dc.l	TOKEN,SNAME,DOLIT,DOLST
+		dc.l	CALLC,RBRAC,EXIT
+
+
+*   IMMEDIATE	( -- )
+*		Make the last compiled word an immediate word.
+*		COLON$	9,'IMMEDIATE',IMMED
+LEN_	set	(9&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+IMMED	equ	*				*assembly IMMED
+		bsr	DOLST			*include BSR doLIST
+		dc.l	DOLIT,IMEDD,LAST,AT,AT,ORR
+		dc.l	LAST,AT,STORE,EXIT
+
+* Defining words
+
+*   USER	( u -- * <string> )
+*		Compile a new user variable.
+*		COLON$	4,'USER',USER
+LEN_	set	(4&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+USER	equ	*				*assembly USER
+		bsr	DOLST			*include BSR doLIST
+		dc.l	TOKEN,SNAME,OVERT
+		dc.l	DOLIT,DOLST,CALLC
+		dc.l	DOLIT,DOUSE,COMMA
+		dc.l	COMMA,EXIT
+
+
+*   CREATE	( -- * <string> )
+*		Compile a new array entry without allocating code space.
+*		COLON$	6,'CREATE',CREAT
+LEN_	set	(6&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+CREAT	equ	*				*assembly CREAT
+		bsr	DOLST			*include BSR doLIST
+		dc.l	TOKEN,SNAME,OVERT
+		dc.l	DOLIT,DOLST,CALLC
+		dc.l	DOLIT,DOVAR,COMMA,EXIT
+
+
+*   VARIABLE	( -- * <string> )
+*		Compile a new variable initialized to 0.
+*		COLON$	8,'VARIABLE',VARIA
+LEN_	set	(8&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+VARIA	equ	*				*assembly VARIA
+		bsr	DOLST			*include BSR doLIST
+		dc.l	CREAT,DOLIT,0,COMMA,EXIT
+
+
+* Tools
+
+*   _TYPE	( b u -- )
+*		Display a string. Filter non-printing characters.
+*		COLON$	5,'_TYPE',UTYPE
+LEN_	set	(5&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+UTYPE	equ	*				*assembly UTYPE
+		bsr	DOLST			*include BSR doLIST
+		dc.l	TOR			*start count down loop
+		dc.l	BRAN,UTYP2		*skip first pass
+
+UTYP1		dc.l	DUPP,CAT,TCHAR,EMIT	*display only printable
+		dc.l	DOLIT,1,PLUS		*increment address
+UTYP2		dc.l	DONXT,UTYP1		*loop till done
+
+		dc.l	DROP,EXIT
+
+
+*   dm+		( a u -- a )
+*		Dump u bytes from , leaving a+u on the stack.
+*		COLON$	3,'dm+',DUMPP
+LEN_	set	(3&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+DUMPP	equ	*				*assembly DUMPP
+		bsr	DOLST			*include BSR doLIST
+		dc.l	OVER,DOLIT,4,UDOTR	*display address
+		dc.l	SPACE,TOR		*start count down loop
+		dc.l	BRAN,PDUM2		*skip first pass
+
+PDUM1		dc.l	DUPP,CAT,DOLIT,3,UDOTR	*display numeric data
+		dc.l	DOLIT,1,PLUS		*increment address
+PDUM2		dc.l	DONXT,PDUM1		*loop till done
+
+		dc.l	EXIT
+
+*   DUMP	( a u -- )
+*		Dump u bytes from a, in a formatted manner.
+*		COLON$	4,'DUMP',DUMP
+LEN_	set	(4&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+DUMP	equ	*				*assembly DUMP
+		bsr	DOLST			*include BSR doLIST
+		dc.l	BASE,AT,TOR,HEX		*save radix, set hex
+		dc.l	DOLIT,16,SLASH		*change count to lines
+		dc.l	TOR			*start count down loop
+DUMP1		dc.l	CR,DOLIT,16,DDUP,DUMPP	*display numeric
+		dc.l	ROT,ROT
+		dc.l	DOLIT,2,SPACS,UTYPE	*display printable characters
+		dc.l	NUFQ,INVER		*user control
+		dc.l	QBRAN,DUMP2
+
+		dc.l	DONXT,DUMP1		*loop till done
+
+		dc.l	BRAN,DUMP3
+
+DUMP2		dc.l	RFROM,DROP		*cleanup loop stack, early exit
+DUMP3		dc.l	DROP,RFROM,BASE,STORE	*restore radix
+		dc.l	EXIT
+
+*   .S		( ... -- ... )
+*		Display the contents of the data stack.
+*		COLON$	2,'.S',DOTS
+LEN_	set	(2&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+DOTS	equ	*				*assembly DOTS
+		bsr	DOLST			*include BSR doLIST
+		dc.l	CR,DEPTH		*stack depth
+		dc.l	TOR			*start count down loop
+		dc.l	BRAN,DOTS2		*skip first pass
+
+DOTS1		dc.l	RAT,PICK,DOT		*index stack, display contents
+DOTS2		dc.l	DONXT,DOTS1		*loop till done
+
+		dc.l	DOTQP
+		dc.b	3,'<sp'
+		dc.l	EXIT
+
+*   !CSP	( -- )
+*		Save stack pointer in CSP for error checking.
+*		COLON$	4,'!CSP',STCSP
+LEN_	set	(4&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+STCSP	equ	*				*assembly STCSP
+		bsr	DOLST			*include BSR doLIST
+		dc.l	SPAT,CSP,STORE,EXIT	*save pointer
+
+
+*   ?CSP	( -- )
+*		Abort if stack pointer differs from that saved in CSP.
+*		COLON$	4,'?CSP',QCSP
+LEN_	set	(4&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+QCSP	equ	*				*assembly QCSP
+		bsr	DOLST			*include BSR doLIST
+		dc.l	SPAT,CSP,AT,XORR	*compare pointers
+		dc.l	ABORQ			*abort if different
+		dc.b	7,'stacks '
+		dc.l	EXIT
+
+*   >NAME	( ca -- na | F )
+*		Convert code address to a name address.
+*		COLON$	5,'>NAME',TNAME
+LEN_	set	(5&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+TNAME	equ	*				*assembly TNAME
+		bsr	DOLST			*include BSR doLIST
+		dc.l	CRRNT			*vocabulary link
+TNAM1		dc.l	CELLP,AT,QDUP		*check all vocabularies
+		dc.l	QBRAN,TNAM4
+
+		dc.l	DDUP
+TNAM2		dc.l	AT,DUPP			*?last word in a vocabulary
+		dc.l	QBRAN,TNAM3
+
+		dc.l	DDUP,NAMET,XORR		*compare
+		dc.l	QBRAN,TNAM3
+
+		dc.l	CELLM			*continue with next word
+		dc.l	BRAN,TNAM2
+
+TNAM3		dc.l	SWAP,DROP,QDUP
+		dc.l	QBRAN,TNAM1
+
+		dc.l	SWAP,DROP,SWAP,DROP,EXIT
+TNAM4		dc.l	DROP,DOLIT,0,EXIT
+
+
+*   .ID		( na -- )
+*		Display the name at address.
+*		COLON$	3,'.ID',DOTID
+LEN_	set	(3&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+DOTID	equ	*				*assembly DOTID
+		bsr	DOLST			*include BSR doLIST
+		dc.l	QDUP			*if zero no name
+		dc.l	QBRAN,DOTI1
+
+		dc.l	COUNT,DOLIT,$01F,ANDD	*mask lexicon bits
+		dc.l	UTYPE,EXIT		*display name string
+DOTI1		dc.l	DOTQP
+		dc.b	11,' {noName}  '
+		dc.l	EXIT
+
+*   SEE		( -- * <string> )
+*		A simple decompiler.
+*		COLON$	3,'SEE',SEE
+LEN_	set	(3&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+SEE	equ	*				*assembly SEE
+		bsr	DOLST			*include BSR doLIST
+		dc.l	TICK			*starting address
+		dc.l	CR,CELLP
+SEE1		dc.l	CELLP,DUPP,AT,DUPP	*?does it contain a zero
+		dc.l	QBRAN,SEE2
+
+		dc.l	TNAME			*?is it a name
+SEE2		dc.l	QDUP			*name address or zero
+		dc.l	QBRAN,SEE3
+
+		dc.l	SPACE,DOTID		*display name
+		dc.l	BRAN,SEE4
+
+SEE3		dc.l	DUPP,AT,UDOT		*display number
+SEE4		dc.l	NUFQ			*user control
+		dc.l	QBRAN,SEE1
+
+		dc.l	DROP,EXIT
+
+
+*   WORDS	( -- )
+*		Display the names in the context vocabulary.
+*		COLON$	5,'WORDS',WORDS
+LEN_	set	(5&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+WORDS	equ	*				*assembly WORDS
+		bsr	DOLST			*include BSR doLIST
+		dc.l	CR,CNTXT,AT		*only in context
+WORS1		dc.l	AT,QDUP			*?at end of list
+		dc.l	QBRAN,WORS2
+
+		dc.l	DUPP,SPACE,DOTID	*display a name
+		dc.l	CELLM,NUFQ		*user control
+		dc.l	QBRAN,WORS1
+
+		dc.l	DROP
+WORS2		dc.l	EXIT
+
+* Hardware reset
+
+*   VER		( -- n )
+*		Return the version number of this implementation.
+*		COLON$	3,'VER',VERSN
+LEN_	set	(3&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+VERSN	equ	*				*assembly VERSN
+		bsr	DOLST			*include BSR doLIST
+		dc.l	DOLIT,VER*256+EXT,EXIT
+
+
+*   hi		( -- )
+*		Display the sign-on message of eForth.
+*		COLON$	2,'hi',HI
+LEN_	set	(2&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+HI	equ	*				*assembly HI
+		bsr	DOLST			*include BSR doLIST
+		dc.l	STOIO,CR,DOTQP		*initialize I/O
+		dc.b	15,'eForth 68k v'	*model
+		dc.b	VER+'0','.',EXT+'0'	*version
+		dc.l	CR,EXIT
+
+*   'BOOT	( -- a )
+*		The application startup vector.
+*		COLON$	5,'''BOOT',TBOOT
+LEN_	set	(5&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+TBOOT	equ	*				*assembly TBOOT
+		bsr	DOLST			*include BSR doLIST
+		dc.l	DOVAR
+		dc.l	HI			*application to boot
+
+*   COLD	( -- )
+*		The hilevel cold start sequence.
+*		COLON$	4,'COLD',COLD
+LEN_	set	(4&$01F)/CELLL			*string cell count, round down
+NAME_	set	NAME_-((LEN_+3)*CELLL)		*new header on cell boundary
+*
+		DS.L 0
+COLD	equ	*				*assembly COLD
+		bsr	DOLST			*include BSR doLIST
+COLD1		dc.l	DOLIT,UZERO,DOLIT,UPP
+		dc.l	DOLIT,ULAST-UZERO,CMOVE	*initialize user area
+		dc.l	PRESE			*initialize data stack and TIB
+		dc.l	TBOOT,ATEXE		*application boot
+		dc.l	FORTH,CNTXT,AT,DUPP	*initialize search order
+		dc.l	CRRNT,DSTOR,OVERT
+		dc.l	QUIT			*start interpretation
+		dc.l	BRAN,COLD1		*just in case
+
+*******************************************************
+
+LASTN		EQU	NAME_+8			*last name address in name dictionary
+
+NTOP		EQU	NAME_-0			*next available memory in name dictionary
+		DS.L 0				*force long word alignment
+CTOP	equ	*				*next available memory in code dictionary
+
+*================================================================
+*
+*        name dictionary
+*
+********************************************************
+*
+                ORG     NAME_
+
+L220_	equ	*
+
+	dc.l	COLD,L218_			*token pointer and link
+L219_	equ	*				*link points to a 'COLD' string
+        dc.b    4,'COLD',0,0,0                  *'COLD' string
+	DS.L 0					*force long word alignment
+
+	dc.l	TBOOT,L217_			*token pointer and link
+L218_	equ	*				*link points to a '''BOOT' string
+        dc.b    5,'''BOOT',0,0                  *'''BOOT' string
+	DS.L 0					*force long word alignment
+
+	dc.l	HI,L216_			*token pointer and link
+L217_	equ	*				*link points to a 'hi' string
+        dc.b    2,'hi',0                        *'hi' string
+	DS.L 0					*force long word alignment
+
+	dc.l	VERSN,L215_			*token pointer and link
+L216_	equ	*				*link points to a 'VER' string
+	dc.b	3,'VER'				*'VER' string
+	DS.L 0					*force long word alignment
+
+	dc.l	WORDS,L214_			*token pointer and link
+L215_	equ	*				*link points to a 'WORDS' string
+        dc.b    5,'WORDS',0,0                   *'WORDS' string
+	DS.L 0					*force long word alignment
+
+	dc.l	SEE,L213_			*token pointer and link
+L214_	equ	*				*link points to a 'SEE' string
+	dc.b	3,'SEE'				*'SEE' string
+	DS.L 0					*force long word alignment
+
+	dc.l	DOTID,L212_			*token pointer and link
+L213_	equ	*				*link points to a '.ID' string
+	dc.b	3,'.ID'				*'.ID' string
+	DS.L 0					*force long word alignment
+
+	dc.l	TNAME,L211_			*token pointer and link
+L212_	equ	*				*link points to a '>NAME' string
+        dc.b    5,'>NAME',0,0                   *'>NAME' string
+	DS.L 0					*force long word alignment
+
+	dc.l	QCSP,L210_			*token pointer and link
+L211_	equ	*				*link points to a '?CSP' string
+        dc.b    4,'?CSP',0,0,0                  *'?CSP' string
+	DS.L 0					*force long word alignment
+
+	dc.l	STCSP,L209_			*token pointer and link
+L210_	equ	*				*link points to a '!CSP' string
+        dc.b    4,'!CSP',0,0,0                  *'!CSP' string
+	DS.L 0					*force long word alignment
+
+	dc.l	DOTS,L208_			*token pointer and link
+L209_	equ	*				*link points to a '.S' string
+        dc.b    2,'.S',0                        *'.S' string
+	DS.L 0					*force long word alignment
+
+	dc.l	DUMP,L207_			*token pointer and link
+L208_	equ	*				*link points to a 'DUMP' string
+        dc.b    4,'DUMP',0,0,0                  *'DUMP' string
+	DS.L 0					*force long word alignment
+
+	dc.l	DUMPP,L206_			*token pointer and link
+L207_	equ	*				*link points to a 'dm+' string
+	dc.b	3,'dm+'				*'dm+' string
+	DS.L 0					*force long word alignment
+
+	dc.l	UTYPE,L205_			*token pointer and link
+L206_	equ	*				*link points to a '_TYPE' string
+        dc.b    5,'_TYPE',0,0                   *'_TYPE' string
+	DS.L 0					*force long word alignment
+
+	dc.l	VARIA,L204_			*token pointer and link
+L205_	equ	*				*link points to a 'VARIABLE' string
+        dc.b    8,'VARIABLE',0,0,0              *'VARIABLE' string
+	DS.L 0					*force long word alignment
+
+	dc.l	CREAT,L203_			*token pointer and link
+L204_	equ	*				*link points to a 'CREATE' string
+        dc.b    6,'CREATE',0                    *'CREATE' string
+	DS.L 0					*force long word alignment
+
+	dc.l	USER,L202_			*token pointer and link
+L203_	equ	*				*link points to a 'USER' string
+        dc.b    4,'USER',0,0,0                  *'USER' string
+	DS.L 0					*force long word alignment
+
+	dc.l	IMMED,L201_			*token pointer and link
+L202_	equ	*				*link points to a 'IMMEDIATE' string
+        dc.b    9,'IMMEDIATE',0,0               *'IMMEDIATE' string
+	DS.L 0					*force long word alignment
+
+	dc.l	COLON,L200_			*token pointer and link
+L201_	equ	*				*link points to a ':' string
+        dc.b    1,':',0,0                       *':' string
+	DS.L 0					*force long word alignment
+
+	dc.l	CALLC,L199_			*token pointer and link
+L200_	equ	*				*link points to a 'call string
+        dc.b    5,'call,',0,0                   *'call string
+	DS.L 0					*force long word alignment
+
+	dc.l	RBRAC,L198_			*token pointer and link
+L199_	equ	*				*link points to a ']' string
+        dc.b    1,']',0,0                       *']' string
+	DS.L 0					*force long word alignment
+
+	dc.l	SEMIS,L197_			*token pointer and link
+L198_	equ	*				*link points to a ';' string
+        dc.b    IMEDD+COMPO+1,';',0,0           *';' string
+	DS.L 0					*force long word alignment
+
+	dc.l	OVERT,L196_			*token pointer and link
+L197_	equ	*				*link points to a 'OVERT' string
+        dc.b    5,'OVERT',0,0                   *'OVERT' string
+	DS.L 0					*force long word alignment
+
+	dc.l	SCOMP,L195_			*token pointer and link
+L196_	equ	*				*link points to a '$COMPILE' string
+        dc.b    8,'$COMPILE',0,0,0              *'$COMPILE' string
+	DS.L 0					*force long word alignment
+
+	dc.l	SNAME,L194_			*token pointer and link
+L195_	equ	*				*link points to a '$,n' string
+	dc.b	3,'$,n'				*'$,n' string
+	DS.L 0					*force long word alignment
+
+	dc.l	UNIQU,L193_			*token pointer and link
+L194_	equ	*				*link points to a '?UNIQUE' string
+	dc.b	7,'?UNIQUE'			*'?UNIQUE' string
+	DS.L 0					*force long word alignment
+
+	dc.l	DOTQ,L192_			*token pointer and link
+L193_	equ	*				*link points to a '."' string
+        dc.b    IMEDD+2,'."',0                  *'."' string
+	DS.L 0					*force long word alignment
+
+	dc.l	STRQ,L191_			*token pointer and link
+L192_	equ	*				*link points to a '$"' string
+        dc.b    IMEDD+2,'$"',0                  *'$"' string
+	DS.L 0					*force long word alignment
+
+	dc.l	ABRTQ,L190_			*token pointer and link
+L191_	equ	*				*link points to a 'ABORT"' string
+        dc.b    IMEDD+6,'ABORT"',0              *'ABORT"' string
+	DS.L 0					*force long word alignment
+
+	dc.l	WHILE,L189_			*token pointer and link
+L190_	equ	*				*link points to a 'WHILE' string
+        dc.b    IMEDD+5,'WHILE',0,0             *'WHILE' string
+	DS.L 0					*force long word alignment
+
+	dc.l	ELSEE,L188_			*token pointer and link
+L189_	equ	*				*link points to a 'ELSE' string
+        dc.b    IMEDD+4,'ELSE',0,0,0            *'ELSE' string
+	DS.L 0					*force long word alignment
+
+	dc.l	AFT,L187_			*token pointer and link
+L188_	equ	*				*link points to a 'AFT' string
+	dc.b	IMEDD+3,'AFT'			*'AFT' string
+	DS.L 0					*force long word alignment
+
+	dc.l	THENN,L186_			*token pointer and link
+L187_	equ	*				*link points to a 'THEN' string
+        dc.b    IMEDD+4,'THEN',0,0,0            *'THEN' string
+	DS.L 0					*force long word alignment
+
+	dc.l	REPEA,L185_			*token pointer and link
+L186_	equ	*				*link points to a 'REPEAT' string
+        dc.b    IMEDD+6,'REPEAT',0              *'REPEAT' string
+	DS.L 0					*force long word alignment
+
+	dc.l	AHEAD,L184_			*token pointer and link
+L185_	equ	*				*link points to a 'AHEAD' string
+        dc.b    IMEDD+5,'AHEAD',0,0             *'AHEAD' string
+	DS.L 0					*force long word alignment
+
+	dc.l	IFF,L183_			*token pointer and link
+L184_	equ	*				*link points to a 'IF' string
+        dc.b    IMEDD+2,'IF',0                  *'IF' string
+	DS.L 0					*force long word alignment
+
+        dc.l	AGAIN,L182_                     *token pointer and link
+L183_	equ	*				*link points to a 'AGAIN' string
+        dc.b    IMEDD+5,'AGAIN',0,0             *'AGAIN' string
+	DS.L 0					*force long word alignment
+
+	dc.l	UNTIL,L181_			*token pointer and link
+L182_	equ	*				*link points to a 'UNTIL' string
+        dc.b    IMEDD+5,'UNTIL',0,0             *'UNTIL' string
+	DS.L 0					*force long word alignment
+
+	dc.l	NEXT,L180_			*token pointer and link
+L181_	equ	*				*link points to a 'NEXT' string
+        dc.b    IMEDD+4,'NEXT',0,0,0            *'NEXT' string
+	DS.L 0					*force long word alignment
+
+	dc.l	BEGIN,L179_			*token pointer and link
+L180_	equ	*				*link points to a 'BEGIN' string
+        dc.b    IMEDD+5,'BEGIN',0,0             *'BEGIN' string
+	DS.L 0					*force long word alignment
+
+	dc.l	FOR,L178_			*token pointer and link
+L179_	equ	*				*link points to a 'FOR' string
+        dc.b    IMEDD+3,'FOR'                   *'FOR' string
+	DS.L 0					*force long word alignment
+
+	dc.l	RECUR,L177_			*token pointer and link
+L178_	equ	*				*link points to a 'RECURSE' string
+	dc.b	IMEDD+7,'RECURSE'		*'RECURSE' string
+	DS.L 0					*force long word alignment
+
+	dc.l	STRCQ,L176_			*token pointer and link
+L177_	equ	*				*link points to a STRCQ string
+	dc.b	3,'$,"'			        *'$,"' string
+	DS.L 0					*force long word alignment
+
+	dc.l	LITER,L175_			*token pointer and link
+L176_	equ	*				*link points to a 'LITERAL' string
+	dc.b	IMEDD+7,'LITERAL'		*'LITERAL' string
+	DS.L 0					*force long word alignment
+
+	dc.l	COMPI,L174_			*token pointer and link
+L175_	equ	*				*link points to a 'COMPILE' string
+	dc.b	COMPO+7,'COMPILE'		*'COMPILE' string
+	DS.L 0					*force long word alignment
+
+	dc.l	BCOMP,L173_			*token pointer and link
+L174_	equ	*				*link points to a '[COMPILE]' string
+        dc.b    IMEDD+9,'[COMPILE]',0,0         *'[COMPILE]' string
+	DS.L 0					*force long word alignment
+
+	dc.l	COMMA,L172_			*token pointer and link
+L173_	equ	*				*link points to a ',' string
+        dc.b    1,$2c,0,0                       *',' string
+	DS.L 0					*force long word alignment
+
+	dc.l	ALLOT,L171_			*token pointer and link
+L172_	equ	*				*link points to a 'ALLOT' string
+        dc.b    5,'ALLOT',0,0                   *'ALLOT' string
+	DS.L 0					*force long word alignment
+
+	dc.l	TICK,L170_			*token pointer and link
+L171_	equ	*				*link points to a '''' string
+        dc.b    1,'''',0,0                      *'''' string
+	DS.L 0					*force long word alignment
+
+	dc.l	QUIT,L169_			*token pointer and link
+L170_	equ	*				*link points to a 'QUIT' string
+        dc.b    4,'QUIT',0,0,0                  *'QUIT' string
+	DS.L 0					*force long word alignment
+
+	dc.l	CONSO,L168_			*token pointer and link
+L169_	equ	*				*link points to a 'CONSOLE' string
+	dc.b	7,'CONSOLE'			*'CONSOLE' string
+	DS.L 0					*force long word alignment
+
+	dc.l	ISLO,L167_			*token pointer and link
+L168_	equ	*				*link points to a 'I/O' string
+	dc.b	3,'I/O'				*'I/O' string
+	DS.L 0					*force long word alignment
+
+	dc.l	HAND,L166_			*token pointer and link
+L167_	equ	*				*link points to a 'HAND' string
+        dc.b    4,'HAND',0,0,0                  *'HAND' string
+	DS.L 0					*force long word alignment
+
+	dc.l	FILE,L165_			*token pointer and link
+L166_	equ	*				*link points to a 'FILE' string
+        dc.b    4,'FILE',0,0,0                  *'FILE' string
+	DS.L 0					*force long word alignment
+
+	dc.l	XIO,L164_			*token pointer and link
+L165_	equ	*				*link points to a 'xio' string
+	dc.b	COMPO+3,'xio'			*'xio' string
+	DS.L 0					*force long word alignment
+
+	dc.l	PRESE,L163_			*token pointer and link
+L164_	equ	*				*link points to a 'PRESET' string
+        dc.b    6,'PRESET',0                    *'PRESET' string
+	DS.L 0					*force long word alignment
+
+	dc.l	EVAL,L162_			*token pointer and link
+L163_	equ	*				*link points to a 'EVAL' string
+        dc.b    4,'EVAL',0,0,0                  *'EVAL' string
+	DS.L 0					*force long word alignment
+
+	dc.l	QSTAC,L161_			*token pointer and link
+L162_	equ	*				*link points to a '?STACK' string
+        dc.b    6,'?STACK',0                    *'?STACK' string
+	DS.L 0					*force long word alignment
+
+	dc.l	DOTOK,L160_			*token pointer and link
+L161_	equ	*				*link points to a '.OK' string
+	dc.b	3,'.OK'				*'.OK' string
+	DS.L 0					*force long word alignment
+
+	dc.l	LBRAC,L159_			*token pointer and link
+L160_	equ	*				*link points to a '[' string
+        dc.b    IMEDD+1,'[',0,0                 *'[' string
+	DS.L 0					*force long word alignment
+
+	dc.l	INTER,L158_			*token pointer and link
+L159_	equ	*				*link points to a '$INTERPRET' string
+        dc.b    10,'$INTERPRET',0               *'$INTERPRET' string
+	DS.L 0					*force long word alignment
+
+	dc.l	ABORQ,L157_			*token pointer and link
+L158_	equ	*				*link points to a 'abort"' string
+        dc.b    COMPO+6,'abort"',0              *'abort"' string
+	DS.L 0					*force long word alignment
+
+	dc.l	ABORT,L156_			*token pointer and link
+L157_	equ	*				*link points to a 'ABORT' string
+        dc.b    5,'ABORT',0,0                   *'ABORT' string
+	DS.L 0					*force long word alignment
+
+	dc.l	NULLS,L155_			*token pointer and link
+L156_	equ	*				*link points to a 'NULL$' string
+        dc.b    5,'NULL$',0,0                   *'NULL$' string
+	DS.L 0					*force long word alignment
+
+	dc.l	THROW,L154_			*token pointer and link
+L155_	equ	*				*link points to a 'THROW' string
+        dc.b    5,'THROW',0,0                   *'THROW' string
+	DS.L 0					*force long word alignment
+
+	dc.l	CATCH,L153_			*token pointer and link
+L154_	equ	*				*link points to a 'CATCH' string
+        dc.b    5,'CATCH',0,0                   *'CATCH' string
+	DS.L 0					*force long word alignment
+
+	dc.l	QUERY,L152_			*token pointer and link
+L153_	equ	*				*link points to a 'QUERY' string
+        dc.b    5,'QUERY',0,0                   *'QUERY' string
+	DS.L 0					*force long word alignment
+
+	dc.l	EXPEC,L151_			*token pointer and link
+L152_	equ	*				*link points to a 'EXPECT' string
+        dc.b    6,'EXPECT',0                    *'EXPECT' string
+	DS.L 0					*force long word alignment
+
+	dc.l	ACCEP,L150_			*token pointer and link
+L151_	equ	*				*link points to a 'accept' string
+        dc.b    6,'accept',0                    *'accept' string
+	DS.L 0					*force long word alignment
+
+	dc.l	KTAP,L149_			*token pointer and link
+L150_	equ	*				*link points to a 'kTAP' string
+        dc.b    4,'kTAP',0,0,0                  *'kTAP' string
+	DS.L 0					*force long word alignment
+
+	dc.l	TAP,L148_			*token pointer and link
+L149_	equ	*				*link points to a 'TAP' string
+	dc.b	3,'TAP'				*'TAP' string
+	DS.L 0					*force long word alignment
+
+	dc.l	BKSP,L147_			*token pointer and link
+L148_	equ	*				*link points to a '^H' string
+        dc.b    2,'^H',0                        *'^H' string
+	DS.L 0					*force long word alignment
+
+	dc.l	NAMEQ,L146_			*token pointer and link
+L147_	equ	*				*link points to a 'NAME?' string
+        dc.b    5,'NAME?',0,0                   *'NAME?' string
+	DS.L 0					*force long word alignment
+
+	dc.l	FIND,L145_			*token pointer and link
+L146_	equ	*				*link points to a 'find' string
+        dc.b    4,'find',0,0,0                  *'find' string
+	DS.L 0					*force long word alignment
+
+	dc.l	SAMEQ,L144_			*token pointer and link
+L145_	equ	*				*link points to a 'SAME?' string
+        dc.b    5,'SAME?',0,0                   *'SAME?' string
+	DS.L 0					*force long word alignment
+
+	dc.l	NAMET,L143_			*token pointer and link
+L144_	equ	*				*link points to a 'NAME>' string
+        dc.b    5,'NAME>',0,0                   *'NAME>' string
+	DS.L 0					*force long word alignment
+
+	dc.l	WORDD,L142_			*token pointer and link
+L143_	equ	*				*link points to a 'WORD' string
+        dc.b    4,'WORD',0,0,0                  *'WORD' string
+	DS.L 0					*force long word alignment
+
+	dc.l	TOKEN,L141_			*token pointer and link
+L142_	equ	*				*link points to a 'TOKEN' string
+        dc.b    5,'TOKEN',0,0                   *'TOKEN' string
+	DS.L 0					*force long word alignment
+
+	dc.l	CHAR,L140_			*token pointer and link
+L141_	equ	*				*link points to a 'CHAR' string
+        dc.b    4,'CHAR',0,0,0                  *'CHAR' string
+	DS.L 0					*force long word alignment
+
+	dc.l	BKSLA,L139_			*token pointer and link
+L140_	equ	*				*link points to a '\' string
+        dc.b    IMEDD+1,'\',0,0                 *'\' string
+	DS.L 0					*force long word alignment
+
+	dc.l	PAREN,L138_			*token pointer and link
+L139_	equ	*				*link points to a '(' string
+        dc.b    IMEDD+1,'(',0,0                 *'(' string
+	DS.L 0					*force long word alignment
+
+	dc.l	DOTPR,L137_			*token pointer and link
+L138_	equ	*				*link points to a '.(' string
+        dc.b    IMEDD+2,'.(',0                  *'.(' string
+	DS.L 0					*force long word alignment
+
+	dc.l	PARSE,L136_			*token pointer and link
+L137_	equ	*				*link points to a 'PARSE' string
+        dc.b    5,'PARSE',0,0                   *'PARSE' string
+	DS.L 0					*force long word alignment
+
+	dc.l	PARS,L135_			*token pointer and link
+L136_	equ	*				*link points to a 'parse' string
+        dc.b    5,'parse',0,0                   *'parse' string
+	DS.L 0					*force long word alignment
+
+	dc.l	QUEST,L134_			*token pointer and link
+L135_	equ	*				*link points to a '?' string
+        dc.b    1,'?',0,0                       *'?' string
+	DS.L 0					*force long word alignment
+
+	dc.l	DOT,L133_			*token pointer and link
+L134_	equ	*				*link points to a '.' string
+        dc.b    1,'.',0,0                       *'.' string
+	DS.L 0					*force long word alignment
+
+	dc.l	UDOT,L132_			*token pointer and link
+L133_	equ	*				*link points to a 'U.' string
+        dc.b    2,'U.',0                        *'U.' string
+	DS.L 0					*force long word alignment
+
+	dc.l	UDOTR,L131_			*token pointer and link
+L132_	equ	*				*link points to a 'U.R' string
+	dc.b	3,'U.R'				*'U.R' string
+	DS.L 0					*force long word alignment
+
+	dc.l	DOTR,L130_			*token pointer and link
+L131_	equ	*				*link points to a '.R' string
+        dc.b    2,'.R',0                        *'.R' string
+	DS.L 0					*force long word alignment
+
+	dc.l	DOTQP,L129_			*token pointer and link
+L130_	equ	*				*link points to a '."|' string
+	dc.b	COMPO+3,'."|'			*'."|' string
+	DS.L 0					*force long word alignment
+
+	dc.l	STRQP,L128_			*token pointer and link
+L129_	equ	*				*link points to a '$"|' string
+	dc.b	COMPO+3,'$"|'			*'$"|' string
+	DS.L 0					*force long word alignment
+
+	dc.l	DOSTR,L127_			*token pointer and link
+L128_	equ	*				*link points to a 'do$' string
+	dc.b	COMPO+3,'do$'			*'do$' string
+	DS.L 0					*force long word alignment
+
+	dc.l	CR,L126_			*token pointer and link
+L127_	equ	*				*link points to a 'CR' string
+        dc.b    2,'CR',0                        *'CR' string
+	DS.L 0					*force long word alignment
+
+	dc.l	TYPES,L125_			*token pointer and link
+L126_	equ	*				*link points to a 'TYPE' string
+        dc.b    4,'TYPE',0,0,0                  *'TYPE' string
+	DS.L 0					*force long word alignment
+
+	dc.l	SPACS,L124_			*token pointer and link
+L125_	equ	*				*link points to a 'SPACES' string
+        dc.b    6,'SPACES',0                    *'SPACES' string
+	DS.L 0					*force long word alignment
+
+	dc.l	SPACE,L123_			*token pointer and link
+L124_	equ	*				*link points to a 'SPACE' string
+        dc.b    5,'SPACE',0,0                   *'SPACE' string
+	DS.L 0					*force long word alignment
+
+	dc.l	PACE,L122_			*token pointer and link
+L123_	equ	*				*link points to a 'PACE' string
+        dc.b    4,'PACE',0,0,0                  *'PACE' string
+	DS.L 0					*force long word alignment
+
+	dc.l	NUFQ,L121_			*token pointer and link
+L122_	equ	*				*link points to a 'NUF?' string
+        dc.b    4,'NUF?',0,0,0                  *'NUF?' string
+	DS.L 0					*force long word alignment
+
+	dc.l	EMIT,L120_			*token pointer and link
+L121_	equ	*				*link points to a 'EMIT' string
+        dc.b    4,'EMIT',0,0,0                  *'EMIT' string
+	DS.L 0					*force long word alignment
+
+	dc.l	KEY,L119_			*token pointer and link
+L120_	equ	*				*link points to a 'KEY' string
+	dc.b	3,'KEY'				*'KEY' string
+	DS.L 0					*force long word alignment
+
+	dc.l	QKEY,L118_			*token pointer and link
+L119_	equ	*				*link points to a '?KEY' string
+        dc.b    4,'?KEY',0,0,0                  *'?KEY' string
+	DS.L 0					*force long word alignment
+
+	dc.l	NUMBQ,L117_			*token pointer and link
+L118_	equ	*				*link points to a 'NUMBER?' string
+        dc.b    7,'NUMBER?'                     *'NUMBER?' string
+	DS.L 0					*force long word alignment
+
+	dc.l	DIGTQ,L116_			*token pointer and link
+L117_	equ	*				*link points to a 'DIGIT?' string
+        dc.b    6,'DIGIT?',0                    *'DIGIT?' string
+	DS.L 0					*force long word alignment
+
+	dc.l	DECIM,L115_			*token pointer and link
+L116_	equ	*				*link points to a 'DECIMAL' string
+	dc.b	7,'DECIMAL'			*'DECIMAL' string
+	DS.L 0					*force long word alignment
+
+	dc.l	HEX,L114_			*token pointer and link
+L115_	equ	*				*link points to a 'HEX' string
+	dc.b	3,'HEX'				*'HEX' string
+	DS.L 0					*force long word alignment
+
+	dc.l	STR,L113_			*token pointer and link
+L114_	equ	*				*link points to a 'str' string
+	dc.b	3,'str'				*'str' string
+	DS.L 0					*force long word alignment
+
+	dc.l	EDIGS,L112_			*token pointer and link
+L113_	equ	*				*link points to a '#>' string
+        dc.b    2,'#>',0                        *'#>' string
+	DS.L 0					*force long word alignment
+
+	dc.l	SIGN,L111_			*token pointer and link
+L112_	equ	*				*link points to a 'SIGN' string
+        dc.b    4,'SIGN',0,0,0                  *'SIGN' string
+	DS.L 0					*force long word alignment
+
+        dc.l	DIGS,L110_			*token pointer and link
+L111_	equ	*                                *link points to a '#S' string
+        dc.b    2,'#S',0                        *'#S' string
+	DS.L 0					*force long word alignment
+
+	dc.l	DIG,L109_			*token pointer and link
+L110_	equ	*				*link points to a '#' string
+        dc.b    1,'#',0,0                       *'#' string
+	DS.L 0					*force long word alignment
+
+	dc.l	HOLD,L108_			*token pointer and link
+L109_	equ	*				*link points to a 'HOLD' string
+        dc.b    4,'HOLD',0,0,0                  *'HOLD' string
+	DS.L 0					*force long word alignment
+
+	dc.l	BDIGS,L107_			*token pointer and link
+L108_	equ	*				*link points to a '<#' string
+        dc.b    2,$3c,$23,0                     *'<#' string
+	DS.L 0					*force long word alignment
+
+	dc.l	EXTRC,L106_			*token pointer and link
+L107_	equ	*				*link points to a 'EXTRACT' string
+	dc.b	7,'EXTRACT'			*'EXTRACT' string
+	DS.L 0					*force long word alignment
+
+	dc.l	DIGIT,L105_			*token pointer and link
+L106_	equ	*				*link points to a 'DIGIT' string
+        dc.b    5,'DIGIT',0,0                   *'DIGIT' string
+	DS.L 0					*force long word alignment
+
+	dc.l	PACKS,L104_			*token pointer and link
+L105_	equ	*				*link points to a 'PACK$' string
+        dc.b    5,'PACK$',0,0                   *'PACK$' string
+	DS.L 0					*force long word alignment
+
+	dc.l	DTRAI,L103_			*token pointer and link
+L104_	equ	*				*link points to a '-TRAILING' string
+        dc.b    9,'-TRAILING',0,0               *'-TRAILING' string
+	DS.L 0					*force long word alignment
+
+	dc.l	FILL,L102_			*token pointer and link
+L103_	equ	*				*link points to a 'FILL' string
+        dc.b    4,'FILL',0,0,0                  *'FILL' string
+	DS.L 0					*force long word alignment
+
+	dc.l	CMOVE,L101_			*token pointer and link
+L102_	equ	*				*link points to a 'CMOVE' string
+        dc.b    5,'CMOVE',0,0                   *'CMOVE' string
+	DS.L 0					*force long word alignment
+
+	dc.l	ATEXE,L100_			*token pointer and link
+L101_	equ	*				*link points to a '@EXECUTE' string
+        dc.b    8,'@EXECUTE',0,0,0              *'@EXECUTE' string
+	DS.L 0					*force long word alignment
+
+	dc.l	TIB,L099_			*token pointer and link
+L100_	equ	*				*link points to a 'TIB' string
+	dc.b	3,'TIB'				*'TIB' string
+	DS.L 0					*force long word alignment
+
+	dc.l	PAD,L098_			*token pointer and link
+L099_	equ	*				*link points to a 'PAD' string
+	dc.b	3,'PAD'				*'PAD' string
+	DS.L 0					*force long word alignment
+
+	dc.l	HERE,L097_			*token pointer and link
+L098_	equ	*				*link points to a 'HERE' string
+        dc.b    4,'HERE',0,0,0                  *'HERE' string
+	DS.L 0					*force long word alignment
+
+	dc.l	COUNT,L096_			*token pointer and link
+L097_	equ	*				*link points to a 'COUNT' string
+        dc.b    5,'COUNT',0,0                   *'COUNT' string
+	DS.L 0					*force long word alignment
+
+	dc.l	DAT,L095_			*token pointer and link
+L096_	equ	*				*link points to a '2@' string
+        dc.b    2,'2@',0                        *'2@' string
+	DS.L 0					*force long word alignment
+
+	dc.l	DSTOR,L094_			*token pointer and link
+L095_	equ	*				*link points to a '2!' string
+        dc.b    2,'2!',0                        *'2!' string
+	DS.L 0					*force long word alignment
+
+	dc.l	PSTOR,L093_			*token pointer and link
+L094_	equ	*				*link points to a '+!' string
+        dc.b    2,'+!',0                        *'+!' string
+	DS.L 0					*force long word alignment
+
+	dc.l	PICK,L092_			*token pointer and link
+L093_	equ	*				*link points to a 'PICK' string
+        dc.b    4,'PICK',0,0,0                  *'PICK' string
+	DS.L 0					*force long word alignment
+
+	dc.l	DEPTH,L091_			*token pointer and link
+L092_	equ	*				*link points to a 'DEPTH' string
+        dc.b    5,'DEPTH',0,0                   *'DEPTH' string
+	DS.L 0					*force long word alignment
+
+	dc.l	TCHAR,L090_			*token pointer and link
+L091_	equ	*				*link points to a '>CHAR' string
+        dc.b    5,'>CHAR',0,0                   *'>CHAR' string
+	DS.L 0					*force long word alignment
+
+	dc.l	BLANK,L089_			*token pointer and link
+L090_	equ	*				*link points to a 'BL' string
+        dc.b    2,'BL',0                        *'BL' string
+	DS.L 0					*force long word alignment
+
+	dc.l	ALGND,L088_			*token pointer and link
+L089_	equ	*				*link points to a 'ALIGNED' string
+	dc.b	7,'ALIGNED'			*'ALIGNED' string
+	DS.L 0					*force long word alignment
+
+	dc.l	CELLS,L087_			*token pointer and link
+L088_	equ	*				*link points to a 'CELLS' string
+        dc.b    5,'CELLS',0,0                   *'CELLS' string
+	DS.L 0					*force long word alignment
+
+	dc.l	CELLM,L086_			*token pointer and link
+L087_	equ	*				*link points to a 'CELL-' string
+        dc.b    5,'CELL-',0,0                   *'CELL-' string
+	DS.L 0					*force long word alignment
+
+	dc.l	CELLP,L085_			*token pointer and link
+L086_	equ	*				*link points to a 'CELL+' string
+        dc.b    5,'CELL+',0,0                   *'CELL+' string
+	DS.L 0					*force long word alignment
+
+	dc.l	STASL,L084_			*token pointer and link
+L085_	equ	*				*link points to a '*/' string
+        dc.b    2,'*/',0                        *'*/' string
+	DS.L 0					*force long word alignment
+
+	dc.l	SSMOD,L083_			*token pointer and link
+L084_	equ	*				*link points to a '*/MOD' string
+        dc.b    5,'*/MOD',0,0                   *'*/MOD' string
+	DS.L 0					*force long word alignment
+
+	dc.l	MSTAR,L082_			*token pointer and link
+L083_	equ	*				*link points to a 'M*' string
+        dc.b    2,'M*',0                        *'M*' string
+	DS.L 0					*force long word alignment
+
+	dc.l	STAR,L081_			*token pointer and link
+L082_	equ	*				*link points to a '*' string
+        dc.b    1,'*',0,0                       *'*' string
+	DS.L 0					*force long word alignment
+
+	dc.l	UMSTA,L080_			*token pointer and link
+L081_	equ	*				*link points to a 'UM*' string
+        dc.b    3,'UM*'                         *'UM*' string
+	DS.L 0					*force long word alignment
+
+	dc.l	SLASH,L079_			*token pointer and link
+L080_	equ	*				*link points to a '/' string
+        dc.b    1,'/',0,0                       *'/' string
+	DS.L 0					*force long word alignment
+
+	dc.l	MODD,L078_			*token pointer and link
+L079_	equ	*				*link points to a 'MOD' string
+	dc.b	3,'MOD'				*'MOD' string
+	DS.L 0					*force long word alignment
+
+	dc.l	SLMOD,L077_			*token pointer and link
+L078_	equ	*				*link points to a '/MOD' string
+        dc.b    4,'/MOD',0,0,0                  *'/MOD' string
+	DS.L 0					*force long word alignment
+
+	dc.l	MSMOD,L076_			*token pointer and link
+L077_	equ	*				*link points to a 'M/MOD' string
+        dc.b    5,'M/MOD',0,0                   *'M/MOD' string
+	DS.L 0					*force long word alignment
+
+	dc.l	UMMOD,L075_			*token pointer and link
+L076_	equ	*				*link points to a 'UM/MOD' string
+        dc.b    6,'UM/MOD',0                    *'UM/MOD' string
+	DS.L 0					*force long word alignment
+
+	dc.l	WITHI,L074_			*token pointer and link
+L075_	equ	*				*link points to a 'WITHIN' string
+        dc.b    6,'WITHIN',0                    *'WITHIN' string
+	DS.L 0					*force long word alignment
+
+	dc.l	MIN,L073_			*token pointer and link
+L074_	equ	*				*link points to a 'MIN' string
+	dc.b	3,'MIN'				*'MIN' string
+	DS.L 0					*force long word alignment
+
+	dc.l	MAX,L072_			*token pointer and link
+L073_	equ	*				*link points to a 'MAX' string
+	dc.b	3,'MAX'				*'MAX' string
+	DS.L 0					*force long word alignment
+
+	dc.l	LESS,L071_			*token pointer and link
+L072_	equ	*				*link points to a '<' string
+        dc.b    1,'<',0,0                       *'<' string
+	DS.L 0					*force long word alignment
+
+	dc.l	ULESS,L070_			*token pointer and link
+L071_	equ	*				*link points to a 'U<' string
+        dc.b    2,'U<',0                        *'U<' string
+	DS.L 0					*force long word alignment
+
+	dc.l	EQUAL,L069_			*token pointer and link
+L070_	equ	*				*link points to a '=' string
+        dc.b    1,'=',0,0                       *'=' string
+	DS.L 0					*force long word alignment
+
+	dc.l	ABSS,L068_			*token pointer and link
+L069_	equ	*				*link points to a 'ABS' string
+	dc.b	3,'ABS'				*'ABS' string
+	DS.L 0					*force long word alignment
+
+	dc.l	SUBB,L067_			*token pointer and link
+L068_	equ	*				*link points to a '-' string
+        dc.b    1,'-',0,0                       *'-' string
+	DS.L 0					*force long word alignment
+
+	dc.l	DNEGA,L066_			*token pointer and link
+L067_	equ	*				*link points to a 'DNEGATE' string
+        dc.b    7,'DNEGATE'                     *'DNEGATE' string
+	DS.L 0					*force long word alignment
+
+	dc.l	NEGAT,L065_			*token pointer and link
+L066_	equ	*				*link points to a 'NEGATE' string
+        dc.b    6,'NEGATE',0                    *'NEGATE' string
+	DS.L 0					*force long word alignment
+
+	dc.l	INVER,L064_			*token pointer and link
+L065_	equ	*				*link points to a 'NOT' string
+	dc.b	3,'NOT'				*'NOT' string
+	DS.L 0					*force long word alignment
+
+	dc.l	PLUS,L063_			*token pointer and link
+L064_	equ	*				*link points to a '+' string
+        dc.b    1,'+',0,0                       *'+' string
+	DS.L 0					*force long word alignment
+
+	dc.l	DDUP,L062_			*token pointer and link
+L063_	equ	*				*link points to a '2DUP' string
+        dc.b    4,'2DUP',0,0,0                  *'2DUP' string
+	DS.L 0					*force long word alignment
+
+	dc.l	DDROP,L061_			*token pointer and link
+L062_	equ	*				*link points to a '2DROP' string
+        dc.b    5,'2DROP',0,0                   *'2DROP' string
+	DS.L 0					*force long word alignment
+
+	dc.l	ROT,L060_			*token pointer and link
+L061_	equ	*				*link points to a 'ROT' string
+	dc.b	3,'ROT'				*'ROT' string
+	DS.L 0					*force long word alignment
+
+	dc.l	QDUP,L059_			*token pointer and link
+L060_	equ	*				*link points to a '?DUP' string
+        dc.b    4,'?DUP',0,0,0                  *'?DUP' string
+	DS.L 0					*force long word alignment
+
+	dc.l	FORTH,L058_			*token pointer and link
+L059_	equ	*				*link points to a 'FORTH' string
+        dc.b    5,'FORTH',0,0                   *'FORTH' string
+	DS.L 0					*force long word alignment
+
+	dc.l	DOVOC,L057_			*token pointer and link
+L058_	equ	*				*link points to a 'doVOC' string
+        dc.b    COMPO+5,'doVOC',0,0             *'doVOC' string
+	DS.L 0					*force long word alignment
+
+	dc.l	LAST,L056_			*token pointer and link
+L057_	equ	*				*link points to a 'LAST' string
+        dc.b    4,'LAST',0,0,0                  *'LAST' string
+	DS.L 0					*force long word alignment
+
+	dc.l	NP,L055_			*token pointer and link
+L056_	equ	*				*link points to a 'NP' string
+        dc.b    2,'NP',0                        *'NP' string
+	DS.L 0					*force long word alignment
+
+	dc.l	CP,L054_			*token pointer and link
+L055_	equ	*				*link points to a 'CP' string
+        dc.b    2,'CP',0                        *'CP' string
+	DS.L 0					*force long word alignment
+
+	dc.l	CRRNT,L053_			*token pointer and link
+L054_	equ	*				*link points to a 'CURRENT' string
+	dc.b	7,'CURRENT'			*'CURRENT' string
+	DS.L 0					*force long word alignment
+
+	dc.l	CNTXT,L052_			*token pointer and link
+L053_	equ	*				*link points to a 'CONTEXT' string
+	dc.b	7,'CONTEXT'			*'CONTEXT' string
+	DS.L 0					*force long word alignment
+
+	dc.l	HANDL,L051_			*token pointer and link
+L052_	equ	*				*link points to a 'HANDLER' string
+	dc.b	7,'HANDLER'			*'HANDLER' string
+	DS.L 0					*force long word alignment
+
+	dc.l	HLD,L050_			*token pointer and link
+L051_	equ	*				*link points to a 'HLD' string
+	dc.b	3,'HLD'				*'HLD' string
+	DS.L 0					*force long word alignment
+
+	dc.l	TNUMB,L049_			*token pointer and link
+L050_	equ	*				*link points to a '''NUMBER' string
+	dc.b	7,'''NUMBER'			*'''NUMBER' string
+	DS.L 0					*force long word alignment
+
+	dc.l	TEVAL,L048_			*token pointer and link
+L049_	equ	*				*link points to a '''EVAL' string
+        dc.b    5,'''EVAL',0,0                  *'''EVAL' string
+	DS.L 0					*force long word alignment
+
+	dc.l	CSP,L047_			*token pointer and link
+L048_	equ	*				*link points to a 'CSP' string
+	dc.b	3,'CSP'				*'CSP' string
+	DS.L 0					*force long word alignment
+
+	dc.l	NTIB,L046_			*token pointer and link
+L047_	equ	*				*link points to a '#TIB' string
+        dc.b    4,'#TIB',0,0,0                  *'#TIB' string
+	DS.L 0					*force long word alignment
+
+	dc.l	INN,L045_			*token pointer and link
+L046_	equ	*				*link points to a '>IN' string
+	dc.b	3,'>IN'				*'>IN' string
+	DS.L 0					*force long word alignment
+
+	dc.l	SPAN,L044_			*token pointer and link
+L045_	equ	*				*link points to a 'SPAN' string
+        dc.b    4,'SPAN',0,0,0                  *'SPAN' string
+	DS.L 0					*force long word alignment
+
+	dc.l	TEMP,L043_			*token pointer and link
+L044_	equ	*				*link points to a 'tmp' string
+	dc.b	COMPO+3,'tmp'			*'tmp' string
+	DS.L 0					*force long word alignment
+
+	dc.l	BASE,L042_			*token pointer and link
+L043_	equ	*				*link points to a 'BASE' string
+        dc.b    4,'BASE',0,0,0                  *'BASE' string
+	DS.L 0					*force long word alignment
+
+	dc.l	TPROM,L041_			*token pointer and link
+L042_	equ	*				*link points to a '''PROMPT' string
+	dc.b	7,'''PROMPT'			*'''PROMPT' string
+	DS.L 0					*force long word alignment
+
+	dc.l	TECHO,L040_			*token pointer and link
+L041_	equ	*				*link points to a '''ECHO' string
+        dc.b    5,'''ECHO',0,0                  *'''ECHO' string
+	DS.L 0					*force long word alignment
+
+	dc.l	TTAP,L039_			*token pointer and link
+L040_	equ	*				*link points to a '''TAP' string
+        dc.b    4,'''TAP',0,0,0                 *'''TAP' string
+	DS.L 0					*force long word alignment
+
+	dc.l	TEXPE,L038_			*token pointer and link
+L039_	equ	*				*link points to a '''EXPECT' string
+	dc.b	7,'''EXPECT'			*'''EXPECT' string
+	DS.L 0					*force long word alignment
+
+	dc.l	TEMIT,L037_			*token pointer and link
+L038_	equ	*				*link points to a '''EMIT' string
+        dc.b    5,'''EMIT',0,0                  *'''EMIT' string
+	DS.L 0					*force long word alignment
+
+	dc.l	TQKEY,L036_			*token pointer and link
+L037_	equ	*				*link points to a '''?KEY' string
+        dc.b    5,'''?KEY',0,0                  *'''?KEY' string
+	DS.L 0					*force long word alignment
+
+	dc.l	RZERO,L035_			*token pointer and link
+L036_	equ	*				*link points to a 'RP0' string
+	dc.b	3,'RP0'				*'RP0' string
+	DS.L 0					*force long word alignment
+
+	dc.l	SZERO,L034_			*token pointer and link
+L035_	equ	*				*link points to a 'SP0' string
+	dc.b	3,'SP0'				*'SP0' string
+	DS.L 0					*force long word alignment
+
+	dc.l	DOUSE,L033_			*token pointer and link
+L034_	equ	*				*link points to a 'doUSER' string
+        dc.b    COMPO+6,'doUSER',0              *'doUSER' string
+	DS.L 0					*force long word alignment
+
+	dc.l	UP,L032_			*token pointer and link
+L033_	equ	*				*link points to a 'UP' string
+        dc.b    2,'UP',0                        *'UP' string
+	DS.L 0					*force long word alignment
+
+	dc.l	DOVAR,L031_			*token pointer and link
+L032_	equ	*				*link points to a 'doVAR' string
+        dc.b    COMPO+5,'doVAR',0,0             *'doVAR' string
+	DS.L 0					*force long word alignment
+
+	dc.l	UPLUS,L030_			*token pointer and link
+L031_	equ	*				*link points to a 'UM+' string
+	dc.b	3,'UM+'				*'UM+' string
+	DS.L 0					*force long word alignment
+
+	dc.l	XORR,L029_			*token pointer and link
+L030_	equ	*				*link points to a 'XOR' string
+	dc.b	3,'XOR'				*'XOR' string
+	DS.L 0					*force long word alignment
+
+	dc.l	ORR,L028_			*token pointer and link
+L029_	equ	*				*link points to a 'OR' string
+        dc.b    2,'OR',0                        *'OR' string
+	DS.L 0					*force long word alignment
+
+	dc.l	ANDD,L027_			*token pointer and link
+L028_	equ	*				*link points to a 'AND' string
+	dc.b	3,'AND'				*'AND' string
+	DS.L 0					*force long word alignment
+
+	dc.l	ZLESS,L026_			*token pointer and link
+L027_	equ	*				*link points to a '0<' string
+        dc.b    2,'0<',0                        *'0<' string
+	DS.L 0					*force long word alignment
+
+	dc.l	OVER,L025_			*token pointer and link
+L026_	equ	*				*link points to a 'OVER' string
+        dc.b    4,'OVER',0,0,0                  *'OVER' string
+	DS.L 0					*force long word alignment
+
+	dc.l	SWAP,L024_			*token pointer and link
+L025_	equ	*				*link points to a 'SWAP' string
+        dc.b    4,'SWAP',0,0,0                  *'SWAP' string
+	DS.L 0					*force long word alignment
+
+	dc.l	DUPP,L023_			*token pointer and link
+L024_	equ	*				*link points to a 'DUP' string
+        dc.b    3,'DUP'                         *'DUP' string
+	DS.L 0					*force long word alignment
+
+	dc.l	DROP,L022_			*token pointer and link
+L023_	equ	*				*link points to a 'DROP' string
+        dc.b    4,'DROP',0,0,0                  *'DROP' string
+	DS.L 0					*force long word alignment
+
+	dc.l	SPSTO,L021_			*token pointer and link
+L022_	equ	*				*link points to a 'SP!' string
+	dc.b	3,'SP!'				*'SP!' string
+	DS.L 0					*force long word alignment
+
+	dc.l	SPAT,L020_			*token pointer and link
+L021_	equ	*				*link points to a 'SP@' string
+	dc.b	3,'SP@'				*'SP@' string
+	DS.L 0					*force long word alignment
+
+	dc.l	TOR,L019_			*token pointer and link
+L020_	equ	*				*link points to a '>R' string
+        dc.b    COMPO+2,'>R',0                  *'>R' string
+	DS.L 0					*force long word alignment
+
+	dc.l	RAT,L018_			*token pointer and link
+L019_	equ	*				*link points to a 'R@' string
+        dc.b    2,'R@',0                        *'R@' string
+	DS.L 0					*force long word alignment
+
+	dc.l	RFROM,L017_			*token pointer and link
+L018_	equ	*				*link points to a 'R>' string
+        dc.b    COMPO+2,'R>',0                  *'R>' string
+	DS.L 0					*force long word alignment
+
+	dc.l	RPSTO,L016_			*token pointer and link
+L017_	equ	*				*link points to a 'RP!' string
+	dc.b	COMPO+3,'RP!'			*'RP!' string
+	DS.L 0					*force long word alignment
+
+	dc.l	RPAT,L015_			*token pointer and link
+L016_	equ	*				*link points to a 'RP@' string
+	dc.b	3,'RP@'				*'RP@' string
+	DS.L 0					*force long word alignment
+
+	dc.l	CAT,L014_			*token pointer and link
+L015_	equ	*				*link points to a 'C@' string
+        dc.b    2,'C@',0                        *'C@' string
+	DS.L 0					*force long word alignment
+
+	dc.l	CSTOR,L013_			*token pointer and link
+L014_	equ	*				*link points to a 'C!' string
+        dc.b    2,'C!',0                        *'C!' string
+	DS.L 0					*force long word alignment
+
+	dc.l	AT,L012_			*token pointer and link
+L013_	equ	*				*link points to a '@' string
+        dc.b    1,'@',0,0                       *'@' string
+	DS.L 0					*force long word alignment
+
+	dc.l	STORE,L011_			*token pointer and link
+L012_	equ	*				*link points to a '!' string
+        dc.b    1,'!',0,0                       *'!' string
+	DS.L 0					*force long word alignment
+
+	dc.l	EXIT,L010_			*token pointer and link
+L011_	equ	*				*link points to a 'EXIT' string
+        dc.b    4,'EXIT',0,0,0                  *'EXIT' string
+	DS.L 0					*force long word alignment
+
+	dc.l	EXECU,L009_			*token pointer and link
+L010_	equ	*				*link points to a 'EXECUTE' string
+	dc.b	7,'EXECUTE'			*'EXECUTE' string
+	DS.L 0					*force long word alignment
+
+	dc.l	BRAN,L008_			*token pointer and link
+L009_	equ	*				*link points to a 'branch' string
+        dc.b    COMPO+6,'branch',0              *'branch' string
+	DS.L 0					*force long word alignment
+
+	dc.l	QBRAN,L007_			*token pointer and link
+L008_	equ	*				*link points to a '?branch' string
+	dc.b	COMPO+7,'?branch'		*'?branch' string
+	DS.L 0					*force long word alignment
+
+	dc.l	DONXT,L006_			*token pointer and link
+L007_	equ	*				*link points to a 'next' string
+        dc.b    COMPO+4,'next',0,0,0            *'next' string
+	DS.L 0					*force long word alignment
+
+	dc.l	DOLST,L005_			*token pointer and link
+L006_	equ	*				*link points to a 'doLIST' string
+        dc.b    COMPO+6,'doLIST',0              *'doLIST' string
+	DS.L 0					*force long word alignment
+
+	dc.l	DOLIT,L004_			*token pointer and link
+L005_	equ	*				*link points to a 'doLIT' string
+        dc.b    COMPO+5,'doLIT',0,0             *'doLIT' string
+	DS.L 0					*force long word alignment
+
+	dc.l	STOIO,L003_			*token pointer and link
+L004_	equ	*				*link points to a '!IO' string
+	dc.b	3,'!IO'				*'!IO' string
+	DS.L 0					*force long word alignment
+
+	dc.l	TXSTO,L002_			*token pointer and link
+L003_	equ	*				*link points to a 'TX!' string
+	dc.b	3,'TX!'				*'TX!' string
+	DS.L 0					*force long word alignment
+
+	dc.l	QRX,L001_			*token pointer and link
+L002_	equ	*				*link points to a '?RX' string
+	dc.b	3,'?RX'				*'?RX' string
+	DS.L 0					*force long word alignment
+
+	dc.l	BYE,0000			*token pointer and END link
+L001_	equ	*				*link points to a 'BYE' string
+	dc.b	3,'BYE'				*'BYE' string
+
+*===============================================================
+
+	END

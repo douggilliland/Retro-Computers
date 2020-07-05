@@ -1,0 +1,222 @@
+
+
+Motorola 680x0 series performance guide.
+
+Once upon a time, I needed to develop a graphics library for an embedded
+project in 68K assembly. I remember how I couldn't find much hints on how to 
+write fast 68000 code anywhere back then, so I decided to write down some
+tricks I learned from my mistakes to spare someone else from making them.
+Most of these are faster/smaller alternatives to 'trivial' implementations
+of common tasks discovered in "Wait a minute. There is a better way to do 
+this!" fashion.
+
+This guide applies to original 68000-based and CPU32 cores most common to
+embedded 68K systems. Everything in here could or could not be true
+for bigger 68K processors and ColdFires. Drop me a note at:
+
+	muchandr@csua.berkeley.edu
+
+if you find something to add to this guide or any bugs or comments. The 
+latest version of this file is available at:
+
+	http://www.csua.berkeley.edu/~muchandr/m68k
+
+The target audience is people already intimately familiar with
+68000 instruction set. It is not meant as an introduction.
+
+I. FUNCTION CALLS AND CONTROL
+
+1. If you are writing a function that has no local variables, don't create
+an empty stack frame. I mean skip that 'link An,#0'. Note that your stack 
+will be one word shorter then.
+
+2. bsr is better than jsr. bsr.b/bcc.b is better than bsr.w/bcc.w, which is 
+in turn better than bsr.l/bcc.l. Always try the shortest possible displacement
+first. This is because an 8-bit offset fits into branch instruction, 16-bit
+uses an extension word and 32-bit uses two. Any instruction with
+unqualified size could be silently assembled into .w by default, which
+sucks for branches. Check your assembler's manual. I don't recommend leaving 
+the size unqualified for any instruction that has more than one possible size.
+
+3. A combination of individual move's (not necessarily all of the same size)
+can be faster than a movem. Count the clocks. The breaking point is usually 
+around 4-5 on 68331.
+
+4. Nothing prevents you from having several entry points into the same
+procedure or having several rts' except for scorn of structural programming 
+minions.
+
+5. Ignore the procedure calling conventions inside your own code. Consider
+saving registers you wish to preserve across a procedure call in unused 
+address registers. If you are working with words on a CPU32, alternating
+moves to memory with swaps is very fast too because swaps have a large head.
+Effectively, you will be saving every odd register in memory and every
+even one in upper word of itself:
+
+	move.x Dn,memory
+	swap   Dm
+	...
+
+II. ADDRESSING
+
+1. 'addq.x #offset, An' is better than 'lea offset(An),An'. In all other
+cases try to use lea for address calculations over adds. Depending on which
+processor you have, lea will be at least the same speed as combination of adds
+and shifts for any address with non-zero offset. Note that lea can be
+abused to perform a lot of math other than address calculation at once.
+
+2. Any operation on an address register affects the entire register
+regardless of the size of this operation. If you are finding yourself using 
+something like 'adda.l #constant,An' you are probably wrong and adda.w will 
+do as good of a job. (only faster)
+
+III. INSTRUCTION SET USE
+
+1. 68000 is not a load/store instruction set. Leave the values used only
+once or twice in memory and access them directly by instruction doing 
+arithmetic on it. (ie there is no need to move them into registers first) I 
+imagine this is a common pitfall for people with high-performance modern
+RISC CPU background. I repeatedly caught myself going through unnecessary
+trouble to avoid going to memory at any cost. People who mostly did 8-bit 
+stack based assembly before are probable to make the opposite mistake and 
+underutilize 68K's (mostly) orthogonal register set.
+
+2. tst.x is better than 'cmpi.x #0' or, god forbid, 'btst.l #31'/'btst.w
+#15'/'btst.b #7'.
+
+3. Use moveq instead of move where you can. It is easy to forget that moveq
+accepts a much larger range of numbers than addq/subq.
+
+4. On a CPU32, try to order your instructions so that you follow
+instructions with an operand fetch to memory/trailing write immediately by
+dbcc's (head 6) or shifts/rotates  (head 4+) or swaps (head 4) or bit ops
+(head 2-4 on a register) or any instruction with non-register source (head
+3+) or short branches/exchages (head 2) to maximize instruction overlap and
+utilize CPU32's mini-pipeline well. Consult the tables in section 8 of
+CPU32 reference manual for exact timings.
+
+5. You don't get to show off the xor trick. There is an exchange
+instruction.
+
+6. Don't forget that moves set the condition codes too, not only
+arithmetics. (ie no need to test something you just loaded). Any operations
+on address registers do not touch CC's however.
+
+7. On a CPU32, use the '68010 loop mode' for bulk transfers. To do so, set up
+a dbcc loop that branches back to the previous instruction. Any single-word 
+instruction will do, but you probably want 'move.x memory,memory' or 
+'move.x Rn,memory' type thing. Complicated addressing modes will
+disable the loop mode, because they require extension word(s). Note that
+this includes the immidiate mode an anything but 'quick' instructions.
+The loop mode is essentually an instruction cache 3 words (2 instructions) 
+large.
+
+8. There is no reason why dbcc should always loop backward. Consider this
+piece of pseudocode:
+
+while(counter - -)
+     if (counter even)
+          do foo
+     else	# odd
+          do bar
+
+(This kind of logic would be very common on a device that uses a graphics
+subsystem with 4-bit color depth)
+
+Here you can eliminate constantly checking for a condition inside the loop
+by having code segments for foo and bar terminate with dbf's branching to the 
+alternate segment like this:
+
+foo:
+	...
+	dbf Dcounter,bar
+
+bar:
+	...
+	dbf Dcounter,foo
+
+9. Use add.x Dn,Dn to do a multiply by 2/left shift by one. Use add twice
+for x4/left shift by 2. It is still faster than shifting this way unless you 
+are on an original 68000-based core and the data is long. (.l)
+
+10. Often extend instructions can be used to clear upper bits of a register
+more efficiently than something like 'andi.x #mask,Dn'. Just make sure that
+bit 7,15 or 31 (the sign bit) is always zero in the largest possible value
+you can have.
+
+11. Think of scc as of conditional move of -1. Followed by add/sub you can
+nicely add/subract 1 conditionally without any branching.
+
+12. On original 68000-based cores it makes sense to exchange any shift larger
+than 16 bits with a swap, a smaller shift and maybe a clear. For example:
+
+	lsr.l #18,Dn
+
+becomes
+
+	clr.w Dn ; leave out if you don't mind a mess in the upper word
+	swap  Dn
+	lsr.l #2,Dn
+
+IV. PROBLEMATIC
+
+These are some hints that reduce code readability, portabilty or have harmful 
+side effects:
+
+1. and's and or's (even immidiate versions) are very often faster than bit
+sets/clears.
+
+2. Using Booth's algorithm for multiplication by a constant will often be
+much faster than mul* instruction, but what do you do if this constant
+changes? You might be able to write a macro that generates Booth sequence
+for a given constant if your assembler has a powerful enough macro processor. 
+BTW, mul* instructions always affect the entire destination register 
+regardless of the operation size. Use the slower long version only if you 
+really have to. Try to express a division by a constant as a multiplication 
+by a constant and division by a constant power of two. 
+(shift right, see also III.12) For example, a division by 12 can be
+expressed as a multiplication by 85 and division by 1024 (shift by 10):
+	
+	move.l Dn,Dm
+	lsl.l  #2,Dm  ; make this 2 adds on better than original
+	              ; 68000-based core. (see III.9)
+	add.l  Dm,Dn  ; Dn = Dn * 5
+	move.l Dn,Dm
+	lsl.l  #4,Dm
+	add.l  Dm,Dn  ; Dn = Dn * (5 + 5 * 16) = Dn * 85
+	lsr.l  #10,Dn ; Dn = Dn * 85 / 1024
+
+3. On original 68000 and derivative cores, 'moveq #0,Rn' is faster than
+clr. How ugly.
+
+4. Don't use any 'non-quick' immidiate insturctions in a loop, try to preload
+everything into a register.
+
+5. Fast CPU32 polling:
+
+	moveq #-1,Dn
+	moveq #READYBIT,Dm ; static btst can't be loop-moded, see III.7
+poll:
+	btst  Dm,some_memory-mapped_device_register
+	dbne  Dn,poll
+
+of course, using III.2 we can speed it up even more if the signalling bit 
+happens to be bit 7,15 or 31:
+
+	moveq #-1,Dn
+poll:
+	tst.x some_memory-mapped_device_register
+	dbmi  Dn,poll
+
+This is very fast because the loop mode is utilized and dbcc is perfect
+for overlapping access to the device register which is probably even slower
+than regular memory. The problem is that it will fail if Dn ever wraps around.
+(after 64K iterations) Is it still feasible for you?
+
+V. NEEDED
+
+So, which CPU32 insructions have tails? I understand any access to memory,
+but not the source in a move, but I am not sure.
+
+							Andrei Moutchkine
+							14 SEP 97

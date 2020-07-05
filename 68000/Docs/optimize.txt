@@ -1,0 +1,451 @@
+                   Optimizing 680x0 Applications
+
+                 By  Tomas Evensen, Diab Data, Inc.
+
+
+The Motorola 68K family consists of a wide range of members from the
+micro-coded MC68000 to the super-scalar, hard-wired MC68060.
+
+This paper will discuss the integer performance of the 68K family and ways 
+   to optimize both for the individual processors as well as produce code 
+   that runs well on any 68K processor.
+
+In general, optimizations can take place on three different levels:
+
+1. On the assembly level for code that is written in assembly language.
+
+2. On the compiler level if the application is written in a high level
+   language (i.e. C).
+
+3. On the user level by changing algorithms.
+
+We will discuss what can be done to optimize 68K code on all three levels.
+
+
+THE 68000 FAMILY
+
+The 68K family includes the following members:
+
+MC68000
+   First generation 68K processor. 16 bit internal/external data paths. 16 
+   Mb address space.
+
+MC68008
+   8 bit external data path. 1-4 MB address space.
+
+MC68010
+   Similar to MC68000, but with restartable instructions. Can be used in a 
+   virtual memory environment. Loop mode.
+
+MC68EC000
+   Low-power MC68000. 8 or 16 bit external data bus.
+
+MC68020
+   32 bit virtual memory microprocessor. 32 bit internal/external data 
+   paths. 4 GB address space. Can be used with floating point coprocessor. 
+   New instructions added including bitfield instructions. New addressing 
+   modes added. 256 bytes instruction cache.
+
+MC68EC020
+   16 Mb address space.
+
+MC68030
+   Similar to MC68020 but slightly faster. 256 bytes data cache added. On-
+   chip MMU.
+
+MC68EC030
+   Low-power MC68030. No MMU.
+
+CPU32
+   Basically a 68020 core but without cache, bitfield instructions, and 
+   memory indirect addressing modes. 16 bit external data path. No 
+   coprocessor.  CPU32+ Same as CPU32 but with 32 bit external data path.
+
+MC68040
+   Third generation 32 bit processor. 4K instruction cache. 4K data cache. 
+   On chip floating point processor. On chip MMU. Most instructions take 
+   one cycle.
+
+MC68EC040
+   Low-power MC68040. No MMU. No FPU.
+
+MC68060
+   Super scalar implementation of the 68K architecture. Can issue up to two 
+   instructions per cycle. 8K instruction cache. 8K data cache.
+
+MC68EC060
+   Similar to MC68060. No FPU. No MMU.
+
+
+The following table summarizes the characteristics of the different members 
+in the 68000 family:
+
+PROC     CACHE    RADD    MADD    MUL    INDEX    BRA    UACC    HWFP
+68000     0/0       6     18      40      18     10/6     no      no
+68020   256/0       2      6      28       9      6/4     yes    68881/2
+68030   256/256     2      5      28       8      6/4     yes    68881/2
+CPU32     0/0       2      9      26      12      8/4     no      no
+68040    4K/4K      1      1      16       3      2/3     yes     yes
+68060    8K/8K      1      1       2       1      0/1     yes     yes
+
+ RAdd: Register to register 32 bit add (add.l  d0,d1).
+ MAdd: Absolute long address to register add (add.l _mem,d1).
+  Mul: 16x16 multiplication (max. time) (mulu.w d0,d1).
+Index: Indexed addressing mode (move.l 2(a0,d0),d1).
+  Bra: Byte conditional branch taken/not taken (bne.b label).
+ UAcc: Unaligned access allowed (move.l 0xffff0001,d1).
+ HWFP: Hardware floating point support.
+
+When optimizing for the 68K family, we divide the members into the
+following groups:
+
+68000
+   Optimize for the following processors:
+
+   MC68000/MC68008/MC68010/MC68EC000.
+
+68020
+   Optimize for the following processors:
+
+   MC68020/MC68EC020/MC68030/MC68EC030/CPU32/CPU32+
+
+68040
+   Optimize for the following processors:
+
+   MC68040/MC68EC040
+
+68060
+   Optimize for the following processors:
+
+   MC68060/MC68EC060
+
+680xx
+   Optimize so the code will execute reasonably on any 68K processor.
+
+
+ASSEMBLY LEVEL OPTIMIZATIONS
+
+Since optimizations for one 68K processor can make another one execute
+slower, it is fairly important to know the individual instruction
+timings for each member.
+
+Here are some examples of different ways of doing operations and the
+preferred method for each 68K processor:
+
+Operations with long immediate values between -128 and 127:
+
+   A:   add.l   #20,d1        B:  moveq.l    #20,d0
+                                  add.l      d0,d1
+
+   68040/xx:     A
+   68000/20/60:  B
+
+
+Byte/word operations that could be replaced with long operations:
+
+   A:   add.w   d0,d1         B:  add.l	d0,d2
+
+   68000/xx:   A
+   68020/40:   Any
+   68060:      B
+
+Keep memory operands in registers:
+
+   A:  add.l   _var,d1       B:  move.l   _var,d0
+       add.l   _var,d2           add.l    d0,d1
+                                 add.l    d0,d2
+
+   68040:           A (as long as total # of instructions are less)
+   68000/20/60/xx:  B
+
+Reschedule operations using address registers:
+
+   A:  add.l   d0,d1        B:  move.l   (a1),a0
+       move.l  (a1),a0          add.l    d0,d1
+       move.l  (a0),d2          move.l   (a0),d2
+
+   68000/20:     Any
+   68040/60/xx:  B
+
+Replace constant multiplications with adds/subs/shifts:
+
+   A:  mulu.w   #254,d1      B:  move.l   d1,d0
+                                 lsl.l    #8,d1
+                                 lsl.l    #1,d0
+                                 sub.l    d0,d1
+
+   68060:           A
+   68000/20/40/xx:  B
+
+Operations using indexing modes:
+
+   A:   add.l   (a0,d7),d1   B:   add.l   d7,a0
+        add.l   (a0,d7),d2        add.l   (a0),d1
+                                  add.l   (a0),d2
+
+   68000/60:      A
+   68020/40/xx:   B
+
+Saving/restoring registers:
+
+   A:   movem.l   d4-d7,-(a7)   B:  move.l   d7,-(a7)
+                                    move.l   d6,-(a7)
+                                    move.l   d5,-(a7)
+                                    move.l   d4,-(a7)
+
+   68000/20/60/xx:   A
+   68040:            B (if time critical)
+
+
+
+Summary of characteristics for each processor:
+
+68000:
+   Lacks 68020 instruction extensions:
+      - No extb.l instruction
+      - No 32 bit multiply
+      - No scaled indexing mode
+      - No 32 bit PC relative branches
+   Use short instructions
+   Keep values in registers
+   No scheduling necessary
+   Code optimized for 68020 or 68060 runs great
+
+68020:
+   Use short instructions
+   Keep values in registers
+   Almost no scheduling necessary
+   Code optimized for the 68060 runs great
+
+68040:
+   Use as few instructions as possible (even if they are longer)
+   Values can be kept in memory
+   Avoid pipe-line stalls for some effective addresses
+   Avoid subtracts to address registers
+
+68060:
+   Use short instructions
+   Keep values in registers
+   Schedule instructions for superscalar execution
+   Inline short functions
+
+680xx:
+   If the code is to be executed on a 68000 processor, the 68000 
+   instruction subset must be used.
+   Avoid bitfield instructions.
+   Align all data.
+   Schedule the instructions for an 68060.
+   Avoid complex addressing modes (memory indirect).
+
+
+Compiler level optimizations
+
+When programming in a high level language, the speed of a given algorithm 
+depends on the hardware (processor, frequency, memory system, etc.), the 
+compiler (capability of doing optimizations and generating the fastest 
+instruction sequence), and on the programming style. The better the 
+compiler is, the less the programming style influences the resulting 
+efficiency.
+
+Rule: Let the compiler do the optimizations
+
+By using an optimizing compiler the programs will stay much cleaner and 
+will be easier to maintain if hand-optimizations is avoided.
+
+The following example is a simple array copy in C:
+
+ #define SIZE   1000
+ int src[SIZE], dst[SIZE];
+
+ copy()
+ {
+      int i;
+
+       for(i = 0; i < SIZE; i++) {
+          dst[i] = src[i];
+       }
+   }
+
+A compiler without sophisticated optimizations might produce the
+following code:
+
+   _copy:
+         move.l   d7,-(a7)
+         clr.l    d7
+   .Loop:
+         move.l   #_src,a0
+         move.l   #_dst,a1
+         move.l   (a0,d7*4),(a1,d7*4)
+         addq.l   #1,d7
+         cmp.l    #100,d7
+         bne.b   .Loop
+         move.l   (a7)+,d7
+         rts      ; 1409 cycles (040)
+
+An optimizing C compiler would generate something similar to the
+following:
+
+   _copy:
+         moveq.l   #25,d0
+         move.l    #_src,a0
+         move.l    #_dst,a1
+   .Loop:
+         move.l   (a0)+,(a1)+   ; Loop is unrolled
+         move.l   (a0)+,(a1)+   ; 4 times
+         move.l   (a0)+,(a1)+
+         move.l   (a0)+,(a1)+
+         subq.l   #1,d0
+         bne.b   .Loop
+         rts                    ; 284 cycles (040)
+
+By "hand-optimizing" the code, the programmer can improve the speed
+when using a non-optimizing compiler:
+
+   #define SIZE   1000
+   int src[SIZE], dst[SIZE];
+
+   copy()
+   {
+      int i, *s, *d;
+
+      for(i = SIZE, s = src, d = dst; i != 0; i--) {
+       *d++ = *s++;
+       }
+   }
+
+The non-optimizing compiler will generate the following code:
+
+   _copy:
+         movem.l   d7/a4/a5,-(a7)
+         moveq.l   #100,d7
+         move.l    #_src,a4
+         move.l    #_dst,a5
+   .Loop:
+         move.l    (a4)+,(a5)+
+         subq.l    #1,d7
+         bne.b    .Loop
+         movem.l   (a7)+,d7/a4/a5
+         rts         ; 518 cycles (040)
+
+To get the same execution speed as the optimizing compiler, the
+hand-optimized code must also be unrolled, which is easy as long as
+SIZE is a multiple of four, but harder in the general case. Also the
+hand optimized code will run slower on many other architectures.
+
+Another example:
+
+      i += p[1];
+      j += p[1];
+
+A good 68K compiler will translate this code differently depending on
+which 68K processor it generates code to:
+
+68000/20/60:
+      move.l   4(a5),d0   ; remember p[1] in d0
+      add.l    d0,d7      ; i += p[1]
+      add.l    d0,d6      ; j += p[1]
+
+68040:
+      add.l	4(a5),d7   ; i += p[1]
+      add.l	4(a5),d6   ; j += p[1]
+
+In the above case, trying to optimize the code in C will slow down the
+68040:
+
+      i += (tmp = p[1]);
+      j += tmp;
+
+As an example on how important the choice of compiler is, Motorola
+improved their SPECint89 numbers for the 68040 processor by 29% just
+by switching to a compiler that took advantage of the strengths of the
+68040 processor.
+
+Rule: Avoid taking the address of variables
+
+In many cases it is impossible for the compiler to keep variables in
+fast registers if their address is taken:
+
+   int func1(int var) {
+      far_away1(&var);
+      far_away2(var);
+      return var;
+   }
+
+If far_away1() modifies var, but does not save the address, the
+following code is more efficient:
+
+   int func1(int var) {
+      var = new_far_away1(var);
+      far_away2(var);
+      return var;
+   }
+
+
+Rule: Use the static keyword
+
+By using the static keyword for local functions and file local variables, 
+the compiler can do a much better job optimizing. For example:
+
+   static int si;
+
+   void func2(int *p) {
+      int j, i;
+      i = si;
+      *p = 0;
+      j = si;
+      ...
+   }
+
+In this simple example the compiler knows that the *p = 0 statement does 
+not kill the variable si since it is static and its address is not taken.
+
+
+USER LEVEL OPTIMIZATIONS
+
+The most dramatic speed improvements of a program typically comes from
+finding the bottle-necks and changing the algorithm to something more
+efficient. For example by setting flags instead of re-calculating some
+expressions or replacing a linear search with a hash table.
+
+A profiler is a program that helps the programmer to find the code
+that is executed the most. Typically the profiling is done in three
+steps:
+
+- Compiling the code with profiling enabled.
+- Executing the program with typical input data.
+- Displaying the profiling data, for example how many times each
+  source line is executed.
+
+After profiling, the programmer can examine the most frequently
+executed source lines and re-write the bottle-necks.
+
+Modern compilers take profiling one step further. By feeding the
+profiling information back into the compiler, the optimizer can use
+actual execution data to fine tune many optimizations, including the
+following:
+
+Loop unrolling
+   Only loops in time critical sections are unrolled
+
+Function inlining
+   Only functions in time critical sections are inlined
+
+Partial inlining
+   Functions that often return after the first conditional test can be 
+   inlined up to that test 
+
+Basic block reorganization
+   Most executed block in if-then-else statement is placed at the end
+
+Register allocation
+   Variables actually used the most are put in registers
+
+
+CONCLUSION
+
+The characteristics of the different members of the 68K family varies
+a great deal, which makes it impossible to write code that will run as
+fast as possible on all processors. When writing programs in a high
+level language, the compiler can do the processor specific
+optimizations, but in assembly language a decision has to be made on
+which processor to optimize for.
