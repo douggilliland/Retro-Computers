@@ -1,0 +1,469 @@
+User's manual for CLINK Version 3.0
+ 
+   CLINK is a CP/M transient program which allows the owner of a CP/M
+system with a D.C. Hayes 80-103A modem to establish a communications
+link to a wide variety of remote devices, such as:
+ 
+     1) commercial timesharing services
+     2) university computing centers
+     3) "community bulliten board" systems
+     4) "remote console" hobbyist systems
+     5) other CP/M users runnning CLINK
+ 
+The only restrictions on type of remote devices are:
+ 
+     1) must be 110 or 300 baud asynchronous
+     2) must be Bell 103A compatible
+     3) must be "teletype" environment
+ 
+All other characteristics which may vary from site to site are user
+programmable in a very simple manner.
+ 
+   Bringing up CLINK in your own CP/M system is as simple as making a
+copy on one of your own diskettes and running it. All console and disk
+I/O is done via BIOS and BDOS calls. All modem I/O is done via the
+"standard" 80-103A addresses (80H,81H,82H). This device independence
+has caused one restriction: the (effective) baud rate of the console
+device must be much greater (4x or more) than the selected baud rate
+of the modem. This is normally no problem, but simple changes can be
+made (which make CLINK device-dependent) to allow use of a console
+which runs at the same baud rate as the modem. This requires a good
+working knowledge of 8080 assembly language.
+ 
+   Some background information on data communications is necessary
+before proceeeding to the detailed description of the available
+directives. Several good books are available which cover the subject
+very well, starting at a level that the typical hobbyist should be able
+to follow with little or no difficulty. Two of the best are:
+ 
+     1) Signetics Data Communications Handbook ($3.50)
+        Signetics Corp. / P.O. Box 9052 / Sunnyvale Ca 94086
+ 
+     2) Technical Aspects of Data Communication ($17.95)
+        John McNamara / Digital Equipment Corporation
+ 
+The following makes no attempts to cover all the information in the
+above volumes, but should be sufficient to allow intelligent use of
+most of the options available in CLINK.
+ 
+   The "Data Communications" field has evolved from simple beginnings
+in the days of teletype loops into a fairly complex set of conventions
+and standards for allowing various devices (terminals, modems, computers,
+the phone system, etc) to be hooked together so that data may be
+transferred from one point to another. Like any complex technical field
+data communications has its own unique terminology. Some of these terms
+will be defined in this manual.
+ 
+Parallel Digital Data - simultaneous transmission of an entire byte (or
+machine word) using two-state voltage levels, usually in conjunction
+with "handshaking" signals, such as "data available", etc. The link 
+between the S100 bus and the UART on the 80-103A is "parallel".
+ 
+Serial Digital Data - time-multiplexed data on a single line, such that
+the various bits that make up a byte are placed on the line, one after
+another, until all bits have had their "time-slice". The link between
+the UART and the modem on the 80-103A is "serial".
+ 
+Asynchronous Serial - one set of conventions for time-multiplexing
+data. Allows the data to occur at sporadic intervals, up to some 
+maximum frequency. Basically, this allows an arbitrarily long interval
+to elapse from the end of one character to the start of the next. 
+Typical of situations where a human is involved (who can not be expected
+to continuously type, or read, a fixed number of characters per second).
+Requires overhead information on each character to indicate "start of
+character" and "return to idle line". Not very demanding of timing,
+typically within 5%. Used in relativly low speed environments (75 to
+9600 baud). The link between the UART and the modem on the 80-103A is
+digital asynchronous serial.
+ 
+Synchronous Serial - another set of conventions for time multiplexing
+data. Requires the data to occur at fixed intervals (determined by bit
+rate). Basically as soon as one character has ended, the next must
+immediately begin (no gap between). Typical of machine to machine links.
+Requires timing information (clocks) alongside serial data. No overhead
+is required on each byte, just one or more "synchronization" bytes at 
+the start of a block of data to establish where the "byte" boundaries
+are within the continuous bit stream. Typically used in relatively high
+speed environments (1200 to 56K baud). Very little hardware (or software
+for that matter) is currently available on the hobbyist market which can
+support this technique (exception: IMSAI SIO2 I/O board).
+ 
+UART - Universal Asynchronous Receiver / Transmitter. Single LSI chip
+capable of simultaneously serializing (parallel to serial) and/or
+deserializing (serial to parallel) asynchronous serial data. One of the
+basic building blocks of many communications systems. Ususally allows
+selection of details of the conversion process, such as number of data
+bits, number of stop bits, etc. The 80-103A has a fairly typical UART,
+and provisions for controlling the various options in software, by
+outputting 1's or 0's to particular bits in control registers.
+ 
+Data bits - the number of non-overhead bits in each asynchronous
+character. Typically seven for most commercial timesharing services.
+For special purposes, such as using 8-bit codes like EBCDIC, or
+transferring 8-bit data (such as object code, compressed text, etc)
+this may be extended to eight.
+ 
+Stop bits - the number of bit-times that the line is guaranteed to
+remain in the "mark" state (logic 1) after a given asynchronous
+character. For 110 baud, this is usually two. For all other conditions,
+one is almost always sufficient and yields higher throughput.
+ 
+Parity bit - an error detection mechanism used in most asynchronous
+communication systems. Basically, one additional bit is appended 
+after the data bits, but before the stop bit(s). If using "even" parity,
+this bit will be chosen so that the total number of "on" (logic 1) bits
+in the data+parity part of the character, is an even number. If using
+"odd" parity, this bit will be chosen so that the number of "on" bits
+is an odd number. When the receiving end looks at a character which has
+been transmitted with parity, if a single (or in fact 3,5,7) bits have
+changed state due to line noise, the "parity" of the received character
+will be wrong, and the device (or program) can act accordingly.
+Unfortunately, if 2 bits (or 4,6 or 8) change state, this technique
+fails to detect anything amiss. Fortunately, most line glitches only
+affect a single bit.
+ 
+Modem - MOdulator / DEModulator. Hybrid digital/analog circuit used to
+transduce "voltage level" serial digital data into (from) voice-range
+audio tone, which may be sent over the commercial phone network without
+undue distortion or disruption of other phone company services. Ususally
+uses a modulation technique called "frequency shift keying" (FSK) in
+which a "carrier" frequency, in the 1 to 3 kHz range, is shifted up or
+down about 500 Hz by logic 1 or 0 respectively. A Bell 103 compatible
+modem uses this technique, and in fact, typically uses two carrier
+frequencies which may be simultaneously modulated to support full duplex
+(bidirectional communication). To be 103 compatible, particular carrier
+frequencies and shifts must be employed as specified by Bell. Most 110
+and/or 300 baud asynchronous modems, including the modem circuit on the
+80-103A are Bell 103 compatible.
+ 
+Originate Modem - one end of a 103 modem pair. Typically the end which is
+associated with a remote terminal. Modulates (transmits on) the lower
+carrier frequency, demodulates (receives on) the higher frequency.
+ 
+Answer Modem - the other end of a 103 modem pair. Typically the end 
+which is associated with a central computer. Modulates (transmits on) 
+the higher carrier frequency, demodulates (receives on) the lower
+carrier frequency.
+ 
+Half Duplex - sending information over a communications line in only 
+one direction at a time. Requires having a terminal which is connected
+to such a line locally echo any typed characters to the terminal's
+display unit. In a CLINK to CLINK connection, the answer end is forced
+to half-duplex.
+ 
+Full Duplex - sending information over a communications line in both
+directions simultaneously. Allows having the "host" system echo any
+characters typed on the remote terminal. This assures higher reliability
+as the characters you see on the display unit of the terminal have made
+it all the way through the communications line and back. The probability
+of a character changing to something else (because of noise, lost bits,
+etc.) being received incorrectly by the host system, and accidently
+changing back to the original character on the way back is effectively
+zero. This facility may also be used, by sophisticated software, to send
+two different files at once, one from host to remote, the other from
+remote to host, thereby saving on long distance charges. Running full
+duplex also allows the host system to selectively not echo certain
+characters (such as passwords) or substitute a different character(s)
+for any given character received from the remote terminal. The 80-103A
+will support either full or half duplex.
+ 
+Auto-Dial - allowing a computer (or intelligent terminal) to generate
+the clicks or touch tones which the switched telephone network uses to
+establish links between any two phones. The 80-103A has facilities for
+dialing by generating carefully timed clicks (on-hook / off-hook).
+ 
+Auto-Answer - allowing a computer (or intelligent terminal) to answer
+the phone in response to an incoming call. This is implemented by 
+sensing the ring voltage (about 70 VDC) on the phone line and raising
+a flag (status bit) which the computer can sense (or be interrupted by)
+along with a relay which the computer can open to go "off-hook". The
+80-103A has this facility.
+ 
+Protocol - set of rules for message format and handshaking imposed on
+the transmission of data to and/or from one device to another, for the
+purpose of detecting and correcting errors, and allowing controlled
+start/stop of the data without loss of characters. There are quite a
+few protocols currently in use in the computing industry, and even a
+few (mostly proposed, rather than implemented) in the hobby field.
+ 
+Checksum - simple error detection device used by some protocols, usually
+just the sum of the bytes in a message, modulo 256. Sometimes referred
+to as longitudinal parity, or longitudinal reduncancy check (LRC).
+Suitable for detecting all 1 bit errors, and 97% of all possible errors.
+ 
+CRC - Cyclic Redundancy Check. More elaborate error detection scheme,
+which is capable of detecting 99.9987% of all possible errors. Used in
+many industrial protocols, including IBM bi-sync and SDLC. Several
+subtle variations are currently in use, the only difference being the
+'polynomial' used in the algorithm. The most common by far is CRC-16,
+followed by CRC-12. In fact, an LRC is merely a degenerate CRC, and
+can be generated by the same algorithm, with a very simple polynomial.
+ 
+Normal Use of CLINK Version 3.0 (Originate)
+ 
+   If you have already created a configuration file (with ED or with
+the "SAVE" directive in an earlier CLINK run), you can specify any or
+all options at once by specifiying this file on the command line used
+to start CLINK, as the first parameter. If such a file is specified,
+CLINK will read the lines one by one, echo them, and process the
+directives on them. If an error is detected in any line, CLINK will
+notify you after that line is echoed, then abort. If created with a
+text editor, this file consists of one or more lines with one directive
+per line. Each directive consists of one keyword followed by a delimiter
+(one or more spaces and/or tabs) followed by a legal parameter for that
+keyword.
+ 
+   Once the file (if any) has been read, you will be asked to enter any
+new (or specific) directives. When all such directives have been entered,
+type CR (carriage return) immediately after the prompt (empty line). At
+this point, if a carrier is already present, the link is immediately
+resumed.
+ 
+   Normally, at this point, if a number was specified, it will be dialed.
+If a carrier is detected within 30 seconds, the link will be initiated,
+else you will be notified (NO CARRIER DETECTED), and CLINK will abort.
+ 
+   Once the link is established, characters typed on the console are
+written to the modem, and characters read from the modem are written to
+the console.
+ 
+   If an "ESCAPE" character was defined before the link was established,
+then anytime that character is typed on the console, CLINK will 
+temporarily escape from the link (carrier remains on) to allow you to 
+enter a "local command". This can be any of the configuration directives
+or one of several additional commands which are useful only once the
+link has been estalished. The recommended value for ESCAPE is 1BH. This
+value should be chosen so as to not conflict with any of the characters
+needed by the remote system.
+ 
+   If a "REMESC" character is defined at any given time, then at any
+time after that, when that character is received from the modem
+(presumably typed by the remote user), CLINK will allow the remote
+user to enter a 'local' command which affects your CLINK. When
+you dial into another CLINK system (which is running in ANSWER mode)
+it will tell you if a REMESC character is defined, and if so, what
+hex value it is.
+ 
+   If a "BREAK" character is defined at anytime, thereafter anytime
+that character is typed, the communications line will be broken for 150
+milliseconds. This function is useful on certain time-sharing systems,
+especially those of somewhat earlier vintage (to be polite).
+ 
+   If an "ERROR" character is defined at any time, thereafter, that 
+character will be substituted for any character read from the modem
+with any type of error (parity, overrun or framing). At all times,
+counts are maintained of each of these errors. These may be viewed at
+any time with the 'ERROR S' command, or cleared to zero with 'RESET'.
+ 
+Local Commands
+ 
+   The following commands are available if the ESCAPE character has
+been defined during initialization. To issue a local command, merely
+type the character specified as the 'ESCAPE' code on the local console.
+A prompt  ->  will be displayed, in response to which the local command
+may be typed, terminated by a carriage return. Once the local command
+is accepted and processed, the communications link is resumed. Note
+that at no point (except with the ABORT command) is carrier dropped.
+ 
+   If a REMESC character is defined, then anytime that character is
+received from the modem a prompt will be displayed on the console of
+the remote system, at which point the remote user can enter a 'local'
+command which affects your copy of CLINK.
+ 
+RETURN		Return to CP/M without dropping carrier. The link may
+		be resumed after local processing by just executing
+		CLINK again with the same configuration file. CLINK
+		will detect the presence of the carrier and jump into
+		the main loop of the link without re-dialing.
+ 
+ABORT		Drop the carrier, hang up the phone, and exit to CP/M.
+ 
+ERROR SUMMARY	Request a summary of the error counts (Parity, Overrun,
+		and Framing) as detected since start of link (or last
+		RESET command). Note that only the first character of
+		SUMMARY is checked for.
+ 
+RESET		Reset error counts to zero.
+ 
+DEBUG ON	Enable hex debugging mode. All incoming characters are
+		displayed in hexadecimal on the console, 16 per line,
+		rather than in ASCII. This allows any non-printing
+		characters (control codes, pad characters, etc) to be
+		easily identified. Hex to ASCII tables are readily
+		available, hence will not be reproduced here.
+ 
+ 
+DEBUG OFF	Disable hex debugging mode, if enabled.
+ 
+LIST		List current configuration settings to Console.
+ 
+SAVE D:FN.FT	Write current configuration settings to specified
+		CP/M file, for later use as a setup file for CLINK.
+ 
+DIR		Same as CP/M DIR command, including ambiguous file
+		names (? and * wildcards), but used from within the
+		CLINK program. Prints file names 4 per line.
+ 
+CAPTURE		Start capturing incoming characters into memory, and
+		keep track of number of characters captured. Will not
+		allow BDOS to be overwritten.
+ 
+WRITE D:FN.FT	Write captured text, if any, from memory to specified
+		CP/M file.
+ 
+READ D:FN.FT	Read specified CP/M file and send it as if it were
+		coming from the local console keyboard. Anytime a
+		carriage return is sent, CLINK will await return of
+		a line feed, and optionally ignore n additional
+		'garbage' characters, then continue with the next line.
+		If in FULL DUPLEX, each character is checked against
+		the original as it is echoed by the remote system.
+		At end of file, an error summary is printed and normal
+		link operation is resumed. A READ operation may be
+		aborted at any time by typing any character on the
+		console of the 'sending' system.
+ 
+GARBAGE nn	Set 'garbage' count to nn (hex). See READ command.
+ 
+EXPAND ON	Select option whereby tabs are expanded to an
+		appropriate number of spaces as they are transmitted
+		via the READ command. Useful for transmission of
+		files with embedded tabs to non-CP/M systems.
+ 
+EXPAND OFF	De-select tab expansion option (default state). This
+		will greatly speed up transmission of text with tabs
+		to other CP/M systems, without loss of information.
+ 
+SEND D:FN.FT	Send specified file using the MYCROFT protocol to
+		another system running the RECV command in CLINK.
+		May be used from either ANSWER or ORIGINATE system.
+		May be used to send any type of file (including .COM
+		or other 8 bit data). Will force 8 data bits, if not
+		already set. Will detect virtually any possible error,
+		and automatically retransmit when necessary, informing
+		the user when it has done so. Will also timeout when
+		an expected response is not detected in a reasonable
+		length of time, and attempt to recover. May be aborted
+		at any time by typing any character on the console.
+		Will inform user when file has been sucessfully sent.
+ 
+RECV D:FN.FT	Receive file being transmitted with MYCROFT protocol.
+		May be used from either ORIGINATE or ANSWER system.
+		Will force 8 data bits if not already set. Will inform
+		user when any error is detected, and automatically
+		request other end to re-transmit. Will inform user
+		when entire file has been received intact.
+ 
+BLOCK nn	Set block size to nn (hex) 256 byte pages for SEND
+		command. Default is 4 pages (for 1024 byte blocks).
+		Given an error free line, the larger this value is,
+		the quicker the file will be sent (values over 8 are
+		not recommended for general use). On a noisy line,
+		the smaller this value is, the less will have to be
+		re-transmitted when an error is detected.
+ 
+Normal Use of CLINK Version 3.0 (Answer)
+
+   If CLINK is brought up in ANSWER mode, it will not dial out even if
+a number was provided, but rather will await an incoming call. Once
+someone dials in, CLINK will respond with an ANSWER carrier. If, within
+30 seconds, an ORIGINATE carrier is detected, a normal communications
+link is established, and the ANSWER system will resond with a greeting
+which includes the CLINK version number, and what the REMESC character
+is, if there is any.
+ 
+   Note that the ANSWER system must run in HALF DUPLEX, as the terminal
+or ORIGINATE system will not echo characters sent by the ANSWER system.
+File transmission is somewhat simpler from ORIGINATE to ANSWER, but it
+will work in either direction. If a REMESC character is defined, an
+unattended CLINK ANSWER system can be used as a central repository and
+distribution point for text files (see DIR, READ, CAPTURE and WRITE).
+ 
+   Note that remote 'local' commands work only from an ORIGINATE to an
+ANSWER system, not vica versa. This is due to conflicts with HALF vs.
+FULL DUPLEX and who echos whose characters when. Otherwise, ANSWER mode
+operation is identical to ORIGINATE mode operation. It is recommended
+that a single configuration file 'ANSWER' be setup on the CLINK disk
+so that an ANSWER system can be quickly brought up by the command:
+
+		CLINK ANSWER
+ 
+Note also that no auto baud detect is available yet in ANSWER mode.
+ 
+File Transmission Using MYCROFT Protocol
+ 
+   To transmit a file from one CLINK system to another, one may simply
+establish a normal link (as described above), then have the receiving
+system enter the local command 'RECV D:FN.FT' (where D:FN.FT is the
+CP/M file name of the file to be written), and the transmitting system
+enter the local command 'SEND D:FN.FT' (where D:FN.FT is the name of an
+existing file on the transmitting system's disk). From that point until
+CLINK informs both users that the transmission is complete, no further
+interaction is required on the part of the user, unless the sender
+decides to abort the transmission before the entire file is transmitted.
+Informative messages may be printed as possible errors are detected and
+corrective action is taken by both systems, but no response is required
+from either user. If a large number of retransmissions are required, it
+is suggested that the block size be reduced with the BLOCK command.
+ 
+Description of MYCROFT Protocol
+ 
+   CLINK uses a simple asynchronous protocol to transmit files with 
+reliable error detection and automatic retransmission of bad data. It
+is very loosely based on DEC's DDCMP. There are four possible messages
+which may be used at various times during a file transmission:
+ 
+	Data Message - contains typically 1024 bytes of data
+	Acknowlege - used to acknowlege reception of an intact message
+	Negative Acknowledge - used to request re-transmission
+	End of Transmission - used to indicate end-of-file
+ 
+All messages start with an SOH (ASCII Start Of Header). The second byte
+is a message type code (NUL, ACK, NAK or EOT). On all messages but the
+data message, a two byte CRC then follows, high order byte first. On
+data messages, after the NUL code, a two byte message length (in bytes,
+high order byte first) follows, then an STX (ASCII Start of Text), then
+the actual data bytes, then an ETX (ASCII End of Text), then the two
+byte CRC, as before. In summary, the messages are as follows:
+ 
+	SOH NUL hicnt locnt STX data data ... data ETX CRC CRC
+ 
+	SOH ACK CRC CRC
+ 
+	SOH NAK CRC CRC
+ 
+	SOH EOT CRC CRC
+ 
+Note that the range of the CRC (that is, the data which is used in
+building it) encompasses all bytes in a message except the SOH and the
+CRC bytes themselves.
+ 
+Sample File Transmission (on a VERY noisy line)
+ 
+	Msg 1	--->	ok		normal reception
+	ok	<---	ACK		normal acknowledge
+ 
+	Msg 2	--->	error		error detected
+	ok	<---	NAK		retransmit request
+	Msg 2	--->	ok		retransmission
+	error	<---	ACK		ACK received in error
+	NAK	--->	ok		retransmit request
+	ok	<---	ACK		previous msg re-sent
+ 
+	Msg 3	--->			message lost
+ 
+	Msg 3	--->	ok		resent after 10 sec timeout
+	ok	<---	ACK		normal acknowledge
+ 
+	Msg 4	--->	error		error detected
+		<---	NAK		response lost
+ 
+	ok	<---	NAK		resent after 10 sec. timeout
+	Msg 4	--->	ok		normal re-transmit
+	ok	<---	ACK		normal acknowledge
+ 
+	EOT	--->	ok		That's all folks
+	ok	<---	EOT		EOT acknowledge
+ 
+79/01/14. LEH.
+
