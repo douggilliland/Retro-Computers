@@ -12,7 +12,10 @@
 ; Command line:;
 ;	ca65.exe cegmon.s -v -l cegmon.lst;
 ;
-        .org $F800;
+        .org $F000
+        .byte   $00	;
+		
+        .org $F800
 ;
 ; Page zero;
 L0000           := $0000;
@@ -644,7 +647,7 @@ LFCE3:  dex;
         bne     DELAY2;
         rts;
 ;
-LFCEA:  .byte "CEGMON(C)2020 D/C/W/M?";
+LFCEA:  .byte "CEGMON(C)2020 S/C/W/M?";
 ; Scanned keyboard code follows;
 ; Keyboard consists of ;
 GETKEY: txa					; $FD00 - GETKEY wait till key pressed, return with ASCII value in A register;
@@ -937,9 +940,9 @@ LFF10:  lda     LFCEA,y;
 		; Get D/C/W/M selection;
         jsr     INVEC		; Input vector;
         and     #$DF;
-        cmp     #'D'		; DCWM selection;
+        cmp     #'S'		; S/C/W/M selection;
         bne     LFF27;
-        jmp     DISK;
+        jmp     DISK		;
 LFF27:  cmp     #'M';
         bne     LFF2E;
         jmp     NEWMON;
