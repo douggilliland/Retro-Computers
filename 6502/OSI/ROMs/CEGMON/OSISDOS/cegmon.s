@@ -10,10 +10,25 @@
 ; Assemble using AS65 (from the CC65 suite);
 ;	https://cc65.github.io/doc/ca65.html;
 ; Command line:;
-;	ca65.exe cegmon.s -v -l cegmon.lst;
+;	retroassembler.exe cegmon.s -O=bin
 ;
-        .org $F000
-        .byte   $00	;
+; Reserve first 256 ($F000-$F0FF) locations for I/O
+        .org $F000				; peripheral space
+		.byte 0
+		.org $F100
+; Prompt for sector number
+PRPRPT: jsr     SCNCLR		; clear the screen;
+		ldy		#0
+        sty		CURDIS			;
+LOOPY:	lda     LBA2PR,y		;
+		jsr     OUTVEC			;
+        iny						;
+        cpy     #$0D			;
+        bne     LOOPY			;
+L4VR:	jmp		L4VR
+LBA2PR:  .byte "Sector LBA2? ";
+LBA1PR:  .byte "Sector LBA1? ";
+LBA0PR:  .byte "Sector LBA0? ";
 		
         .org $F800
 ;
@@ -48,12 +63,12 @@ CURSHI			:= $0232  	; Contains start of edit cursors current line on screen;
 USERLO          := $0233	; Location of start of user routine called by machine code monitors U command;
 USERHI			:= $01BF 	; Location of start of user routine called by machine code monitors U command;
 ;;
-L2F44           := $2F44;
-L415A           := $415A;
-; BASIC-in-ROM addresses;
-LA34B           := $A34B;
-LA374           := $A374;
-LA636           := $A636;
+L2F44           := $2F44	;
+L415A           := $415A	;
+; BASIC-in-ROM addresses
+LA34B           := $A34B	;
+LA374           := $A374	;
+LA636           := $A636	;
 LBF2D           := $BF2D	; CRT routine;
 ; Video RAM addresses;
 LD08C           := $D08C;
@@ -647,7 +662,7 @@ LFCE3:  dex;
         bne     DELAY2;
         rts;
 ;
-LFCEA:  .byte "CEGMON(C)2020 S/C/W/M?";
+PRMPT:  .byte "OSISDOS 2020  S/C/W/M?";
 ; Scanned keyboard code follows;
 ; Keyboard consists of ;
 GETKEY: txa					; $FD00 - GETKEY wait till key pressed, return with ASCII value in A register;
@@ -927,22 +942,22 @@ LFEFF:  rts;
 ; Original monitor ROM started here;
 RESET:  cld					; $FF00 RESET start of BREAK/RESET routine. SUPPORT ROM: Clear decimal mode;
         ldx     #$28		; Initialize stack to $28;
-        txs;
+        txs					;
         jsr     RSACIA		; Initialize 6850 ACIA;
         jsr     LFE40		;
         jsr     SCNCLR		; clear the screen;
-        sty		$0200		; DGG patched to match
-LFF10:  lda     LFCEA,y;
+        sty		CURDIS		; DGG patched to match
+LFF10:  lda     PRMPT,y;
         jsr     OUTVEC;
-        iny;
+        iny					;
         cpy     #$16;
-        bne     LFF10;
-		; Get D/C/W/M selection;
+        bne     LFF10		;
+							; Get S/C/W/M selection
         jsr     INVEC		; Input vector;
-        and     #$DF;
+        and     #$DF		; Make upper case
         cmp     #'S'		; S/C/W/M selection;
-        bne     LFF27;
-        jmp     DISK		;
+        bne     LFF27		;
+        jmp     PRPRPT		;
 LFF27:  cmp     #'M';
         bne     LFF2E;
         jmp     NEWMON;

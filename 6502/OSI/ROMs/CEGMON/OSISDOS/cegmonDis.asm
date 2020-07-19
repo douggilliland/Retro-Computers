@@ -254,43 +254,24 @@ $00fc 00         brk
 $00fd 00         brk
 $00fe 00         brk
 $00ff 00         brk
-$0100 00         brk
-$0101 00         brk
-$0102 00         brk
-$0103 00         brk
-$0104 00         brk
-$0105 00         brk
-$0106 00         brk
-$0107 00         brk
-$0108 00         brk
-$0109 00         brk
-$010a 00         brk
-$010b 00         brk
-$010c 00         brk
-$010d 00         brk
-$010e 00         brk
-$010f 00         brk
-$0110 00         brk
-$0111 00         brk
-$0112 00         brk
-$0113 00         brk
-$0114 00         brk
-$0115 00         brk
-$0116 00         brk
-$0117 00         brk
-$0118 00         brk
-$0119 00         brk
-$011a 00         brk
-$011b 00         brk
-$011c 00         brk
-$011d 00         brk
-$011e 00         brk
-$011f 00         brk
-$0120 00         brk
-$0121 00         brk
-$0122 00         brk
-$0123 00         brk
-$0124 00         brk
+$0100 20 59 fe   jsr $fe59
+$0103 a0 00      ldy #$00
+$0105 8c 00 02   sty $0200
+$0108 b9 16 f1   lda $f116,y
+$010b 20 ee ff   jsr $ffee
+$010e c8         iny
+$010f c0 0d      cpy #$0d
+$0111 d0 f5      bne $0108
+$0113 4c 13 f1   jmp $f113
+$0116 53         ???
+$0117 65 63      adc $63
+$0119 74         ???
+$011a 6f         ???
+$011b 72         ???
+$011c 20 4c 42   jsr $424c
+$011f 41 32      eor ($32,x)
+$0121 3f         ???
+$0122 20 00 00   jsr $0000
 $0125 00         brk
 $0126 00         brk
 $0127 00         brk
@@ -2604,16 +2585,16 @@ $0ce4 d0 fd      bne $0ce3
 $0ce6 88         dey
 $0ce7 d0 f8      bne $0ce1
 $0ce9 60         rts
-$0cea 43         ???
-$0ceb 45 47      eor $47
-$0ced 4d 4f 4e   eor $4e4f
-$0cf0 28         plp
-$0cf1 43         ???
-$0cf2 29 32      and #$32
-$0cf4 30 32      bmi $0d28
-$0cf6 30 20      bmi $0d18
-$0cf8 53         ???
-$0cf9 2f         ???
+$0cea 4f         ???
+$0ceb 53         ???
+$0cec 49 53      eor #$53
+$0cee 44         ???
+$0cef 4f         ???
+$0cf0 53         ???
+$0cf1 20 32 30   jsr $3032
+$0cf4 32         ???
+$0cf5 30 20      bmi $0d17
+$0cf7 20 53 2f   jsr $2f53
 $0cfa 43         ???
 $0cfb 2f         ???
 $0cfc 57         ???
@@ -2893,7 +2874,7 @@ $0f1b 20 eb ff   jsr $ffeb
 $0f1e 29 df      and #$df
 $0f20 c9 53      cmp #$53
 $0f22 d0 03      bne $0f27
-$0f24 4c 00 fc   jmp $fc00
+$0f24 4c 00 f1   jmp $f100
 $0f27 c9 4d      cmp #$4d
 $0f29 d0 03      bne $0f2e
 $0f2b 4c 00 fe   jmp $fe00
