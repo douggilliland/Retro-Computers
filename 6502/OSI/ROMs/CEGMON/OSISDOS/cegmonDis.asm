@@ -2409,7 +2409,7 @@ $0b80 69 40      adc #$40
 $0b82 8d 31 02   sta $0231
 $0b85 ad 32 02   lda $0232
 $0b88 69 00      adc #$00
-$0b8a c9 d8      cmp #$d8
+$0b8a c9 d4      cmp #$d4
 $0b8c d0 02      bne $0b90
 $0b8e a9 d0      lda #$d0
 $0b90 8d 32 02   sta $0232
@@ -2432,7 +2432,7 @@ $0bb5 ff         ???
 $0bb6 94 fb      sty $fb,x
 $0bb8 70 fe      bvs $0bb8
 $0bba 7b         ???
-$0bbb fe 3f 80   inc $803f,x
+$0bbb fe 2f 8c   inc $8c2f,x
 $0bbe d0 cc      bne $0b8c
 $0bc0 d3         ???
 $0bc1 bd 8c d0   lda $d08c,x
@@ -2740,7 +2740,7 @@ $0e31 ad 32 02   lda $0232
 $0e34 e9 00      sbc #$00
 $0e36 c9 cf      cmp #$cf
 $0e38 d0 02      bne $0e3c
-$0e3a a9 d7      lda #$d7
+$0e3a a9 d3      lda #$d3
 $0e3c 8d 32 02   sta $0232
 $0e3f 60         rts
 $0e40 a0 1c      ldy #$1c
@@ -2759,7 +2759,7 @@ $0e59 a0 00      ldy #$00
 $0e5b 84 f9      sty $f9
 $0e5d a9 d0      lda #$d0
 $0e5f 85 fa      sta $fa
-$0e61 a2 08      ldx #$08
+$0e61 a2 04      ldx #$04
 $0e63 a9 20      lda #$20
 $0e65 91 f9      sta ($f9),y
 $0e67 c8         iny
@@ -2955,7 +2955,7 @@ $0fd9 9d 2a 02   sta $022a,x
 $0fdc ca         dex
 $0fdd d0 f4      bne $0fd3
 $0fdf 60         rts
-$0fe0 4d 2f 01   eor $012f
+$0fe0 cc 2f 00   cpy $002f
 $0fe3 a9 2e      lda #$2e
 $0fe5 20 ee ff   jsr $ffee
 $0fe8 4c b6 fe   jmp $feb6

@@ -509,7 +509,7 @@ LFB7C:  clc;
         sta     CURSLO		; $0231 CURSLO contain start of edit cursors current line on screen;
         lda     CURSHI		; $0232 CURSHI contain start of edit cursors current line on screen;
         adc     #$00;
-        cmp     #$D8;
+        cmp     #$D4		; DGG was $D8
         bne     LFB90;
         lda     #$D0;
 LFB90:  sta     CURSHI		; $0232 CURSHI contain start of edit cursors current line on screen;
@@ -533,7 +533,7 @@ LFBB2:  lsr     $FB;
         sty     $FB,x;
 LFBB8:  bvs     LFBB8;
         .byte   $7B;
-        inc     $803F,x;
+        inc     $8C2F,x		; DGG was $803F
         ;bne     DISK		; $FC00 is DISK;
 		.byte   $D0         ; DGG
 		.byte   $CC         ; DGG
@@ -851,7 +851,7 @@ LFE28:  sec;
         sbc     #$00;
         cmp     #$CF;
         bne     LFE3C;
-        lda     #$D7;
+        lda     #$D3;		; DGG was $D7
 LFE3C:  sta     CURSHI		; $0232 CURSHI contain start of edit cursors current line on screen;
         rts;
 ;
@@ -872,7 +872,7 @@ SCNCLR: ldy     #$00		; SCNCLR $FE59 Clear entire screen; exits with X and Y reg
         sty     $F9;
         lda     #$D0;
         sta     $FA;
-        ldx     #$08;
+        ldx     #$04		; DGG was $08
         lda     #$20;
 LFE65:  sta     ($F9),y;
         iny;
@@ -988,7 +988,7 @@ LFF10:  lda     PRMPT,y;
         and     #$DF		; Make upper case
         cmp     #'S'		; S/C/W/M selection;
         bne     LFF27		;
-        jmp     PRPRPT		;
+        jmp     PRPRPT		; DFF Jump to new handler for SD cards 
 LFF27:  cmp     #'M';
         bne     LFF2E;
         jmp     NEWMON;
@@ -1060,8 +1060,10 @@ LFFD3:  lda     $0222,x		;
         dex					;
         bne     LFFD3		;
         rts;
-								;
-        eor     $012F		; This looks like a wrong disassembly;
+		
+		.byte	$CC			; replaced stuff
+		.byte	$2F
+		.byte	$00
 LFFE3:  lda     #$2E;
         jsr     OUTVEC;
         jmp     QDDATD;
