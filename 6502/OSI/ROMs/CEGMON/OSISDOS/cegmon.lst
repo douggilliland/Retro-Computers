@@ -16,12 +16,83 @@ Current file: cegmon.s
 000000r 1               ; Command line:;
 000000r 1               ;	retroassembler.exe cegmon.s -O=bin
 000000r 1               ;
-000000r 1               ; Reserve first 256 locations for I/O
+000000r 1               ; Page zero defines
+000000r 1               L0000           := $0000;
+000000r 1               L002E           := $002E;
+000000r 1               L00FD           := $00FD;
+000000r 1               L00FE           := $00FE	; $00FE LOFROM store current address for most routines the from address in save move and tabular display;
+000000r 1               
+000000r 1               ; CEGMON uses BASIC flags and routines for I/O;
+000000r 1               CURDIS			:= $0200	; Cursor displacement on current line;
+000000r 1               OLDCHR			:= $0201	; Stores current character during SCREEN; exits containing char beneath the cursor;
+000000r 1               NEWCHPK			:= $0202	; Park for new char for SCREEN;
+000000r 1               BLOADFL         := $0203	; BASIC Load Flag ($80 means load from tape);
+000000r 1               EDFLAG			:= $0204	; EDFLAG Editor flag 00-disable edit cursor, ff-enabe edit cursor;
+000000r 1               BSAVEFL         := $0205	; BASIC Save Flag (0 means not SAVE mode);
+000000r 1               SDELAY 			:= $0206 	; Print-delay value for SCREEN delay is delay-value times approx. 400 machine-cycles (ie times 400 micro-seconds at 1MHz);
+000000r 1               CCFLAG			:= $0212 	; BASIC CTRL-C flag 00-enables CTRL-C break, 01-disables CTRL-C break;
+000000r 1               COUNTR			:= $0214 	; Auto-repeat counter for GETKEY;
+000000r 1               SCRTCH			:= $0215	; Returns from GETKEY with final ASCII value of key;
+000000r 1               LSTCHR			:= $0216 	; Pre-shift value of last key left here by GETKEY to test auto-repeat;
+000000r 1               BINVECT         := $0218	; BASIC Input Vector;
+000000r 1               BOUTVEC			:= $021A	; BASIC Output Vector;
+000000r 1               BCTLCVC			:= $021C	; BASIC CTRL-C Check Vector;
+000000r 1               BLDVECT			:= $021E	; BASIC Load Vector;
+000000r 1               BSAVECT			:= $0220	; BASIC Save Vector;
+000000r 1               L0227           := $0227
+000000r 1               L022A           := $022A
+000000r 1               ECDISPL			:= $022F 	; DISP edit-cursor displacement from start of editors current line;
+000000r 1               CURCHR			:= $0230 	; Store for char beneath edit cursor;
+000000r 1               CURSLO			:= $0231	; Contains start of edit cursors current line on screen;
+000000r 1               CURSHI			:= $0232  	; Contains start of edit cursors current line on screen;
+000000r 1               USERLO          := $0233	; Location of start of user routine called by machine code monitors U command;
+000000r 1               USERHI			:= $01BF 	; Location of start of user routine called by machine code monitors U command;
+000000r 1               ;
+000000r 1               L2F44           := $2F44	;
+000000r 1               L415A           := $415A	;
+000000r 1               ; BASIC-in-ROM addresses
+000000r 1               LA34B           := $A34B	;
+000000r 1               LA374           := $A374	;
+000000r 1               LA636           := $A636	;
+000000r 1               LBF2D           := $BF2D	; CRT routine
+000000r 1               ; Video RAM addresses;
+000000r 1               LD08C           := $D08C
+000000r 1               ; ACIA addresses;
+000000r 1               ACIAST			:= $F000	; ACIA Status Register;
+000000r 1               ACIADR			:= $F001	; ACIA Data Register;
+000000r 1               
+000000r 1               ; Reserve first 256 ($F000-$F0FF) locations for I/O
 000000r 1                       .org $F000				; peripheral space
-00F000  1  00           		.byte 0
+00F000  1  00           		.byte 0					; Reserve space with placeholder - fills the following with 0's
+00F001  1               
+00F001  1               ;
+00F001  1               ; Start of ROM code;
 00F001  1               		.org $F100
+00F100  1               
+00F100  1               ; The SDLBA registers are used like this:
+00F100  1               ;
+00F100  1               ; 31 30 29 28.27 26 25 24.23 22 21 20.19 18 17 16.15 14 13 12.11 10 09 08.07 06 05 04.03 02 01 00
+00F100  1               ;  0  0  0  0  0  0  0  0 ------- SDLBA2 --------+------- SDLBA1 --------+------- SDLBA0 -------+
+00F100  1               ;
+00F100  1               ; The end result of all this is that the addressing looks the same for SDSC and SDHC cards.
+00F100  1               ;
+00F100  1               ; SDSTATUS (RO)
+00F100  1               ;    b7     Write Data Byte can be accepted
+00F100  1               ;    b6     Read Data Byte available
+00F100  1               ;    b5     Block Busy
+00F100  1               ;    b4     Init Busy
+00F100  1               ;    b3     Unused. Read 0
+00F100  1               ;    b2     Unused. Read 0
+00F100  1               ;    b1     Unused. Read 0
+00F100  1               ;    b0     Unused. Read 0
+00F100  1               ;
+00F100  1               ; SDCONTROL (WO)
+00F100  1               ;    b7:0   0x00 Read block
+00F100  1               ;           0x01 Write block
+00F100  1               
 00F100  1               ; Prompt for sector number
-00F100  1  20 59 FE     PRPRPT: jsr     SCNCLR		; clear the screen;
+00F100  1               
+00F100  1  20 59 FE     PRPRPT: jsr     SCNCLR			; clear the screen;
 00F103  1  A0 00        		ldy		#0
 00F105  1  8C 00 02             sty		CURDIS			;
 00F108  1  B9 16 F1     LOOPY:	lda     LBA2PR,y		;
@@ -30,64 +101,30 @@ Current file: cegmon.s
 00F10F  1  C0 0D                cpy     #$0D			;
 00F111  1  D0 F5                bne     LOOPY			;
 00F113  1  4C 13 F1     L4VR:	jmp		L4VR
+00F116  1               
 00F116  1  53 65 63 74  LBA2PR:  .byte "Sector LBA2? ";
 00F11A  1  6F 72 20 4C  
 00F11E  1  42 41 32 3F  
-00F123  1               
-00F123  1                       .org $F800
-00F800  1               ;
-00F800  1               ; Page zero;
-00F800  1               L0000           := $0000;
-00F800  1               L002E           := $002E;
-00F800  1               L00FD           := $00FD;
-00F800  1               L00FE           := $00FE	; $00FE LOFROM store current address for most routines the from address in save move and tabular display;
-00F800  1               ; CEGMON uses BASIC flags and routines for I/O;
-00F800  1               CURDIS			:= $0200	; Cursor displacement on current line;
-00F800  1               OLDCHR			:= $0201	; Stores current character during SCREEN; exits containing char beneath the cursor;
-00F800  1               NEWCHPK			:= $0202	; Park for new char for SCREEN;
-00F800  1               BLOADFL         := $0203	; BASIC Load Flag ($80 means load from tape);
-00F800  1               EDFLAG			:= $0204	; EDFLAG Editor flag 00-disable edit cursor, ff-enabe edit cursor;
-00F800  1               BSAVEFL         := $0205	; BASIC Save Flag (0 means not SAVE mode);
-00F800  1               SDELAY 			:= $0206 	; Print-delay value for SCREEN delay is delay-value times approx. 400 machine-cycles (ie times 400 micro-seconds at 1MHz);
-00F800  1               CCFLAG			:= $0212 	; BASIC CTRL-C flag 00-enables CTRL-C break, 01-disables CTRL-C break;
-00F800  1               COUNTR			:= $0214 	; Auto-repeat counter for GETKEY;
-00F800  1               SCRTCH			:= $0215	; Returns from GETKEY with final ASCII value of key;
-00F800  1               LSTCHR			:= $0216 	; Pre-shift value of last key left here by GETKEY to test auto-repeat;
-00F800  1               BINVECT         := $0218	; BASIC Input Vector;
-00F800  1               BOUTVEC			:= $021A	; BASIC Output Vector;
-00F800  1               BCTLCVC			:= $021C	; BASIC CTRL-C Check Vector;
-00F800  1               BLDVECT			:= $021E	; BASIC Load Vector;
-00F800  1               BSAVECT			:= $0220	; BASIC Save Vector;
-00F800  1               L0227           := $0227;
-00F800  1               L022A           := $022A;
-00F800  1               ECDISPL			:= $022F 	; DISP edit-cursor displacement from start of editors current line;
-00F800  1               CURCHR			:= $0230 	; Store for char beneath edit cursor;
-00F800  1               CURSLO			:= $0231	; Contains start of edit cursors current line on screen;
-00F800  1               CURSHI			:= $0232  	; Contains start of edit cursors current line on screen;
-00F800  1               USERLO          := $0233	; Location of start of user routine called by machine code monitors U command;
-00F800  1               USERHI			:= $01BF 	; Location of start of user routine called by machine code monitors U command;
-00F800  1               ;;
-00F800  1               L2F44           := $2F44;
-00F800  1               L415A           := $415A;
-00F800  1               ; BASIC-in-ROM addresses;
-00F800  1               LA34B           := $A34B;
-00F800  1               LA374           := $A374;
-00F800  1               LA636           := $A636;
-00F800  1               LBF2D           := $BF2D	; CRT routine;
-00F800  1               ; Video RAM addresses;
-00F800  1               LD08C           := $D08C;
-00F800  1               ; ACIA addresses;
-00F800  1               ACIAST			:= $F000	; ACIA Status Register;
-00F800  1               ACIADR			:= $F001	; ACIA Data Register;
-00F800  1               ;
-00F800  1               ; Start of ROM code;
-00F800  1  A5 0E        LF800:  lda     $0E;
-00F802  1  F0 06                beq     LF80A;
-00F804  1  C6 0E                dec     $0E;
-00F806  1  F0 02                beq     LF80A;
-00F808  1  C6 0E                dec     $0E;
+00F123  1  53 65 63 74  LBA1PR:  .byte "Sector LBA1? ";
+00F127  1  6F 72 20 4C  
+00F12B  1  42 41 31 3F  
+00F130  1  53 65 63 74  LBA0PR:  .byte "Sector LBA0? ";
+00F134  1  6F 72 20 4C  
+00F138  1  42 41 30 3F  
+00F13D  1               
+00F13D  1               ; Start of CEGMON code
+00F13D  1               ; Original monitor started at $FF00 (RESET)
+00F13D  1               
+00F13D  1                       .org $F800
+00F800  1               
+00F800  1  A5 0E        LF800:  lda     $0E
+00F802  1  F0 06                beq     LF80A
+00F804  1  C6 0E                dec     $0E
+00F806  1  F0 02                beq     LF80A
+00F808  1  C6 0E                dec     $0E
 00F80A  1  A9 20        LF80A:  lda     #$20		; SPACE char to fill screen;
-00F80C  1  8D 01 02             sta     OLDCHR		; $0201 OLDCHR stores current character during SCREEN; exits containing char beneath the cursor;
+00F80C  1  8D 01 02             sta     OLDCHR		; $0201 OLDCHR stores current character during SCREEN
+00F80F  1               							; exits containing char beneath the cursor;
 00F80F  1  20 8F FF             jsr     LFF8F;
 00F812  1  10 19                bpl     LF82D;
 00F814  1  38                   sec;
@@ -178,16 +215,16 @@ Current file: cegmon.s
 00F8D6  1  68                   pla;
 00F8D7  1  60                   rts;
 00F8D8  1               ;
-00F8D8  1  20 59 FE     LF8D8:  jsr     SCNCLR;
+00F8D8  1  20 59 FE     LF8D8:  jsr     SCNCLR		;
 00F8DB  1  8D 01 02             sta     OLDCHR		; $0201 OLDCHR stores current character during SCREEN; exits containing char beneath the cursor;
-00F8DE  1  F0 24                beq     LF904;
-00F8E0  1  A9 20        LF8E0:  lda     #$20;
-00F8E2  1  20 8F FF             jsr     LFF8F;
-00F8E5  1  20 D1 FF             jsr     CURHOM;
-00F8E8  1  AE 22 02     LF8E8:  ldx     $0222;
-00F8EB  1  A9 20                lda     #$20;
-00F8ED  1  20 2A 02     LF8ED:  jsr     L022A;
-00F8F0  1  10 FB                bpl     LF8ED;
+00F8DE  1  F0 24                beq     LF904		;
+00F8E0  1  A9 20        LF8E0:  lda     #$20		; SPACE
+00F8E2  1  20 8F FF             jsr     LFF8F		;
+00F8E5  1  20 D1 FF             jsr     CURHOM		;
+00F8E8  1  AE 22 02     LF8E8:  ldx     $0222		;
+00F8EB  1  A9 20                lda     #$20		; SPACE
+00F8ED  1  20 2A 02     LF8ED:  jsr     L022A		;
+00F8F0  1  10 FB                bpl     LF8ED		;
 00F8F2  1  8D 01 02             sta     OLDCHR		; $0201 OLDCHR stores current character during SCREEN; exits containing char beneath the cursor;
 00F8F5  1  A0 02                ldy     #$02;
 00F8F7  1  20 D2 FB             jsr     LFBD2;
@@ -1024,21 +1061,21 @@ Current file: cegmon.s
 00FFBC  1  60           LFFBC:  rts;
 00FFBD  1               ;
 00FFBD  1  20 A6 F9     TRIQAD: jsr     TWOQAD		; $FFBD - TRIQAD - Collect three address, first stored in (FE) pair, second in (F9), and third in (E4);
-00FFC0  1  20 E0 FB             jsr     LFBE0;
-00FFC3  1  A2 03                ldx     #$03;
-00FFC5  1  20 B1 F9             jsr     LF9B1;
-00FFC8  1  A5 FC                lda     $FC;
-00FFCA  1  A6 FD                ldx     L00FD;
+00FFC0  1  20 E0 FB             jsr     LFBE0		;
+00FFC3  1  A2 03                ldx     #$03		;
+00FFC5  1  20 B1 F9             jsr     LF9B1		;
+00FFC8  1  A5 FC                lda     $FC			;
+00FFCA  1  A6 FD                ldx     L00FD		;
 00FFCC  1  85 E4                sta     $E4			; Break table K register - stack pointer;
 00FFCE  1  86 E5                stx     $E5			; Break table PCL - low byte of program counter;
 00FFD0  1  60                   rts;
 00FFD1  1               ;
 00FFD1  1  A2 02        CURHOM: ldx     #$02		; CURHOM - resets TEXT line pointer to TOP - do STX $0200 to reset cursor at top;
-00FFD3  1  BD 22 02     LFFD3:  lda     $0222,x;
-00FFD6  1  9D 27 02             sta     L0227,x;
-00FFD9  1  9D 2A 02             sta     L022A,x;
-00FFDC  1  CA                   dex;
-00FFDD  1  D0 F4                bne     LFFD3;
+00FFD3  1  BD 22 02     LFFD3:  lda     $0222,x		;
+00FFD6  1  9D 27 02             sta     L0227,x		;
+00FFD9  1  9D 2A 02             sta     L022A,x		;
+00FFDC  1  CA                   dex					;
+00FFDD  1  D0 F4                bne     LFFD3		;
 00FFDF  1  60                   rts;
 00FFE0  1               								;
 00FFE0  1  4D 2F 01             eor     $012F		; This looks like a wrong disassembly;

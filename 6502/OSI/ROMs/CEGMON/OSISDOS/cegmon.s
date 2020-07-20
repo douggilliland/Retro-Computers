@@ -12,31 +12,12 @@
 ; Command line:;
 ;	retroassembler.exe cegmon.s -O=bin
 ;
-; Reserve first 256 ($F000-$F0FF) locations for I/O
-        .org $F000				; peripheral space
-		.byte 0
-		.org $F100
-; Prompt for sector number
-PRPRPT: jsr     SCNCLR		; clear the screen;
-		ldy		#0
-        sty		CURDIS			;
-LOOPY:	lda     LBA2PR,y		;
-		jsr     OUTVEC			;
-        iny						;
-        cpy     #$0D			;
-        bne     LOOPY			;
-L4VR:	jmp		L4VR
-LBA2PR:  .byte "Sector LBA2? ";
-LBA1PR:  .byte "Sector LBA1? ";
-LBA0PR:  .byte "Sector LBA0? ";
-		
-        .org $F800
-;
-; Page zero;
+; Page zero defines
 L0000           := $0000;
 L002E           := $002E;
 L00FD           := $00FD;
 L00FE           := $00FE	; $00FE LOFROM store current address for most routines the from address in save move and tabular display;
+
 ; CEGMON uses BASIC flags and routines for I/O;
 CURDIS			:= $0200	; Cursor displacement on current line;
 OLDCHR			:= $0201	; Stores current character during SCREEN; exits containing char beneath the cursor;
@@ -54,36 +35,86 @@ BOUTVEC			:= $021A	; BASIC Output Vector;
 BCTLCVC			:= $021C	; BASIC CTRL-C Check Vector;
 BLDVECT			:= $021E	; BASIC Load Vector;
 BSAVECT			:= $0220	; BASIC Save Vector;
-L0227           := $0227;
-L022A           := $022A;
+L0227           := $0227
+L022A           := $022A
 ECDISPL			:= $022F 	; DISP edit-cursor displacement from start of editors current line;
 CURCHR			:= $0230 	; Store for char beneath edit cursor;
 CURSLO			:= $0231	; Contains start of edit cursors current line on screen;
 CURSHI			:= $0232  	; Contains start of edit cursors current line on screen;
 USERLO          := $0233	; Location of start of user routine called by machine code monitors U command;
 USERHI			:= $01BF 	; Location of start of user routine called by machine code monitors U command;
-;;
+;
 L2F44           := $2F44	;
 L415A           := $415A	;
 ; BASIC-in-ROM addresses
 LA34B           := $A34B	;
 LA374           := $A374	;
 LA636           := $A636	;
-LBF2D           := $BF2D	; CRT routine;
+LBF2D           := $BF2D	; CRT routine
 ; Video RAM addresses;
-LD08C           := $D08C;
+LD08C           := $D08C
 ; ACIA addresses;
 ACIAST			:= $F000	; ACIA Status Register;
 ACIADR			:= $F001	; ACIA Data Register;
+
+; Reserve first 256 ($F000-$F0FF) locations for I/O
+        .org $F000				; peripheral space
+		.byte 0					; Reserve space with placeholder - fills the following with 0's
+		
 ;
 ; Start of ROM code;
-LF800:  lda     $0E;
-        beq     LF80A;
-        dec     $0E;
-        beq     LF80A;
-        dec     $0E;
+		.org $F100
+		
+; The SDLBA registers are used like this:
+;
+; 31 30 29 28.27 26 25 24.23 22 21 20.19 18 17 16.15 14 13 12.11 10 09 08.07 06 05 04.03 02 01 00
+;  0  0  0  0  0  0  0  0 ------- SDLBA2 --------+------- SDLBA1 --------+------- SDLBA0 -------+
+;
+; The end result of all this is that the addressing looks the same for SDSC and SDHC cards.
+;
+; SDSTATUS (RO)
+;    b7     Write Data Byte can be accepted
+;    b6     Read Data Byte available
+;    b5     Block Busy
+;    b4     Init Busy
+;    b3     Unused. Read 0
+;    b2     Unused. Read 0
+;    b1     Unused. Read 0
+;    b0     Unused. Read 0
+;
+; SDCONTROL (WO)
+;    b7:0   0x00 Read block
+;           0x01 Write block
+
+; Prompt for sector number
+
+PRPRPT: jsr     SCNCLR			; clear the screen;
+		ldy		#0
+        sty		CURDIS			;
+LOOPY:	lda     LBA2PR,y		;
+		jsr     OUTVEC			;
+        iny						;
+        cpy     #$0D			;
+        bne     LOOPY			;
+L4VR:	jmp		L4VR
+
+LBA2PR:  .byte "Sector LBA2? ";
+LBA1PR:  .byte "Sector LBA1? ";
+LBA0PR:  .byte "Sector LBA0? ";
+
+; Start of CEGMON code
+; Original monitor started at $FF00 (RESET)
+
+        .org $F800
+
+LF800:  lda     $0E
+        beq     LF80A
+        dec     $0E
+        beq     LF80A
+        dec     $0E
 LF80A:  lda     #$20		; SPACE char to fill screen;
-        sta     OLDCHR		; $0201 OLDCHR stores current character during SCREEN; exits containing char beneath the cursor;
+        sta     OLDCHR		; $0201 OLDCHR stores current character during SCREEN
+							; exits containing char beneath the cursor;
         jsr     LFF8F;
         bpl     LF82D;
         sec;
@@ -174,16 +205,16 @@ LF8D2:  pla;
         pla;
         rts;
 ;
-LF8D8:  jsr     SCNCLR;
+LF8D8:  jsr     SCNCLR		;
         sta     OLDCHR		; $0201 OLDCHR stores current character during SCREEN; exits containing char beneath the cursor;
-        beq     LF904;
-LF8E0:  lda     #$20;
-        jsr     LFF8F;
-        jsr     CURHOM;
-LF8E8:  ldx     $0222;
-        lda     #$20;
-LF8ED:  jsr     L022A;
-        bpl     LF8ED;
+        beq     LF904		;
+LF8E0:  lda     #$20		; SPACE
+        jsr     LFF8F		;
+        jsr     CURHOM		;
+LF8E8:  ldx     $0222		;
+        lda     #$20		; SPACE
+LF8ED:  jsr     L022A		;
+        bpl     LF8ED		;
         sta     OLDCHR		; $0201 OLDCHR stores current character during SCREEN; exits containing char beneath the cursor;
         ldy     #$02;
         jsr     LFBD2;
@@ -1013,21 +1044,21 @@ LFFBB:  pla;
 LFFBC:  rts;
 ;
 TRIQAD: jsr     TWOQAD		; $FFBD - TRIQAD - Collect three address, first stored in (FE) pair, second in (F9), and third in (E4);
-        jsr     LFBE0;
-        ldx     #$03;
-        jsr     LF9B1;
-        lda     $FC;
-        ldx     L00FD;
+        jsr     LFBE0		;
+        ldx     #$03		;
+        jsr     LF9B1		;
+        lda     $FC			;
+        ldx     L00FD		;
         sta     $E4			; Break table K register - stack pointer;
         stx     $E5			; Break table PCL - low byte of program counter;
         rts;
 ;
 CURHOM: ldx     #$02		; CURHOM - resets TEXT line pointer to TOP - do STX $0200 to reset cursor at top;
-LFFD3:  lda     $0222,x;
-        sta     L0227,x;
-        sta     L022A,x;
-        dex;
-        bne     LFFD3;
+LFFD3:  lda     $0222,x		;
+        sta     L0227,x		;
+        sta     L022A,x		;
+        dex					;
+        bne     LFFD3		;
         rts;
 								;
         eor     $012F		; This looks like a wrong disassembly;
