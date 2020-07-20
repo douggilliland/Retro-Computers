@@ -1059,9 +1059,8 @@ LFFD3:  lda     $0222,x		;
         sta     L022A,x		;
         dex					;
         bne     LFFD3		;
-        rts;
-		
-		.byte	$CC			; replaced stuff
+        rts					;
+		.byte	$CC			; DGG - replaced stuff
 		.byte	$2F
 		.byte	$00
 LFFE3:  lda     #$2E;
