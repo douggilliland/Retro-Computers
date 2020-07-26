@@ -15,26 +15,32 @@
 ; Page zero defines
 L0000           := $0000;
 L002E           := $002E;
-L00FD           := $00FD;
-L00FE           := $00FE	; $00FE LOFROM store current address for most routines the from address in save move and tabular display;
-
+BKTABK			:= $00E4	; Part of break table
+BTABCL			:= $00E5	; save new block start address in move
+BRKVAL			:= $00E7	; store for opcode moved by Z when setting breakpoint
+LOTO			:= $00F9	; store for 'to' address in save, move and tabular display
+HITO			:= $00FA	; 
+STORE			:= $00FC	; Store for current data during data mode
+L00FD           := $00FD	; 
+LOFROM          := $00FE	; $00FE LOFROM store current address for most routines the from address in save move and tabular display;
+HIFROM			:= $00FF
 ; CEGMON uses BASIC flags and routines for I/O;
-CURDIS			:= $0200	; Cursor displacement on current line;
-OLDCHR			:= $0201	; Stores current character during SCREEN; exits containing char beneath the cursor;
-NEWCHPK			:= $0202	; Park for new char for SCREEN;
-BLOADFL         := $0203	; BASIC Load Flag ($80 means load from tape);
-EDFLAG			:= $0204	; EDFLAG Editor flag 00-disable edit cursor, ff-enabe edit cursor;
-BSAVEFL         := $0205	; BASIC Save Flag (0 means not SAVE mode);
-SDELAY 			:= $0206 	; Print-delay value for SCREEN delay is delay-value times approx. 400 machine-cycles (ie times 400 micro-seconds at 1MHz);
-CCFLAG			:= $0212 	; BASIC CTRL-C flag 00-enables CTRL-C break, 01-disables CTRL-C break;
-COUNTR			:= $0214 	; Auto-repeat counter for GETKEY;
-SCRTCH			:= $0215	; Returns from GETKEY with final ASCII value of key;
-LSTCHR			:= $0216 	; Pre-shift value of last key left here by GETKEY to test auto-repeat;
-BINVECT         := $0218	; BASIC Input Vector;
-BOUTVEC			:= $021A	; BASIC Output Vector;
-BCTLCVC			:= $021C	; BASIC CTRL-C Check Vector;
-BLDVECT			:= $021E	; BASIC Load Vector;
-BSAVECT			:= $0220	; BASIC Save Vector;
+CURDIS			:= $0200	; Cursor displacement on current line
+OLDCHR			:= $0201	; Stores current character during SCREEN; exits containing char beneath the cursor
+NEWCHPK			:= $0202	; Park for new char for SCREEN
+BLOADFL         := $0203	; BASIC Load Flag ($80 means load from tape)
+EDFLAG			:= $0204	; EDFLAG Editor flag 00-disable edit cursor, ff-enabe edit cursor
+BSAVEFL         := $0205	; BASIC Save Flag (0 means not SAVE mode, 0xFF = dump to serial port)
+SDELAY 			:= $0206 	; Print-delay value for SCREEN delay is delay-value times approx. 400 machine-cycles (ie times 400 micro-seconds at 1MHz)
+CCFLAG			:= $0212 	; BASIC CTRL-C flag 00-enables CTRL-C break, 01-disables CTRL-C break
+COUNTR			:= $0214 	; Auto-repeat counter for GETKEY
+SCRTCH			:= $0215	; Returns from GETKEY with final ASCII value of key
+LSTCHR			:= $0216 	; Pre-shift value of last key left here by GETKEY to test auto-repeat
+BINVECT         := $0218	; BASIC Input Vector
+BOUTVEC			:= $021A	; BASIC Output Vector
+BCTLCVC			:= $021C	; BASIC CTRL-C Check Vector
+BLDVECT			:= $021E	; BASIC Load Vector
+BSAVECT			:= $0220	; BASIC Save Vector
 SWIDTH			:= $0222	; Screen column width-1
 SLTOP			:= $0223	; Screen low byte of TOP
 SHTOP			:= $0224	; Screen high byte of TOP
@@ -49,7 +55,7 @@ CURCHR			:= $0230 	; Store for char beneath edit cursor;
 CURSLO			:= $0231	; Contains start of edit cursors current line on screen;
 CURSHI			:= $0232  	; Contains start of edit cursors current line on screen;
 USERLO          := $0233	; Location of start of user routine called by machine code monitors U command;
-USERHI			:= $01BF 	; Location of start of user routine called by machine code monitors U command;
+USERHI			:= $0234 	; Location of start of user routine called by machine code monitors U command;
 ;
 L2F44           := $2F44	;
 L415A           := $415A	;
@@ -269,10 +275,10 @@ LF950:  lda     LFA4B,x;
         bne     LF950;
         jsr     GETNEW;
         jsr     GETQDE;
-        lda     (L00FE),y	; $00FE LOFROM store current address for most routines the from address in save move;
+        lda     (LOFROM),y	; $00FE LOFROM store current address for most routines the from address in save move;
         sta     $E7;
         tya;
-        sta     (L00FE),y	; $00FE LOFROM store current address for most routines the from address in save move;
+        sta     (LOFROM),y	; $00FE LOFROM store current address for most routines the from address in save move;
         beq     MSTART;
 LF968:  jmp     SAVEMC;
 LF96B:  dec     $FB;
@@ -334,7 +340,7 @@ LF9DD:  lda     #$2F;
 LF9E8:  jsr     GETNEW;
         cmp     #$47;
         bne     LF9F2;
-        jmp     (L00FE)		; $00FE LOFROM store current address for most routines the from address in save move;
+        jmp     (LOFROM)		; $00FE LOFROM store current address for most routines the from address in save move;
 LF9F2:  cmp     #$2C;
         bne     LF9FC;
         jsr     BUMP;
@@ -349,16 +355,16 @@ LF9FC:  cmp     #$0A		; Line Feed;
         beq     LFA3A;
         jsr     GETPRC;
         lda     $FC;
-        sta     (L00FE),y	; $00FE LOFROM store current address for most routines the from address in save move;
+        sta     (LOFROM),y	; $00FE LOFROM store current address for most routines the from address in save move;
 LFA13:  jmp     LF9E8;
 LFA16:  lda     #$0D		; Carriage Return;
         jsr     OUTVEC;
 LFA1B:  jsr     BUMP;
         jmp     LFA31;
 LFA21:  sec;
-        lda     L00FE		; $00FE LOFROM store current address for most routines the from address in save move;
+        lda     LOFROM		; $00FE LOFROM store current address for most routines the from address in save move;
         sbc     #$01;
-        sta     L00FE		; $00FE LOFROM store current address for most routines the from address in save move;
+        sta     LOFROM		; $00FE LOFROM store current address for most routines the from address in save move;
         lda     $FF;
         sbc     #$00;
         sta     $FF;
@@ -401,7 +407,7 @@ LFA5A:  stx     $E1			; Break table X register;
         lda     $E7;
         sta     ($E5),y		; Break table PCL - low byte of program counter;
         lda     #$E0		; Break table A register - accumulator;
-        sta     L00FE		; $00FE LOFROM store current address for most routines the from address in save move;
+        sta     LOFROM		; $00FE LOFROM store current address for most routines the from address in save move;
         sty     $FF;
         bne     DATALN;
 SAVEMC: jsr     TRIQAD		; $FA7E - SAVEMC;
@@ -420,12 +426,12 @@ LFA97:  jsr     PRBYTE;
         bcc     LFA94;
         lda     $E4			; Break table K register - stack pointer;
         ldx     $E5			; Break table PCL - low byte of program counter;
-        sta     L00FE		; $00FE LOFROM store current address for most routines the from address in save move;
+        sta     LOFROM		; $00FE LOFROM store current address for most routines the from address in save move;
         stx     $FF;
         jsr     LFFE3;
         lda     #$47;
         jsr     OUTVEC;
-        jsr     LFFAC;
+        jsr     TENULL		;
         sty     BSAVEFL		; $0205 SVFLAG BASIC save flag 0=skip save, 1=enable save to ACIA;
         jmp     MSTART		; entry to command/address mode;
 EDITOR: txa					; $FABD - entry to screen editor;
@@ -569,7 +575,7 @@ LFBE3:  lda     #$2C;
 SPCOUT: lda     #$20		; $FBE6 SPCOUT print ASCII space to display;
         jmp     OUTVEC;
 NOTEND: sec					; $FBEB NOTEND compare (FE) with (F9) carry clear if (FE) is less;
-        lda     L00FE		; $00FE LOFROM store current address for most routines the from address in save move;
+        lda     LOFROM		; $00FE LOFROM store current address for most routines the from address in save move;
         sbc     $F9;
         lda     $FF;
         sbc     $FA;
@@ -623,7 +629,7 @@ LFC5A:  lda     $C000;
         lda     #$58;
         sta     $C010;
         jsr     LFC9C;
-        sta     L00FE		; $00FE LOFROM store current address for most routines the from address in save move;
+        sta     LOFROM		; $00FE LOFROM store current address for most routines the from address in save move;
         tax;
         jsr     LFC9C;
         sta     L00FD;
@@ -634,10 +640,10 @@ LFC7B:  jsr     LFC9C;
         sta     (L00FD),y;
         iny;
         bne     LFC7B;
-        inc     L00FE		; $00FE LOFROM store current address for most routines the from address in save move;
+        inc     LOFROM		; $00FE LOFROM store current address for most routines the from address in save move;
         dec     $FF;
         bne     LFC7B;
-        stx     L00FE		; $00FE LOFROM store current address for most routines the from address in save move;
+        stx     LOFROM		; $00FE LOFROM store current address for most routines the from address in save move;
         lda     #$FF;
         sta     $C002;
         rts;
@@ -816,7 +822,7 @@ LFDDB:  jsr     BUMP;
         inc     $E4			; Break table K register - stack pointer;
         bne     LFDE4;
         inc     $E5			; Break table PCL - low byte of program counter;
-LFDE4:  lda     (L00FE),y	; $FDE4 SWAP memory block move. Expects start address in (FE), end address in (F9), new start of block in (E4) assumes Y=0;
+LFDE4:  lda     (LOFROM),y	; $FDE4 SWAP memory block move. Expects start address in (FE), end address in (F9), new start of block in (E4) assumes Y=0;
         sta     ($E4),y		; Break table K register - stack pointer;
         jsr     NOTEND;
         bcc     LFDDB;
@@ -840,7 +846,7 @@ NEWMON: ldx     #$28		; $FE00 NEWMON entry to m/c monitor - reset stack, vectors
         nop;
 MENTRY: jsr     SCNCLR		; $FE0C MENTRY non-reset entry to m/c monitor - clear screen, zero 'current address';
         sta     OLDCHR		; $0201 OLDCHR stores current character during SCREEN; exits containing char beneath the cursor;
-        sty     L00FE		; $00FE LOFROM store current address for most routines the from address in save move;
+        sty     LOFROM		; $00FE LOFROM store current address for most routines the from address in save move;
         sty     $FF;
         jmp     MSTART;
 LFE19:  ldx     ECDISPL		; $022F DISP edit-cursor displacement from start of editors current line;
@@ -968,11 +974,11 @@ LFEE0:  rol     a;
 GETCHR: lda     $FB			; $FEE9 - GETCHR get char from keyboard or ACIA;
         bne     MCACIA;
         jmp     GETKEY;
-PRBYTE: lda     (L00FE),y	; $FEF0 PRBYTE print data at current address pointed to by (FE) to display. Assumes Y=0!;
+PRBYTE: lda     (LOFROM),y	; $FEF0 PRBYTE print data at current address pointed to by (FE) to display. Assumes Y=0!;
         sta     $FC;
         jmp     PRDATD;
-LFEF7:  sta     (L00FE),y	; $00FE LOFROM store current address for most routines the from address in save move;
-BUMP:   inc     L00FE		; $FEF9 BUMP increment current address at (FE);
+LFEF7:  sta     (LOFROM),y	; $00FE LOFROM store current address for most routines the from address in save move;
+BUMP:   inc     LOFROM		; $FEF9 BUMP increment current address at (FE);
 							; $00FE LOFROM store current address for most routines the from address in save move;
         bne     LFEFF;
         inc     $FF;
@@ -1037,7 +1043,7 @@ LFF9E:  pha;
         jsr     TAPOUT;
         cmp     #$0D;
         bne     LFFBC;
-LFFAC:  pha;
+TENULL:  pha;
         txa;
         pha;
         ldx     #$0A;
@@ -1060,7 +1066,7 @@ TRIQAD: jsr     TWOQAD		; $FFBD - TRIQAD - Collect three address, first stored i
         stx     $E5			; Break table PCL - low byte of program counter;
         rts;
 ;
-CURHOM: ldx     #$02		; CURHOM - resets TEXT line pointer to TOP - do STX $0200 to reset cursor at top;
+CURHOM: ldx     #$02		; $FFD1 CURHOM - resets TEXT line pointer to TOP - do STX $0200 to reset cursor at top;
 LFFD3:  lda     SWIDTH,x		;
         sta     L0227,x		;
         sta     L022A,x		;
