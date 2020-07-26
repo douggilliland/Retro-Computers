@@ -35,8 +35,15 @@ BOUTVEC			:= $021A	; BASIC Output Vector;
 BCTLCVC			:= $021C	; BASIC CTRL-C Check Vector;
 BLDVECT			:= $021E	; BASIC Load Vector;
 BSAVECT			:= $0220	; BASIC Save Vector;
+SWIDTH			:= $0222	; Screen column width-1
+SLTOP			:= $0223	; Screen low byte of TOP
+SHTOP			:= $0224	; Screen high byte of TOP
+SLBASE			:= $0225	; Screen low byte od BASE
+SHBASE			:= $0226	; Screen high byte of BASE
 L0227           := $0227
 L022A           := $022A
+LTEXT			:= $022B	; Low byte of text-line start
+HTEXT			:= $022C	; High byte of text-line start
 ECDISPL			:= $022F 	; DISP edit-cursor displacement from start of editors current line;
 CURCHR			:= $0230 	; Store for char beneath edit cursor;
 CURSLO			:= $0231	; Contains start of edit cursors current line on screen;
@@ -118,12 +125,12 @@ LF80A:  lda     #$20		; SPACE char to fill screen;
         jsr     LFF8F;
         bpl     LF82D;
         sec;
-        lda     $022B;
+        lda     LTEXT;
         sbc     #$40;
-        sta     $022B;
-        lda     $022C;
+        sta     LTEXT;
+        lda     HTEXT;
         sbc     #$00;
-        sta     $022C;
+        sta     HTEXT;
         jsr     ENDCHK;
         bcs     LF82D;
         jsr     CURHOM;
@@ -167,7 +174,7 @@ LF87A:  sta     OLDCHR		; $0201 OLDCHR stores current character during SCREEN; e
 LF87D:  jsr     SCOUT;
         inc     CURDIS		; $0200 CURDIS cursor displacement on current line;
         inx;
-        cpx     $0222;
+        cpx     SWIDTH;
         bmi     LF8CF;
         jsr     LFF70;
 LF88C:  jsr     SCOUT;
@@ -180,7 +187,7 @@ LF88C:  jsr     SCOUT;
 LF89E:  jsr     LFE28;
         jsr     CURHOM;
         jsr     LFDEE;
-        ldx     $0222;
+        ldx     SWIDTH;
 LF8AA:  jsr     L0227;
         bpl     LF8AA;
         inx;
@@ -193,7 +200,7 @@ LF8AA:  jsr     L0227;
 LF8BF:  jsr     L022A;
         bpl     LF8BF;
         ldx     #$01;
-LF8C6:  lda     $0223,x;
+LF8C6:  lda     SLTOP,x;
         sta     $0228,x;
         dex;
         bpl     LF8C6;
@@ -211,7 +218,7 @@ LF8D8:  jsr     SCNCLR		;
 LF8E0:  lda     #$20		; SPACE
         jsr     LFF8F		;
         jsr     CURHOM		;
-LF8E8:  ldx     $0222		;
+LF8E8:  ldx     SWIDTH		;
         lda     #$20		; SPACE
 LF8ED:  jsr     L022A		;
         bpl     LF8ED		;
@@ -469,9 +476,9 @@ LFB22:  cmp     #$05;
         eor     #$FF;
         sta     EDFLAG		; $0204 EDFLAG Editor flag 00-disable edit cursor, ff-enabe edit cursor;
         bpl     LFB1F;
-        lda     $022B;
+        lda     LTEXT;
         sta     CURSLO		; $0231 CURSLO contain start of edit cursors current line on screen;
-        lda     $022C;
+        lda     HTEXT;
         sta     CURSHI		; $0232 CURSHI contain start of edit cursors current line on screen;
         ldx     #$00;
         stx     ECDISPL		; $022F DISP edit-cursor displacement from start of editors current line;
@@ -495,7 +502,7 @@ LFB61:  lda     #$00;
         sta     $FB;
         sta     BLOADFL		; $0203 LDFLAG BASIC load flag 00=no load, FF-load from ACIA;
 LFB68:  jmp     EDITOR;
-LFB6B:  ldx     $0222;
+LFB6B:  ldx     SWIDTH;
         cpx     ECDISPL		; $022F DISP edit-cursor displacement from start of editors current line;
         beq     LFB77;
         inc     ECDISPL		; $022F DISP edit-cursor displacement from start of editors current line;
@@ -547,12 +554,12 @@ LFBB8:  bvs     LFBB8;
         jsr     LD08C;
         dey;
         .byte   $F9;
-ENDCHK:  ldx     $0222		; $FBCF ENDCHK - checks if top or base of screen overshot - it Y=0, carry clear if top overshot, if Y=2, carry set if base overshot;
+ENDCHK:  ldx     SWIDTH		; $FBCF ENDCHK - checks if top or base of screen overshot - it Y=0, carry clear if top overshot, if Y=2, carry set if base overshot;
 LFBD2:  sec;
-        lda     $022B;
-        sbc     $0223,y;
-        lda     $022C;
-        sbc     $0224,y;
+        lda     LTEXT;
+        sbc     SLTOP,y;
+        lda     HTEXT;
+        sbc     SHTOP,y;
         rts;
 ;
 LFBE0:  lda     #$3E;
@@ -841,7 +848,7 @@ LFE19:  ldx     ECDISPL		; $022F DISP edit-cursor displacement from start of edi
         dec     ECDISPL		; $022F DISP edit-cursor displacement from start of editors current line;
         rts;
 ;
-LFE22:  ldx     $0222		;
+LFE22:  ldx     SWIDTH		;
         stx     ECDISPL		; $022F DISP edit-cursor displacement from start of editors current line;
 LFE28:  sec					;
         lda     CURSLO		; $0231 CURSLO contain start of edit cursors current line on screen;
@@ -1054,7 +1061,7 @@ TRIQAD: jsr     TWOQAD		; $FFBD - TRIQAD - Collect three address, first stored i
         rts;
 ;
 CURHOM: ldx     #$02		; CURHOM - resets TEXT line pointer to TOP - do STX $0200 to reset cursor at top;
-LFFD3:  lda     $0222,x		;
+LFFD3:  lda     SWIDTH,x		;
         sta     L0227,x		;
         sta     L022A,x		;
         dex					;
