@@ -1,0 +1,1 @@
+-- todo: implement this, shift register

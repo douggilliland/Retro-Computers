@@ -273,7 +273,7 @@ LF950:  lda     LFA4B,x;
         sta     USERHI,x	; $0234 USERHI contains location of start of user routine called by machine code monitors U command;
         dex;
         bne     LF950;
-        jsr     GETNEW;
+        jsr     GETNEW		; Get a hex value
         jsr     GETQDE;
         lda     (LOFROM),y	; $00FE LOFROM store current address for most routines the from address in save move;
         sta     $E7;
@@ -296,7 +296,7 @@ MSTART: jsr     CRLF		; $F97E MSTART entry to command/address mode;
         ldy     #$00;
         sty     $FB;
         jsr     LFBE0;
-LF988:  jsr     GETNEW;
+LF988:  jsr     GETNEW		; Get a hex value
         cmp     #$4D		; 'M';
         beq     LF933;
         cmp     #$52		; 'R';
@@ -311,7 +311,7 @@ LF988:  jsr     GETNEW;
         bne     LF9D6;
         jmp     (USERLO);
 TWOQAD: jsr     GETNEW		; $F9A6 TWOQAD - collect two addresses first stored in (FE) pair, second in (F9);
-        jsr     GETQDE;
+        jsr     GETQDE		;
         jsr     LFBE3;
         ldx     #$00;
 LF9B1:  jsr     GETNEW;
@@ -914,23 +914,23 @@ LFE88:  dey;
         asl     a;
         bcc     LFE88;
         rts;
-;
+; GETNEW - Get a hex value from the keyboard (0-7,A-F)
 GETNEW: jsr     GETCHR		; $FE8D GETNEW get new char; print it to display before returning;
         jmp     OUTVEC;
 ASCHEX: cmp     #$30		; $FE93 - ASCHEX strip ASCII digit to hex set to 80(base16) if not hex;
-        bmi     LFEA9;
-        cmp     #$3A;
-        bmi     LFEA6;
-        cmp     #$41;
-        bmi     LFEA9;
-        cmp     #$47;
-        bpl     LFEA9;
-        sec;
-        sbc     #$07;
-LFEA6:  and     #$0F;
-        rts;
-;
-LFEA9:  lda     #$80;
+        bmi     NOTHEX		;
+        cmp     #$3A		;
+        bmi     HEXLTR		;
+        cmp     #$41		;
+        bmi     NOTHEX		;
+        cmp     #$47		;
+        bpl     NOTHEX		;
+        sec					;
+        sbc     #$07		;
+HEXLTR: and     #$0F		; A-F = 10-15
+        rts					; return the value
+; Input wasn't a hex digit
+NOTHEX:  lda     #$80		; ERROR code returns $80 if the value is not a HEX digit
         rts;
 ;
 ADVTOD: jsr     QDDATD		; $FEAC ADVTOD print address in (FE), space, value in FC to display;
