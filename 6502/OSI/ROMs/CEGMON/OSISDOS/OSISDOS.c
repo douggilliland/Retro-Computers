@@ -32,7 +32,7 @@ Memory Map
 		4    SDLBA2        write-only (only bits 6:0 are valid)
 */
 
-#include "osic1p.h"
+//#include "osic1p.h"
 
 #define READ_BUFFER_START	0xE000	/* Banked SRAM			*/
 #define WRITE_BUFFER_START	0xE200	
@@ -50,7 +50,7 @@ Memory Map
 /* issueSDCardCommand - Send read or write command to SD Card		*/
 void issueSDCardCommand(unsigned char rwCmd)
 {
-	*(unsigned char *) SD_CTRL_STATUS = rwCmd;
+	*(unsigned char *) SD_CTRL = rwCmd;
 }
 
 /* setLBA0 - Set the least significant logical block address bits	*/
@@ -60,13 +60,13 @@ void setLBA0(unsigned char lba0)
 }
 
 /* setLBA1 - Set the middle 8 bits of the logical block addr bits	*/
-void setLBA1(unsigned char lba0)
+void setLBA1(unsigned char lba1)
 {
 	*(unsigned char *) SD_LBA1 = lba1; 
 }
 
 /* setLBA2 - Set the upper 8 bits of the logical block addr bits	*/
-void setLBA2(unsigned char lba0)
+void setLBA2(unsigned char lba2)
 {
 	*(unsigned char *) SD_LBA2 = lba2;
 }
@@ -74,19 +74,19 @@ void setLBA2(unsigned char lba0)
 /* waitSDCardReady - Wait for the SD Card to be ready				*/
 void waitSDCardReady(void)
 {
-	while (*(unsigned char *) SD_CTRL_STATUS != 0x80);
+	while (*(unsigned char *) SD_STATUS != 0x80);
 }
 
 /* waitSDCardRcvDataReady - Wait for the SD Card to have data ready	*/
 void waitSDCardRcvDataReady(void)
 {
-	while (*(unsigned char *) SD_CTRL_STATUS != 0xE0);
+	while (*(unsigned char *) SD_STATUS != 0xE0);
 }
 
 /* waitSDCardTxDataEmpty - Wait for transmit ready from SD ctrlr	*/
 void waitSDCardTxDataEmpty(void)
 {
-	while (*(unsigned char *) SD_CTRL_STATUS != 0xA0);
+	while (*(unsigned char *) SD_STATUS != 0xA0);
 }
 
 /* readByteFromSDCard - Read a byte from the SD Card				*/
@@ -95,6 +95,7 @@ unsigned char readByteFromSDCard(void)
 	char rdChar;
 	waitSDCardRcvDataReady();
 	rdChar = *(unsigned char *) SD_DATA;
+	return(rdChar);
 }
 
 /* writeByteToSDCard - Write a byte to the SD Card					*/
@@ -105,40 +106,40 @@ void writeByteToSDCard(unsigned char outChar)
 }
 
 /* readBlock - -Read a block from the SD Card						*/
-unsigned char readBlock(void)
+void readBlock(void)
 {
 	unsigned short loopCount;
 	unsigned char * inBuffer;
-	inBuffer = READ_BUFFER_START;
+	inBuffer = (unsigned char *) READ_BUFFER_START;
 	waitSDCardReady();
 	issueSDCardCommand(READ_COMMMAND);
 	for (loopCount = 0; loopCount < 512; loopCount++)
 	{
-		inbuffer++ = readByteFromSDCard();
+		*inBuffer++ = readByteFromSDCard();
 	}
 }
 
 /* writeBlock - Write a block to the SD Card						*/
-unsigned char writeBlock(void)
+void writeBlock(void)
 {
 	unsigned short loopCount;
 	unsigned char * outBuffer;
-	outBuffer = WRITE_BUFFER_START;
+	outBuffer = (unsigned char *) WRITE_BUFFER_START;
 	waitSDCardReady();
 	issueSDCardCommand(WRITE_COMMMAND);
-	for (loopCount = 0; loopCount < 512)
+	for (loopCount = 0; loopCount < 512; loopCount++)
 	{
-		writeByteToSDCard(outBuffer++);
+		writeByteToSDCard(*outBuffer++);
 	}
 }
 
-/* main - Test the SD Card interface*/								*/
+/* main - Test the SD Card interface								*/
 void main(void)
 {
 	/* Set to first bank of the banked SRAM */ 
-	*(unsigned char*) BANK_SELECT_REG_ADR = 0x00
+	*(unsigned char*) BANK_SELECT_REG_ADR = 0x00;
 	setLBA0(0);
 	setLBA1(0);
 	setLBA2(0);
-	readBlock()
+	readBlock();
 }
