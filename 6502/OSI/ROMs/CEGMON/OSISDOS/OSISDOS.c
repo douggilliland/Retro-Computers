@@ -47,6 +47,23 @@ Memory Map
 #define READ_COMMMAND		0x00
 #define WRITE_COMMMAND		0x01
 
+extern void main(void);
+extern void setLBA0(unsigned char);
+extern void setLBA1(unsigned char);
+extern void setLBA2(unsigned char);
+extern void readBlock(void);
+
+/* main - Test the SD Card interface								*/
+void main(void)
+{
+	/* Set to first bank of the banked SRAM */ 
+	*(unsigned char*) BANK_SELECT_REG_ADR = 0x00;
+	setLBA0(0);
+	setLBA1(0);
+	setLBA2(0);
+	readBlock();
+}
+
 /* issueSDCardCommand - Send read or write command to SD Card		*/
 void issueSDCardCommand(unsigned char rwCmd)
 {
@@ -131,15 +148,4 @@ void writeBlock(void)
 	{
 		writeByteToSDCard(*outBuffer++);
 	}
-}
-
-/* main - Test the SD Card interface								*/
-void main(void)
-{
-	/* Set to first bank of the banked SRAM */ 
-	*(unsigned char*) BANK_SELECT_REG_ADR = 0x00;
-	setLBA0(0);
-	setLBA1(0);
-	setLBA2(0);
-	readBlock();
 }
