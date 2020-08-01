@@ -1,0 +1,275 @@
+#!/usr/bin/perl -w
+#
+#   $Id: install-coco-boot-loader,v 1.2 2018/03/18 17:03:52 sarrazip Exp $
+#
+#   install-coco-boot-loader - A tool to write a CoCo DECB .bin file
+#                              to track 34 of a DECB disk image.
+#   Copyright (C) 2012-2015 Pierre Sarrazin <http://sarrazip.com/>
+#
+#   This program is free software: you can redistribute it and/or modify
+#   it under the terms of the GNU General Public License as published by
+#   the Free Software Foundation, either version 3 of the License, or
+#   (at your option) any later version.
+#
+#   This program is distributed in the hope that it will be useful,
+#   but WITHOUT ANY WARRANTY; without even the implied warranty of
+#   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#   GNU General Public License for more details.
+#
+#   You should have received a copy of the GNU General Public License
+#   along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+use strict;
+use Getopt::Long;
+
+
+sub usage
+{
+    my ($exitCode) = @_;
+
+    print <<__EOF__;
+Usage: install-coco-boot-loader [--force] DSKFILE BINFILE
+Usage: install-coco-boot-loader --uninstall DSKFILE
+
+The .bin file must have at most 4608 bytes (one track) of content.
+
+__EOF__
+
+    exit($exitCode);
+}
+
+
+my $showUsage = 0;
+my $uninstall = 0;
+my $force = 0;
+my $verbose = 0;
+
+exit 1 unless GetOptions(
+    "help" => \$showUsage,
+    "version" => \$showUsage,
+    "uninstall" => \$uninstall,
+    "force" => \$force,
+    "verbose" => \$verbose,
+    );
+
+if ($showUsage)
+{
+    usage(0);
+}
+
+my $install = !$uninstall;
+if (@ARGV > 0 && $ARGV[0] eq "-u")
+{
+    $install = 0;
+    shift;
+}
+
+my $dskFilename;
+my $binFilename;
+
+if ($install)
+{
+    if (@ARGV == 2)
+    {
+        $dskFilename = shift or die;
+        $binFilename = shift or die;
+    }
+    else
+    {
+        usage(1);
+    }
+}
+else
+{
+    if (@ARGV == 1)
+    {
+        $dskFilename = shift or die;
+    }
+    else
+    {
+        usage(1);
+    }
+}
+
+
+my $content;
+
+if ($install)
+{
+    if (!open(BIN, $binFilename))
+    {
+        print "$0: failed to open $binFilename: $!\n";
+        exit 1;
+    }
+
+    binmode BIN;
+
+    while (1)
+    {
+        my $header;
+        if (read(BIN, $header, 5) != 5)
+        {
+            print "$0: failed to read 5-byte header from $binFilename: $!\n";
+            exit 1;
+        }
+
+        my ($flag, $blockLen, $loadAddress);
+        ($flag, $blockLen, $loadAddress) = unpack("Cnn", $header);
+        
+        if ($flag == 0xFF)  # if end block
+        {
+            last;
+        }
+    
+        if ($flag != 0)
+        {
+            print "$0: invalid 5-byte header at start of $binFilename\n";
+            exit 1;
+        }
+
+        printf("Read block of \$%X (%u) bytes that loads at \$%04X\n",
+                $blockLen, $blockLen, $loadAddress) if $verbose;
+        
+        if (!defined $content && $loadAddress != 0x2600)
+        {
+            print "$0: $binFilename not made to be loaded at \$2600\n";
+            exit 1;
+        }
+        
+        my $block;
+        if (read(BIN, $block, $blockLen) != $blockLen)
+        {
+            print "$0: failed to read block of $blockLen bytes from $binFilename: $!\n";
+            exit 1;
+        }
+        
+        if (!defined $content)  # if first block
+        {
+            $content = $block;
+        }
+        else
+        {
+            my $lastAddr = 0x2600 + length($content);
+            my $paddingNeeded = $loadAddress - $lastAddr;
+            printf("Padding with \$%X (%u) bytes to go from \$%04X to \$%04X\n",
+                    $paddingNeeded, $paddingNeeded, $lastAddr, $loadAddress) if $verbose; 
+            if ($paddingNeeded < 0)
+            {
+                print "$0: $binFilename contains a block that overlaps another or goes before \$2600\n";
+                exit 1;
+            }
+            if ($paddingNeeded > 0)  # if needed, add null bytes to get to $loadAddress
+            {
+                $content .= pack("C", 0) x $paddingNeeded;
+            }
+            $content .= $block;
+        }
+
+    }   # while
+    
+    close(BIN);
+    
+    printf("Read total of \$%X (%u) null bytes of content from %s\n",
+            length($content), length($content), $binFilename) if $verbose;
+
+    if (0)  # debugging: dump $contents in hex
+    {
+        open(OD, "| od -tx1") or die;
+        print OD $content;
+        close(OD) or die;
+        exit 42;
+    }
+
+    if (length($content) > 18 * 256)
+    {
+        print "$0: contents of $binFilename too long (got ", length($content), ", limit is ", 18 * 256, ")\n";
+        exit 1;
+    }
+
+    if (length($content) == 0)
+    {
+        print "$0: $binFilename contains nothing\n";
+        exit 1;
+    }
+
+}   # if
+
+if (! -f $dskFilename)
+{
+    print "$0: disk image $dskFilename not found\n";
+    exit 1;
+}
+
+my $expectedLen = 35 * 18 * 256;
+my $actualLen = -s $dskFilename;
+if ($actualLen != $expectedLen)
+{
+    print "$0: file $dskFilename not right length for CoCo DECB disk image (expected $expectedLen bytes, seeing $actualLen)\n";
+    exit 1;
+}
+
+if (!open(DSK, "+< $dskFilename"))
+{
+    print "$0: failed to open $dskFilename: $!\n";
+    exit 1;
+}
+
+binmode DSK;
+
+my $gran66offset = 17 * 18 * 256 + 1 * 256 + (34 - 1) * 2;
+seek(DSK, $gran66offset, 0) or die;
+
+my $track34Granules;
+if (read(DSK, $track34Granules, 2) != 2)
+{
+    print "$0: failed to read granules 66 and 67 of $dskFilename: $!\n";
+    exit 1;
+}
+
+my ($g66, $g67) = unpack("CC", $track34Granules);
+
+seek(DSK, $gran66offset, 0) or die;
+
+if ($install)
+{
+    my $track34Free = ($g66 == 0xFF && $g67 == 0xFF);
+    if (!$track34Free)
+    {
+        if (!$force)
+        {
+            print "$0: cannot install boot loader in disk image $dskFilename: track 34 is not free\n";
+            exit 1;
+        }
+        print "CAUTION: forcing installation despite track 34 being occupied\n" if $verbose;
+    }
+
+    if (syswrite(DSK, pack("CC", 0xC0, 0xC0)) != 2)  # write 2 "occupied" values to FAT entries for granules 66 and 67
+    {
+        print "$0: failed to write to positions 66 and 67 of FAT: $!\n";
+        exit 1;
+    }
+
+    die unless defined $content;
+
+    seek(DSK, 34 * 18 * 256, 0) or die;
+    print DSK $content;
+}
+else
+{
+    if ($g66 != 0xC0 || $g67 != 0xC0)
+    {
+        print "$0: cannot uninstall: granules 66 and 67 of $dskFilename not marked as boot loader\n";
+        exit 1;
+    }
+
+    print DSK pack("CC", 0xFF, 0xFF);  # write 2 "free" values to granules 66 and 67
+}
+
+if (!close(DSK))
+{
+    print "$0: failed to finish writing to $dskFilename: $!\n";
+    exit 1;
+}
+
+print "Success.\n" if $verbose;
+exit 0;

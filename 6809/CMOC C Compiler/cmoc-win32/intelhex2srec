@@ -1,0 +1,89 @@
+#!/usr/bin/perl -w
+#
+# Reads the Intel Hex format from <ARGV> and writes in the Motorola SREC
+# format to STDOUT.
+# @sarrazip 20150810
+#
+# Example of Intel Hex format:
+#
+#:0f6000008e0400a6848840a7808c060025f53901
+# ^^^^^^^^                              ^^
+#  |   | |                               |
+#  |   | |                               `--- 8-bit checksum
+#  |   | `--- 7..8: record type: 0 = data record
+#  |   `--- 3..6: 16-bit destination address of content bytes
+#  `--- 1..2: number of content bytes (0..255)
+#
+#:00000001ff
+#       ^^
+#        |
+#        `--- 7..8: record type: 1 = end of file record
+#
+# Details: http://en.wikipedia.org/wiki/Intel_HEX
+# Details: https://en.wikipedia.org/wiki/SREC_%28file_format%29
+
+use strict;
+use Getopt::Long;
+
+
+# Returns a 2-digit hex string.
+#
+sub computeChecksum($)
+{
+    my ($hex) = @_;
+    
+    my $sum = 0;
+    while ($hex =~ s/^(..)//)
+    {
+        $sum += hex($1);
+    }
+    return sprintf("%02X", 0xFF - ($sum & 0xFF));  # 1's complement
+}
+
+
+my $entryPointHex;  # hex string, not numerical address; undef means use first address encountered
+
+
+if (!GetOptions(
+        "entry=s" => \$entryPointHex,
+        ))
+{
+    usage();
+    exit 1;
+}
+
+if (defined $entryPointHex)  # if option used
+{
+    die unless $entryPointHex =~ /^[0-9a-f]+$/i;
+    die unless hex($entryPointHex) <= 0xFFFF;
+}
+
+
+while (<>)  # for each line read
+{
+    die unless /^:/;  # must begin with colon
+    my $type = hex(substr($_, 7, 2));  # 00 means byte record, 01 means entry point record
+    if ($type == 0)  # if byte record
+    {
+        my $hexData = substr($_, 9);  # get string from offset 9 to end
+        $hexData =~ s/[0-9a-f]{2}\s+$//si;  # remove 2-digit hex checksum and trailing end-of-line chars
+        my $numBytesHex = sprintf("%02X", (hex(substr($_, 1, 2)) + 3) & 0xFF); 
+        my $addressHex = substr($_, 3, 4);
+        if (!defined $entryPointHex)
+        {
+            $entryPointHex = $addressHex;
+        }
+        my $checkSumHex = computeChecksum($numBytesHex . $addressHex . $hexData);
+        print "S1", $numBytesHex, $addressHex, $hexData, $checkSumHex, "\n";
+    }
+    elsif ($type == 1)  # if entry point record
+    {
+        my $checkSumHex = computeChecksum("03" . $entryPointHex);  # 03 = 3 bytes of data: 16-bit address and checksum byte
+        print "S9", "03", $entryPointHex, $checkSumHex, "\n";
+        last;
+    }
+    else
+    {
+        die "Line $. has unknown type $type\n";
+    }
+}

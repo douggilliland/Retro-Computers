@@ -1,0 +1,535 @@
+#!/usr/bin/perl -w
+#
+# Assembles the 6809 source file mentioned as an argument on the command line.
+#
+# The file is passed through the cpp processor.
+# Comments in the assembler file are allowed but are not passed to the
+# underlying assembler.
+#
+# Constants of the form 0xNNNN are replaced with $NNNN.
+#
+# Expects intelhex2cocobin and intelhex2srec to be in the PATH.
+# Otherwise, use --hexconv.
+#
+# Error messages are displayed with their corresponding source line.
+
+use strict;
+use Getopt::Long;
+use IPC::Open2;
+
+
+my $hexToBinConverterPath = "intelhex2cocobin";
+my $hexToSRECConverterPath = "intelhex2srec";
+my $stackSpace = 1024;  # in bytes
+
+
+sub usage()
+{
+    print <<__EOF__;
+Usage: $0 [options] source.[asm|s]
+
+Options:
+--help
+--entry=<addr>      Set the entry point to <addr> (in hex)
+--append=<file>     Append <file> to the assembly text to be sent to cpp.
+--includedir=<dir>  Use <dir> as an include file directory.
+                    Pass this directive to the underlying assembler.
+--define=<dir>[=val]  Pass a definition to the underlying assembler.
+--target=T          Define the given target preprocessor ID. 
+--hexconv=PATH      Use PATH to $hexToBinConverterPath
+--hexsrecconv=PATH  Use PATH to $hexToSRECConverterPath
+--lwasm             Use lwasm as the underlying assembler (default).
+--frankasm          Use as6809 (FrankASM) as the underlying assembler. 
+--srec              Generate a Motorola SREC executable in addition to the .hex file.
+--no-blocks         Do not generate blocks during assembly.
+--stack-space=N     Reserve N bytes for stack space (default: $stackSpace).
+--output=<file>     Output to <file> instead of default, which is "source.bin".
+__EOF__
+}
+
+
+# Returns true if the first argument is a string in the array
+# referred to by the second argument.
+#
+sub isStrInArray
+{
+    my ($element, $raArray) = @_;
+    
+    for my $e (@$raArray)
+    {
+        return 1 if $e eq $element;
+    }
+    return 0;
+}
+
+
+sub convertAsciiDirective($)
+{
+    my ($arg) = @_;
+
+    # Unescape escaped characters.
+    #
+    $arg =~ s/\\a/\a/g;
+    $arg =~ s/\\b/\b/g;
+    $arg =~ s/\\t/\t/g;
+    $arg =~ s/\\n/\n/g;
+    $arg =~ s/\\f/\f/g;
+    $arg =~ s/\\r/\r/g;
+    $arg =~ s/\\(0[0-7]+)/chr(oct($1))/ge;  # e.g., convert \042 into "
+    $arg =~ s/\\0/\0/g;
+
+    my @segments = ();  # list of assembly language lines (\n terminated)
+    my $currentFCC = "";
+    for my $char (split //, $arg)
+    {
+        if ($char =~ /^[ !#-~]$/)
+        {
+            $currentFCC .= $char;
+        }
+        else
+        {
+            if ($currentFCC ne "")
+            {
+                push @segments, "\tFCC\t\"$currentFCC\"\n";
+                $currentFCC = "";
+            }
+            push @segments, sprintf("\tFCB\t\$%02X\n", ord($char));
+        }
+    }
+    if ($currentFCC ne "")
+    {
+        push @segments, "\tFCC\t\"$currentFCC\"\n";
+        $currentFCC = "";
+    }
+
+    return \@segments;
+}
+
+
+sub fixConstants
+{
+    my ($str) = @_;
+
+    # Obsolete: $str =~ s/\b0x([0-9a-f]+)/\$$1/ig;  # replace 0xNNNN with $NNNN
+
+    return $str;
+}
+
+
+# Returns a 2-digit hex string.
+#
+sub computeIntelHEXChecksum($)
+{
+    my ($hex) = @_;
+    
+    my $sum = 0;
+    while ($hex =~ s/^(..)//)
+    {
+        $sum += hex($1);
+    }
+    return sprintf("%02X", ((0xFF - ($sum & 0xFF)) + 1) & 0xFF);  # 2's complement
+}
+
+
+# Reads the .hex file (in the Intel HEX format) specified as the 1st argument,
+# puts $entry (a hex string) in its last record (of type 1),
+# and rewrites all the records into the file.
+# Returns 1 on success, 0 on failure. Prints an error message on failure.
+# See http://en.wikipedia.org/wiki/Intel_HEX about the format.
+#
+sub fixIntelHexEntryPointRecord
+{
+    my ($hexFilename, $entry) = @_;
+
+    my $hexFile;
+    if (!open($hexFile, $hexFilename))
+    {
+        print "cmoc: ERROR: failed to open $hexFilename: $!\n";
+        return 0;
+    }
+
+    my $temp = $/;
+    $/ = undef;
+    my $contents = <$hexFile>;
+    $/ = $temp;
+
+    close($hexFile);
+
+    if (!defined $contents)
+    {
+        print "cmoc: ERROR: failed to read $hexFilename\n";
+        return 0;
+    }
+
+    # Remove the entry point line from $contents.
+    #
+    if ($contents !~ s/^:00[0-9a-f]{4}01[0-9a-f]{2}\s*$//mi)  # the "01" means type-1 record
+    {
+        print "cmoc: ERROR: $hexFilename does not finish with valid type-1 record\n";
+        return 0;
+    }
+
+    # Add a new entry point line based on $entry.
+    #
+    die unless defined $entry;
+    my $newLastRecord = sprintf(":00%04X01%s\n", hex($entry), computeIntelHEXChecksum($entry . "01"));
+    #print "entry=[$entry], newLastRecord=[$newLastRecord]\n"; die;
+    $contents .= $newLastRecord;
+
+    if (!open($hexFile, "> $hexFilename"))
+    {
+        print "cmoc: ERROR: failed to overwrite $hexFilename: $!\n";
+        return 0;
+    }
+
+    print $hexFile $contents;
+
+    if (!close($hexFile))
+    {
+        print "cmoc: ERROR: failed to close $hexFilename\n";
+        return 0;
+    }
+
+    return 1;
+}
+
+
+###############################################################################
+
+
+my $showHelp = 0;
+my $verbose = 0;
+my @includeDirList = ();
+my @filenamesToAppend = ();
+my $targetPlatformPreprocId = 0;  # _COCO_BASIC_, OS9, etc.
+my $checkNullPointers = 0;
+my $checkStackOverflow = 0;
+my $entry;  # address (as hex string) of program's entry point
+my $limit;  # if specified, address (as hex string) that must not be exceeded by program_end
+my $useLWASM = 1;  # lwasm (from LWTOOLS) instead of as6809
+my $useFrankASM = 0;
+my @neededUtilitySubRoutines;  # e.g., "MUL16", etc.
+my $generateSREC = 0;  # if true, generate a Motorola SREC version of the output executable.
+my @defineList;
+my $noBlocks = 0;
+my $outputFilename;  # if not defined, use <source>.bin
+
+if (!GetOptions(
+        "help" => \$showHelp,
+        "version" => \$showHelp,
+        "verbose" => \$verbose,
+        "includedir=s" => \@includeDirList,
+        "append=s" => \@filenamesToAppend,
+        "target=s" => \$targetPlatformPreprocId,
+        "check-null" => \$checkNullPointers,
+        "check-stack" => \$checkStackOverflow,
+        "entry=s" => \$entry,
+        "limit=s" => \$limit,
+        "hexconv=s" => \$hexToBinConverterPath,
+        "hexsrecconv=s" => \$hexToSRECConverterPath,
+        "lwasm" => \$useLWASM,
+        "frankasm" => \$useFrankASM,
+        "need=s" => \@neededUtilitySubRoutines,  # option can be given multiple times
+        "srec" => \$generateSREC,
+        "no-blocks" => \$noBlocks,
+        "define=s" => \@defineList,
+        "stack-space=i" => \$stackSpace,
+        "output=s" => \$outputFilename,
+        ))
+{
+    usage();
+    exit 1;
+}
+
+if ($showHelp)
+{
+    usage();
+    exit 0;
+}
+
+if ($useFrankASM)
+{
+    $useLWASM = 0;
+}
+
+my $source = shift;
+if (!defined $source)
+{
+    usage();
+    exit 1;
+}
+my $base = $source;
+unless ($base =~ s/\.(asm|s)$//)
+{
+    print STDERR "cmoc: ERROR: source filename has unsupported assembler extension: $source\n";
+    exit 1;
+}
+
+if (!defined $outputFilename)  # if not specified by --output
+{
+    $outputFilename = "$base.bin";
+}
+
+my $cppArgs = "";
+for my $includeDir (@includeDirList)
+{
+    $cppArgs .= " -I'$includeDir'";
+}
+my $includeArgs = $cppArgs;
+$cppArgs .= " -D$targetPlatformPreprocId=1" if defined $targetPlatformPreprocId;
+$cppArgs .= " -D_CMOC_CHECK_NULL_POINTERS_=1"  if $checkNullPointers;
+$cppArgs .= " -D_CMOC_CHECK_STACK_OVERFLOW_=1" if $checkStackOverflow;
+$cppArgs .= " -Dstack_space=$stackSpace";
+
+# For each sub-routine name, define _CMOC_NEEDED_name_, so that the needed
+# part of stdlib.inc will be assembled.
+#
+for my $subroutine (@neededUtilitySubRoutines)
+{
+    $subroutine =~ s/^_//;  # avoid two consecutive underscores in the identifier
+    $cppArgs .= " -D_CMOC_NEED_${subroutine}_";
+}
+
+my $cmd = "cat $source @filenamesToAppend | cpp -P -traditional $cppArgs";
+print "Preprocessor command: $cmd\n" if $verbose;
+if (!open(ASM, "$cmd |"))
+{
+    print STDERR "cmoc: ERROR: preprocessor failed: $!\n";
+    exit 1;
+}
+if (!open(PREPROCESSED, "> $base.i"))
+{
+    print STDERR "cmoc: ERROR: could not create $base.i: $!\n";
+    exit 1;
+}
+
+# Read the preprocessed assembler (ASM), strip off the comments if using FrankASM,
+# then write the rest into the PREPROCESSED file.
+#
+while (<ASM>)
+{
+    if ($useLWASM)
+    {
+        print PREPROCESSED;  # lwasm accepts the .asm contents as is
+        next;
+    }
+    
+    # FrankASM mode:
+
+    if (/^\s*\*/)  # if whole line is a comment
+    {
+        print PREPROCESSED "\n";  # print an empty line
+    }
+    elsif (/^((\S+?):)?\s+\.(\S+)(.*)$/)  # if other 'GNU as' directive
+    {
+        die;
+        my ($label, $directive, $args) = ($2, $3, $4);
+        die unless defined $directive;
+        die unless defined $args;
+        #print "LABEL [$label], " if defined $label;
+        #print "DIRECTIVE [$directive], ARGS [$args]\n";
+        if ($directive eq "ascii")  # if GNU as ASCII text directive
+        {
+            # Convert to frankasm directives.
+            die unless $args =~ /^\s+"(.*)"\s*$/;
+            my $string = $1;
+
+            my $raLines = convertAsciiDirective($string);
+            for my $line (@$raLines)
+            {
+                print PREPROCESSED $line;
+            }
+        }
+        elsif ($directive eq "blkb")
+        {
+            die unless $args =~ /^\s+(\d+)$/;
+            my $numBytes = $1;
+            die unless $numBytes > 0;
+            print PREPROCESSED $label || "", "\tFCB\t", "0," x ($numBytes - 1), "0\n";
+        }
+        elsif ($directive =~ /^(module|area|globl)$/)
+        {
+            # Ignore this directive.
+        }
+        else
+        {
+            die "cmoc: ERROR: invalid line: $_";
+            print PREPROCESSED "\n";  # filter it out
+        }
+    }
+    elsif (/^(.*?)\t(.*?)\t(.*?)\t/)  # if there are 3 tab characters
+    {
+        my $line = "$1\t$2\t" . fixConstants($3) . "\n";
+        print PREPROCESSED $line;  # omit everything from the 3rd tab
+    }
+    elsif (/^([a-z0-9_]+):(.*?)/i)  # if label followed by colon
+    {
+        my $line = "$1\t" . fixConstants($2) . "\n";
+        print PREPROCESSED $line;  # remove colon
+    }
+    else  # other lines are copied verbatim:
+    {
+        my $line = fixConstants($_);
+        print PREPROCESSED $line;
+    }
+}
+
+close(PREPROCESSED) or die;
+close(ASM) or exit 1;  # exit here if #include directive failed to find its file
+
+# Remove the .hex file if it currently exists.
+if (-e "$base.hex" && !unlink("$base.hex"))
+{
+    print "cmoc: ERROR: failed to erase existing $base.hex file.\n";
+    exit 1; 
+}
+
+# Assemble the preprocessed, comment-less assembler file:
+my $asmCmd;
+if ($useLWASM)
+{
+    for my $define (@defineList)
+    {
+        $cppArgs .= " -D $define";
+    }
+
+    # Note: --pragma=forwardrefmax requires LWASM 4.11 or later.
+    $asmCmd = "lwasm --pragma=forwardrefmax --list=$base.lst --symbols $includeArgs$cppArgs";
+
+    if ($targetPlatformPreprocId eq "OS9")
+    {
+        $asmCmd .= " --format=os9 --output=$base";
+    }
+    else
+    {
+        $asmCmd .= " --format=ihex --output=$base.hex";
+    }
+    $asmCmd .= " $base.i";
+}
+elsif ($targetPlatformPreprocId eq "OS9")
+{
+    print "cmoc: ERROR: LWASM is required to assemble for OS-9.\n";
+    exit 1; 
+}
+else
+{
+    # stderr redirected to /dev/null to avoid the two lines of error summary.
+    $asmCmd = "as6809 $base.i -l $base.lst -o $base.hex 2> /dev/null";
+}
+
+print "Assembler command: $asmCmd\n" if $verbose;
+my $exitCode = system($asmCmd);
+#print "Exit code: $exitCode\n";
+if ($exitCode == 0x7f00 || $exitCode == 0x0100)
+{
+    print STDERR "cmoc: ERROR: failed to run assembler command: $asmCmd: $!\n";
+    exit 1;
+}
+
+# If a hex file was produced, fix its entry point record (for the benefit of usim),
+# then convert it to a CoCo .BIN file, and optionally to an SREC file.
+#
+if (-e "$base.hex")
+{
+    if (!$noBlocks)
+    {
+        fixIntelHexEntryPointRecord("$base.hex", $entry)
+            or exit 1;
+    }
+
+    my $hexToBinCmd = "'$hexToBinConverterPath' ";
+    if ($targetPlatformPreprocId eq "VECTREX")
+    {
+        $hexToBinCmd .= "--no-blocks";
+    }
+    else
+    {
+        if ($noBlocks)
+        {
+            $hexToBinCmd .= " --no-blocks";
+        }
+        else
+        {
+            $hexToBinCmd .= "--entry=$entry";
+        }
+    }
+    $hexToBinCmd .= " < '$base.hex' > '$outputFilename'";
+    print "Generating BIN file: $hexToBinCmd\n" if $verbose; 
+    system($hexToBinCmd) == 0
+        or exit 1;
+
+    if ($generateSREC)
+    {
+        my $hexToSRECCmd = "'$hexToSRECConverterPath' --entry=$entry < '$base.hex' > '$base.srec'";
+        print "Generating SREC: $hexToSRECCmd\n" if $verbose; 
+        system($hexToSRECCmd) == 0
+            or exit 1;
+    }
+}
+
+
+# Read the .lst file to find some symbol addresses.
+
+{
+    if (!open(LST, "$base.lst"))
+    {
+        print "cmoc: ERROR: failed to open assembly listing file $base.lst: $!\n";
+        exit 1;
+    }
+
+    my @notableSymbols = qw(program_start
+                            program_end
+                            writable_globals_start
+                            writable_globals_end);  # list order is display order
+    my %foundSymbols;
+    while (<LST>)
+    {
+        if (/^\[ G\]\s+(\S+)\s+([0-9a-f]{4})/i)  # e.g., [ G] program_start    2800
+        {
+            my ($sym, $addr) = ($1, $2);
+            if (isStrInArray($sym, \@notableSymbols))
+            {
+                $foundSymbols{$sym} = hex($addr);
+            }
+        }
+    }
+    
+    close(LST);
+
+    if ($verbose)
+    {
+        my $promptPrinted = 0;
+        for my $sym (@notableSymbols)
+        {
+            if (defined $foundSymbols{$sym})
+            {
+                if (!$promptPrinted)
+                {
+                    print "Notable addresses:\n";
+                    $promptPrinted = 1;
+                }
+                printf("  %-24s  \$%04X\n", $sym, $foundSymbols{$sym}); 
+            }
+        }
+    }
+
+    if (defined $limit)
+    {
+        my $program_end = $foundSymbols{program_end};
+        if (!defined $program_end)
+        {
+            printf STDERR "cmoc: ERROR: code limit set at \$%s but program_end symbol not found in listing file\n",
+                          uc($limit);
+            exit 1;
+        }
+        elsif ($program_end > hex($limit))
+        {
+            printf STDERR "cmoc: ERROR: code limit set at \$%s but program_end exceeds it at \$%04X\n",
+                          uc($limit), $program_end;
+            exit 1;
+        }
+    }
+
+}
+
+exit 0;

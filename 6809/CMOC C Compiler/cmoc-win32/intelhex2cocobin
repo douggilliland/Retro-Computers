@@ -1,0 +1,141 @@
+#!/usr/bin/perl -w
+#
+# Reads Intel Hex format from <ARGV> and writes CoCo binary format to STDOUT.
+# @sarrazip 20010827
+#
+# Example of Intel Hex format:
+#
+#:0f6000008e0400a6848840a7808c060025f53901
+# ^^^^^^^^                              ^^
+#  |   | |                               |
+#  |   | |                               `--- 8-bit checksum
+#  |   | `--- 7..8: record type: 0 = data record
+#  |   `--- 3..6: 16-bit destination address of content bytes
+#  `--- 1..2: number of content bytes (0..255)
+#
+#:00000001ff
+#       ^^
+#        |
+#        `--- 7..8: record type: 1 = end of file record
+#
+# Details: http://en.wikipedia.org/wiki/Intel_HEX
+#
+# --no-blocks: Allows reusing this script for the Vectrex target:
+#   - no 5-byte blocks;
+#   - always use zero-padding between non-contiguous Intel Hex records.
+
+use strict;
+use Getopt::Long;
+
+my $contents = "";
+my $curBlockStart;  # address where $contents goes
+my $firstAddress;
+my $entryPoint;  # undef means use $firstAddress
+my $noBlocks = 0;
+
+
+# Writes a .BIN block whose start address is $curBlockStart
+# and whose contents is $contents.
+# Empties $contents. Undefined $curBlockStart.
+#
+sub writeBlock
+{
+    die unless defined $curBlockStart;
+    die unless length($contents) <= 0xFFFF;
+    if (!$noBlocks)
+    {
+        print pack("Cnn", 0x00, length($contents), $curBlockStart);
+    }
+    print $contents;
+    $contents = "";
+    $curBlockStart = undef;
+}
+
+
+if (!GetOptions(
+        "entry=s" => \$entryPoint,
+        "no-blocks" => \$noBlocks,
+        ))
+{
+    usage();
+    exit 1;
+}
+
+if (defined $entryPoint)  # if option used
+{
+    die if $noBlocks;  # not relevant for Vectrex
+    die unless $entryPoint =~ /^[0-9a-f]+$/i;
+    $entryPoint = hex($entryPoint);
+    die unless $entryPoint <= 0xFFFF;
+}
+
+my $writerAddress;
+
+while (<>)  # for each line read
+{
+    #print STDERR "Line: $_";
+    die unless /^:/;  # must begin with colon
+    my $numBytes = hex(substr($_, 1, 2));  # number of bytes encoded on this line (as per Intel HEX format)
+    my $address = hex(substr($_, 3, 4));   # address where these bytes go 
+    if (!defined $firstAddress)  # if first line read
+    {
+        $firstAddress = $address;  # remember start of program
+        $writerAddress = $address; 
+    }
+    if (!defined $curBlockStart)
+    {
+        $curBlockStart = $address;
+    }
+    my $type = hex(substr($_, 7, 2));  # 00 means byte record, 01 means entry point record
+    #printf STDERR "numBytes=0x%02x, address=0x%04x, type=0x%02x\n", $numBytes, $address, $type;
+    if ($type == 0)  # if byte record
+    {
+        # If block starts later than previous block ended,
+        # we typically have advanced because of an RMB directive.
+        # If we have not advanced too much, stuff zeroes in $contents.
+        # Otherwise, start a new .BIN block.
+        #
+        #printf STDERR "address=%x, writerAddress=%x\n", $address, $writerAddress;
+        if ($address > $writerAddress && ($noBlocks || $address - $writerAddress < 16))
+        {
+            my $numPaddingBytes = $address - $writerAddress;
+            $contents .= pack("C", 0) x $numPaddingBytes;
+        }
+        elsif ($address != $writerAddress)  # if new block is not at current writing position
+        {
+            writeBlock();
+            $curBlockStart = $address;  # remember start of new block
+        }
+
+        $writerAddress = $address;
+
+        die "$writerAddress vs $address" unless $writerAddress == $address;
+
+        for (my $i = 0; $i < $numBytes; $i++)
+        {
+            $contents .= pack("C", hex(substr($_, 9 + 2 * $i, 2)));
+        }
+
+        $writerAddress += $numBytes;
+    }
+    elsif ($type == 1)  # if entry point record
+    {
+        if (!$noBlocks)
+        {
+            writeBlock();
+            print pack("Cnn", 0xFF, 0, $entryPoint || $firstAddress);
+        }
+        last;
+    }
+    else
+    {
+        die "Line $. has unknown type $type\n";
+    }
+}
+
+# Write out last block, if any.
+#
+if (length($contents) > 0)
+{
+    writeBlock();
+}
