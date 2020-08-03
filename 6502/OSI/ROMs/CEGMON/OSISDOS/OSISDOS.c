@@ -36,14 +36,15 @@ Memory Map
 
 #define READ_BUFFER_START	0xE000	/* Banked SRAM			*/
 #define WRITE_BUFFER_START	0xE200	
+#define LED_BITS_01			0xF004
 #define BANK_SELECT_REG_ADR	0xF005
 #define START_BANKED_RAM 	0xE000
-#define SD_DATA				0xF000
-#define SD_CTRL				0xF001
-#define SD_STATUS			0xF001
-#define SD_LBA0				0xF002
-#define SD_LBA1				0xF003
-#define SD_LBA2				0xF004
+#define SD_DATA				0xF010
+#define SD_CTRL				0xF011
+#define SD_STATUS			0xF011
+#define SD_LBA0				0xF012
+#define SD_LBA1				0xF013
+#define SD_LBA2				0xF014
 #define READ_COMMMAND		0x00
 #define WRITE_COMMMAND		0x01
 
@@ -91,7 +92,9 @@ void setLBA2(unsigned char lba2)
 /* waitSDCardReady - Wait for the SD Card to be ready				*/
 void waitSDCardReady(void)
 {
+	* (unsigned char *) LED_BITS_01 = 0x1;
 	while (*(unsigned char *) SD_STATUS != 0x80);
+	* (unsigned char *) LED_BITS_01 = 0x0;
 }
 
 /* waitSDCardRcvDataReady - Wait for the SD Card to have data ready	*/
