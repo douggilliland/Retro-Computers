@@ -48,23 +48,6 @@ Memory Map
 #define READ_COMMMAND		0x00
 #define WRITE_COMMMAND		0x01
 
-extern void main(void);
-extern void setLBA0(unsigned char);
-extern void setLBA1(unsigned char);
-extern void setLBA2(unsigned char);
-extern void readBlock(void);
-
-/* main - Test the SD Card interface								*/
-void main(void)
-{
-	/* Set to first bank of the banked SRAM */ 
-	*(unsigned char*) BANK_SELECT_REG_ADR = 0x00;
-	setLBA0(0);
-	setLBA1(0);
-	setLBA2(0);
-	readBlock();
-}
-
 /* issueSDCardCommand - Send read or write command to SD Card		*/
 void issueSDCardCommand(unsigned char rwCmd)
 {
@@ -152,3 +135,38 @@ void writeBlock(void)
 		writeByteToSDCard(*outBuffer++);
 	}
 }
+
+void readSector(unsigned long secNum)
+{
+	setLBA0((unsigned char)secNum);
+	setLBA1((unsigned char)(secNum>>8));
+	setLBA2((unsigned char)(secNum>>16));
+	readBlock();
+}
+
+#define BPB_RsvdSecCnt_16	14	// 14-15
+#define BPB_NumFATs_8		16
+#define BPB_FATSz32_32		36	// 36-39 0x24-0x27
+
+/* main - Test the SD Card interface								*/
+void main(void)
+{
+	unsigned long dirSectorNumber;
+	unsigned short sectorCount;
+	unsigned char numFATs;
+	unsigned long FATSz;
+	*(unsigned char*) BANK_SELECT_REG_ADR = 0x00;
+	*(unsigned long *) 0xE400 = 0xdeadbabd; /* test */
+	readSector((unsigned long)0);
+	sectorCount = * (unsigned long *) (READ_BUFFER_START + BPB_RsvdSecCnt_16);
+	numFATs = * (unsigned char *) (READ_BUFFER_START + BPB_NumFATs_8);
+	FATSz = * (unsigned long *) (READ_BUFFER_START + BPB_FATSz32_32);
+	/* numFATs = 2 */
+	dirSectorNumber = sectorCount + (FATSz << 1);	
+	*(unsigned long *) 0xE410 = dirSectorNumber;	/* 0x00000a00 			*/
+	*(unsigned short *) 0xE418 = sectorCount; 		/* 0x083a = 2106 dec	*/
+	*(unsigned char *) 0xE420 = numFATs; 			/* 0x02 = 2 dec 		*/
+	*(unsigned long *) 0xE428 = FATSz; 				/* 0x0000==E3 = 227 dec	*/
+	readSector(dirSectorNumber);
+}
+
