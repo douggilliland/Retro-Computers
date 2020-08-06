@@ -155,18 +155,16 @@ void main(void)
 	unsigned short sectorCount;
 	unsigned char numFATs;
 	unsigned long FATSz;
-	*(unsigned char*) BANK_SELECT_REG_ADR = 0x00;
-	*(unsigned long *) 0xE400 = 0xdeadbabd; /* test */
-	readSector((unsigned long)0);
+	*(unsigned char*) BANK_SELECT_REG_ADR = 0x00;	/* Set bank register to first bank */
+	readSector((unsigned long)0);		/* Master boot record at sector 0 */
+	/* Get the sector count, number of FATs, and FAt size	*/
 	sectorCount = * (unsigned long *) (READ_BUFFER_START + BPB_RsvdSecCnt_16);
 	numFATs = * (unsigned char *) (READ_BUFFER_START + BPB_NumFATs_8);
 	FATSz = * (unsigned long *) (READ_BUFFER_START + BPB_FATSz32_32);
-	/* numFATs = 2 */
+	/* Assumes that numFATs = 2 */
+	/* Do the math to find the directory sector				*/
 	dirSectorNumber = sectorCount + (FATSz << 1);	
-	*(unsigned long *) 0xE410 = dirSectorNumber;	/* 0x00000a00 			*/
-	*(unsigned short *) 0xE418 = sectorCount; 		/* 0x083a = 2106 dec	*/
-	*(unsigned char *) 0xE420 = numFATs; 			/* 0x02 = 2 dec 		*/
-	*(unsigned long *) 0xE428 = FATSz; 				/* 0x0000==E3 = 227 dec	*/
+	/* Read the directory into the bank SRAM*/
 	readSector(dirSectorNumber);
 }
 
