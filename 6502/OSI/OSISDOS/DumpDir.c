@@ -34,6 +34,7 @@ Memory Map
 
 //#include "osic1p.h"
 
+/* Hardware specific defines follow		*/
 #define READ_BUFFER_START	0xE000	/* Banked SRAM			*/
 #define WRITE_BUFFER_START	0xE200	
 #define LED_BITS_01			0xF004
@@ -47,6 +48,14 @@ Memory Map
 #define SD_LBA2				0xF014
 #define READ_COMMMAND		0x00
 #define WRITE_COMMMAND		0x01
+
+/* SD Card specific defines follow		*/
+#define BPB_SecPerClus_OFFSET		13
+#define BPB_RsvdSecCnt_16_OFFSET	14	// 14-15
+#define BPB_NumFATs_8_OFFSET		16
+#define BPB_FATSz32_32_OFFSET		36	// 36-39 0x24-0x27
+#define DIR_FstClusHI_16_OFFSET		20
+#define DIR_FstClusLo_16_OFFSET		26
 
 /* Globals		 */
 unsigned char	BPB_SecPerClus_8;
@@ -63,24 +72,6 @@ unsigned long	fileSectorNum_32;
 void issueSDCardCommand(unsigned char rwCmd)
 {
 	*(unsigned char *) SD_CTRL = rwCmd;
-}
-
-/* setLBA0 - Set the least significant logical block address bits	*/
-void setLBA0(unsigned char lba0)
-{
-	*(unsigned char *) SD_LBA0 = lba0;
-}
-
-/* setLBA1 - Set the middle 8 bits of the logical block addr bits	*/
-void setLBA1(unsigned char lba1)
-{
-	*(unsigned char *) SD_LBA1 = lba1; 
-}
-
-/* setLBA2 - Set the upper 8 bits of the logical block addr bits	*/
-void setLBA2(unsigned char lba2)
-{
-	*(unsigned char *) SD_LBA2 = lba2;
 }
 
 /* waitSDCardReady - Wait for the SD Card to be ready				*/
@@ -133,11 +124,16 @@ void readBlock(void)
 	}
 }
 
-/* writeBlock - Write a block to the SD Card						*/
-void writeBlock(void)
+/* writeBlock - Write a block to the SD Card							*/
+/* secNum is the sector number											*/
+void writeBlock(unsigned long secNum)
 {
 	unsigned short loopCount;
 	unsigned char * outBuffer;
+	/* The SD Card controller needs the three LBA registers to be written	*/
+	*(unsigned char *) SD_LBA0 = (unsigned char) secNum;
+	*(unsigned char *) SD_LBA1 = (unsigned char) (secNum>>8);
+	*(unsigned char *) SD_LBA2 = (unsigned char) (secNum>>16);
 	outBuffer = (unsigned char *) WRITE_BUFFER_START;
 	waitSDCardReady();
 	issueSDCardCommand(WRITE_COMMMAND);
@@ -147,11 +143,14 @@ void writeBlock(void)
 	}
 }
 
+/* Read in a sector to the Bank SRAM									*/
+/* secNum is the sector number											*/
 void readSector(unsigned long secNum)
 {
-	setLBA0((unsigned char)secNum);
-	setLBA1((unsigned char)(secNum>>8));
-	setLBA2((unsigned char)(secNum>>16));
+	/* The SD Card controller needs the three LBA registers to be written	*/
+	*(unsigned char *) SD_LBA0 = (unsigned char) secNum;
+	*(unsigned char *) SD_LBA1 = (unsigned char) (secNum>>8);
+	*(unsigned char *) SD_LBA2 = (unsigned char) (secNum>>16);
 	readBlock();
 }
 
@@ -161,12 +160,6 @@ void setSRAMBank(unsigned char bankNum)
 	*(unsigned char*) BANK_SELECT_REG_ADR = bankNum;
 }
 
-#define BPB_SecPerClus_OFFSET		13
-#define BPB_RsvdSecCnt_16_OFFSET	14	// 14-15
-#define BPB_NumFATs_8_OFFSET		16
-#define BPB_FATSz32_32_OFFSET		36	// 36-39 0x24-0x27
-#define DIR_FstClusHI_16_OFFSET		20
-#define DIR_FstClusLo_16_OFFSET		26
 #define HARD_CODED_FILE_NUMBER		4	// Hard coded for the 4th file
 
 /* main - Test the SD Card interface								*/
