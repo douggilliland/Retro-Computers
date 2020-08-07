@@ -193,5 +193,6 @@ void main(void)
 	fileSectorNum_32	= fileSectorNum_32	+ DIR_FstClusLo_16;
 	fileSectorNum_32	= (fileSectorNum_32 + - 2) * BPB_SecPerClus_8;
 	fileSectorNum_32	= fileSectorNum_32 + firstDataSectorNum_32;
-	readSector(fileSectorNum_32);	
+	readSector(fileSectorNum_32);
+	/* First 512 bytes of the file are in the Banked SRAM	*/
 }
