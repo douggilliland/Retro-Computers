@@ -166,7 +166,7 @@ void setSRAMBank(unsigned char bankNum)
 void main(void)
 {
 	setSRAMBank(0);		/* Set bank register to first bank */
-	readSector(0L);		/* Master boot record at sector 0 */
+	readSector(0UL);		/* Master boot record at sector 0 */
 	/* Get the sector count, number of FATs, and FAT size	*/
 	BPB_RsvdSecCnt_16	= * (unsigned long *) (READ_BUFFER_START + BPB_RsvdSecCnt_16_OFFSET);
 	BPB_NumFATs_8		= * (unsigned char *) (READ_BUFFER_START + BPB_NumFATs_8_OFFSET);
