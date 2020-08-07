@@ -148,23 +148,29 @@ void readSector(unsigned long secNum)
 #define BPB_NumFATs_8		16
 #define BPB_FATSz32_32		36	// 36-39 0x24-0x27
 
+/* 16 banks of 4KB each in memory map from 0xE000-0xEFFF	*/
+void setSRAMBank(unsigned char bankNum)
+{
+	*(unsigned char*) BANK_SELECT_REG_ADR = bankNum;
+}
+
 /* main - Test the SD Card interface								*/
 void main(void)
 {
-	unsigned long dirSectorNumber;
+	unsigned long dirSectorySectorNumber;
 	unsigned short sectorCount;
 	unsigned char numFATs;
 	unsigned long FATSz;
-	*(unsigned char*) BANK_SELECT_REG_ADR = 0x00;	/* Set bank register to first bank */
-	readSector((unsigned long)0);		/* Master boot record at sector 0 */
+	setSRAMBank(0);					/* Set bank register to first bank */
+	readSector((unsigned long)0);	/* Master boot record at sector 0 */
+	/* Read the directory into the bank SRAM*/
 	/* Get the sector count, number of FATs, and FAt size	*/
 	sectorCount = * (unsigned long *) (READ_BUFFER_START + BPB_RsvdSecCnt_16);
 	numFATs = * (unsigned char *) (READ_BUFFER_START + BPB_NumFATs_8);
 	FATSz = * (unsigned long *) (READ_BUFFER_START + BPB_FATSz32_32);
 	/* Assumes that numFATs = 2 */
 	/* Do the math to find the directory sector				*/
-	dirSectorNumber = sectorCount + (FATSz << 1);	
-	/* Read the directory into the bank SRAM*/
-	readSector(dirSectorNumber);
+	dirSectorySectorNumber = sectorCount + (FATSz << 1);
+	/* read the directory 		*/
+	readSector(dirSectorySectorNumber);
 }
-
