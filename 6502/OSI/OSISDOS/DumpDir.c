@@ -162,23 +162,10 @@ void setSRAMBank(unsigned char bankNum)
 
 #define HARD_CODED_FILE_NUMBER		4	// Hard coded for the 4th file
 
-/* main - Test the SD Card interface								*/
-void main(void)
+void readFile(unsigned short fileNumber)
 {
-	setSRAMBank(0);		/* Set bank register to first bank */
-	readSector(0UL);		/* Master boot record at sector 0 */
-	/* Get the sector count, number of FATs, and FAT size	*/
-	BPB_RsvdSecCnt_16	= * (unsigned long *) (READ_BUFFER_START + BPB_RsvdSecCnt_16_OFFSET);
-	BPB_NumFATs_8		= * (unsigned char *) (READ_BUFFER_START + BPB_NumFATs_8_OFFSET);
-	BPB_FATSz32_32		= * (unsigned long *) (READ_BUFFER_START + BPB_FATSz32_32_OFFSET);
-	BPB_SecPerClus_8	= * (unsigned long *) (READ_BUFFER_START + BPB_SecPerClus_OFFSET);
-	/* Assumes that BPB_NumFATs_8 = 2 */
-	/* Do the math to find the directory sector				*/
-	firstDataSectorNum_32 = BPB_RsvdSecCnt_16 + (BPB_FATSz32_32 << 1);
-	/* Read the directory into the banked SRAM	*/
-	readSector(firstDataSectorNum_32);
 	/* First 512 bytes of the directory is now in the Banked SRAM	*/
-	fileNumber = HARD_CODED_FILE_NUMBER;	/* File table has 32 values for each file	*/
+	/* File table has 32 values for each file	*/
 	DIR_FstClusHI_16	= * (unsigned short *) (READ_BUFFER_START + (fileNumber << 5) + DIR_FstClusHI_16_OFFSET);
 	DIR_FstClusLo_16	= * (unsigned short *) (READ_BUFFER_START + (fileNumber << 5) + DIR_FstClusLo_16_OFFSET);
 	fileSectorNum_32	= DIR_FstClusHI_16;
@@ -187,5 +174,27 @@ void main(void)
 	fileSectorNum_32	= (fileSectorNum_32 + - 2) * BPB_SecPerClus_8;
 	fileSectorNum_32	= fileSectorNum_32 + firstDataSectorNum_32;
 	readSector(fileSectorNum_32);
+}
+
+#define MBR_SECTOR_NUMBER	0UL
+
+/* main - Test the SD Card interface								*/
+void main(void)
+{
+	setSRAMBank(0);						/* Set bank register to first bank */
+	readSector(MBR_SECTOR_NUMBER);		/* Master boot record at sector 0 */
+	/* Get the sector count, number of FATs, FAT size, and Sectors per cluster values from the MBR	*/
+	BPB_RsvdSecCnt_16	= * (unsigned long *) (READ_BUFFER_START + BPB_RsvdSecCnt_16_OFFSET);
+	BPB_NumFATs_8		= * (unsigned char *) (READ_BUFFER_START + BPB_NumFATs_8_OFFSET);
+	BPB_FATSz32_32		= * (unsigned long *) (READ_BUFFER_START + BPB_FATSz32_32_OFFSET);
+	BPB_SecPerClus_8	= * (unsigned long *) (READ_BUFFER_START + BPB_SecPerClus_OFFSET);
+	/* Do the math to find the directory sector					*/
+	/* Assumes that BPB_NumFATs_8 = 2 (left shift by one below)	*/
+	firstDataSectorNum_32 = BPB_RsvdSecCnt_16 + (BPB_FATSz32_32 << 1);
+	/* Read the first sector of the directory into the banked SRAM	*/
+	readSector(firstDataSectorNum_32);
+	/* Read in the 4th file from the directory	*/
 	/* First 512 bytes of the file are in the Banked SRAM	*/
+	readFile(HARD_CODED_FILE_NUMBER);
+	/* Exits to the CEGMON prompt				*/
 }
