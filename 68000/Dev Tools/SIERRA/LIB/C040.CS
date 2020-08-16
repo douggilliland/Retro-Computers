@@ -1,0 +1,9 @@
+=X
+I:
+C: C:\SIERRA\BIN\COM020 -Qp40 %i %o
+S: C:\SIERRA\BIN\ASM68 -lAQ %f
+O: C:\SIERRA\BIN\LINK68 -QT0X5000 %f -x040 C:\SIERRA\LIB\~CRT167 %i \
+#                       C:\SIERRA\LIB\LIBM.040 \
+                        C:\SIERRA\LIB\LIBC.040
++ABS: C:\SIERRA\BIN\ABS68
++LOAD: C:\SIERRA\BIN\SLDR
