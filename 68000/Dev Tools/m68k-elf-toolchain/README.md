@@ -20,22 +20,6 @@ Right now these tools are build:
 sudo apt install make git gcc g++ lhasa libgmp-dev libmpfr-dev libmpc-dev flex gettext texinfo
 ```
 
-### Windows with Cygwin
-Install cygwin via setup.exe and add wget. Then open cygwin shell and run:
-
-```
-wget https://raw.githubusercontent.com/transcode-open/apt-cyg/master/apt-cyg
-install apt-cyg /bin
-apt-cyg install gcc-core gcc-g++ python git perl-Pod-Simple gperf patch automake make makedepend bison flex libncurses-devel python-devel gettext-devel libgmp-devel libmpc-devel libmpfr-devel
-```
-
-### Windows with MSYS2/MinGW
-Install then open the shell and run:
-
-```
-pacman -S vim git tar unzip bison texinfo gettext libtool autoconf automake gcc make wget patch rsync flex ncurses-devel
-```
-
 ## Download needed source files
 
 ```
@@ -80,7 +64,7 @@ or
 make all PREFIX=c:\\m68k-elf
 ```
 
-
+I modified the Makefile to set the PWD variable to the path I was installing from.
 
 ## Building
 Simply run `make all`. Also add -j to speedup the build.
