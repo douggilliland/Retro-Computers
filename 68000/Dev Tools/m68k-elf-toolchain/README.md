@@ -1,9 +1,11 @@
 # m68k elf gcc
-The GNU C-Compiler with Binutils and other useful tools for cross development
+The GNU C-Compiler with Binutils and other useful tools for 68000 cross development
 
 This is a Makefile based approach to build the toolchain to reduce the build time.
 
-Right now these tools are build:
+The original work was by Steve Moody https://github.com/SteveMoody73/m68k-elf-toolchain
+
+These tools are build:
 * binutils
 * gcc with libs for C/C++/ObjC
 * vasm
@@ -15,7 +17,7 @@ Right now these tools are build:
 # Short Guide
 ## Prerequisites
 
-### Ubuntu
+### Linux Mint
 ```
 sudo apt install make git gcc g++ lhasa libgmp-dev libmpfr-dev libmpc-dev flex gettext texinfo
 ```
@@ -55,16 +57,8 @@ The default prefix is `/opt/m68k-elf`. You may specify a different prefix by add
 ```
 make all PREFIX=/opt/m68k
 ```
-If building using MSYS2/MinGW windows paths can be specified as follows.
-```
-make all PREFIX=c:/m68k-elf
-```
-or
-```
-make all PREFIX=c:\\m68k-elf
-```
 
-I modified the Makefile to set the PWD variable to the path I was installing from.
+Note: I modified Steve's Makefile to set the PWD variable to the path I was installing from.
 
 ## Building
 Simply run `make all`. Also add -j to speedup the build.
