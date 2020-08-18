@@ -24,6 +24,7 @@ sudo apt install make git gcc g++ lhasa libgmp-dev libmpfr-dev libmpc-dev flex g
 
 ## Download needed source files
 
+I modified the Makefile to set the PWD. https://github.com/douggilliland/Retro-Computers/blob/master/68000/Dev%20Tools/m68k-elf-toolchain/Makefile
 ```
 git clone https://github.com/SteveMoody73/m68k-elf-toolchain
 cd m68k-elf-toolchain
