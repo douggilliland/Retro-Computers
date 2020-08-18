@@ -1,4 +1,4 @@
-# m68k elf gcc
+# Building the m68k elf GCC Cross compiler on a linux box
 The GNU C-Compiler with Binutils and other useful tools for 68000 cross development
 
 This is a Makefile based approach to build the toolchain to reduce the build time.
