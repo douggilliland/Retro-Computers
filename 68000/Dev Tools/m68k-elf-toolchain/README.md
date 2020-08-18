@@ -17,7 +17,7 @@ These tools are build:
 # Short Guide
 ## Prerequisites
 
-### Linux Mint
+### Built on Linux Mint 19.2 Tuna Running in VirtualBox
 ```
 sudo apt install make git gcc g++ lhasa libgmp-dev libmpfr-dev libmpc-dev flex gettext texinfo
 ```
@@ -61,8 +61,9 @@ make all PREFIX=/opt/m68k
 Note: I modified Steve's Makefile to set the PWD variable to the path I was installing from.
 
 ## Building
-Simply run `make all`. Also add -j to speedup the build.
+Simply run `make all`
 
+## Did not do the following lines
 ```
 make clean
 make clean-prefix
