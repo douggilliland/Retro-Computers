@@ -1,0 +1,24 @@
+
+	ORG	$50
+
+* BCHG
+
+	BCHG.L	D4,D6
+	BCHG.B	#6,$900
+
+* BCLR
+
+	BCLR.L	D4,D6
+	BCLR.B	#6,$900
+
+* BSET
+
+	BSET.L	D4,D6
+	BSET.B	#6,$900
+
+* BTST
+
+	BTST.L	D4,D6
+	BTST.B	#6,$900
+
+

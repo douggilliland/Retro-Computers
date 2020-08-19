@@ -1,0 +1,132 @@
+
+	org	$50
+
+* ADD
+
+	ADD.L	D7,(A0)
+	ADD.L	#12345678,(A4)+
+	ADD.B	D2,D0
+	ADD.W	A0,D6
+
+* ADDA
+
+	ADDA.W	#$1234,A4
+	ADDA.L	(A5)+,A0
+
+* ADDI
+
+	ADDI.B	#$12,D7
+	ADDI.W	#$ABCD,(A2)+
+	ADDI.L	#$12345678,$900
+
+* ADDQ
+
+	ADDQ.B	#7,D1
+	ADDQ.W	#2,A5
+	ADDQ.L	#4,$900
+
+* ADDX
+
+	ADDX.B	D1,D2
+	ADDX.W	-(A1),-(A4)
+	ADDX.L	D7,D6
+
+* SUB
+
+	SUB.L	D7,(A0)
+	SUB.L	#12345678,(A4)+
+	SUB.B	D2,D0
+	SUB.W	A0,D6
+
+* SUBA
+
+	SUBA.W	#$1234,A4
+	SUBA.L	(A5)+,A0
+
+* SUBI
+
+	SUBI.B	#$12,D7
+	SUBI.W	#$ABCD,(A2)+
+	SUBI.L	#$12345678,$900
+
+* SUBQ
+
+	SUBQ.B	#7,D1
+	SUBQ.W	#2,A5
+	SUBQ.L	#4,$900
+
+* SUBX
+
+	SUBX.B	D1,D2
+	SUBX.W	-(A1),-(A4)
+	SUBX.L	D7,D6
+
+* DIVS
+
+	DIVS	$900,D1
+
+* DIVU
+
+	DIVU	$900,D1
+
+* MULS
+
+	MULS	$900,D1
+
+* MULU
+
+	MULU	$900,D1
+
+* NEG
+
+	NEG.B	D1
+	NEG.W	$900
+	NEG.L	(A1)
+
+* NEGX
+
+	NEGX.B	D1
+	NEGX.W	$900
+	NEGX.L	(A1)
+
+* CMP
+
+	CMP.B	D1,D4
+	CMP.W	A2,D6
+	CMP.L	$900,D7
+
+* CMPA
+
+	CMP.W	A2,A6
+	CMP.L	$900,A1
+
+* CMPI
+
+	CMPI.B	#$FF,(A1)
+	CMPI.W	#$FFFF,D2
+	CMPI.L	#$FFFFFFFF,$900
+
+* CMPM
+
+	CMPM.B	(A1)+,(A2)+
+	CMPM.W	(A1)+,(A2)+
+	CMPM.L	(A1)+,(A2)+
+
+* TST
+
+	TST.B	D1
+	TST.W	(A4)+
+	TST.L	$900
+
+* CLR
+
+	CLR.B	D2
+	CLR.W	(A1)
+	CLR.L	-(A2)
+
+* EXT
+
+	EXT.W	D1
+	EXT.L	D6
+
+
