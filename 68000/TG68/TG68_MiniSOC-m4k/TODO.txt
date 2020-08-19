@@ -1,0 +1,281 @@
+| Adjustable memory configuration.  Suggest a hardware register which allows the firmware to read hardware capabilities.
+| HWCAP
+| 	bits 7 downto 0 : Available memory: 2^n meg, so for 3 for an 8-meg board, 5 for a 32-meg board.
+| 	bit 8 : soft off, 1 for cyclone 3 board, 0 for DE1.
+
+| Abstract out some of the hardware into platform-specific modules, so that each platform has an XXXProject and XXXRTL directory,
+| so that multiple platforms can be build from one source tree.
+
+| Adjust video output and move dithering into the board-specific section.
+| 8-bits per gun, and a vid_ena flag which we can delay to match the dither circuit.
+
+| CPU cache - both instruction and data.
+| (Discrete cachelines, and just one of each, or use a monolithic cache block?  The latter will be resource-hungry.)
+| DONE:  Just a single 4-word block for each direction, both read and write:
+| Extend: separate data read and instruction cache?
+
+| DONE Writeback cache - to allow (a) the CPU to continue working while a write is in progress, and (b) to gang sequential
+| writes into a single burst write.
+| (Need to store the UDS/LDS bits along with the data.)
+
+Sprite controller
+|DONE Just one sprite, can be 2 planes at 32 pixels wide, or 4 planes at 16 pixels wide.
+Need a colourtable of sorts.
+| Alternatively, make the sprite 1-bit or even 2-bit truecolour?  (Implemented 1-bit ARGB for now
+If we make the sprite 16 pixels wide, and devote four bits to each pixel (ARGB, where a signals transparency) then each sprite
+will require a single 4-word burst per scanline.  (Then again, if we're going to devote 4 bits per pixel to the sprite, we might as well
+used indexed colour and have 15-colour sprites.)
+
+A 1-bit truecolour pointer might look like this:
+"CF00000000000000",
+"8CFFF00000000000",
+"08CCFFF000000000",
+"08CCCCFFFF000000",
+"088CCCCCCFFF0000",
+"008CCCCCCCC80000",
+"0088CCCCCC800000",
+"0008CCCCCF000000",
+"0008CCCCCCF00000",
+"00088CC8CCCF0000",
+"00008C808CCCF000",
+"0000880008CCCF00",
+"00000000008CCCF0",
+"000000000008CCC8",
+"0000000000008C80",
+"0000000000000800"};
+
+| DONE Need to enhance the VGA controller with a "Request imminent" signal so the SDRAM controller can allow slot2 access to "nextbank".
+
+| Need a DMA controller to handle sprite, audio, etc.  Will use the same slots as the VGA controller, but operate during the blanking period.
+| Should cache data, possibly using a blockram if there end up being enough channels.  In other respects it'll end up looking very much like
+| the VGA cache.  So perhaps it should be blockram based and subsume the VGA cache?
+
+| DONE Implemented a single DMA channel for the single sprite - not yet blockram based.
+| DONE Implemented blockram based DMA cache.
+
+
+Multiple screenmodes.
+ -> 8bit
+ -> lowres - perhaps separate the pixel clock division from the sync generation; then mutiple horizontal resolutions become easily accessible.
+ -> scandoubled?
+ -> PAL?
+ -> VBlank interrupt?
+
+| DONE Interrupt controller.  Need to handle corner-cases better than currently, where a high-priority int occurs during the acknowledge cycle.
+
+| SD card interface.  Looks reasonably simple - just have to take care of multiple clock rates.
+(DMA makes things a little more complicated)?  
+
+| PS/2 controller
+| Borrow from Chameleon project - do just the hardware transport in FPGA, handle the rest in interrupt code on the TG68.
+
+| UART - will make debugging much easier.  Need to allow upload of program code over RS232.  XMODEM?  SHould at least have ready-made software support.
+| (How to build a suitable binary?  Objdump?)
+| (Done - used s-records in the finish)
+
+Hardware registers for framebuffer address
+| DONE - address
+To do: odd and even modulos,
+Display size and timings
+Needs to wait until the DMA controller works properly.
+
+| Sprite pointer, xpos, ypos and height.  Palette?  15 16-bit words?  Or an M4K?
+
+
+| Sound?
+| Delta-Sigma controller?  R2R ladder output, maybe 2 or 3 bits, with delta-sigma or even PWM to cover the lower bits?
+| R2R doesn't seem to buy much.
+
+Blitter?
+Hardware line drawing?  Triangle fill?
+Rectangle fill?
+Hardware bit packing/filling for the framebuffer would be useful, since creating 5-6-5 RGB pixels
+is actually pretty slow on 68K due to the shifts.
+move.w	#$XXRR,XR		(Actually RRGG, BBXX might be better)
+move.w	#$GGBB,GB
+or even
+move.b	#$RR,R
+move.b	#$GG,G
+move.b	#$BB,B
+where XR, GB, R, G and B are hardware registers.
+Upon write of B or GB, the registers will be bit-packed into a 5-6-5 16-bit word and prepared for write.
+
+Write cache needs a "More to come" signal to prevent it writing out an incompletely filled line.
+
+Explore the possibility of using an SPI Ethernet controller.
+
+
+Blockram-based DMA cache:
+
+Read DMA channels are needed for:
+VGA
+Sprites
+Audio
+Disk writes
+???
+
+Write DMA channels are needed for:
+Blitter
+Disk Reads
+
+
+
+entity dmacache is
+	port(
+		clk : in std_logic;
+		reset_n : in std_logic;
+		-- DMA channel address strobes
+		addr_in : in std_logic_vector(31 downto 0);
+		req_length : unsigned(11 downto 0);
+		setaddr_vga : in std_logic;
+		setaddr_sprite0 : in std_logic;
+		setaddr_audio0 : in std_logic;
+		setaddr_audio1 : in std_logic;
+
+		-- Read requests
+		req_vga : in std_logic;
+		req_sprite0 : in std_logic;
+		req_audio0 : in std_logic;
+		req_audio1 : in std_logic;
+
+		-- DMA channel output and valid flags.
+		data_out : out std_logic_vector(15 downto 0);
+		valid_vga : out std_logic;
+		valid_sprite0 : out std_logic;
+		valid_audio0 : out std_logic;
+		valid_audio1 : out std_logic
+	);
+end entity;
+
+-- Need to partition up the 512 words we have available.
+-- Each channel needs to have a read and write pointer; neither pointer may cross the other.
+-- 32 words per channel to start with?
+-- While data's being displayed the VGA channel will have absolute priority and it's entirely possible the others
+-- won't get a look-in.
+
+-- For each channel maintain both a wrptr and wrptr_next, which will of course be maintained as wrptr+1.
+-- That way we can compare against wrptr when reading, and wrptr_next when writing, and avoid messy
+-- arithmetic when comparing.
+-- Note that reads will arrive in bursts of four words, so need to compare based on lower granularity when writing
+-- if reset_n='0' then 
+--	set wrptrs to 0
+--  set wrptr_nexts to 1
+--  set rdptrs to 0
+-- end if;
+
+-- Use a state machine for output:
+ case outputstate is
+	when vga =>
+		valid_vga<=1;
+	when sprite0 =>
+		valid_sprite0<=1;
+-- etc...
+
+--if req_vga='1' and vga_rdptr /= vga_wrptr then
+--	outputstate<=vga;
+--	rdaddress<=vga_base+vga_rdptr;
+--	vga_rdptr<=vga_rdptr+1;
+--elsif req_sprite0='1' and not spr0_rdptr = spr0_wrptr then
+-- ..
+
+-- Employ bank reserve for SDRAM.
+if vgacount/=X"000" then
+	sdram_reservebank<='1';
+	-- Write reserve address here.
+end if;
+
+-- Request and receive data from SDRAM:
+case inputstate is
+	when read =>
+		if vga_rdptr(5 downto 2)/=vga_writeptr_next(5 downto 2) and vgacount/=X"000" then
+			cache_writeaddr<=vga_base+vga_writeptr;
+			sdram_req<='1';
+			sdram_addr<=vga_reqaddr;
+			vga_reqaddr<=vga_reqaddr+8;
+			inputstate<=rcv1;
+			update<=vga;
+		end if;
+		-- FIXME - other channels here
+	when rcv1 =>
+		data<=sdram_data;
+		wren<='1';
+		inputstate<=rcv2;
+	when rcv2 =>
+		data<=sdram_data;
+		wren<='1';
+		inputstate<=rcv3;
+	when rcv3 =>
+		data<=sdram_data;
+		wren<='1';
+		inputstate<=rcv4;
+	when rcv4 =>
+		data<=sdram_data;
+		wren<='1';
+		inputstate<=read;
+		case update is
+			when vga =>
+				vga_writeptr<=vga_writeptr+4;
+				vga_writeptr_next<=vga_writeptr_next+4;
+		-- FIXME - other channels here
+			when others =>
+				null;
+		end case;
+	when others =>
+		null;
+end case;
+
+-- Handle timeslicing of output registers
+-- We prioritise simply by testing in order of priority.
+-- req signals should always be a single pulse; need to latch all but VGA, since it may be several
+-- cycles since they're serviced.
+
+if spr0_req='1' then
+	spr0_pending='1';
+end if;
+if audio0_req='1' then
+	audio0_pending='1';
+end if;
+
+
+if vga_req='1' -- and vga_rdptr/=vga_wrptr then -- This test should never fail.
+	rdaddress<=vga_rdptr;
+	vga_rdptr<=vga_rdptr+1;
+	vga_ack<='1';
+elsif spr0_pending='1' and spr0_rdptr/=spr0_wrptr then
+	rdaddress<=spr0_rdptr;
+	spr0_rdptr<=spr0_rdptr+1;
+	spr0_ack<='1';
+	spr0_pending<='0';
+elseif audio0_pending='1'; and audio0_rdptr/=audio0_wrptr then
+	rdaddress<=audio0_rdptr;
+	audio0_rdptr<=audio0_rdptr+1;
+	audio0_ack<='1';
+	audio0_pending<='0';
+end if;
+	
+
+case outputstate is
+	when vga =>
+		
+
+architecture rtl of dmacache is
+	signal cache_readaddr : std_logic_vector(8 downto 0);
+	signal cache_writeaddr : std_logic_vector(8 downto 0);
+
+begin
+
+myDMACacheRAM : entity DMACacheRAM
+	port map
+	(
+		clock		: IN STD_LOGIC  := '1';
+		data		: IN STD_LOGIC_VECTOR (15 DOWNTO 0);
+		rdaddress		: IN STD_LOGIC_VECTOR (7 DOWNTO 0);
+		wraddress		: IN STD_LOGIC_VECTOR (7 DOWNTO 0);
+		wren		: IN STD_LOGIC  := '0';
+		q		: OUT STD_LOGIC_VECTOR (15 DOWNTO 0)
+	);
+END DMACache;
+
+
+end architecture
+

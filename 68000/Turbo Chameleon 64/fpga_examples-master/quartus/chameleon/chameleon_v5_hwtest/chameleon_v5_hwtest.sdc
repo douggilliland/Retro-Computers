@@ -1,0 +1,21 @@
+set_time_format -unit ns -decimal_places 3
+create_clock -period 125.000 [get_ports {clk8}]
+derive_pll_clocks
+set_output_delay -clock {pllInstance|altpll_component|auto_generated|pll1|clk[0]} 4.000 red[*]
+set_output_delay -clock {pllInstance|altpll_component|auto_generated|pll1|clk[0]} 4.000 grn[*]
+set_output_delay -clock {pllInstance|altpll_component|auto_generated|pll1|clk[0]} 4.000 blu[*]
+set_output_delay -clock {pllInstance|altpll_component|auto_generated|pll1|clk[0]} 4.000 nHSync
+set_output_delay -clock {pllInstance|altpll_component|auto_generated|pll1|clk[0]} 4.000 nVSync
+set_output_delay -clock {pllInstance|altpll_component|auto_generated|pll1|clk[0]} 4.000 mux[*]
+set_output_delay -clock {pllInstance|altpll_component|auto_generated|pll1|clk[0]} 4.000 mux_d[*]
+set_output_delay -clock {pllInstance|altpll_component|auto_generated|pll1|clk[3]} 4.000 sd_clk
+set_output_delay -clock {pllInstance|altpll_component|auto_generated|pll1|clk[2]} 4.000 sd_addr[*]
+set_output_delay -clock {pllInstance|altpll_component|auto_generated|pll1|clk[2]} 4.000 sd_we_n
+set_output_delay -clock {pllInstance|altpll_component|auto_generated|pll1|clk[2]} 4.000 sd_ras_n
+set_output_delay -clock {pllInstance|altpll_component|auto_generated|pll1|clk[2]} 4.000 sd_cas_n
+set_output_delay -clock {pllInstance|altpll_component|auto_generated|pll1|clk[2]} 4.000 sd_ba_0
+set_output_delay -clock {pllInstance|altpll_component|auto_generated|pll1|clk[2]} 4.000 sd_ba_1
+set_output_delay -clock {pllInstance|altpll_component|auto_generated|pll1|clk[2]} 4.000 sd_ldqm
+set_output_delay -clock {pllInstance|altpll_component|auto_generated|pll1|clk[2]} 4.000 sd_udqm
+set_output_delay -clock {pllInstance|altpll_component|auto_generated|pll1|clk[2]} 4.000 sd_data[*]
+set_input_delay -clock {pllInstance|altpll_component|auto_generated|pll1|clk[2]}  4.000 sd_data[*]
