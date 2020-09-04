@@ -14,23 +14,22 @@ entity C5BoardToplevel is
 port(
 		clk_50 	: in 	std_logic;
 		reset_n : in 	std_logic;
-		led_out : out 	std_logic;
-		btn1 : in std_logic;
-		btn2 : in std_logic;
+		--led_out : out 	std_logic;
+--		btn1 : in std_logic;
+--		btn2 : in std_logic;
 
 		-- SDRAM - chip 1
-		sdram_clk : out std_logic; -- Different name format to escape wildcard in SDC file
-		sdram_addr : out std_logic_vector(12 downto 0);
-		sdram_data : inout std_logic_vector(15 downto 0);
-		sdram_ba : out std_logic_vector(1 downto 0);
-		sdram_cke : out std_logic;
-		--sdram_dqa : out std_logic;
-		sdram_cs : out std_logic;
-		sdram_we : out std_logic;
-		sdram_cas : out std_logic;
-		sdram_ras : out std_logic;
-		DRAM_LDQM		:	 out STD_LOGIC;
-		DRAM_UDQM		:	 out STD_LOGIC;
+		o_sdram_clk		: out std_logic; -- Different name format to escape wildcard in SDC file
+		o_sdram_addr	: out std_logic_vector(12 downto 0);
+		io_sdram_data	: inout std_logic_vector(15 downto 0);
+		o_sdram_ba		: out std_logic_vector(1 downto 0);
+		o_sdram_cke		: out std_logic;
+		o_sdram_cs		: out std_logic;
+		o_sdram_we		: out std_logic;
+		o_sdram_cas		: out std_logic;
+		o_sdram_ras		: out std_logic;
+		o_sdram_ldqm	: out STD_LOGIC;
+		o_sdram_udqm	: out STD_LOGIC;
 
 		-- SDRAM - chip 2
 		-- VGA
@@ -52,14 +51,25 @@ port(
 		aud_r : out std_logic;
 		
 		-- RS232
-		rs232_rxd : in std_logic;
-		rs232_txd : out std_logic;
+		rs232_rxd	: in std_logic;
+		rs232_txd	: out std_logic;
+		n_cts			: in std_logic := '0';
+		n_rts			: out std_logic := '0';
 
 		-- SD card interface
 		sd_cs : out std_logic;
 		sd_miso : in std_logic;
 		sd_mosi : out std_logic;
 		sd_clk : out std_logic;
+		
+		IO_PIN : out std_logic_vector(48 downto 15);
+		
+		-- External SRAM Not used but assigning pins so it's not active
+		sramData		: inout std_logic_vector(7 downto 0);
+		sramAddress	: out std_logic_vector(19 downto 0) := X"00000";
+		n_sRamWE		: out std_logic := '1';
+		n_sRamCS		: out std_logic := '1';
+		n_sRamOE		: out std_logic := '1';
 		
 		-- Power and LEDs
 		power_button : in std_logic;
@@ -125,9 +135,9 @@ signal vga_g : unsigned(7 downto 0);
 signal vga_b : unsigned(7 downto 0);
 signal vga_window : std_logic;
 
-signal W_vga_red : unsigned(5 downto 0);
-signal W_vga_grn : unsigned(5 downto 0);
-signal W_vga_blu : unsigned(5 downto 0);
+--signal W_vga_red : unsigned(5 downto 0);
+--signal W_vga_grn : unsigned(5 downto 0);
+--signal W_vga_blu : unsigned(5 downto 0);
 
 signal audio_l : signed(15 downto 0);
 signal audio_r : signed(15 downto 0);
@@ -145,23 +155,66 @@ END COMPONENT;
 
 begin
 
-	vga_red <= W_vga_red(5)&W_vga_red(4);
-	vga_green <= W_vga_grn(5)&W_vga_grn(4);
-	vga_blue <= W_vga_blu(5)&W_vga_blu(4);
+--	IO_PIN(3) <= '0';
+--	IO_PIN(4) <= '0';
+--	IO_PIN(5) <= '0';
+--	IO_PIN(6) <= '0';
+--	IO_PIN(7) <= '0';
+--	IO_PIN(8) <= '0';
+--	IO_PIN(9) <= '0';
+--	IO_PIN(10) <= '0';
+--	IO_PIN(11) <= '0';
+--	IO_PIN(12) <= '0';
+--	IO_PIN(13) <= '0';
+--	IO_PIN(14) <= '0';
+	IO_PIN(15) <= '0';
+	IO_PIN(16) <= '0';
+	IO_PIN(17) <= '0';
+	IO_PIN(18) <= '0';
+	IO_PIN(19) <= '0';
+	IO_PIN(20) <= '0';
+	IO_PIN(21) <= '0';
+	IO_PIN(22) <= '0';
+	IO_PIN(23) <= '0';
+	IO_PIN(24) <= '0';
+	IO_PIN(25) <= '0';
+	IO_PIN(26) <= '0';
+	IO_PIN(27) <= '0';
+	IO_PIN(28) <= '0';
+	IO_PIN(29) <= '0';
+	IO_PIN(30) <= '0';
+	IO_PIN(31) <= '0';
+	IO_PIN(32) <= '0';
+	IO_PIN(33) <= '0';
+	IO_PIN(34) <= '0';
+	IO_PIN(35) <= '0';
+	IO_PIN(36) <= '0';
+	IO_PIN(37) <= '0';
+	IO_PIN(38) <= '0';
+	IO_PIN(39) <= '0';
+	IO_PIN(40) <= '0';
+	IO_PIN(41) <= '0';
+	IO_PIN(42) <= '0';
+	IO_PIN(43) <= '0';
+	IO_PIN(44) <= '0';
+	IO_PIN(45) <= '0';
+	IO_PIN(46) <= '0';
+	IO_PIN(47) <= '0';
+	IO_PIN(48) <= '0';
 	
-	mybtn1: entity work.Debounce
-		port map(
-		clk => clk,
-		signal_in => btn1,
-		signal_out => btn1_d
-	);
-
-	mybtn2: entity work.Debounce
-		port map(
-		clk => clk,
-		signal_in => btn2,
-		signal_out => btn2_d
-	);
+--	mybtn1: entity work.Debounce
+--		port map(
+--		clk => clk,
+--		signal_in => btn1,
+--		signal_out => btn1_d
+--	);
+--
+--	mybtn2: entity work.Debounce
+--		port map(
+--		clk => clk,
+--		signal_in => btn2,
+--		signal_out => btn2_d
+--	);
 
 	power_led(5 downto 2)<=unsigned(debugvalue(15 downto 12));
 	disk_led(5 downto 2)<=unsigned(debugvalue(11 downto 8));
@@ -182,7 +235,7 @@ begin
 		port map (
 			inclk0 => clk_50,
 			c0 => clk_fast,
-			c1 => sdram_clk,
+			c1 => o_sdram_clk,
 			c2 => clk,
 			locked => pll1_locked
 		);
@@ -209,7 +262,7 @@ begin
 
 	mydither : entity work.video_vga_dither
 		generic map(
-			outbits => 6
+			outbits => 2
 		)
 		port map(
 			clk=>clk_fast,
@@ -219,9 +272,9 @@ begin
 			iRed => vga_r,
 			iGreen => vga_g,
 			iBlue => vga_b,
-			oRed => W_vga_red,
-			oGreen => W_vga_grn,
-			oBlue => W_vga_blu
+			oRed => vga_red,
+			oGreen => vga_green,
+			oBlue => vga_blue
 		);
 	
 	mytg68test : entity work.VirtualToplevel
@@ -236,16 +289,16 @@ begin
 			reset_in => reset,
 			
 			-- SDRAM
-			sdr_addr => sdram_addr,
-			sdr_data => sdram_data,
-			sdr_ba => sdram_ba,
-			sdr_cke => sdram_cke,
-			sdr_dqm(1) => DRAM_UDQM,
-			sdr_dqm(0) => DRAM_LDQM,
-			sdr_cs => sdram_cs,
-			sdr_we => sdram_we,
-			sdr_cas => sdram_cas,
-			sdr_ras => sdram_ras,
+			sdr_addr => o_sdram_addr,
+			sdr_data => io_sdram_data,
+			sdr_ba => o_sdram_ba,
+			sdr_cke => o_sdram_cke,
+			sdr_dqm(1) => o_sdram_udqm,
+			sdr_dqm(0) => o_sdram_ldqm,
+			sdr_cs => o_sdram_cs,
+			sdr_we => o_sdram_we,
+			sdr_cas => o_sdram_cas,
+			sdr_ras => o_sdram_ras,
 			
 			-- VGA
 			vga_red => vga_r,
