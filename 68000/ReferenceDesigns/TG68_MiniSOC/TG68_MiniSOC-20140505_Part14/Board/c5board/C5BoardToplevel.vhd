@@ -11,11 +11,11 @@
 -- FPGA card is 5CEFA2 Cyclone V FPGA
 --
 -- Memory Map
---		0x00000000-0x0000ffff = ROM
---		0x80000000 - VGA controller
---		0x81000000 - Peripherals
---		0x82000000 - Audio controller
---		Everywhere else =- SDRAM
+--		0x00000000-0x0000ffff = ROM 
+--		0x80000000 = VGA controller
+--		0x81000000 = Peripherals
+--		0x82000000 = Audio controller
+--		Everywhere else = SDRAM - 8 MB?
 --
 
 library ieee;
@@ -45,8 +45,8 @@ port(
 		o_sdram_we		: out std_logic;
 		o_sdram_cas		: out std_logic;
 		o_sdram_ras		: out std_logic;
-		o_sdram_ldqm	: out STD_LOGIC;
-		o_sdram_udqm	: out STD_LOGIC;
+		o_sdram_ldqm	: out std_logic;
+		o_sdram_udqm	: out std_logic;
 
 		-- VGA
 		o_vga_red 		: out unsigned(1 downto 0);
@@ -56,52 +56,52 @@ port(
 		o_vga_vsync 	: buffer std_logic;
 
 		-- PS/2
-		ps2k_clk : inout std_logic;
-		ps2k_dat : inout std_logic;
-		ps2m_clk : inout std_logic;
-		ps2m_dat : inout std_logic;
+		ps2k_clk 		: inout std_logic;
+		ps2k_dat 		: inout std_logic;
+		ps2m_clk 		: inout std_logic;
+		ps2m_dat 		: inout std_logic;
 		
 		-- Audio
-		aud_l : out std_logic;
-		aud_r : out std_logic;
+		aud_l 			: out std_logic;
+		aud_r 			: out std_logic;
 		
-		-- RS232
-		rs232_rxd	: in std_logic;
-		rs232_txd	: out std_logic;
-		n_cts			: in std_logic := '0';
-		n_rts			: out std_logic := '0';
+		-- Serial (USB-to-Serial)
+		rs232_rxd		: in std_logic;
+		rs232_txd		: out std_logic;
+		n_cts				: in std_logic := '0';
+		n_rts				: out std_logic := '0';
 
 		-- SD card interface
-		sd_cs		: out std_logic;
-		sd_miso	: in std_logic;
-		sd_mosi	: out std_logic;
-		sd_clk	: out std_logic;
+		sd_cs				: out std_logic;
+		sd_miso			: in std_logic;
+		sd_mosi			: out std_logic;
+		sd_clk			: out std_logic;
 		
-		IO_PIN : out std_logic_vector(48 downto 15);
+		-- I/O Pins on J1
+		IO_PIN 			: out std_logic_vector(48 downto 15);
 		
 		-- External SRAM Not used but assigning pins so it's not active
-		sramData		: inout std_logic_vector(7 downto 0);
-		sramAddress	: out std_logic_vector(19 downto 0) := X"00000";
-		n_sRamWE		: out std_logic := '1';
-		n_sRamCS		: out std_logic := '1';
-		n_sRamOE		: out std_logic := '1';
+		sramData			: inout std_logic_vector(7 downto 0);
+		sramAddress		: out std_logic_vector(19 downto 0) := X"00000";
+		n_sRamWE			: out std_logic := '1';
+		n_sRamCS			: out std_logic := '1';
+		n_sRamOE			: out std_logic := '1';
 		
-		-- Power and LEDs
-		power_button : in std_logic;
-		power_hold : out std_logic := '1';
-		leds : out std_logic_vector(3 downto 0)
+		-- Power and LEDs (wired to J1 pins 3-...)
+		power_button 	: in std_logic;
+		power_hold 		: out std_logic := '1';
+		leds 				: out std_logic_vector(3 downto 0)
 	);
 end entity;
 
 architecture RTL of C5BoardToplevel is
 
-signal clk				: std_logic;
-signal w_clk_fast		: std_logic;
-signal w_reset			: std_logic;  -- active low
-signal w_pll1_locked : std_logic;
---signal w_pll2_locked : std_logic;
+signal clk					: std_logic;
+signal w_clk_fast			: std_logic;
+signal w_reset				: std_logic;  -- active low
+signal w_pll_locked		: std_logic;
 
-signal w_debugvalue	: std_logic_vector(15 downto 0);
+signal w_debugvalue		: std_logic_vector(15 downto 0);
 
 signal w_ps2m_clk_in 	: std_logic;
 signal w_ps2m_clk_out	: std_logic;
@@ -113,22 +113,22 @@ signal w_ps2k_clk_out	: std_logic;
 signal w_ps2k_dat_in		: std_logic;
 signal w_ps2k_dat_out	: std_logic;
 
-signal w_power_led	: unsigned(5 downto 0);
-signal w_disk_led		: unsigned(5 downto 0);
-signal w_net_led		: unsigned(5 downto 0);
-signal w_odd_led		: unsigned(5 downto 0);
+signal w_power_led		: unsigned(5 downto 0);
+signal w_disk_led			: unsigned(5 downto 0);
+signal w_net_led			: unsigned(5 downto 0);
+signal w_odd_led			: unsigned(5 downto 0);
 
-signal w_vga_r : unsigned(7 downto 0);
-signal w_vga_g : unsigned(7 downto 0);
-signal w_vga_b : unsigned(7 downto 0);
-signal w_vga_window : std_logic;
+signal w_vga_r 			: unsigned(7 downto 0);
+signal w_vga_g 			: unsigned(7 downto 0);
+signal w_vga_b 			: unsigned(7 downto 0);
+signal w_vga_window 		: std_logic;
 
-signal w_audio_l : signed(15 downto 0);
-signal w_audio_r : signed(15 downto 0);
+signal w_audio_l 			: signed(15 downto 0);
+signal w_audio_r 			: signed(15 downto 0);
 
-signal W_sd_cs		: std_logic;
-signal W_sd_mosi	: std_logic;
-signal W_sd_clk	: std_logic;
+signal W_sd_cs				: std_logic;
+signal W_sd_mosi			: std_logic;
+signal W_sd_clk			: std_logic;
 
 -- Sigma Delta audio
 COMPONENT hybrid_pwm_sd
@@ -187,12 +187,12 @@ sd_clk	<= W_sd_clk;
 	IO_PIN(40) <= '0';
 	IO_PIN(41) <= '0';
 	IO_PIN(42) <= '0';
-	IO_PIN(43) <= o_sdram_cs;
-	IO_PIN(44) <= o_vga_hsync;
-	IO_PIN(45) <= w_ps2k_clk_in;
-	IO_PIN(46) <= w_ps2k_dat_in;
-	IO_PIN(47) <= w_clk_fast;
-	IO_PIN(48) <= reset_n;
+	IO_PIN(43) <= '0';
+	IO_PIN(44) <= '0';
+	IO_PIN(45) <= '0';
+	IO_PIN(46) <= '0';
+	IO_PIN(47) <= '0';
+	IO_PIN(48) <= '0';
 
 	w_power_led(5 downto 2)	<= unsigned(w_debugvalue(15 downto 12));
 	w_disk_led(5 downto 2)	<= unsigned(w_debugvalue(11 downto 8));
@@ -215,7 +215,7 @@ sd_clk	<= W_sd_clk;
 			outclk_0	=> w_clk_fast,			-- 100 MHz
 			outclk_1	=> o_sdram_clk,		-- 100 MHz
 			outclk_2	=> clk,					-- 25 MHz
-			locked	=> w_pll1_locked
+			locked	=> w_pll_locked
 		);
 
 	myleds : entity work.statusleds_pwm
@@ -231,7 +231,7 @@ sd_clk	<= W_sd_clk;
 	myw_reset : entity work.poweronreset
 		port map(
 			clk				=> clk,
-			reset_button	=> reset_n and w_pll1_locked, -- and w_pll2_locked,
+			reset_button	=> reset_n and w_pll_locked, -- and w_pll2_locked,
 			reset_out		=> w_reset,
 			power_button	=> power_button,
 			power_hold		=> power_hold		
@@ -335,8 +335,7 @@ sd_clk	<= W_sd_clk;
 			);
 		end generate;
 
-		-- No audio?  Make the audio pins high Z.
-
+	-- No audio?  Make the audio pins high Z.
 	audio3: if Toplevel_UseAudio = false generate
 		aud_l<='Z';
 		aud_r<='Z';
