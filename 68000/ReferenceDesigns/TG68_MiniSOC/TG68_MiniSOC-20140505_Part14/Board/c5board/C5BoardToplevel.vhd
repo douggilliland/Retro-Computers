@@ -16,7 +16,7 @@ port(
 		reset_n			: in 	std_logic;
 
 		-- SDRAM
-		o_sdram_clk		: out std_logic; -- Different name format to escape wildcard in SDC file
+		o_sdram_clk		: buffer std_logic; -- Different name format to escape wildcard in SDC file
 		o_sdram_addr	: out std_logic_vector(12 downto 0);
 		io_sdram_data	: inout std_logic_vector(15 downto 0);
 		o_sdram_ba		: out std_logic_vector(1 downto 0);
@@ -79,7 +79,7 @@ signal clk				: std_logic;
 signal w_clk_fast		: std_logic;
 signal w_reset			: std_logic;  -- active low
 signal w_pll1_locked : std_logic;
-signal w_pll2_locked : std_logic;
+--signal w_pll2_locked : std_logic;
 
 signal w_debugvalue	: std_logic_vector(15 downto 0);
 
@@ -169,9 +169,9 @@ sd_clk	<= W_sd_clk;
 	IO_PIN(42) <= '0';
 	IO_PIN(43) <= o_sdram_cs;
 	IO_PIN(44) <= o_vga_hsync;
-	IO_PIN(45) <= w_reset;
-	IO_PIN(46) <= w_ps2k_clk_in;
-	IO_PIN(47) <= w_ps2k_dat_in;
+	IO_PIN(45) <= w_ps2k_clk_in;
+	IO_PIN(46) <= w_ps2k_dat_in;
+	IO_PIN(47) <= w_clk_fast;
 	IO_PIN(48) <= reset_n;
 
 	w_power_led(5 downto 2)	<= unsigned(w_debugvalue(15 downto 12));
@@ -192,9 +192,9 @@ sd_clk	<= W_sd_clk;
 	mypll : entity work.Clock_50to100Split
 		port map (
 			inclk0	=> clk_50,
-			c0			=> w_clk_fast,
-			c1			=> o_sdram_clk,
-			c2			=> clk,
+			c0			=> w_clk_fast,			-- 100 MHz
+			c1			=> o_sdram_clk,		-- 100 MHz
+			c2			=> clk,					-- 25 MHz
 			locked	=> w_pll1_locked
 		);
 
@@ -212,7 +212,7 @@ sd_clk	<= W_sd_clk;
 	myw_reset : entity work.poweronreset
 		port map(
 			clk				=> clk,
-			reset_button	=> reset_n and w_pll1_locked and w_pll2_locked,
+			reset_button	=> reset_n and w_pll1_locked, -- and w_pll2_locked,
 			reset_out		=> w_reset,
 			power_button	=> power_button,
 			power_hold		=> power_hold		
