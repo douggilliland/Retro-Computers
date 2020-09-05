@@ -1,3 +1,23 @@
+--
+-- Top level TG68 files
+--
+-- Features
+--		68000 Core
+--		SDRAM support
+--		VGA Framebuffer
+--		PS/2 Keyboard and Mouse support
+--		SD Card support
+-- Runs on RETRO-EP4CE15 basecard
+-- FPGA card is 5CEFA2 Cyclone V FPGA
+--
+-- Memory Map
+--		0x00000000-0x0000ffff = ROM
+--		0x80000000 - VGA controller
+--		0x81000000 - Peripherals
+--		0x82000000 - Audio controller
+--		Everywhere else =- SDRAM
+--
+
 library ieee;
 use ieee.std_logic_1164.all;
 use ieee.std_logic_unsigned.all;
@@ -189,15 +209,14 @@ sd_clk	<= W_sd_clk;
 	w_ps2k_clk_in	<= ps2k_clk;
 	ps2k_clk			<= '0' when w_ps2k_clk_out='0' else 'Z';
 		
-	mypll : entity work.Clock_50to100Split
+	mypll : entity work.Clock_50to100_Dual
 		port map (
-			inclk0	=> clk_50,
-			c0			=> w_clk_fast,			-- 100 MHz
-			c1			=> o_sdram_clk,		-- 100 MHz
-			c2			=> clk,					-- 25 MHz
+			refclk	=> clk_50,
+			outclk_0	=> w_clk_fast,			-- 100 MHz
+			outclk_1	=> o_sdram_clk,		-- 100 MHz
+			outclk_2	=> clk,					-- 25 MHz
 			locked	=> w_pll1_locked
 		);
-
 
 	myleds : entity work.statusleds_pwm
 	port map(
@@ -222,7 +241,7 @@ sd_clk	<= W_sd_clk;
 		generic map(
 			outbits => 2
 		)
-		port map(
+		port map (
 			clk		=> w_clk_fast,
 			hsync		=> o_vga_hsync,
 			vsync		=> o_vga_vsync,
@@ -235,13 +254,13 @@ sd_clk	<= W_sd_clk;
 			oBlue		=> o_vga_blue
 		);
 	
-	mytg68test : entity work.VirtualToplevel
-		generic map(
+	tg68tst : entity work.VirtualToplevel
+		generic map (
 			sdram_rows			=> 13,
 			sdram_cols			=> 10,
 			sysclk_frequency	=> 250
 		)
-		port map(
+		port map (
 			clk			=> clk,
 			clk_fast 	=> w_clk_fast,
 			reset_in 	=> w_reset,
@@ -291,39 +310,37 @@ sd_clk	<= W_sd_clk;
 			-- Audio - FIXME abstract this out, too.
 			audio_l => w_audio_l,
 			audio_r => w_audio_r
-			
-			-- LEDs
 		);
 
-		-- Do we have audio?  If so, instantiate a two DAC channels.
-audio2: if Toplevel_UseAudio = true generate
-leftsd: component hybrid_pwm_sd
-	port map
-	(
-		clk					=> clk,
-		n_reset				=> reset_n,
-		din(15)				=> not w_audio_l(15),
-		din(14 downto 0)	=> std_logic_vector(w_audio_l(14 downto 0)),
-		dout					=> aud_l
-	);
-	
-rightsd: component hybrid_pwm_sd
-	port map
-	(
-		clk => clk,
-		n_reset => reset_n,
-		din(15) => not w_audio_r(15),
-		din(14 downto 0) => std_logic_vector(w_audio_r(14 downto 0)),
-		dout => aud_r
-	);
-end generate;
+	-- Do we have audio?  If so, instantiate a two DAC channels.
+	audio2: if Toplevel_UseAudio = true generate
+		leftsd: component hybrid_pwm_sd
+			port map
+			(
+				clk					=> clk,
+				n_reset				=> reset_n,
+				din(15)				=> not w_audio_l(15),
+				din(14 downto 0)	=> std_logic_vector(w_audio_l(14 downto 0)),
+				dout					=> aud_l
+			);
+			
+		rightsd: component hybrid_pwm_sd
+			port map
+			(
+				clk => clk,
+				n_reset => reset_n,
+				din(15) => not w_audio_r(15),
+				din(14 downto 0) => std_logic_vector(w_audio_r(14 downto 0)),
+				dout => aud_r
+			);
+		end generate;
 
--- No audio?  Make the audio pins high Z.
+		-- No audio?  Make the audio pins high Z.
 
-audio3: if Toplevel_UseAudio = false generate
-	aud_l<='Z';
-	aud_r<='Z';
-end generate;
+	audio3: if Toplevel_UseAudio = false generate
+		aud_l<='Z';
+		aud_r<='Z';
+	end generate;
 
 end RTL;
 
