@@ -209,12 +209,12 @@ sd_clk	<= W_sd_clk;
 	w_ps2k_clk_in	<= ps2k_clk;
 	ps2k_clk			<= '0' when w_ps2k_clk_out='0' else 'Z';
 		
-	mypll : entity work.Clock_50to100_Dual
+	mypll : entity work.Clock_50to100
 		port map (
-			refclk	=> clk_50,
-			outclk_0	=> w_clk_fast,			-- 100 MHz
-			outclk_1	=> o_sdram_clk,		-- 100 MHz
-			outclk_2	=> clk,					-- 25 MHz
+			inclk0	=> clk_50,
+			c0	=> w_clk_fast,			-- 100 MHz
+			c1	=> o_sdram_clk,		-- 100 MHz
+			c2	=> clk,					-- 25 MHz
 			locked	=> w_pll_locked
 		);
 
