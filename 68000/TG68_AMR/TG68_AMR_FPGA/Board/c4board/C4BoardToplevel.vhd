@@ -8,7 +8,7 @@
 --		PS/2 Keyboard and Mouse support
 --		SD Card support
 -- Runs on RETRO-EP4CE15 basecard
--- FPGA card is 5CEFA2 Cyclone V FPGA
+-- FPGA card is EP4CE15 Cyclone IV FPGA
 --
 -- Memory Map
 --		0x00000000-0x0000ffff = ROM 

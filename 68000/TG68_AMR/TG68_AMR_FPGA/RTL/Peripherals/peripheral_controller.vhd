@@ -40,6 +40,10 @@ use IEEE.numeric_std.ALL;
 --    X"022"	SPI CS register
 --    X"024"	Blocking version of the SPI register
 
+--    X"030"	GPIO_DATA
+--    X"032"	GPIO_DIR
+
+
 entity peripheral_controller is
 	generic (
 		sdram_rows : integer := 12;
@@ -90,8 +94,11 @@ entity peripheral_controller is
 		spiclk_out : out std_logic;
 
 		-- Misc
-		gpio_out : out std_logic_vector(15 downto 0);
-		gpio_in : in std_logic_vector(15 downto 0) := X"0000";
+		-- gpio_out : out std_logic_vector(15 downto 0);
+		-- gpio_in : in std_logic_vector(15 downto 0) := X"0000";
+		
+		gpio_dir : inout std_logic_vector(15 downto 0);
+		gpio_data : inout std_logic_vector(15 downto 0) := X"0000";
 		
 		hex : out std_logic_vector(15 downto 0);
 
@@ -179,7 +186,7 @@ begin
 	begin
 		if rising_edge(clk) then
 			gpio_in_s<=gpio_in_s2;
-			gpio_in_s2<=gpio_in;
+			gpio_in_s2<=gpio_data;
 		end if;
 	end process;
 
@@ -392,9 +399,19 @@ begin
 								host_to_spi<=reg_data_in;
 							end if;
 
-						-- GPIO 0
+						-- Emus GPIO 0
 						when X"030" =>
-							gpio_out<=reg_data_in;
+							for count in 0 to 15 loop
+								if gpio_dir(count) = '1' then
+									gpio_data(count) <= reg_data_in(count);
+								else
+									gpio_data(count) <= 'Z';
+								end if;
+							end loop;
+--							gpio_data<=reg_data_in;
+						
+						when X"032" => 
+							gpio_dir<=reg_data_in;
 
 						when others =>
 							reg_data_out<=X"0000";
@@ -469,7 +486,7 @@ begin
 
 							-- GPIO 0
 							when X"030" =>
-								reg_data_out<=gpio_in;
+								reg_data_out<=gpio_data;
 							
 							when others =>
 								reg_data_out<=X"0000";

@@ -35,19 +35,19 @@ port
 	(
 -- Physical connections to the SDRAM
 	sdata		: inout std_logic_vector(15 downto 0);
-	sdaddr	: out std_logic_vector((rows-1) downto 0);
+	sdaddr		: out std_logic_vector((rows-1) downto 0);
 	sd_we		: out std_logic;	-- Write enable, active low
-	sd_ras	: out std_logic;	-- Row Address Strobe, active low
-	sd_cas	: out std_logic;	-- Column Address Strobe, active low
+	sd_ras		: out std_logic;	-- Row Address Strobe, active low
+	sd_cas		: out std_logic;	-- Column Address Strobe, active low
 	sd_cs		: out std_logic;	-- Chip select - only the lsb does anything.
-	dqm		: out std_logic_vector(1 downto 0);	-- Data mask, upper and lower byte
-	ba			: buffer std_logic_vector(1 downto 0); -- Bank?
+	dqm			: out std_logic_vector(1 downto 0);	-- Data mask, upper and lower byte
+	ba			: out std_logic_vector(1 downto 0); -- Bank?
 
 -- Housekeeping
 	sysclk		: in std_logic;
-	reset			: in std_logic;
+	reset		: in std_logic;
 	reset_out	: out std_logic;
-	reinit 		: in std_logic :='0';
+	reinit : in std_logic :='0';
 
 -- Port 0 - VGA
 	vga_addr : in std_logic_vector(31 downto 0);
@@ -55,20 +55,21 @@ port
 	vga_req : in std_logic;
 	vga_fill : out std_logic;
 	vga_ack : out std_logic;
+	vga_nak : out std_logic;
 	vga_newframe : in std_logic;
 	vga_refresh : in std_logic; -- SDRAM won't come out of reset without this.
 	vga_reservebank : in std_logic; -- Keep a bank clear for instant access in slot 1
 	vga_reserveaddr : in std_logic_vector(31 downto 0);
 
 	-- Port 1
-	datawr1	: in std_logic_vector(15 downto 0);	-- Data in from minimig
+	datawr1		: in std_logic_vector(15 downto 0);	-- Data in from minimig
 	Addr1		: in std_logic_vector(31 downto 0);	-- Address in from Minimig - FIXME case
 	req1		: in std_logic;
 	cachesel	: in std_logic :='0'; -- 1 => data cache, 0 => instruction cache
-	wr1		: in std_logic;	-- Read/write from Minimig
+	wr1			: in std_logic;	-- Read/write from Minimig
 	wrL1		: in std_logic;	-- Minimig write lower byte
 	wrU1		: in std_logic;	-- Minimig write upper byte
-	dataout1	: out std_logic_vector(15 downto 0); -- Data destined for Minimig
+	dataout1		: out std_logic_vector(15 downto 0); -- Data destined for Minimig
 	dtack1	: buffer std_logic
 	);
 end;
@@ -458,6 +459,7 @@ mytwc : component TwoWayCache
 
 -- Time slot control			
 
+				vga_nak<='0';
 				vga_ack<='0';
 				case sdram_state is
 
@@ -503,6 +505,7 @@ mytwc : component TwoWayCache
 							sdram_slot1_readwrite <= '0';
 							sd_cs <= '0'; --ACTIVE
 							sd_ras <= '0';
+							vga_nak<='1'; -- Inform the DMA Cache that it didn't get this cycle
 						elsif readcache_req='1' --req1='1' and wr1='1'
 								and (Addr1(5 downto 4)/=slot2_bank or sdram_slot2=idle) then
 							sdram_slot1<=port1;
@@ -516,6 +519,7 @@ mytwc : component TwoWayCache
 							sdram_slot1_readwrite <= '1';
 							sd_cs <= '0'; --ACTIVE
 							sd_ras <= '0';
+							vga_nak<='1'; -- Inform the VGA controller that it didn't get this cycle
 						end if;
 						
 						-- SLOT 2
@@ -539,6 +543,7 @@ mytwc : component TwoWayCache
 						 -- Final word of burst write
 						if sdram_slot2=writecache then
 							-- Issue precharge command to terminate the burst.
+							sdaddr(10)<='0'; -- Precharge only the one bank.
 							sd_we<='0';
 							sd_ras<='0';
 							sd_cs<='0'; -- Chip select
@@ -665,6 +670,7 @@ mytwc : component TwoWayCache
 							sd_ras<='0';
 							sd_cs<='0'; -- Chip select
 							ba<=slot1_bank;
+							sdaddr(10)<='0'; -- Precharge only the one bank.
 							dqm<="11"; -- Mask off end of burst
 						end if;
 

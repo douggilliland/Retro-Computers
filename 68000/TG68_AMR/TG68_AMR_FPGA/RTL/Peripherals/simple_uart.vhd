@@ -25,7 +25,7 @@ entity simple_uart is
 
 		-- clock_divisor divides the system clock into the width of a single serial bit, so
 		-- for a 50MHz clock, 19,200 baud, we'd use 50,000,000 / 19,200 = 2604 decimal, X"0A2C" hex
-		clock_divisor : unsigned(15 downto 0) := X"0A2C";
+		clock_divisor : in unsigned(15 downto 0) := X"0A2C";
 
 		-- physical ports
 

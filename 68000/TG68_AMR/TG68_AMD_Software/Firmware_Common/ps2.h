@@ -1,6 +1,15 @@
 #ifndef PS2_H
 #define PS2_H
 
+#define PS2BASE 0x81000000
+#define HW_PS2(x) *(volatile unsigned short *)(TIMERBASE+x)
+
+#define REG_PS2_KEYBOARD 8
+#define REG_PS2_MOUSE 0xA
+
+#define BIT_PS2_RECV 11
+#define BIT_PS2_CTS 10
+
 // Private
 #define PS2_RINGBUFFER_SIZE 32   // 32 bytes 
 struct ps2_ringbuffer

@@ -1,5 +1,5 @@
 #include "vga.h"
-#include "ints.h"
+#include "interrupts.h"
 #include "uart.h"
 #include "dhry.h"
 #include "board.h"
@@ -15,7 +15,7 @@ static void heartbeat_int()
 void SetHeartbeat()
 {
 	HW_TIMER(REG_TIMER_DIV0)=HW_BOARD(REG_CAP_CLOCKSPEED)*2; // Timers 1 through 6 are now based on 100khz base clock.
-	HW_TIMER(REG_TIMER_CONTROL)=(1<<REG_TIMER_EN1);
+	HW_TIMER(REG_TIMER_CONTROL)=(1<<BIT_TIMER_EN1);
 	HW_TIMER(REG_TIMER_DIV1)=1000; // 100Hz heartbeat
 	SetIntHandler(TIMER_INT,&heartbeat_int);
 }

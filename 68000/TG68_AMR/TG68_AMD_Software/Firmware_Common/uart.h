@@ -8,8 +8,8 @@
 
 #define REG_UART 0x0
 #define REG_UART_CLKDIV 0x02
-#define REG_UART_RXINT 9
-#define REG_UART_TXREADY 8
+#define BIT_UART_RXINT 9
+#define BIT_UART_TXREADY 8
 
 #define INT_UART 2
 

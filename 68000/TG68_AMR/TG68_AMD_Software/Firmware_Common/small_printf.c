@@ -115,6 +115,7 @@ _vprintf(const char *fmt, va_list ap)
 		        // Fetch value [numeric descriptors only]
 		        switch (c) {
 				    case 'd':
+				    case 'x':
 			            val = (long)va_arg(ap, unsigned int);
 				        break;
 				    default:
@@ -127,11 +128,20 @@ _vprintf(const char *fmt, va_list ap)
 				        break;
 					    cp = vpfbuf;
 					    break;
+				    case 'x':
+				        length = _cvt(val, vpfbuf, 16);
+				        break;
+					    cp = vpfbuf;
+					    break;
 				    case 's':
 				        cp = va_arg(ap, char *);
 						puts(cp);
 				        length = 0;
 				        break;
+					case 'l':
+						nextfmt=1;
+				        length = 0;
+						break;
 				    case 'c':
 				        c = va_arg(ap, int /*char*/);
 				        putchar(c);

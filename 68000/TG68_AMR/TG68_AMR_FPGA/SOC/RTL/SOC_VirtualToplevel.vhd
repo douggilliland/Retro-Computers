@@ -10,7 +10,8 @@ entity VirtualToplevel is
 	generic (
 		sdram_rows : integer := 12;
 		sdram_cols : integer := 8;
-		sysclk_frequency : integer := 1000; -- Sysclk frequency * 10
+		sysclk_frequency : integer := 250; -- Sysclk frequency (MHz) * 10
+		fastclk_frequency : integer := 1000; -- fastclk frequency (MHz) * 10
 		spi_maxspeed : integer := 1	-- lowest acceptable timer DIV7 value
 	);
 	port (
@@ -61,8 +62,8 @@ entity VirtualToplevel is
 		audio_l : out signed(15 downto 0);
 		audio_r : out signed(15 downto 0);
 		
-		gpio_in : in std_logic_vector(15 downto 0) := X"0000";
-		gpio_out : out std_logic_vector(15 downto 0);
+		gpio_dir : inout std_logic_vector(15 downto 0);
+		gpio_data : inout std_logic_vector(15 downto 0) := X"0000";
 		
 		hex : out std_logic_vector(15 downto 0)
 	);
@@ -116,6 +117,7 @@ signal vga_addr : std_logic_vector(31 downto 0);
 signal vga_data : std_logic_vector(15 downto 0);
 signal vga_req : std_logic;
 signal vga_ack : std_logic;
+signal vga_nak : std_logic;
 signal vga_fill : std_logic;
 signal vga_refresh : std_logic;
 signal vga_newframe : std_logic;
@@ -349,7 +351,7 @@ begin
 							prgstate<=peripheral;
 						when X"8200" => -- Audio controller
 							audio_reg_req<='1';
-							prgstate<=peripheral;
+							prgstate<=audio;
 						when X"0000" => -- ROM access
 							-- We replace the first page of RAM with the bootrom if the bootrom_overlay flag is set.
 							if cpu_r_w='0' then	-- Pass writes through to RAM.
@@ -477,6 +479,7 @@ mysdram : entity work.sdram
 		vga_fill => vga_fill,
 		vga_req => vga_req,
 		vga_ack => vga_ack,
+		vga_nak => vga_nak,
 		vga_refresh => vga_refresh,
 		vga_reservebank => vga_reservebank,
 		vga_reserveaddr => vga_reserveaddr,
@@ -541,6 +544,7 @@ mysdram : entity work.sdram
 			sdram_reserve => vga_reservebank,
 			sdram_req => vga_req,
 			sdram_ack => vga_ack,
+			sdram_nak => vga_nak,
 			sdram_fill => vga_fill,
 			sdram_data => vga_data
 		);	
@@ -621,8 +625,8 @@ mysdram : entity work.sdram
 		spiclk_out => spi_clk,
 		spi_cs => spi_cs,
 		
-		gpio_in => gpio_in,
-		gpio_out => gpio_out,
+		gpio_data => gpio_data,
+		gpio_dir => gpio_dir,
 		
 		hex => hex,
 
@@ -634,7 +638,7 @@ mysdram : entity work.sdram
 
 	myaudio : entity work.sound_wrapper
 		generic map(
-			clk_frequency => sysclk_frequency -- Prescale incoming clock
+			clk_frequency => fastclk_frequency -- Prescale incoming clock
 		)
 	port map (
 		clk => clk_fast,

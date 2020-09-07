@@ -12,6 +12,6 @@ struct SoundChannel
 	long pad1; // 12-15
 };	// 16 bytes long
 
-#define REG_SOUNDCHANNEL ((struct SoundChannel *)0x82000000)
+#define REG_SOUNDCHANNEL ((volatile struct SoundChannel *)0x82000000)
 
 #endif

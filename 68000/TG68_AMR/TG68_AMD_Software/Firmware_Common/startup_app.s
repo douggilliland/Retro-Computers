@@ -40,13 +40,9 @@ l2
 	move.l	a0,$7C
 
 	; Startup code complete, hand control over to C code.
-	pea 1
-	pea	.name
-	jsr main
+	jsr _premain
 .loop
 	bra.s .loop
-.name
-	dc.b	"Bootrom",0
 
 .int1:
 	movem.l	d0-7/a0-6,-(a7)	; Preserve scratch registers
@@ -145,3 +141,6 @@ StandardPointer
 	XDEF IntHandler6
 	XDEF IntHandler7
 	XDEF StandardPointer
+
+	XREF _premain
+

@@ -20,7 +20,7 @@ entity spi_interface is
 		spi_to_host : out std_logic_vector(15 downto 0);
 		wide : in std_logic; -- 16-bit transfer (in only, 0xff will be transmitted for the second byte)
 		trigger : in std_logic;  -- Momentary high pulse
-		busy : buffer std_logic;
+		busy : out std_logic;
 
 		-- Hardware interface
 		miso : in std_logic;
@@ -34,14 +34,17 @@ signal sck : std_logic;
 signal sd_out : std_logic_vector(15 downto 0);
 signal sd_in_shift : std_logic_vector(15 downto 0);
 signal shiftcnt : std_logic_vector(13 downto 0);
+signal busy_b : std_logic;
 begin
+
 
 -----------------------------------------------------------------
 -- SPI-Interface
 -----------------------------------------------------------------	
 	spiclk_out <= sck;
 	mosi <= sd_out(15);
-	busy <= shiftcnt(13);
+	busy_b <= shiftcnt(13);
+	busy <= busy_b;
 	
 	PROCESS (sysclk, reset) BEGIN
 
@@ -56,7 +59,7 @@ begin
 				sd_out <= host_to_spi(7 downto 0) & X"FF";
 				sck <= '0';
 			ELSE
-				IF spiclk_in='1' and busy='1' THEN
+				IF spiclk_in='1' and busy_b='1' THEN
 					IF sck='1' THEN
 						if shiftcnt(12 downto 0)="0000000000000" then
 							spi_to_host(15 downto 0)<=sd_in_shift(15 downto 0);

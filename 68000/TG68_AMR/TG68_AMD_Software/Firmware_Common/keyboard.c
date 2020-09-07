@@ -1,7 +1,7 @@
 #include "keyboard.h"
 #include "ps2.h"
 #include "textbuffer.h"
-#include "ints.h"
+#include "interrupts.h"
 
 // FIXME - create another ring buffer for ASCII keystrokes
 

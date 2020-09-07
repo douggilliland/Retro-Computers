@@ -39,7 +39,7 @@ end entity;
 
 architecture rtl of sound_wrapper is
 
-	constant clk_hz : integer := clk_frequency*1000;
+	constant clk_hz : integer := clk_frequency*100000;
 	constant clkdivide : integer := clk_hz/3546895;
 	signal audiotick : std_logic;
 	
@@ -59,6 +59,8 @@ architecture rtl of sound_wrapper is
 begin
 
 -- Create ~3.5Mhz tick signal
+-- FIXME - will need to make this more accurate in time.
+
 myclkdiv: entity work.risingedge_divider
 	generic map (
 		divisor => clkdivide,
@@ -70,6 +72,7 @@ port map (
 		tick => audiotick
 	);
 
+	
 	sel0<='1' when reg_addr_in(5 downto 4)="00" else '0';
 	sel1<='1' when reg_addr_in(5 downto 4)="01" else '0';
 	sel2<='1' when reg_addr_in(5 downto 4)="10" else '0';
@@ -85,7 +88,7 @@ channel0 : entity work.sound_controller
 		reset => reset,
 		audiotick => audiotick,
 
-		reg_addr_in => "000"&reg_addr_in(4 downto 0),
+		reg_addr_in => "0000"&reg_addr_in(3 downto 0),
 		reg_data_in => reg_data_in,
 		reg_data_out => open,
 		reg_rw => '0',
@@ -105,7 +108,7 @@ channel1 : entity work.sound_controller
 		reset => reset,
 		audiotick => audiotick,
 
-		reg_addr_in => "000"&reg_addr_in(4 downto 0),
+		reg_addr_in => "0000"&reg_addr_in(3 downto 0),
 		reg_data_in => reg_data_in,
 		reg_data_out => open,
 		reg_rw => '0',
@@ -125,7 +128,7 @@ channel2 : entity work.sound_controller
 		reset => reset,
 		audiotick => audiotick,
 
-		reg_addr_in => "000"&reg_addr_in(4 downto 0),
+		reg_addr_in => "0000"&reg_addr_in(3 downto 0),
 		reg_data_in => reg_data_in,
 		reg_data_out => open,
 		reg_rw => '0',
@@ -145,7 +148,7 @@ channel3 : entity work.sound_controller
 		reset => reset,
 		audiotick => audiotick,
 
-		reg_addr_in => "000"&reg_addr_in(4 downto 0),
+		reg_addr_in => "0000"&reg_addr_in(3 downto 0),
 		reg_data_in => reg_data_in,
 		reg_data_out => open,
 		reg_rw => '0',

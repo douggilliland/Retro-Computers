@@ -2,7 +2,7 @@
 //#include "minisoc_hardware.h"
 #include "board.h"
 #include "timer.h"
-#include "ints.h"
+#include "interrupts.h"
 #include "ps2.h"
 #include "keyboard.h"
 #include "textbuffer.h"
@@ -29,14 +29,14 @@ int microseconds=0;
 
 static void heartbeat_int()
 {
-	microseconds+=10000;	// 100 Hz heartbeat
+	microseconds+=10000;	// 100 HZ heartbeat
 }
 
 void SetHeartbeat()
 {
-	HW_TIMER(REG_TIMER_DIV0)=HW_BOARD(REG_CAP_CLOCKSPEED)*2; // Timers 1 through 6 are now based on 100khz base clock.
-	HW_TIMER(REG_TIMER_CONTROL)=(1<<REG_TIMER_EN1);
-	HW_TIMER(REG_TIMER_DIV1)=1000; // 100Hz heartbeat
+	HW_TIMER(REG_TIMER_DIV0)=HW_BOARD(REG_CAP_CLOCKSPEED)*2; // Timers 1 through 6 are now based on 100kHZ base clock.
+	HW_TIMER(REG_TIMER_CONTROL)=(1<<BIT_TIMER_EN1);
+	HW_TIMER(REG_TIMER_DIV1)=1000; // 100HZ heartbeat
 	SetIntHandler(TIMER_INT,&heartbeat_int);
 }
 
@@ -48,9 +48,9 @@ static void vblank_int()
 	char a=0;
 	int yoff;
 	framecount++;
-//	microseconds+=(16667*1250)/HW_PER(PER_CAP_CLOCKSPEED);	// Assumes 60Hz video mode.
+//	microseconds+=(16667*1250)/HW_PER(PER_CAP_CLOCKSPEED);	// Assumes 60HZ video mode.
 
-//	microseconds+=16667;	// Assumes 60Hz video mode.
+//	microseconds+=16667;	// Assumes 60HZ video mode.
 
 	if(framecount==959)
 		framecount=0;
@@ -123,7 +123,7 @@ static void vblank_int()
 			char buf[2]={0,0};
 //			HW_PER(PER_UART)=a;
 			buf[0]=a;
-			puts(buf);
+			tb_puts(buf);
 		}
 	}
 }
@@ -131,7 +131,7 @@ static void vblank_int()
 
 static void mousetimer_int()
 {
-	if(HW_TIMER(REG_TIMER_CONTROL) & (1<<REG_TIMER_TR5))
+	if(HW_TIMER(REG_TIMER_CONTROL) & (1<<BIT_TIMER_TR5))
 		mousetimeout=1;
 //	puts("Timer int received\n");
 }
@@ -140,7 +140,7 @@ static void mousetimer_int()
 void SetMouseTimeout(int delay)
 {
 	mousetimeout=0;
-	HW_TIMER(REG_TIMER_CONTROL)=(1<<REG_TIMER_EN5);
+	HW_TIMER(REG_TIMER_CONTROL)=(1<<BIT_TIMER_EN5);
 	HW_TIMER(REG_TIMER_DIV5)=delay;
 	SetIntHandler(TIMER_INT,&mousetimer_int);
 }
@@ -303,6 +303,8 @@ short SDCardInit()
 }
 
 
+char printf_buffer[256];
+
 int main(int argc,char *argv)
 {
 	enum mainstate_t {MAIN_IDLE,MAIN_LOAD,MAIN_MEMCHECK,MAIN_RECTANGLES,MAIN_DHRYSTONE};
@@ -311,7 +313,7 @@ int main(int argc,char *argv)
 	ClearTextBuffer();
 
 	HW_UART(REG_UART_CLKDIV)=(1000*HW_BOARD(REG_CAP_CLOCKSPEED))/1152;
-	HW_TIMER(REG_TIMER_DIV0)=HW_BOARD(REG_CAP_CLOCKSPEED)*2; // Clocks 1 through 6 are now based on 100khz base clock.
+	HW_TIMER(REG_TIMER_DIV0)=HW_BOARD(REG_CAP_CLOCKSPEED)*2; // Clocks 1 through 6 are now based on 100kHZ base clock.
 
 	AddMemory();
 
@@ -342,7 +344,15 @@ int main(int argc,char *argv)
 
 	SetHeartbeat();
 
-	SDCardInit();
+	tb_puts("\r\nWelcome to TG68MiniSOC, a minimal System-on-Chip,\r\nbuilt around Tobias Gubener's TG68k processor core.\r\n");
+
+	tb_puts("Initializing SD card...\r\n");
+	if(!SDCardInit())
+		tb_puts("  SD card error!\r\n");
+
+	tb_puts("Press F1 through F4 to change test mode.\r\n");
+	tb_puts("Press F5 through F9 to change screenmode.\r\n");
+	tb_puts("Press F12 to toggle character overlay.\r\n");
 
 	enum mainstate_t mainstate=MAIN_DHRYSTONE;
 
@@ -380,7 +390,7 @@ int main(int argc,char *argv)
 		{
 			puts("640 x 480\n");
 			screenwidth=640;
-			VGA_SetScreenMode(MODE_640_480);
+			VGA_SetScreenMode(MODE_640_480_60HZ);
 			while(TestKey(KEY_F5))
 				;
 		}
@@ -388,15 +398,15 @@ int main(int argc,char *argv)
 		{
 			puts("320 x 480\n");
 			screenwidth=320;
-			VGA_SetScreenMode(MODE_320_480);
+			VGA_SetScreenMode(MODE_320_480_60HZ);
 			while(TestKey(KEY_F6))
 				;
 		}
 		if(TestKey(KEY_F7))
 		{
-			puts("800 x 600 @ 50Hz\n");
+			puts("800 x 600 @ 50HZ\n");
 			screenwidth=800;
-			VGA_SetScreenMode(MODE_800_600);
+			VGA_SetScreenMode(MODE_800_600_52HZ);
 			while(TestKey(KEY_F7))
 				;
 		}
@@ -404,17 +414,30 @@ int main(int argc,char *argv)
 		{
 			puts("768 x 576\n");
 			screenwidth=768;
-			VGA_SetScreenMode(MODE_768_576);
+			VGA_SetScreenMode(MODE_768_576_57HZ);
 			while(TestKey(KEY_F8))
 				;
 		}
 
 		if(TestKey(KEY_F9))
 		{
-			puts("800 x 600 @ 72Hz\n");
+			puts("800 x 600 @ 72HZ\n");
 			screenwidth=800;
-			VGA_SetScreenMode(MODE_800_600_72);
+			VGA_SetScreenMode(MODE_800_600_72HZ);
 			while(TestKey(KEY_F9))
+				;
+		}
+
+		if(TestKey(KEY_F12))
+		{
+			static short overlay=0;
+			puts("Toggling overlay\n");
+			overlay=~overlay;
+			if(overlay)
+				VGA_HideOverlay();
+			else
+				VGA_ShowOverlay();
+			while(TestKey(KEY_F12))
 				;
 		}
 
@@ -452,8 +475,6 @@ int main(int argc,char *argv)
 							}
 						}
 					}
-					puts("\r\nWelcome to TG68MiniSOC, a minimal System-on-Chip,\r\nbuilt around Tobias Gubener's TG68k processor core.\r\n");
-					puts("Press F1, F2 or F3 to change test mode.\r\n");
 				}
 				else
 					printf("Couldn't load test.img\n");
@@ -471,7 +492,13 @@ int main(int argc,char *argv)
 				HW_BOARD(REG_HEX)=pen;
 				break;
 			case MAIN_DHRYSTONE:
-				Dhrystone();
+				tb_puts("Running Dhrystone benchmark...\r\n");
+				{
+					int result=Dhrystone();
+
+					sprintf(printf_buffer, "%d DMIPS\r\n",result);
+					tb_puts(printf_buffer);
+				}
 				mainstate=MAIN_RECTANGLES;
 				break;
 		}

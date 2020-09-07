@@ -14,13 +14,13 @@ LIB_DIR = ../../Firmware_Common/klibc
 
 BUILD_DIR=m68k_obj
 
-STARTUP_SRC = $(STARTUP_DIR)/startup_app.s
+STARTUP_SRC = $(STARTUP_DIR)/startup_app.s $(STARTUP_DIR)/premain.s
 STARTUP_OBJ = $(patsubst $(STARTUP_DIR)/%.s,$(BUILD_DIR)/%.o,$(STARTUP_SRC))
 
 LIB_SRC = memcpy.c strcpy.c strcmp.c strncmp.c strncpy.c vsnprintf.c sprintf.c memset.c strlen.c malloc.c printf.c
 LIB_OBJ = $(patsubst %.c,$(BUILD_DIR)/%.o,$(LIB_SRC))
 
-COMMON_SRC = vga.c uart.c ints.c ps2.c keyboard.c swap.c
+COMMON_SRC = vga.c uart.c interrupts.c ps2.c keyboard.c swap.c
 COMMON_OBJ = $(patsubst %.c,$(BUILD_DIR)/%.o,$(COMMON_SRC))
 
 MAIN_PRJ = Screenmodes

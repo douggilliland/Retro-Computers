@@ -10,7 +10,7 @@ ENTITY DualPortRAM IS
 	GENERIC
 	(
 		addrbits : integer := 11;
-		databits : integer := 8
+		databits : integer := 18
 	);
 	PORT
 	(

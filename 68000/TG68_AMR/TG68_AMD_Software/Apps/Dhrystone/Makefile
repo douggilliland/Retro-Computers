@@ -14,13 +14,13 @@ LIB_DIR = ../../Firmware_Common/klibc
 
 BUILD_DIR=m68k_obj
 
-STARTUP_SRC = $(STARTUP_DIR)/startup_app.s
+STARTUP_SRC = $(STARTUP_DIR)/startup_app.s $(STARTUP_DIR)/premain.s
 STARTUP_OBJ = $(patsubst $(STARTUP_DIR)/%.s,$(BUILD_DIR)/%.o,$(STARTUP_SRC))
 
 LIB_SRC = memcpy.c strcpy.c strcmp.c
 LIB_OBJ = $(patsubst %.c,$(BUILD_DIR)/%.o,$(LIB_SRC))
 
-COMMON_SRC = vga.c uart.c ints.c small_printf.c
+COMMON_SRC = vga.c uart.c interrupts.c small_printf.c
 COMMON_OBJ = $(patsubst %.c,$(BUILD_DIR)/%.o,$(COMMON_SRC))
 
 MAIN_PRJ = Dhrystone
@@ -38,7 +38,7 @@ LINKMAP  = $(STARTUP_DIR)/ldscript_app.ld
 
 CFLAGS  = -m$(ARCH) -fomit-frame-pointer -fno-common -I. -c -O6 -DDISABLE_UART_RX -I$(COMMON_DIR)
 
-LFLAGS  = -m$(ARCH) -nostartfiles -nostdlib -Wl,--relax -O6
+LFLAGS  = -m$(ARCH) -nostartfiles -nostdlib -Wl,--relax -O6 -Wl,--emit-relocs
 
 LIBS = -lgcc
 

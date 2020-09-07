@@ -19,8 +19,6 @@
 #include <string.h>
 #include <stdarg.h>
 
-#include "minisoc_hardware.h"
-
 /* Global Variables: */
 
 Rec_Pointer     Ptr_Glob,
@@ -311,7 +309,7 @@ int Dhrystone()
     printf ("\n");
   }
   
-  return 0;
+  return Vax_Mips;
 }
 
 

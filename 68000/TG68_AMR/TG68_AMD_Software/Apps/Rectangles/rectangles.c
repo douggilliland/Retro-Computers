@@ -1,5 +1,5 @@
 #include "vga.h"
-#include "ints.h"
+#include "interrupts.h"
 #include "uart.h"
 #include "board.h"
 

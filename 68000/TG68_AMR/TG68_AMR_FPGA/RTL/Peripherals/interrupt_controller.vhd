@@ -22,46 +22,49 @@ entity interrupt_controller is
 		int5 : in std_logic;
 		int6 : in std_logic;
 		int7 : in std_logic;
-		int_out : buffer std_logic_vector(2 downto 0);
+		int_out : out std_logic_vector(2 downto 0);
 		ack : in std_logic
 	);
 end entity;
 
 architecture rtl of interrupt_controller is
 signal pending : std_logic_vector(6 downto 0) := "0000000";
+signal int_out_b : std_logic_vector(2 downto 0);
 begin
+
+int_out <= int_out_b;
 
 process(clk,reset)
 begin
 
 	if reset='0' then
 		pending<="0000000";
-		int_out<="111";
+		int_out_b<="111";
 	elsif rising_edge(clk) then
 
 		if ack='1' then
-			int_out<="111";
-		elsif int_out="111" then
+			int_out_b<="111";
+		elsif int_out_b="111" then
 			if pending(6)='1' then
-				int_out<="000";
+				int_out_b<="000";
 				pending(6)<='0';
 			elsif pending(5)='1' then
-				int_out<="001";
+				int_out_b<="001";
 				pending(5)<='0';
 			elsif pending(4)='1' then
-				int_out<="010";
+				int_out_b<="010";
 				pending(4)<='0';
 			elsif pending(3)='1' then
-				int_out<="011";
+				int_out_b<="011";
 				pending(3)<='0';
 			elsif pending(2)='1' then
-				int_out<="100";
+				int_out_b<="100";
 				pending(2)<='0';
 			elsif pending(1)='1' then
-				int_out<="101";
+				int_out_b<="101";
 				pending(1)<='0';
 			elsif pending(0)='1' then
-				int_out<="110";
+				int_out_b<="110";
 				pending(0)<='0';
 			end if;
 		end if;

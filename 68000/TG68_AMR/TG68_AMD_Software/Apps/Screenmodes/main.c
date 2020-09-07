@@ -3,7 +3,7 @@
 #include <malloc.h>
 
 #include "minisoc_hardware.h"
-#include "ints.h"
+#include "interrupts.h"
 #include "ps2.h"
 #include "keyboard.h"
 #include "textbuffer.h"
@@ -164,7 +164,7 @@ int main(int argc,char *argv)
 	FrameBuffer=(short *)(((int)FrameBuffer+15)&~15); // Align to nearest 16 byte boundary.
 	HW_VGA_L(FRAMEBUFFERPTR)=FrameBuffer;
 
-	VGA_SetScreenMode(MODE_800_600);
+	VGA_SetScreenMode(MODE_800_600_72HZ);
 	DrawTestcard(FrameBuffer,800,600);
 
 	EnableInterrupts();
@@ -189,7 +189,7 @@ int main(int argc,char *argv)
 		if(TestKey(KEY_F1))
 		{
 			puts("640 x 480\n");
-			VGA_SetScreenMode(MODE_640_480);
+			VGA_SetScreenMode(MODE_640_480_60HZ);
 			DrawTestcard(FrameBuffer,640,480);
 			while(TestKey(KEY_F1))
 				;
@@ -197,7 +197,7 @@ int main(int argc,char *argv)
 		if(TestKey(KEY_F2))
 		{
 			puts("320 x 480\n");
-			VGA_SetScreenMode(MODE_320_480);
+			VGA_SetScreenMode(MODE_320_480_60HZ);
 			DrawTestcard(FrameBuffer,320,480);
 
 			while(TestKey(KEY_F2))
@@ -206,7 +206,7 @@ int main(int argc,char *argv)
 		if(TestKey(KEY_F3))
 		{
 			puts("800 x 600\n");
-			VGA_SetScreenMode(MODE_800_600);
+			VGA_SetScreenMode(MODE_800_600_52HZ);
 			DrawTestcard(FrameBuffer,800,600);
 			while(TestKey(KEY_F3))
 				;
@@ -214,7 +214,7 @@ int main(int argc,char *argv)
 		if(TestKey(KEY_F4))
 		{
 			puts("768 x 576\n");
-			VGA_SetScreenMode(MODE_768_576);
+			VGA_SetScreenMode(MODE_768_576_57HZ);
 			DrawTestcard(FrameBuffer,768,576);
 			while(TestKey(KEY_F4))
 				;
@@ -222,7 +222,7 @@ int main(int argc,char *argv)
 		if(TestKey(KEY_F5))
 		{
 			puts("800 x 600 @ 72\n");
-			VGA_SetScreenMode(MODE_800_600_72);
+			VGA_SetScreenMode(MODE_800_600_72HZ);
 
 			DrawTestcard(FrameBuffer,800,600);
 			while(TestKey(KEY_F4))
