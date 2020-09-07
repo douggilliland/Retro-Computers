@@ -1,0 +1,161 @@
+library IEEE;
+use IEEE.STD_LOGIC_1164.ALL;
+use IEEE.numeric_std.ALL;
+
+
+entity DMACache is
+	port(
+		clk : in std_logic;
+		reset_n : in std_logic;
+		-- DMA channel address strobes
+		addr_in : in std_logic_vector(31 downto 0);
+		req_length : unsigned(11 downto 0);
+		setaddr_vga : in std_logic;
+		setaddr_sprite0 : in std_logic;
+		setaddr_audio0 : in std_logic;
+		setaddr_audio1 : in std_logic;
+
+		-- Read requests
+		req_vga : in std_logic;
+		req_sprite0 : in std_logic;
+		req_audio0 : in std_logic;
+		req_audio1 : in std_logic;
+
+		-- DMA channel output and valid flags.
+		data_out : out std_logic_vector(15 downto 0);
+		valid_vga : out std_logic;
+		valid_sprite0 : out std_logic;
+		valid_audio0 : out std_logic;
+		valid_audio1 : out std_logic
+	);
+end entity;
+
+-- Need to partition up the 512 words we have available.
+-- Each channel needs to have a read and write pointer; neither pointer may cross the other.
+-- 32 words per channel to start with?
+-- While data's being displayed the VGA channel will have absolute priority and it's entirely possible the others
+-- won't get a look-in.
+
+-- For each channel maintain both a wrptr and wrptr_next, which will of course be maintained as wrptr+1.
+-- That way we can compare against wrptr when reading, and wrptr_next when writing, and avoid messy
+-- arithmetic when comparing.
+-- Note that reads will arrive in bursts of four words, so need to compare based on lower granularity when writing
+-- if reset_n='0' then 
+--	set wrptrs to 0
+--  set wrptr_nexts to 1
+--  set rdptrs to 0
+-- end if;
+
+-- Use a state machine for output:
+ case outputstate is
+	when vga =>
+		valid_vga<=1;
+	when sprite0 =>
+		valid_sprite0<=1;
+-- etc...
+
+--if req_vga='1' and vga_rdptr /= vga_wrptr then
+--	outputstate<=vga;
+--	rdaddress<=vga_base+vga_rdptr;
+--	vga_rdptr<=vga_rdptr+1;
+--elsif req_sprite0='1' and not spr0_rdptr = spr0_wrptr then
+-- ..
+
+-- Employ bank reserve for SDRAM.
+if vgacount/=X"000" then
+	sdram_reservebank<='1';
+	-- Write reserve address here.
+end if;
+
+-- Request and receive data from SDRAM:
+case inputstate is
+	when read =>
+		if vga_rdptr(5 downto 2)/=vga_writeptr_next(5 downto 2) and vgacount/=X"000" then
+			cache_writeaddr<=vga_base+vga_writeptr;
+			sdram_req<='1';
+			sdram_addr<=vga_reqaddr;
+			vga_reqaddr<=vga_reqaddr+8;
+			inputstate<=rcv1;
+			update<=vga;
+		end if;
+		-- FIXME - other channels here
+	when rcv1 =>
+		data<=sdram_data;
+		wren<='1';
+		inputstate<=rcv2;
+	when rcv2 =>
+		data<=sdram_data;
+		wren<='1';
+		inputstate<=rcv3;
+	when rcv3 =>
+		data<=sdram_data;
+		wren<='1';
+		inputstate<=rcv4;
+	when rcv4 =>
+		data<=sdram_data;
+		wren<='1';
+		inputstate<=read;
+		case update is
+			when vga =>
+				vga_writeptr<=vga_writeptr+4;
+				vga_writeptr_next<=vga_writeptr_next+4;
+		-- FIXME - other channels here
+			when others =>
+				null;
+		end case;
+	when others =>
+		null;
+end case;
+
+-- Handle timeslicing of output registers
+-- We prioritise simply by testing in order of priority.
+-- req signals should always be a single pulse; need to latch all but VGA, since it may be several
+-- cycles since they're serviced.
+
+if spr0_req='1' then
+	spr0_pending='1';
+end if;
+if audio0_req='1' then
+	audio0_pending='1';
+end if;
+
+
+if vga_req='1' -- and vga_rdptr/=vga_wrptr then -- This test should never fail.
+	rdaddress<=vga_rdptr;
+	vga_rdptr<=vga_rdptr+1;
+	vga_ack<='1';
+elsif spr0_pending='1' and spr0_rdptr/=spr0_wrptr then
+	rdaddress<=spr0_rdptr;
+	spr0_rdptr<=spr0_rdptr+1;
+	spr0_ack<='1';
+	spr0_pending<='0';
+elseif audio0_pending='1'; and audio0_rdptr/=audio0_wrptr then
+	rdaddress<=audio0_rdptr;
+	audio0_rdptr<=audio0_rdptr+1;
+	audio0_ack<='1';
+	audio0_pending<='0';
+end if;
+	
+
+case outputstate is
+	when vga =>
+		
+
+architecture rtl of dmacache is
+	signal cache_readaddr : std_logic_vector(8 downto 0);
+	signal cache_writeaddr : std_logic_vector(8 downto 0);
+
+begin
+
+myDMACacheRAM : entity DMACacheRAM
+	port map
+	(
+		clock		: IN STD_LOGIC  := '1';
+		data		: IN STD_LOGIC_VECTOR (15 DOWNTO 0);
+		rdaddress		: IN STD_LOGIC_VECTOR (7 DOWNTO 0);
+		wraddress		: IN STD_LOGIC_VECTOR (7 DOWNTO 0);
+		wren		: IN STD_LOGIC  := '0';
+		q		: OUT STD_LOGIC_VECTOR (15 DOWNTO 0)
+	);
+END DMACache;
+

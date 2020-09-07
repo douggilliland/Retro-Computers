@@ -128,10 +128,6 @@ signal w_vga_window 		: std_logic;
 signal w_audio_l 			: signed(15 downto 0);
 signal w_audio_r 			: signed(15 downto 0);
 
-signal W_sd_cs				: std_logic;
-signal W_sd_mosi			: std_logic;
-signal W_sd_clk			: std_logic;
-
 -- Sigma Delta audio
 COMPONENT hybrid_pwm_sd
 	PORT
@@ -144,10 +140,6 @@ COMPONENT hybrid_pwm_sd
 END COMPONENT;
 
 begin
-
-sd_cs		<= W_sd_cs;
-sd_mosi	<= W_sd_mosi;
-sd_clk	<= W_sd_clk;
 
 --	IO_PIN(3) <= '0';
 --	IO_PIN(4) <= '0';
@@ -304,10 +296,10 @@ sd_clk	<= W_sd_clk;
 			ps2m_dat_out	=> w_ps2m_dat_out,
 			
 			-- SD Card interface
-			spi_cs	=> w_sd_cs,
+			spi_cs	=> sd_cs,
 			spi_miso	=> sd_miso,
-			spi_mosi => w_sd_mosi,
-			spi_clk	=> w_sd_clk,
+			spi_mosi => sd_mosi,
+			spi_clk	=> sd_clk,
 			
 			-- Audio - FIXME abstract this out, too.
 			audio_l => w_audio_l,

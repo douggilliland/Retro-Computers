@@ -1,0 +1,1 @@
+-intstyle "ise" -incremental -lib "unisims_ver" -lib "unimacro_ver" -lib "xilinxcorelib_ver" -lib "secureip" -o "C:/Users/CHEMSTI/HOME/TG68_MiniSOC.git/branches/burst8/SOC/fpga/ems11-bb30/EMS11_BB30Toplevel_isim_beh.exe" -prj "C:/Users/CHEMSTI/HOME/TG68_MiniSOC.git/branches/burst8/SOC/fpga/ems11-bb30/EMS11_BB30Toplevel_beh.prj" "work.EMS11_BB30Toplevel" "work.glbl" 

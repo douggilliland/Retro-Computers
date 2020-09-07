@@ -1,0 +1,119 @@
+
+
+
+module ps2_io
+(
+	input clk,
+	input reset,
+	input ps2_dat,
+	input ps2_clk,
+	output ps2_dato,
+	output ps2_clko,
+	input	[7:0] senddata,
+	input	sendtrigger,
+	output sendready,
+	output [7:0] recvdata,
+	output reg recvtrigger,	// Single-clock pulse
+	input recvack
+);
+
+//local signals
+reg	clkout; 				// clk out
+wire	datout;				// data out
+reg	datb,clkb,clkc;		// input synchronization	
+
+reg		[10:0] receive;		// receive register	
+reg		[11:0] send;			// send register
+reg		[19:0] timer;			// timer
+
+wire	clkneg;				// negative edge of clock strobe
+reg	rreset;				// receive reset
+wire	rready;				// receive ready;
+reg	treset;				// timer reset
+wire	talarm;				// timer somewhere halfway timeout
+
+reg rts;
+reg rts_d;
+
+// input synchronization of external signals
+always @(posedge clk)
+begin
+	datb <= ps2_dat;
+	clkb <= ps2_clk;
+	clkc <= clkb;
+end						
+
+// detect clock negative edge
+assign clkneg = clkc & (~clkb);
+
+// PS2 input shifter
+// The shifter is reset upon receipt of the "recvack" signal,
+// which should make the interface robust against missed or noisy clocks.
+// FIXME - need an overflow error here if more data arrives before we've
+// had the ack pulse.
+always @(posedge clk)
+begin
+	recvtrigger<=1'b0;
+	if (reset || recvack)
+		receive[10:0]<=11'b11111111111;
+	else if (clkneg)
+	begin
+		receive[10:0]<={datb,receive[10:1]};
+		recvtrigger<=~receive[1];	// inverse of start bit
+	end
+end
+
+assign recvdata=receive[8:1];
+
+// PS2 send data
+// CTS is low during sending
+// Sending is delayed by recvbusy flag
+
+// Upon receipt of the sendtrigger we enter the RTS state
+// in which the clock line is pulled low.  After 100ms we release
+// clock and wait for the device to clock out the data.
+
+always @(posedge clk)
+begin
+	rts<=rts_d;
+	if (sendtrigger) //     TSPDDDDDDDDS
+	begin
+		// enter RTS state, causes clock to go low
+		rts_d<=1'b1;
+		treset<=1'b1;	
+		send[11:10]<=2'b11; // Termination and stop bits
+		// Setting these here clears the sendready flag. Should be
+		// no data shifted out as a result because clk is inhibited.
+	end
+	else if (rts)
+	begin
+		treset<=1'b0;
+		if (talarm)
+		begin
+			// Setup data
+			send[11:10]<=2'b11; // Termination and stop bits
+			send[8:1]<=senddata;
+			send[0]=1'b0;	// Start bit
+			send[9]=~senddata[0]^senddata[1]^senddata[2]^senddata[3]
+			^senddata[4]^senddata[5]^senddata[6]^senddata[7]; // Parity bit
+			rts_d<=1'b0; // We delay this to let the data settle before the clock edge.
+		end
+	end
+	else if (!sendready && clkneg)	// Each falling edge until the data's all shifted out...
+		send[11:0]<={1'b0,send[11:1]};	// Clock out one bit
+end
+
+assign sendready=(send[11:0]==12'b000000000001)?1'b1:1'b0;
+
+assign ps2_dato=send[0];
+assign ps2_clko=~rts;	// Clock is low during RTS state, high otherwise
+
+// PS2 mouse timer
+always @(posedge clk)
+	if (treset)
+		timer[19:0]<=20'h00000;
+	else
+		timer[19:0]<=timer[19:0]+1;
+assign talarm=timer[15];
+
+endmodule
