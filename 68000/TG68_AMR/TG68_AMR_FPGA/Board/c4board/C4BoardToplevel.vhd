@@ -123,6 +123,8 @@ signal w_odd_led			: unsigned(5 downto 0);
 signal w_vga_r 			: unsigned(7 downto 0);
 signal w_vga_g 			: unsigned(7 downto 0);
 signal w_vga_b 			: unsigned(7 downto 0);
+signal w_vga_hsync 		: std_logic;
+signal w_vga_vsync 		: std_logic;
 signal w_vga_window 		: std_logic;
 
 signal w_audio_l 			: signed(15 downto 0);
@@ -169,24 +171,24 @@ begin
 	IO_PIN(28) <= '0';
 	IO_PIN(29) <= '0';
 	IO_PIN(30) <= '0';
-	IO_PIN(31) <= '0';
-	IO_PIN(32) <= '0';
-	IO_PIN(33) <= '0';
-	IO_PIN(34) <= '0';
-	IO_PIN(35) <= '0';
-	IO_PIN(36) <= '0';
-	IO_PIN(37) <= '0';
-	IO_PIN(38) <= '0';
-	IO_PIN(39) <= '0';
-	IO_PIN(40) <= '0';
-	IO_PIN(41) <= '0';
-	IO_PIN(42) <= '0';
-	IO_PIN(43) <= '0';
-	IO_PIN(44) <= '0';
-	IO_PIN(45) <= '0';
-	IO_PIN(46) <= ps2k_clk;
-	IO_PIN(47) <= ps2k_dat;
-	IO_PIN(48) <= reset_n;
+	IO_PIN(31) <= w_vga_r(7);
+	IO_PIN(32) <= w_vga_r(6);
+	IO_PIN(33) <= w_vga_r(5);
+	IO_PIN(34) <= w_vga_r(4);
+	IO_PIN(35) <= w_vga_r(3);
+	IO_PIN(36) <= w_vga_g(7);
+	IO_PIN(37) <= w_vga_g(6);
+	IO_PIN(38) <= w_vga_g(5);
+	IO_PIN(39) <= w_vga_g(4);
+	IO_PIN(40) <= w_vga_g(3);
+	IO_PIN(41) <= w_vga_g(2);
+	IO_PIN(42) <= w_vga_b(7);
+	IO_PIN(43) <= w_vga_b(6);
+	IO_PIN(44) <= w_vga_b(5);
+	IO_PIN(45) <= w_vga_b(4);
+	IO_PIN(46) <= w_vga_b(3);
+	IO_PIN(47) <= w_vga_hsync;
+	IO_PIN(48) <= w_vga_vsync;
 
 	w_power_led(5 downto 2)	<= unsigned(w_debugvalue(15 downto 12));
 	w_disk_led(5 downto 2)	<= unsigned(w_debugvalue(11 downto 8));
@@ -247,6 +249,9 @@ begin
 			oGreen	=> o_vga_green,
 			oBlue		=> o_vga_blue
 		);
+
+	o_vga_hsync <= w_vga_hsync;
+	o_vga_vsync <= w_vga_vsync;
 	
 	tg68tst : entity work.VirtualToplevel
 		generic map (
@@ -275,9 +280,8 @@ begin
 			vga_red		=> w_vga_r,
 			vga_green	=> w_vga_g,
 			vga_blue		=> w_vga_b,
-			
-			vga_hsync => o_vga_hsync,
-			vga_vsync => o_vga_vsync,
+			vga_hsync => w_vga_hsync,
+			vga_vsync => w_vga_vsync,
 			
 			vga_window => w_vga_window,
 
