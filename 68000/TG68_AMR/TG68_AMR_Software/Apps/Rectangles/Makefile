@@ -1,11 +1,11 @@
 ARCH	= 68000
-BASE	= m68k-elf
+BASE	= /opt/m68k-elf/bin/m68k-elf
 CC      = $(BASE)-gcc
 LD      = $(BASE)-gcc
 AS      = $(BASE)-as
 CP      = $(BASE)-objcopy
 DUMP    = $(BASE)-objdump
-VASM	= vasmm68k_mot
+VASM	= ../../../vasm/vasmm68k_mot
 
 # we use crt0.s from here
 STARTUP_DIR = ../../Firmware_Common
