@@ -1,4 +1,7 @@
 --
+--	TG68_AMR Design
+--		https://hackaday.io/project/174679-68k-cpu-with-frame-buffer-on-fpga
+--	
 -- Top level TG68 files
 --
 -- Features
@@ -8,7 +11,9 @@
 --		PS/2 Keyboard and Mouse support
 --		SD Card support
 -- Runs on RETRO-EP4CE15 basecard
+--		http://land-boards.com/blwiki/index.php?title=RETRO-EP4CE15#QMTECH_EP4CE15
 -- FPGA card is EP4CE15 Cyclone IV FPGA
+--		http://land-boards.com/blwiki/index.php?title=QMTECH_EP4CE15_FPGA_Card
 --
 -- Memory Map
 --		0x00000000-0x0000ffff = ROM 
