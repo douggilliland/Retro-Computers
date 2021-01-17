@@ -36,9 +36,8 @@ use altera.altera_syn_attributes.all;
 library work;
 use work.Toplevel_Config.ALL;
 
-
 entity C4BoardToplevel is
-port(
+	port (
 		clk_50			: in 	std_logic;
 		reset_n			: in 	std_logic;
 
@@ -220,14 +219,14 @@ begin
 		);
 
 	myleds : entity work.statusleds_pwm
-	port map(
-		clk			=> clk,
-		power_led	=> w_power_led,
-		disk_led		=> w_disk_led,
-		net_led		=> w_net_led,
-		odd_led		=> w_odd_led,
-		leds_out		=> leds
-	);
+		port map(
+			clk			=> clk,
+			power_led	=> w_power_led,
+			disk_led		=> w_disk_led,
+			net_led		=> w_net_led,
+			odd_led		=> w_odd_led,
+			leds_out		=> leds
+		);
 	
 	myw_reset : entity work.poweronreset
 		port map(
@@ -260,8 +259,10 @@ begin
 	
 	tg68tst : entity work.VirtualToplevel
 		generic map (
+			-- W9825C6KH-6 Winbond 4M X 4 Banks x 16 bits SDRAM
+			-- 13 rows, 9 columns
 			sdram_rows			=> 13,
-			sdram_cols			=> 10,
+			sdram_cols			=> 9,
 			sysclk_frequency	=> 250
 		)
 		port map (
