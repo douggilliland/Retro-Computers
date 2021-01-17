@@ -256,8 +256,10 @@ sd_clk	<= W_sd_clk;
 	
 	tg68tst : entity work.VirtualToplevel
 		generic map (
+			-- W9825C6KH-6 Winbond 4M X 4 Banks x 16 bits SDRAM
+			-- 13 rows, 9 columns
 			sdram_rows			=> 13,
-			sdram_cols			=> 10,
+			sdram_cols			=> 9,
 			sysclk_frequency	=> 250
 		)
 		port map (
