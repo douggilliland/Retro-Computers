@@ -1,0 +1,409 @@
+From 10beebb4be7801a11fb443f8bc7278d3083e6613 Mon Sep 17 00:00:00 2001
+From: Rob Gowin <robgowin@gmail.com>
+Date: Sat, 14 Nov 2020 14:55:55 -0600
+Subject: [PATCH 1/3] First part of support for the MC68681 Dual UART.
+
+This commits adds the beginning of support for the Motorola MC68681
+Dual UART: config entries, register and fields defines, and hardware
+detection.
+
+Support for the standard DUART is independent of the current support
+in the ColdFire code for its 68681-compatible UARTs. This may (or may
+not) be reconciled in the future.
+
+File changes:
+
+bios/bios.h: Add boot status for DUART_AVAILABLE.
+
+bios/bios.c: Set boot_status if DUART found.
+
+bios/machine.c: Add code to detect DUART.
+
+bios/duart68681.h: Register and field definitions for the MC68681.
+
+include/has.h: Add has_duart.
+
+include/config.h: Add defines (disabled) for DUART features, along
+    with DUART_DEBUG_PRINT. Defines added:
+
+    DUART_BASE
+    CONF_WITH_DUART
+    CONF_WITH_DUART_CHANNEL_B
+    CONF_DUART_TIMER_C
+    DUART_DEBUG_PRINT
+
+    Because ColdFire does not support the B channel in its DUART
+    implemention, Channel B can be enabled separately from Channel A.
+---
+ bios/bios.c       |   4 ++
+ bios/bios.h       |   1 +
+ bios/duart68681.h | 153 ++++++++++++++++++++++++++++++++++++++++++++++
+ bios/machine.c    |  46 ++++++++++++++
+ include/config.h  |  50 ++++++++++++++-
+ include/has.h     |   4 ++
+ 6 files changed, 256 insertions(+), 2 deletions(-)
+ create mode 100644 bios/duart68681.h
+
+diff --git a/bios/bios.c b/bios/bios.c
+index 1f1adb7e..4ab6783f 100644
+--- a/bios/bios.c
++++ b/bios/bios.c
+@@ -372,6 +372,10 @@ static void bios_init(void)
+     if (has_scc)
+         boot_status |= SCC_AVAILABLE;   /* track progress */
+ #endif
++#if CONF_WITH_DUART
++    if (has_duart)
++        boot_status |= DUART_AVAILABLE; /* track process */
++#endif
+ 
+     /* The sound init must be done before allowing MFC interrupts,
+      * because of dosound stuff in the timer C interrupt routine.
+diff --git a/bios/bios.h b/bios/bios.h
+index 285c7970..d05463d0 100644
+--- a/bios/bios.h
++++ b/bios/bios.h
+@@ -87,5 +87,6 @@ extern WORD boot_status;
+ #define DOS_AVAILABLE   0x04
+ #define SCC_AVAILABLE   0x08
+ #define CHARDEV_AVAILABLE 0x10
++#define DUART_AVAILABLE 0x20
+ 
+ #endif /* BIOS_H */
+diff --git a/bios/duart68681.h b/bios/duart68681.h
+new file mode 100644
+index 00000000..0680b60f
+--- /dev/null
++++ b/bios/duart68681.h
+@@ -0,0 +1,153 @@
++
++#ifndef DUART68681_H
++#define DUART68681_H
++
++#define DUART_PORT_A 0
++#define DUART_PORT_B 1
++
++/* Some Motorola 68681 DUART support borrowed from
++ * FUZIX: https://github.com/EtchedPixels/FUZIX/blob/master/Kernel/platform-tiny68k/devtty.c
++ * FUZIX is licensed under GPL v2, like EmuTOS.
++ */
++
++#define DUART_MRA        0x01
++#define DUART_SRA        0x03
++#define DUART_CSRA       0x03
++#define DUART_CRA        0x05
++#define DUART_RHRA       0x07
++#define DUART_THRA       0x07
++#define DUART_IPCR       0x09
++#define DUART_ACR        0x09
++#define DUART_ISR        0x0B
++#define DUART_IMR        0x0B
++#define DUART_CTU        0x0D
++#define DUART_CTUR       0x0D
++#define DUART_CTL        0x0F
++#define DUART_CTLR       0x0F
++#define DUART_MRB        0x11
++#define DUART_SRB        0x13
++#define DUART_CSRB       0x13
++#define DUART_CRB        0x15
++#define DUART_RHRB       0x17
++#define DUART_THRB       0x17
++#define DUART_IVR        0x19
++#define DUART_OPCR       0x1B
++#define DUART_STARTCTR   0x1D
++#define DUART_SETOPR     0x1D
++#define DUART_STOPCTR    0x1F
++#define DUART_CLROPR     0x1F
++
++/* The bit definitions here copied with slight renaming from
++ * coldpriv.h
++ */
++/* Bit definitions and macros for DUART_MR */
++#define DUART_MR_BC(x)              (((x)&0x03)<<0)
++#define DUART_MR_PT                 (0x04)
++#define DUART_MR_PM(x)              (((x)&0x03)<<3)
++#define DUART_MR_ERR                (0x20)
++#define DUART_MR_RXIRQ              (0x40)
++#define DUART_MR_RXRTS              (0x80)
++#define DUART_MR_SB(x)              (((x)&0x0F)<<0)
++#define DUART_MR_TXCTS              (0x10)
++#define DUART_MR_TXRTS              (0x20)
++#define DUART_MR_CM(x)              (((x)&0x03)<<6)
++#define DUART_MR_PM_MULTI_ADDR      (0x1C)
++#define DUART_MR_PM_MULTI_DATA      (0x18)
++#define DUART_MR_PM_NONE            (0x10)
++#define DUART_MR_PM_FORCE_HI        (0x0C)
++#define DUART_MR_PM_FORCE_LO        (0x08)
++#define DUART_MR_PM_ODD             (0x04)
++#define DUART_MR_PM_EVEN            (0x00)
++#define DUART_MR_BC_5               (0x00)
++#define DUART_MR_BC_6               (0x01)
++#define DUART_MR_BC_7               (0x02)
++#define DUART_MR_BC_8               (0x03)
++#define DUART_MR_CM_NORMAL          (0x00)
++#define DUART_MR_CM_ECHO            (0x40)
++#define DUART_MR_CM_LOCAL_LOOP      (0x80)
++#define DUART_MR_CM_REMOTE_LOOP     (0xC0)
++#define DUART_MR_SB_STOP_BITS_1     (0x07)
++#define DUART_MR_SB_STOP_BITS_15    (0x08)
++#define DUART_MR_SB_STOP_BITS_2     (0x0F)
++
++/* Bit definitions and macros for DUART_SR */
++#define DUART_SR_RXRDY              (0x01)
++#define DUART_SR_FFULL              (0x02)
++#define DUART_SR_TXRDY              (0x04)
++#define DUART_SR_TXEMP              (0x08)
++#define DUART_SR_OE                 (0x10)
++#define DUART_SR_PE                 (0x20)
++#define DUART_SR_FE                 (0x40)
++#define DUART_SR_RB                 (0x80)
++
++/* Bit definitions and macros for DUART_CSR */
++#define DUART_CSR_TCS(x)            (((x)&0x0F)<<0)
++#define DUART_CSR_RCS(x)            (((x)&0x0F)<<4)
++#define DUART_CSR_RCS_SYS_CLK       (0xD0)
++#define DUART_CSR_RCS_CTM16         (0xE0)
++#define DUART_CSR_RCS_CTM           (0xF0)
++#define DUART_CSR_TCS_SYS_CLK       (0x0D)
++#define DUART_CSR_TCS_CTM16         (0x0E)
++#define DUART_CSR_TCS_CTM           (0x0F)
++
++/* Bit definitions and macros for DUART_CR */
++#define DUART_CR_RXC(x)             (((x)&0x03)<<0)
++#define DUART_CR_TXC(x)             (((x)&0x03)<<2)
++#define DUART_CR_MISC(x)            (((x)&0x07)<<4)
++#define DUART_CR_NONE               (0x00)
++#define DUART_CR_STOP_BREAK         (0x70)
++#define DUART_CR_START_BREAK        (0x60)
++#define DUART_CR_BKCHGINT           (0x50)
++#define DUART_CR_RESET_ERROR        (0x40)
++#define DUART_CR_RESET_TX           (0x30)
++#define DUART_CR_RESET_RX           (0x20)
++#define DUART_CR_RESET_MR           (0x10)
++#define DUART_CR_TX_DISABLED        (0x08)
++#define DUART_CR_TX_ENABLED         (0x04)
++#define DUART_CR_RX_DISABLED        (0x02)
++#define DUART_CR_RX_ENABLED         (0x01)
++
++/* These are extended commands supported by the XR68C681 */
++#define DUART_CR_SET_RX_BRG_EXTEND_BIT (0x80)
++#define DUART_CR_CLR_RX_BRG_EXTEND_BIT (0x90)
++#define DUART_CR_SET_TX_BRG_EXTEND_BIT (0xA0)
++#define DUART_CR_CLR_TX_BRG_EXTEND_BIT (0xB0)
++#define DUART_CR_SET_STANDBY_MODE      (0xC0)
++#define DUART_CR_SET_ACTIVE_MODE       (0xD0)
++
++/* Bit definitions and macros for DUART_IPCR */
++#define DUART_IPCR_CTS              (0x01)
++#define DUART_IPCR_COS              (0x10)
++
++/* Bit definitions and macros for DUART_ACR */
++#define DUART_ACR_IEC               (0x01)
++
++/* Bit definitions and macros for DUART_ISR */
++#define DUART_ISR_TXRDY             (0x01)
++#define DUART_ISR_RXRDY_FU          (0x02)
++#define DUART_ISR_DB                (0x04)
++#define DUART_ISR_RXFTO             (0x08)
++#define DUART_ISR_TXFIFO            (0x10)
++#define DUART_ISR_RXFIFO            (0x20)
++#define DUART_ISR_COS               (0x80)
++
++/* Bit definitions and macros for DUART_IMR */
++#define DUART_IMR_TXRDY_A           (0x01)
++#define DUART_IMR_RXRDY_A           (0x02)
++#define DUART_IMR_DB_A              (0x04)
++#define DUART_IMR_COUNTER_READY     (0x08)
++#define DUART_IMR_TXRDY_B           (0x10)
++#define DUART_IMR_RXRDY_B           (0x20)
++#define DUART_IMR_DB_B              (0x40)
++#define DUART_IMR_INPUT_CHG         (0x80)
++
++/* Bit definitions and macros for DUART_IP */
++#define DUART_IP_CTS                (0x01)
++
++/* Bit definitions and macros for DUART_OP1, bit 1 */
++#define DUART_OP1_RTS               (0x02)
++
++/* Bit definitions and macros for DUART_OP0, bit 0 */
++#define DUART_OP0_RTS               (0x01)
++
++#endif
+diff --git a/bios/machine.c b/bios/machine.c
+index db736bac..94a680ed 100644
+--- a/bios/machine.c
++++ b/bios/machine.c
+@@ -34,6 +34,7 @@
+ #include "delay.h"
+ #include "mfp.h"
+ #include "scc.h"
++#include "duart68681.h"
+ #include "memory.h"
+ #include "coldfire.h"
+ #include "dma.h"
+@@ -177,6 +178,24 @@ static void detect_scc(void)
+ 
+ #endif /* CONF_WITH_SCC */
+ 
++#if CONF_WITH_DUART
++
++int has_duart;
++
++/*
++ * detect DUART (ColdFire)
++ */
++static void detect_duart(void)
++{
++    has_duart = 0;
++    if (check_read_byte(DUART_BASE))
++        has_duart = 1;
++
++    KDEBUG(("has_duart = %d\n", has_duart));
++}
++
++#endif /* CONF_WITH_DUART */
++
+ #if CONF_WITH_VME
+ 
+ int has_vme;
+@@ -529,6 +548,10 @@ void machine_detect(void)
+     if (!IS_ARANYM)
+         detect_scc();
+ #endif
++#if CONF_WITH_DUART
++    if (!IS_ARANYM)
++        detect_duart();
++#endif
+ #if CONF_WITH_VME
+     if (!IS_ARANYM)
+         detect_vme();
+@@ -635,6 +658,29 @@ volatile UBYTE *fbcr = (UBYTE *)FALCON_BUS_CTL;
+         delay_loop(loops);
+     }
+  #endif
++
++ #if CONF_WITH_DUART
++    if (has_duart)
++    {
++        DUART_CRA(RS232_PORT) = DUART_CR_RESET_MR; /* Reset pointer register. */
++        DUART_CRA(RS232_PORT) = DUART_CR_RESET_RX; /* Reset receiver. */
++        DUART_CRA(RS232_PORT) = DUART_CR_RESET_TX; /* Reset transmitter. */
++        DUART_CRA(RS232_PORT) = DUART_CR_RESET_ERROR; /* Reset error status. */
++        DUART_CRA(RS232_PORT) = DUART_CR_BKCHGINT; /* Reset BREAK change interrupt. */
++
++ #if CONF_WITH_DUART_CHANNEL_B
++        DUART_CRB(RS232_PORT) = DUART_CR_RESET_MR; /* Reset pointer register. */
++        DUART_CRB(RS232_PORT) = DUART_CR_RESET_RX; /* Reset receiver. */
++        DUART_CRB(RS232_PORT) = DUART_CR_RESET_TX; /* Reset transmitter. */
++        DUART_CRB(RS232_PORT) = DUART_CR_RESET_ERROR; /* Reset error status. */
++        DUART_CRB(RS232_PORT) = DUART_CR_BKCHGINT; /* Reset BREAK change interrupt. */
++ #endif /* CONF_WITH_DUART_CHANNEL_B */
++
++        DUART_IMR(RS232_PORT) = 0; /* Mask off all interrupts */
++
++    }
++ #endif /* CONF_WITH_DUART */
++
+ #endif /* CONF_WITH_RESET */
+ }
+ 
+diff --git a/include/config.h b/include/config.h
+index 256e5c26..da6fad05 100644
+--- a/include/config.h
++++ b/include/config.h
+@@ -805,6 +805,37 @@
+ # define CONF_WITH_SCC 1
+ #endif
+ 
++/*
++ * Set CONF_WITH_DUART to 1 to enable support for the MC68681 Dual UART
++ */
++#ifndef CONF_WITH_DUART
++# define CONF_WITH_DUART 0
++#endif
++
++/*
++ * Set base address of DUART. Coldfire uses 0xFFFF8600
++ */
++#ifndef DUART_BASE
++# define DUART_BASE 0xFFFF8600UL
++#endif
++
++/*
++ * Set CONF_WITH_DUART_CHANNEL_B to 1 to enable the second port on 
++ * the MC68681. ColdFile UARTS are a subset of the MC68681 and don't
++ * support the second channel.
++ */
++#ifndef CONF_WITH_DUART_CHANNEL_B
++# define CONF_WITH_DUART_CHANNEL_B 0
++#endif
++
++/*
++ * Set CONF_DUART_TIMER_C to 1 to simulate Timer C using the 
++ * timer available on the MC68681 DUART.
++ */
++#ifndef CONF_DUART_TIMER_C
++# define CONF_DUART_TIMER_C 0
++#endif
++
+ /*
+  * Set CONF_COLDFIRE_TIMER_C to 1 to simulate Timer C using the
+  * internal ColdFire timers
+@@ -1638,6 +1669,15 @@
+ # define SCC_DEBUG_PRINT 0
+ #endif
+ 
++/*
++ * Set DUART_DEBUG_PRINT to 1 to redirect debug prints to the DUART portB RS232
++ * out.
++ */
++
++#ifndef DUART_DEBUG_PRINT
++# define DUART_DEBUG_PRINT 0
++#endif
++
+ /*
+  * Set COLDFIRE_DEBUG_PRINT to 1 to redirect debug prints to the ColdFire serial port
+  */
+@@ -1659,7 +1699,7 @@
+ #endif
+ 
+ /* Determine if kprintf() is available */
+-#if CONF_WITH_UAE || DETECT_NATIVE_FEATURES || STONX_NATIVE_PRINT || CONSOLE_DEBUG_PRINT || RS232_DEBUG_PRINT || SCC_DEBUG_PRINT || COLDFIRE_DEBUG_PRINT || MIDI_DEBUG_PRINT
++#if CONF_WITH_UAE || DETECT_NATIVE_FEATURES || STONX_NATIVE_PRINT || CONSOLE_DEBUG_PRINT || RS232_DEBUG_PRINT || SCC_DEBUG_PRINT || DUART_DEBUG_PRINT || COLDFIRE_DEBUG_PRINT || MIDI_DEBUG_PRINT
+ #  define HAS_KPRINTF 1
+ # else
+ #  define HAS_KPRINTF 0
+@@ -1857,7 +1897,13 @@
+ # endif
+ #endif
+ 
+-#if (CONSOLE_DEBUG_PRINT + RS232_DEBUG_PRINT + SCC_DEBUG_PRINT + COLDFIRE_DEBUG_PRINT + MIDI_DEBUG_PRINT) > 1
++#if !CONF_WITH_DUART_CHANNEL_B
++# if DUART_DEBUG_PRINT
++#  error DUART_DEBUG_PRINT requires CONF_WITH_DUART_CHANNEL_B
++# endif
++#endif
++
++#if (CONSOLE_DEBUG_PRINT + RS232_DEBUG_PRINT + SCC_DEBUG_PRINT + DUART_DEBUG_PRINT + COLDFIRE_DEBUG_PRINT + MIDI_DEBUG_PRINT) > 1
+ # error Only one of CONSOLE_DEBUG_PRINT, RS232_DEBUG_PRINT, SCC_DEBUG_PRINT, COLDFIRE_DEBUG_PRINT or MIDI_DEBUG_PRINT must be set to 1.
+ #endif
+ 
+diff --git a/include/has.h b/include/has.h
+index 6c9c2a46..f5443eb3 100644
+--- a/include/has.h
++++ b/include/has.h
+@@ -56,6 +56,10 @@ extern int has_tt_mfp;
+ extern int has_scc;
+ #endif
+ 
++#if CONF_WITH_DUART
++extern int has_duart;
++#endif
++
+ #if CONF_WITH_VME
+ extern int has_vme;
+   #define HAS_VME has_vme
+-- 
+2.25.1
+

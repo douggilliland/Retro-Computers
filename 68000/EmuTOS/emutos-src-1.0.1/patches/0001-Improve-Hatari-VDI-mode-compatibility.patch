@@ -1,0 +1,117 @@
+From 1f2dc8e5f858162ade181ac85c86f7752303c783 Mon Sep 17 00:00:00 2001
+From: Eero Tamminen <oak@helsinkinet.fi>
+Date: Tue, 7 Apr 2020 20:09:26 +0300
+Subject: [PATCH] Improve Hatari VDI mode compatibility
+
+Reverts commit 0ab69cafb and makes sure that 'mcs_ptr' gets also
+correct value, otherwise EmuTOS crashes when Hatari uses 8 planes.
+
+=> 28 byte ROM size decrease
+---
+ bios/bios.c      |  3 ---
+ bios/bios.h      |  1 -
+ bios/lineainit.c | 11 +----------
+ bios/screen.c    | 11 ++++++++++-
+ 4 files changed, 11 insertions(+), 15 deletions(-)
+
+diff --git a/bios/bios.c b/bios/bios.c
+index 83a6d625..22b93aa1 100644
+--- a/bios/bios.c
++++ b/bios/bios.c
+@@ -410,7 +410,6 @@ static void bios_init(void)
+         KDEBUG(("init_nova()\n"));
+         if (init_nova()) {
+             set_rez_hacked();
+-            vt52_init();            /* initialize the vt52 console */
+         }
+     }
+ #endif
+@@ -461,8 +460,6 @@ static void bios_init(void)
+         if ((V_REZ_HZ != save_hz) || (V_REZ_VT != save_vt) || (v_planes != save_pl))
+         {
+             set_rez_hacked();
+-            set_screen_shift();     /* set shift amount for screen address calc */
+-            vt52_init();            /* initialize the vt52 console */
+         }
+     }
+ #endif
+diff --git a/bios/bios.h b/bios/bios.h
+index e1162bad..3b531605 100644
+--- a/bios/bios.h
++++ b/bios/bios.h
+@@ -34,7 +34,6 @@ void bconout_str(WORD handle, const char* str);
+ 
+ /* Line-A functions */
+ void linea_init(void); /* initialize variables */
+-void set_screen_shift(void);    /* set shift amount for screen address calcs */
+ 
+ /* functions below implemented in panicasm.S */
+ 
+diff --git a/bios/lineainit.c b/bios/lineainit.c
+index 06bbc2f7..d5e1a8c0 100644
+--- a/bios/lineainit.c
++++ b/bios/lineainit.c
+@@ -34,15 +34,6 @@ UBYTE v_planes_shift;
+ 
+ MCS *mcs_ptr;   /* ptr to current mouse cursor save area, based on v_planes */
+ 
+-
+-/*
+- * set_screen_shift() - sets v_planes_shift from the current value of v_planes
+- */
+-void set_screen_shift(void)
+-{
+-    v_planes_shift = shift_offset[v_planes];
+-}
+-
+ /*
+  * linea_init - init linea variables
+  */
+@@ -53,7 +44,7 @@ void linea_init(void)
+     screen_get_current_mode_info(&v_planes, &V_REZ_HZ, &V_REZ_VT);
+ 
+     /* precalculate shift value to optimize pixel address calculations */
+-    set_screen_shift();
++    v_planes_shift = shift_offset[v_planes];
+ 
+     v_lin_wr = V_REZ_HZ / 8 * v_planes;     /* bytes per line */
+     BYTES_LIN = v_lin_wr;       /* I think BYTES_LIN = v_lin_wr (PES) */
+diff --git a/bios/screen.c b/bios/screen.c
+index a09ceb2b..976d3899 100644
+--- a/bios/screen.c
++++ b/bios/screen.c
+@@ -629,7 +629,7 @@ void screen_init(void)
+ }
+ 
+ /*
+- * Mark resolution as hacked
++ * Mark resolution as hacked and re-init relevant settings
+  *
+  * called by bios_init() if a cartridge application has altered key
+  * lineA variables
+@@ -637,6 +637,8 @@ void screen_init(void)
+ void set_rez_hacked(void)
+ {
+     rez_was_hacked = TRUE;
++    linea_init();
++    vt52_init();            /* initialize the vt52 console */
+ }
+ 
+ /*
+@@ -744,6 +746,13 @@ static void shifter_get_current_mode_info(UWORD *planes, UWORD *hz_rez, UWORD *v
+ 
+ static void atari_get_current_mode_info(UWORD *planes, UWORD *hz_rez, UWORD *vt_rez)
+ {
++    if (rez_was_hacked)
++    {
++        /* called only from linea_init().  Given values have
++	 * already been set, and should not be changed back
++	 */
++        return;
++    }
+ #if CONF_WITH_VIDEL
+     if (has_videl) {
+         videl_get_current_mode_info(planes, hz_rez, vt_rez);
+-- 
+2.20.1
+

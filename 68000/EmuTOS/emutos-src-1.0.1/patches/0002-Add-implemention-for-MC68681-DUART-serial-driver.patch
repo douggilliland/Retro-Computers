@@ -1,0 +1,624 @@
+From fc52ff9c5271a35b1fd10f22a6a2405576453733 Mon Sep 17 00:00:00 2001
+From: Rob Gowin <robgowin@gmail.com>
+Date: Sat, 14 Nov 2020 15:05:54 -0600
+Subject: [PATCH 2/3] Add implemention for MC68681 DUART serial driver.
+
+* Added bco* and rsconf* functions for both channels.
+
+* Added BCONMAP support. DUART Channel A is added as ID 10, Channel B
+  added as ID 11 (if Channel B if enabled).
+
+* Added stubbed-out interrupt support functions.
+
+* Add implemention for DUART_DEBUG_PRINT.
+
+* Added private (static) functions needed to implement driver.
+---
+ bios/kprint.c  |  26 +++
+ bios/serport.c | 455 ++++++++++++++++++++++++++++++++++++++++++++++++-
+ bios/serport.h |  11 +-
+ 3 files changed, 489 insertions(+), 3 deletions(-)
+
+diff --git a/bios/kprint.c b/bios/kprint.c
+index 3f873429..0ed90773 100644
+--- a/bios/kprint.c
++++ b/bios/kprint.c
+@@ -112,6 +112,17 @@ static void kprintf_outc_sccB(int c)
+ }
+ #endif
+ 
++#if DUART_DEBUG_PRINT
++static void kprintf_outc_duartB(int c)
++{
++    /* Raw terminals usually require CRLF */
++    if (c == '\n')
++        bconoutDUARTB(1,'\r');
++
++    bconoutDUARTB(1,c);
++}
++#endif
++
+ #if DETECT_NATIVE_FEATURES
+ static void kprintf_outc_natfeat(int c)
+ {
+@@ -190,6 +201,21 @@ static int vkprintf(const char *fmt, va_list ap)
+     }
+ #endif
+ 
++#if DUART_DEBUG_PRINT
++    if (boot_status&DUART_AVAILABLE) {    /* no DUART, no message */
++        int rc;
++        char *stacksave = NULL;
++
++        if (boot_status&DOS_AVAILABLE)  /* if Super() is available, */
++            if (!Super(1L))             /* check for user state.    */
++                stacksave = (char *)Super(0L);  /* if so, switch to super   */
++        rc = doprintf(kprintf_outc_duartB, fmt, ap);
++        if (stacksave)                  /* if we switched, */
++            SuperToUser(stacksave);     /* switch back.    */
++        return rc;
++    }
++#endif
++
+ #if COLDFIRE_DEBUG_PRINT
+     return doprintf(kprintf_outc_coldfire_rs232, fmt, ap);
+ #endif
+diff --git a/bios/serport.c b/bios/serport.c
+index cde7cb6a..a6ad50ea 100644
+--- a/bios/serport.c
++++ b/bios/serport.c
+@@ -21,11 +21,13 @@
+ #include "has.h"
+ #include "mfp.h"
+ #include "scc.h"
++#include "duart68681.h"
+ #include "serport.h"
+ #include "string.h"
+ #include "tosvars.h"
+ #include "vectors.h"
+ #include "coldfire.h"
++#include "ikbd.h"
+ #ifdef MACHINE_AMIGA
+ #include "amiga.h"
+ #endif
+@@ -70,6 +72,21 @@ static LONG bconoutTT(WORD,WORD);
+ static ULONG rsconfTT(WORD baud, WORD ctrl, WORD ucr, WORD rsr, WORD tsr, WORD scr);
+ #endif  /* CONF_WITH_TT_MFP */
+ 
++#if CONF_WITH_DUART
++static LONG bconstatDUARTA(void);
++static LONG bconinDUARTA(void);
++static LONG bcostatDUARTA(void);
++static LONG bconoutDUARTA(WORD,WORD);
++static ULONG rsconfDUARTA(WORD baud, WORD ctrl, WORD ucr, WORD rsr, WORD tsr, WORD scr);
++
++#if CONF_WITH_DUART_CHANNEL_B
++static LONG bconstatDUARTB(void);
++static LONG bconinDUARTB(void);
++static LONG bcostatDUARTB(void);
++static ULONG rsconfDUARTB(WORD baud, WORD ctrl, WORD ucr, WORD rsr, WORD tsr, WORD scr);
++#endif /* CONF_WITH_DUART_CHANNEL_B */
++#endif /* CONF_WITH_DUART */
++
+ /*
+  * global variables
+  */
+@@ -91,7 +108,13 @@ static const EXT_IOREC iorec_init = {
+     B9600, FLOW_CTRL_NONE, 0x88, 0xff, 0xea };
+ 
+ #if BCONMAP_AVAILABLE
+-static MAPTAB maptable[4];
++#if CONF_WITH_DUART
++/* For the DUART, we place the ports at Bconmap devices 10 and 11 */
++# define MAPTABLE_SIZE 6
++#else
++# define MAPTABLE_SIZE 4
++#endif
++static MAPTAB maptable[MAPTABLE_SIZE];
+ 
+ static EXT_IOREC iorec_dummy;
+ static const MAPTAB maptable_dummy =
+@@ -111,6 +134,20 @@ static const MAPTAB maptable_port_b =
+     { bconstatB, bconinB, bcostatB, bconoutB, rsconfB, &iorecB };
+ #endif  /* CONF_WITH_SCC */
+ 
++#if CONF_WITH_DUART
++static EXT_IOREC iorecDUARTA;
++static UBYTE ibufDUARTA[RS232_BUFSIZE], obufDUARTA[RS232_BUFSIZE];
++static const MAPTAB maptable_duart_port_a =
++    { bconstatDUARTA, bconinDUARTA, bcostatDUARTA, bconoutDUARTA, rsconfDUARTA, &iorecDUARTA };
++
++#if CONF_WITH_DUART_CHANNEL_B
++static EXT_IOREC iorecDUARTB;
++static UBYTE ibufDUARTB[RS232_BUFSIZE], obufDUARTB[RS232_BUFSIZE];
++static const MAPTAB maptable_duart_port_b =
++    { bconstatDUARTB, bconinDUARTB, bcostatDUARTB, bconoutDUARTB, rsconfDUARTB, &iorecDUARTB };
++#endif /* CONF_WITH_DUART_CHANNEL_B */
++#endif /* CONF_WITH_DUART */
++
+ #if CONF_WITH_TT_MFP
+ static EXT_IOREC iorecTT;
+ static UBYTE ibufTT[RS232_BUFSIZE], obufTT[RS232_BUFSIZE];
+@@ -638,6 +675,384 @@ static ULONG rsconfTT(WORD baud, WORD ctrl, WORD ucr, WORD rsr, WORD tsr, WORD s
+ }
+ #endif  /* CONF_WITH_TT_MFP */
+ 
++#if CONF_WITH_DUART
++
++/*
++ * DUART support routines.
++ */
++
++static void write_duart(UBYTE reg, UBYTE val) {
++    volatile UBYTE *duart_base = (volatile UBYTE *) DUART_BASE;
++    duart_base[reg] = val;
++}
++
++static UBYTE read_duart(UBYTE reg) {
++    volatile UBYTE *duart_base = (volatile UBYTE *) DUART_BASE;
++    return duart_base[reg];
++}
++
++static UBYTE compute_mode_reg1(UBYTE current_mr1, WORD ctrl, WORD ucr)
++{
++    /* Bit 7 is Rx RTS. Computed from flow ctrl setting */
++    UBYTE rx_rts = current_mr1 & DUART_MR_RXRTS;
++    if (ctrl == FLOW_CTRL_NONE || ctrl == FLOW_CTRL_SOFT) rx_rts = 0;
++    else if (ctrl == FLOW_CTRL_HARD || ctrl == FLOW_CTRL_BOTH) rx_rts = DUART_MR_RXRTS;
++
++    /* Bit 6 is Rx interrupt select. It is always zero to interrupt on Rx RDY */
++    /* Bit 5 is the error mode select. It is always zero for 'Character' mode */
++    UBYTE rx_intr = 0, error_mode = 0;
++
++    /* Bits 4:3 select the parity mode. Computed from bit 2 of UCR (1 = yes, 0 = no) */
++    UBYTE parity_mode = current_mr1 & 0x18;
++    if (ucr >= 0) parity_mode = ucr & 2 ? DUART_MR_PM_FORCE_LO : DUART_MR_PM_NONE;
++
++    /* Bits 2 selects the parity type. Computed from bit 1 of the UCR (1 = even, 0 = odd) */
++    UBYTE parity_type = current_mr1 & 4;
++    if (ucr >= 0) parity_type = ucr & 4 ? DUART_MR_PM_EVEN : DUART_MR_PM_ODD;
++
++    /* Bits 1:0 select the number of bits per character: 5, 6, 7 or 8. Computed from UCR[6:5] */
++    UBYTE word_length = current_mr1 & 3;
++    if (ucr >= 0) {
++      switch((ucr>>5)&0x03) {     /* isolate ucr bits/char code */
++        case 3:     /* 5 bits */
++            word_length = DUART_MR_BC_5;
++            break;
++        case 2:     /* 6 bits */
++            word_length = DUART_MR_BC_6;
++            break;
++        case 1:     /* 7 bits */
++            word_length = DUART_MR_BC_7;
++            break;
++        default:     /* 8 bits */
++            word_length = DUART_MR_BC_8;
++            break;
++        }
++    }
++    return rx_rts | rx_intr | error_mode | parity_mode | parity_type | word_length;
++}
++
++static UBYTE compute_mode_reg2(UBYTE current_mr2, WORD ctrl, WORD ucr) {
++    /* Bits 7,6 is the channel mode, which is always NORMAL. */
++    UBYTE channel_mode = DUART_MR_CM_NORMAL;
++
++    /* Bit 5 is Tx RTS, which we don't use (RTS used for Rx), so set to zero. */
++    UBYTE tx_rts = 0;
++
++    /* Bit 4 is Tx CTS, which we set based on flow control */
++    UBYTE tx_cts = current_mr2 & 0x10;
++    if (ctrl == FLOW_CTRL_NONE || ctrl == FLOW_CTRL_SOFT) tx_cts = 0;
++    else if (ctrl == FLOW_CTRL_HARD || ctrl == FLOW_CTRL_BOTH) tx_cts = DUART_MR_TXCTS;
++
++    /* Bits 3:0 encode the stop bit length. Computed from UCR[4:3] */
++    UBYTE stop_bit_encoding = current_mr2 & 0xf;
++    if (ucr >= 0) {
++        switch((ucr >> 3) & 0x3) {
++            case 1:
++                stop_bit_encoding = DUART_MR_SB_STOP_BITS_1;
++                break;
++            case 2:
++                stop_bit_encoding = DUART_MR_SB_STOP_BITS_15;
++                break;
++            case 3:
++                stop_bit_encoding = DUART_MR_SB_STOP_BITS_2;
++                break;
++            default:
++                break;
++                /* invalid, do nothing. */
++        }
++    }
++    return channel_mode | tx_rts | tx_cts | stop_bit_encoding;
++}
++
++static void update_iorec(EXT_IOREC *iorec, WORD baud, WORD ctrl, WORD ucr)
++{
++    if ((ctrl >= MIN_FLOW_CTRL) && (ctrl <= MAX_FLOW_CTRL))
++        iorec->flowctrl = ctrl;
++
++    if ((baud >= MIN_BAUDRATE_CODE ) && (baud <= MAX_BAUDRATE_CODE))
++        iorec->baudrate = baud;
++
++    if (ucr >= 0) {
++        iorec->ucr = ucr;
++
++        UBYTE mask;
++        switch((ucr>>5)&0x03) {     /* isolate ucr bits/char code */
++            case 3:     /* 5 bits */
++                mask = 0x1f;
++                break;
++            case 2:     /* 6 bits */
++                mask = 0x3f;
++                break;
++            case 1:     /* 7 bits */
++                mask = 0x7f;
++                break;
++            default:     /* 8 bits */
++                mask = 0xff;
++                break;
++        }
++        iorec->datamask = mask;
++    }
++}
++
++/* We're going to use Baud Rate Set 1, as that gets us 19.2K, which matches Atari's top baud
++ * rate. By not using Baud Rate Set 0, we lose the ability to set baud rates of 200 and 50, but
++ * I doubt anyone is using those in 2020, and the code is simplier if we just use one BR Set.
++ * For 200 baud, we using 150 instead, and for 50 we use 75. */
++
++/* There are a few baud rates used by Atari that the DUART does not support: 3600, 2000 and 1800.
++ * For those, we choose to next lower baud rate. 3600 -> 2400; 2000,1800 -> 1200.
++ */
++static const UBYTE baudset[] = {
++        /* Normal BRG ACR[7] = 1 */
++        0xCC,   /* 19.2K */
++        0xBB,   /* 9600 */
++        0x99,   /* 4800 */
++        0x88,   /* DUART doesn't support 3600, use 2400 */
++        0x88,   /* 2400 */
++        0x66,   /* DUART doesn't support 2000, use 1200 */
++        0x66,   /* DUART doesn't support 1800, use 1200 */
++        0x66,   /* 1200 */
++        0x55,   /* 600 */
++        0x44,   /* 300 */
++        0x33,   /* Can't do 200, use 150 */
++        0x33,   /* 150 */
++        0x22,   /* 134.5 */
++        0x11,   /* 110 */
++        0x00,   /* 75 */
++        0x00,   /* Can't do 50, use 75 */
++};
++
++static ULONG rsconf_duart(UBYTE port, EXT_IOREC *iorec, WORD baud, WORD ctrl, WORD ucr, WORD tsr) {
++
++    UBYTE status_reg_num    = port == 0 ? DUART_SRA  : DUART_SRB;
++    UBYTE mode_reg_num      = port == 0 ? DUART_MRA  : DUART_MRB;
++    UBYTE clock_sel_reg_num = port == 0 ? DUART_CSRA : DUART_CSRB;
++    UBYTE command_reg_num   = port == 0 ? DUART_CRA  : DUART_CRB;
++    UBYTE rts_output_bit    = port == 0 ? DUART_OP0_RTS : DUART_OP1_RTS; 
++    ULONG old;
++
++    if (baud == -2)     /* wants current baud rate */
++        return iorec->baudrate;
++
++    /*
++     * retrieve old ucr/rsr/tsr/scr
++     * according to the TT030 TOS Release notes, for non-MFP hardware,
++     * we must return 0 for rsr and scr, and the only valid bit in the
++     * tsr is bit 3.
++     */
++    old = (ULONG)(iorec->ucr) << 24;
++    if (read_duart(status_reg_num) & DUART_SR_RB) /* BREAK set in status register? */
++        old |= 0x0800;              /* yes, mark it in the returned pseudo-TSR */
++
++    /*
++     * set baudrate from lookup table
++     */
++    if ((baud >= MIN_BAUDRATE_CODE ) && (baud <= MAX_BAUDRATE_CODE)) {
++        /* Baud rates not supported by DUART are adjusted to nearby ones that are supported. */
++        if (baud == B3600) baud = B2400;
++        else if (baud == B2000 || baud == B1800) baud = B1200;
++        else if (baud == B50) baud = B75;
++        write_duart(clock_sel_reg_num, baudset[baud]);
++    }
++    update_iorec(iorec, baud, ctrl, ucr);
++
++    /*
++     * read current MR1A, MR2A registers
++     */
++    write_duart(command_reg_num, DUART_CR_RESET_MR); /* reset DUART MR read pointer */
++    UBYTE current_mr1 = read_duart(mode_reg_num); /* reads MR1A */
++    UBYTE current_mr2 = read_duart(mode_reg_num); /* reads MR2A */
++
++    /*
++     * compute the new values based on parameters sent in.
++     */
++    UBYTE new_mr1 = compute_mode_reg1(current_mr1, ctrl, ucr);
++    UBYTE new_mr2 = compute_mode_reg2(current_mr2, ctrl, ucr);
++
++    /*
++     * write updated values (even if they haven't changed)
++     */
++    write_duart(command_reg_num, DUART_CR_RESET_MR); /* reset DUART MR read pointer */
++    write_duart(mode_reg_num, new_mr1);
++    write_duart(mode_reg_num, new_mr2);
++
++    /*
++     * handle tsr
++     */
++    if (tsr >= 0)
++        write_duart(command_reg_num, tsr & 0x8 ? DUART_CR_START_BREAK : DUART_CR_STOP_BREAK);
++
++    /* Write the Aux Control Register
++     *
++     */
++    write_duart(DUART_ACR, 0xf0); /* ACR[7] = 1, timer mode, x16 prescaler */
++
++    /* For hardware flow control purposes, we need to *set* the RTS output port bit (bit 0 for 
++     * port A, bit 1 for port B). Setting an output port bin cause the actual pin
++     * to be zero, which is how we want to start (i.e., active-low RTS is asserted). 
++     *
++     * If hardware flow control is disabled, this action has no effect because no one will 
++     * be paying attention to RTS/CTS anyway.
++     */
++    write_duart(DUART_SETOPR, rts_output_bit);
++
++    /*
++     * Enable receiver and transmitter
++     */
++    write_duart(command_reg_num, DUART_CR_RX_ENABLED | DUART_CR_TX_ENABLED);
++
++    return old;
++}
++
++#if CONF_SERIAL_CONSOLE
++/* Called from assember routine duart_interrupt */
++void duart_rs232_interrupt_handler(void)
++{
++    UBYTE ascii;
++
++    while(read_duart(DUART_SRA) & DUART_SR_RXRDY) {
++        ascii = read_duart(DUART_RHRA);
++        push_ascii_ikbdiorec(ascii);
++    }
++}
++#endif /* CONF_SERIAL_CONSOLE */
++
++static void duart_init_interrupts_common(void)
++{
++#if 0 /* Enabled in interrupt commmit */	
++    LONG *vector_addr;
++    /* Disable DUART interrupts before configuration */
++    write_duart(DUART_IMR, 0);
++
++    /* Set the interrupt vector */
++    vector_addr = (LONG *)((64L + 61L) * 4L);
++    *vector_addr = (LONG) duart_interrupt;
++    write_duart(DUART_IVR, 64+61);
++
++    UBYTE IMR_value = 0;
++
++#if CONF_DUART_TIMER_C
++    IMR_value |= DUART_IMR_COUNTER_READY;
++#endif
++
++#if CONF_SERIAL_CONSOLE
++    IMR_value |= DUART_IMR_RXRDY_A;
++#endif
++    /* Enable the interrupt(s). */
++    write_duart(DUART_IMR, IMR_value);
++#endif
++}
++
++#if CONF_DUART_TIMER_C
++
++void duart_init_system_timer(void)
++{
++    /* Set the frequency to 200 Hz, assuming DUART is using 3.6864 MHz clock.
++     * Counter = 0x240, gives 5 ms counter period => 5e-3 * 3.6864e6 / 32.0 = 576d = 0x240
++     */
++    write_duart(DUART_CTLR, 0x40);
++    write_duart(DUART_CTUR, 0x02);
++
++    duart_init_interrupts_common();
++}
++
++#endif
++
++#if CONF_SERIAL_CONSOLE
++
++void duart_rs232_enable_interrupt(void)
++{
++    duart_init_interrupts_common();
++}
++
++#endif
++
++static void init_duart(void)
++{
++    /* Disable interrupts. Will be configured by timer and serial interupts later. */
++    /* Baud rate stuff will be done by rsconf. */
++    write_duart(DUART_IMR, 0);
++}
++
++/*
++ * DUART port A i/o routines
++ */
++
++static LONG bconstatDUARTA(void) {
++    return (read_duart(DUART_SRA) & DUART_SR_RXRDY) ? -1L : 0L;
++}
++
++static LONG bconinDUARTA(void) {
++    while (!bconstatDUARTA())
++    {
++        /* Wait */
++    }
++
++    /* Read the received byte */
++    return read_duart(DUART_RHRA) & iorecDUARTA.datamask;
++}
++
++static LONG bcostatDUARTA(void) {
++    return (read_duart(DUART_SRA) & DUART_SR_TXRDY) ? -1L : 0L;
++}
++
++static LONG bconoutDUARTA(WORD dev, WORD b) {
++    while (!bcostatDUARTA())
++    {
++        /* Wait */
++    }
++
++    /* Send the byte */
++    write_duart(DUART_THRA, (UBYTE) b);
++    return 0L;
++}
++
++static ULONG rsconfDUARTA(WORD baud, WORD ctrl, WORD ucr, WORD rsr, WORD tsr, WORD scr) {
++    return rsconf_duart(DUART_PORT_A, &iorecDUARTA, baud, ctrl, ucr, tsr);
++}
++
++#if CONF_WITH_DUART_CHANNEL_B
++/*
++ * DUART port B i/o routines
++ */
++
++static LONG bconstatDUARTB(void) {
++    return (read_duart(DUART_SRB) & DUART_SR_RXRDY) ? -1L : 0L;
++}
++
++static LONG bconinDUARTB(void) {
++    while (!bconstatDUARTB())
++    {
++        /* Wait */
++    }
++
++    /* Read the received byte */
++    return read_duart(DUART_RHRB) & iorecDUARTB.datamask;
++}
++
++static LONG bcostatDUARTB(void) {
++    return (read_duart(DUART_SRB) & DUART_SR_TXRDY) ? -1L : 0L;
++}
++
++LONG bconoutDUARTB(WORD dev, WORD b) {
++    while (!bcostatDUARTB())
++    {
++        /* Wait */
++    }
++
++    /* Send the byte */
++    write_duart(DUART_THRB, (UBYTE) b);
++    return 0L;
++}
++
++static ULONG rsconfDUARTB(WORD baud, WORD ctrl, WORD ucr, WORD rsr, WORD tsr, WORD scr) {
++    return rsconf_duart(DUART_PORT_B, &iorecDUARTB, baud, ctrl, ucr, tsr);
++}
++
++#endif /* CONF_WITH_DUART_CHANNEL_B */
++
++#endif /* CONF_WITH_DUART */
++
+ #if BCONMAP_AVAILABLE
+ static ULONG rsconf_dummy(WORD baud, WORD ctrl, WORD ucr, WORD rsr, WORD tsr, WORD scr)
+ {
+@@ -656,7 +1071,7 @@ static void init_bconmap(void)
+     int i;
+ 
+     /* initialise with dummy entries */
+-    for (i = 0; i < 4; i++)
++    for (i = 0; i < MAPTABLE_SIZE; i++)
+         memcpy(&maptable[i],&maptable_dummy,sizeof(MAPTAB));
+     bconmap_root.maptab = maptable;
+     bconmap_root.maptabsize = 1;
+@@ -690,6 +1105,18 @@ static void init_bconmap(void)
+         bconmap_root.maptabsize = 4;
+     }
+ 
++#if CONF_WITH_DUART
++    if (has_duart) {
++        memcpy(&maptable[4],&maptable_duart_port_a,sizeof(MAPTAB));
++        bconmap_root.maptabsize = 5;
++#if CONF_WITH_DUART_CHANNEL_B
++        memcpy(&maptable[5],&maptable_duart_port_b,sizeof(MAPTAB));
++        bconmap_root.maptabsize = 6;
++#endif
++        bconmap_root.mapped_device = 10;
++    }
++#endif
++
+     /* set up to use mapped device values */
+     maptabptr = &maptable[bconmap_root.mapped_device-BCONMAP_START_HANDLE];
+     bconstat_vec[1] = maptabptr->Bconstat;
+@@ -732,6 +1159,25 @@ void init_serport(void)
+         rsconfTT(B9600, 0, 0x88, 1, 1, 0);  /* set default initial values for TT MFP */
+ #endif  /* CONF_WITH_TT_MFP */
+ 
++#if CONF_WITH_DUART
++    memcpy(&iorecDUARTA,&iorec_init,sizeof(EXT_IOREC));
++    iorecDUARTA.in.buf = ibufDUARTA;
++    iorecDUARTA.out.buf = obufDUARTA;
++#if CONF_WITH_DUART_CHANNEL_B
++    memcpy(&iorecDUARTB,&iorec_init,sizeof(EXT_IOREC));
++    iorecDUARTB.in.buf = ibufDUARTB;
++    iorecDUARTB.out.buf = obufDUARTB;
++#endif /* CONF_WITH_DUART_CHANNEL_B */
++    if (has_duart) {
++        rsconfDUARTA(B9600, 0, 0x88, 0, 0, 0);
++#if CONF_WITH_DUART_CHANNEL_B
++        rsconfDUARTB(B9600, 0, 0x88, 0, 0, 0);
++	bconoutDUARTB(0, '*');
++
++#endif
++    }
++#endif /* CONF_WITH_DUART */
++
+ #if BCONMAP_AVAILABLE
+     memcpy(&iorec_dummy,&iorec_init,sizeof(EXT_IOREC));
+     init_bconmap();
+@@ -742,6 +1188,11 @@ void init_serport(void)
+         init_scc();
+ #endif
+ 
++#if CONF_WITH_DUART
++    if (has_duart)
++        init_duart();
++#endif
++
+ #ifdef MACHINE_AMIGA
+     amiga_rs232_init();
+ #endif
+diff --git a/bios/serport.h b/bios/serport.h
+index 0a11cc90..18505076 100644
+--- a/bios/serport.h
++++ b/bios/serport.h
+@@ -15,7 +15,7 @@
+ 
+ #include "iorec.h"
+ 
+-#define BCONMAP_AVAILABLE (CONF_WITH_SCC || CONF_WITH_TT_MFP)
++#define BCONMAP_AVAILABLE (CONF_WITH_SCC || CONF_WITH_TT_MFP || CONF_WITH_DUART)
+ 
+ /*
+  * baud rate codes
+@@ -84,6 +84,15 @@ void init_serport(void);
+ LONG bconoutB(WORD,WORD);
+ #endif
+ 
++#if CONF_WITH_DUART
++#if CONF_WITH_DUART_CHANNEL_B
++LONG bconoutDUARTB(WORD, WORD);
++#endif
++void duart_rs232_enable_interrupt(void);
++void duart_rs232_interrupt_handler(void);
++void duart_init_system_timer(void);
++#endif
++
+ #if BCONMAP_AVAILABLE
+ /*
+  * Bconmap() stuff
+-- 
+2.25.1
+

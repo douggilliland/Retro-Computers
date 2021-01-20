@@ -1,0 +1,1726 @@
+  /*
+   * vdi_line.c - Line drawing
+   *
+   * Copyright 1982 by Digital Research Inc.  All rights reserved.
+   * Copyright 1999 by Caldera, Inc. and Authors:
+   * Copyright (C) 2002-2018 The EmuTOS development team
+   *
+   * This file is distributed under the GPL, version 2 or at your
+   * option any later version.  See doc/license.txt for details.
+   */
+  
+  #include "config.h"
+  #include "portab.h"
+  #include "intmath.h"
+  #include "asm.h"
+  #include "vdi_defs.h"
+  #include "blitter.h"
+  #include "../bios/lineavars.h"
+  #include "../bios/machine.h"    /* for blitter-related items */
+  #include "../bios/processor.h"  /* for cache control routines */
+  
+  
+  extern void linea_rect(void);     /* called only from linea.S */
+  extern void linea_hline(void);    /* called only from linea.S */
+  extern void linea_polygon(void);  /* called only from linea.S */
+  extern void linea_line(void);     /* called only from linea.S */
+  extern void linea_fill(void);     /* called only from linea.S */
+  
+  
+  #if CONF_WITH_BLITTER
+  /*
+   * private structure for parameter passing
+   */
+  typedef struct
+  {
+      UWORD   leftmask;               /* left endmask */
+      UWORD   rightmask;              /* right endmask */
+      WORD    width;                  /* line width (in WORDs) */
+      UWORD   *addr;                  /* starting screen address */
+  } BLITPARM;
+  
+  /*
+   * bit mask for 'standard' values of patmsk
+   */
+  #define STD_PATMSKS ((1u<<15) | (1u<<7) | (1u<<3) | (1u<<1) | (1u<<0))
+  
+  /*
+   * blitter ops for draw/nodraw cases for wrt_mode 0-3
+   */
+  const UBYTE op_draw[] = { 0x03, 0x07, 0x06, 0x0d };
+  const UBYTE op_nodraw[] = { 0x00, 0x04, 0x06, 0x01 };
+  #endif
+  
+  
+  #define ABS(x) ((x) >= 0 ? (x) : -(x))
+  
+  
+  #define MAX_PIXEL_ASPECT_RATIO  2   /* max expected value of xsize/ysize */
+  #define MAX_QC_LINES    ((MAX_LINE_WIDTH*MAX_PIXEL_ASPECT_RATIO)/2 + 1)
+  
+  
+  /* the six predefined line styles */
+  const UWORD LINE_STYLE[6] = { 0xFFFF, 0xFFF0, 0xC0C0, 0xFF18, 0xFF00, 0xF191 };
+  
+  /*
+   * The following array holds values that allow wideline() to draw a
+   * rasterized circle.  The values are actually those required for a
+   * quarter of the circle, specifically quadrant 1.  [Quadrants are
+   * numbered 1-4, beginning with the "south-east" quadrant, and
+   * travelling clockwise].
+   *
+   * q_circle[n] contains the offset of the edge of the circle (from a
+   * vertical line through the centre of the circle), for the nth line
+   * (counting from a horizontal line through the centre of the circle).
+   */
+  static WORD q_circle[MAX_QC_LINES]; /* Holds the circle DDA */
+  
+  /* Wide line attribute save areas */
+  static WORD s_begsty, s_endsty, s_fil_col, s_fill_per;
+  
+  
+  /*
+   * vdi_vsl_udsty - set user-defined line style
+   */
+  void vdi_vsl_udsty(Vwk * vwk)
+  {
+2     vwk->ud_ls = INTIN[0];                                                                	////  INTIN.0_1 = INTIN;   _2 = [vdi/vdi_line.c:87:23] *INTIN.0_1;
+1 }                                                                                         	////  return;
+  
+  
+  /*
+   * vdi_vsl_type - Set line type for line-drawing functions
+   */
+  void vdi_vsl_type(Vwk * vwk)
+  {
+      WORD li;
+  
+1     CONTRL[4] = 1;                                                                        	////  CONTRL.1_1 = CONTRL;
+2     li = ((INTIN[0]<MIN_LINE_STYLE) || (INTIN[0]>MAX_LINE_STYLE)) ? DEF_LINE_STYLE : INTIN	////  INTIN.3_2 = INTIN;   _3 = [vdi/vdi_line.c:99:17] *INTIN.3_2;
+  
+1     INTOUT[0] = li;                                                                       	////  INTOUT.5_6 = INTOUT;
+      vwk->line_index = li - 1;
+1 }                                                                                         	////  return;
+  
+  
+  /*
+   * vdi_vsl_width - Set line width
+   */
+  void vdi_vsl_width(Vwk * vwk)
+  {
+      WORD w;
+  
+      /* Limit the requested line width to a reasonable value. */
+2     w = PTSIN[0];                                                                         	////  PTSIN.6_1 = PTSIN;   w_11 = [vdi/vdi_line.c:114:14] *PTSIN.6_1;
+      if (w < 1)
+          w = 1;
+1     else if (w > SIZ_TAB[6])                                                              	////  _2 = [vdi/vdi_line.c:117:25] SIZ_TAB[6];
+          w = SIZ_TAB[6];
+  
+      /* If the line width is even, make it odd by decreasing it by one */
+      if ((w & 0x0001) == 0)
+          w--;
+  
+      /* Set the line width internals and return parameters */
+1     CONTRL[2] = 1;                                                                        	////  CONTRL.9_6 = CONTRL;
+1     PTSOUT[0] = vwk->line_width = w;                                                      	////  PTSOUT.10_7 = PTSOUT;
+      PTSOUT[1] = 0;
+1 }                                                                                         	////  return;
+  
+  
+  /*
+   * vdi_vsl_ends - sets the style of end point for line starting and ending points
+   */
+  void vdi_vsl_ends(Vwk * vwk)
+  {
+      WORD lb, le;
+  
+1     CONTRL[4] = 2;                                                                        	////  CONTRL.12_1 = CONTRL;
+  
+2     lb = ((INTIN[0] < MIN_END_STYLE) || (INTIN[0] > MAX_END_STYLE)) ? DEF_END_STYLE : INTI	////  INTIN.14_2 = INTIN;   _3 = [vdi/vdi_line.c:140:17] *INTIN.14_2;
+1     le = ((INTIN[1] < MIN_END_STYLE) || (INTIN[1] > MAX_END_STYLE)) ? DEF_END_STYLE : INTI	////  _5 = [vdi/vdi_line.c:141:17] MEM[(WORD *)INTIN.14_2 + 2B];
+  
+1     INTOUT[0] = vwk->line_beg = lb;                                                       	////  INTOUT.19_7 = INTOUT;
+      INTOUT[1] = vwk->line_end = le;
+1 }                                                                                         	////  return;
+  
+  
+  /*
+   * vdi_vsl_color - sets the color for line-drawing
+   */
+  void vdi_vsl_color(Vwk * vwk)
+  {
+      WORD lc;
+  
+1     CONTRL[4] = 1;                                                                        	////  CONTRL.21_1 = CONTRL;
+2     lc = validate_color_index(INTIN[0]);                                                  	////  INTIN.22_2 = INTIN;   _3 = [vdi/vdi_line.c:156:10] *INTIN.22_2;
+1     INTOUT[0] = lc;                                                                       	////  INTOUT.23_4 = INTOUT;
+1     vwk->line_color = MAP_COL[lc];                                                        	////  _5 = [vdi/vdi_line.c:158:30] MAP_COL[lc_9];
+1 }                                                                                         	////  return;
+  
+  
+  /*
+   * vdi_vql_attributes - Inquire current polyline attributes
+   */
+  void vdi_vql_attributes(Vwk * vwk)
+  {
+2     INTOUT[0] = vwk->line_index + 1;                                                      	////  _1 = [vdi/vdi_line.c:167:20] vwk_12(D)->line_index;   INTOUT.24_2 = INTOUT;
+2     INTOUT[1] = REV_MAP_COL[vwk->line_color];                                             	////  _4 = [vdi/vdi_line.c:168:32] vwk_12(D)->line_color;   _5 = [vdi/vdi_line.c:168:28] REV_MAP_COL[_4];
+1     INTOUT[2] = vwk->wrt_mode + 1;                                                        	////  _6 = [vdi/vdi_line.c:169:20] vwk_12(D)->wrt_mode;
+  
+2     PTSOUT[0] = vwk->line_width;                                                          	////  PTSOUT.27_8 = PTSOUT;   _9 = [vdi/vdi_line.c:171:20] vwk_12(D)->line_width;
+      PTSOUT[1] = 0;
+  
+1     CONTRL[2] = 1;                                                                        	////  CONTRL.29_10 = CONTRL;
+      CONTRL[4] = 3;
+1 }                                                                                         	////  return;
+  
+  
+  #if CONF_WITH_BLITTER
+  /*
+   * draw a single horizontal line using the blitter
+   */
+  static BOOL blit_hline(const VwkAttrib *attr, const Rect *rect, BLITPARM *b)
+  {
+      const UWORD *patptr = attr->patptr;
+      UWORD color = attr->color;
+      UWORD *screen_addr = b->addr;
+      int patindex, plane;
+  
+      /*
+       * since the blitter doesn't see the data cache, and we may be in
+       * copyback mode (e.g. the FireBee), we must flush the data cache
+       * first to ensure that the screen memory is current.  the following
+       * is overkill, but note that the current cache control routines
+       * ignore the length specification & act on the whole cache anyway.
+       */
+1     flush_data_cache(b->addr, v_lin_wr);                                                  	////  v_lin_wr.42_306 = v_lin_wr;
+  
+      BLITTER->src_x_incr = 0;
+      BLITTER->endmask_1 = b->leftmask;
+      BLITTER->endmask_2 = 0xffff;
+      BLITTER->endmask_3 = b->rightmask;
+1     BLITTER->dst_x_incr = v_planes * sizeof(WORD);                                        	////  v_planes.43_310 = v_planes;
+      BLITTER->x_count = b->width;
+      BLITTER->hop = HOP_HALFTONE_ONLY;
+      BLITTER->status = 0;            /* LINENO = 0 */
+      BLITTER->skew = 0;
+  
+2     patindex = rect->y1 & attr->patmsk;                                                   	////  _314 = MEM[(const WORD *)rect_201(D) + 2B];   _316 = [vdi/vdi_line.c:209:31] attr_198(D)->patmsk;
+  
+1     for (plane = 0; plane < v_planes; plane++, color >>= 1)                               	////  v_planes.47_339 = v_planes;
+      {
+1         BLITTER->halftone[0] = patptr[patindex];                                          	////  _323 = *_322;
+1         if (attr->multifill)                                                              	////  _324 = [vdi/vdi_line.c:214:17] attr_198(D)->multifill;
+              patindex += 16;
+          BLITTER->dst_addr = screen_addr++;
+          BLITTER->y_count = 1;
+2         BLITTER->op = (color & 1) ? op_draw[attr->wrt_mode]: op_nodraw[attr->wrt_mode];   	////  iftmp.45_331 = [vdi/vdi_line.c:218:44] op_draw[pretmp_582];   iftmp.45_333 = [vdi/vdi_line.c:218:71] op_nodraw[pretmp_582];
+  
+          /*
+           * we run the blitter in the Atari-recommended way: use no-HOG mode,
+           * and manually restart the blitter until it's done.
+           */
+          BLITTER->status = BUSY;     /* no-HOG mode */
+          __asm__ __volatile__(
+          "lea    0xFFFF8A3C,a0\n\t"
+          "0:\n\t"
+          "tas    (a0)\n\t"
+          "nop\n\t"
+          "jbmi   0b\n\t"
+          :
+          :
+          : "a0", "memory", "cc"
+          );
+      }
+      /*
+       * we've modified a screen line behind the cpu's back, so we must
+       * invalidate any cached screen data.
+       */
+1     invalidate_data_cache(b->addr,v_lin_wr);                                              	////  v_lin_wr.48_340 = v_lin_wr;
+  
+      return TRUE;
+  }
+  
+  
+  /*
+   * blit_rect_common: blitter version of draw_rect_common
+   *
+   * Please refer to draw_rect_common for further information
+   */
+  static BOOL blit_rect_common(const VwkAttrib *attr, const Rect *rect, BLITPARM *b)
+  {
+1     const UWORD patmsk = attr->patmsk;                                                    	////  patmsk_344 = [vdi/vdi_line.c:253:30] attr_198(D)->patmsk;
+      const UWORD *patptr = attr->patptr;
+      UWORD color = attr->color;
+      const WORD ycount = rect->y2 - rect->y1 + 1;
+      UWORD *screen_addr = b->addr;
+      UBYTE status;
+      int i, plane;
+  
+      /*
+       * the following blitter code works for 'standard' values of patmsk
+       * (i.e. 0, 1, 3, 7, or 15).  if we have a non-standard value, we
+       * handle it via the non-blitter code.
+       */
+      if ((patmsk >= 16) || ((STD_PATMSKS & (1u<<patmsk)) == 0))
+          return FALSE;
+  
+      /*
+       * flush the data cache to ensure that the screen memory is current
+       */
+1     flush_data_cache(b->addr, v_lin_wr*ycount);                                           	////  v_lin_wr.49_354 = v_lin_wr;
+  
+      BLITTER->src_x_incr = 0;
+      BLITTER->endmask_1 = b->leftmask;
+      BLITTER->endmask_2 = 0xffff;
+      BLITTER->endmask_3 = b->rightmask;
+1     BLITTER->dst_x_incr = v_planes * sizeof(WORD);                                        	////  v_planes.51_360 = v_planes;
+1     BLITTER->dst_y_incr = v_lin_wr - (v_planes*sizeof(WORD)*(b->width-1));                	////  v_lin_wr.52_363 = v_lin_wr;
+      BLITTER->x_count = b->width;
+1     status = BUSY | (rect->y1 & LINENO);    /* NOHOG mode */                              	////  _372 = MEM[(const WORD *)rect_201(D) + 2B];
+      BLITTER->skew = 0;
+  
+1     if (!attr->multifill)       /* only need to init halftone once */                     	////  _376 = [vdi/vdi_line.c:284:14] attr_198(D)->multifill;
+      {
+          for (i = 0; i < 16; i++)
+1             BLITTER->halftone[i] = patptr[i & patmsk];                                    	////  _383 = *_382;
+      }
+  
+1     for (plane = 0; plane < v_planes; plane++, color >>= 1)                               	////  v_planes.60_409 = v_planes;
+      {
+          if (attr->multifill)    /* need to init halftone each time */
+          {
+              for (i = 0; i < 16; i++)
+1                 BLITTER->halftone[i] = patptr[i & patmsk];                                	////  _393 = *_392;
+              patptr += 16;
+          }
+          BLITTER->dst_addr = screen_addr++;
+          BLITTER->y_count = ycount;
+          BLITTER->hop = HOP_HALFTONE_ONLY;
+2         BLITTER->op = (color & 1) ? op_draw[attr->wrt_mode]: op_nodraw[attr->wrt_mode];   	////  iftmp.57_401 = [vdi/vdi_line.c:301:44] op_draw[pretmp_9];   iftmp.57_403 = [vdi/vdi_line.c:301:71] op_nodraw[pretmp_9];
+  
+          /*
+           * we run the blitter in the Atari-recommended way: use no-HOG mode,
+           * and manually restart the blitter until it's done.
+           */
+          BLITTER->status = status;
+          __asm__ __volatile__(
+          "lea    0xFFFF8A3C,a0\n\t"
+          "0:\n\t"
+          "tas    (a0)\n\t"
+          "nop\n\t"
+          "jbmi   0b\n\t"
+          :
+          :
+          : "a0", "memory", "cc"
+          );
+      }
+  
+      /*
+       * invalidate any cached screen data
+       */
+      invalidate_data_cache(b->addr, v_lin_wr*ycount);
+  
+      return TRUE;
+  }
+  #endif
+  
+  
+  /*
+   * draw_rect_common - draw one or more horizontal lines
+   *
+   * This code does the following:
+   *  1. Figures out the sizes of the left, centre, and right sections.  If
+   *     the line lies entirely within a WORD, then the centre and right
+   *     section sizes will be zero; if the line spans two WORDs, then the
+   *     centre size will be zero.
+   *  2. The outermost control is via a switch() statement depending on
+   *     the current drawing mode.
+   *  3. Within each case, the outermost loop processes one scan line per
+   *     iteration.
+   *  4. Within this loop, the video planes are processed in sequence.
+   *  5. Within this, the left section is processed, then the centre and/or
+   *     right sections (if they exist).
+   *
+   * NOTE: this code seems rather longwinded and repetitive.  In fact it
+   * can be shortened considerably and made much more elegant.  Doing so
+   * however will wreck its performance, and this in turn will affect the
+   * performance of many VDI calls.  This is not particularly noticeable
+   * on an accelerated system, but is disastrous when running on a plain
+   * 8MHz ST or 16MHz Falcon.  You are strongly advised not to change this
+   * without a lot of careful thought & performance testing!
+   */
+  void draw_rect_common(const VwkAttrib *attr, const Rect *rect)
+  {
+1     UWORD local_v_planes = v_planes;                                                      	////  local_v_planes_197 = v_planes;
+      UWORD leftmask, rightmask, *addr;
+1     const UWORD patmsk = attr->patmsk;                                                    	////  patmsk_199 = [vdi/vdi_line.c:358:30] attr_198(D)->patmsk;
+1     const int yinc = (v_lin_wr>>1) - local_v_planes;                                      	////  v_lin_wr.31_1 = v_lin_wr;
+      int width, centre, y;
+  #if CONF_WITH_BLITTER
+      BLITPARM b;
+  #endif
+  
+1     leftmask = 0xffff >> (rect->x1 & 0x0f);                                               	////  _4 = [vdi/vdi_line.c:365:31] rect_201(D)->x1;
+1     rightmask = 0xffff << (15 - (rect->x2 & 0x0f));                                       	////  _6 = [vdi/vdi_line.c:366:38] rect_201(D)->x2;
+      width = (rect->x2 >> 4) - (rect->x1 >> 4) + 1;
+      if (width == 1) {           /* i.e. all bits within 1 WORD */
+          leftmask &= rightmask;  /* so combine masks */
+          rightmask = 0;
+      }
+1     addr = get_start_addr(rect->x1,rect->y1);   /* init address ptr */                    	////  _14 = [vdi/vdi_line.c:372:12] rect_201(D)->y1;
+  
+  #if CONF_WITH_BLITTER
+1     if (blitter_is_enabled)                                                               	////  blitter_is_enabled.32_16 = blitter_is_enabled;
+      {
+          b.leftmask = leftmask;
+          b.rightmask = rightmask;
+          b.width = width;
+          b.addr = addr;
+  
+          /*
+           * special handling for common horizontal line case
+           */
+2         if (rect->y1 == rect->y2)                                                         	////  _17 = [vdi/vdi_line.c:385:17] rect_201(D)->y1;   _18 = [vdi/vdi_line.c:385:29] rect_201(D)->y2;
+          {
+              if (blit_hline(attr, rect, &b))         /* if it ran ok, */
+                  return;                             /* we're done    */
+          }
+          else
+          {
+              if (blit_rect_common(attr, rect, &b))   /* if it ran ok, */
+                  return;                             /* we're done    */
+          }
+      }
+  #endif
+  
+      centre = width - 2;
+  
+1     switch(attr->wrt_mode) {                                                              	////  _21 = [vdi/vdi_line.c:400:16] attr_198(D)->wrt_mode;
+      case 3:                 /* erase (reverse transparent) mode */
+1         for (y = rect->y1; y <= rect->y2; y++, addr += yinc) {                            	////  _59 = [vdi/vdi_line.c:402:37] rect_201(D)->y2;
+              int patind = patmsk & y;   /* starting pattern */
+              int plane;
+              UWORD color;
+  
+1             for (plane = 0, color = attr->color; plane < local_v_planes; plane++, color>>=	////  color_220 = [vdi/vdi_line.c:407:41] attr_198(D)->color;
+                  UWORD *work = addr;
+2                 UWORD pattern = ~attr->patptr[patind];                                    	////  _24 = [vdi/vdi_line.c:409:38] attr_198(D)->patptr;   _28 = [vdi/vdi_line.c:409:33] *_27;
+                  int n;
+  
+                  if (color & 0x0001) {
+                      *work |= pattern & leftmask;    /* left section */
+                      work += local_v_planes;
+                      for (n = 0; n < centre; n++) {  /* centre section */
+1                         *work |= pattern;                                                 	////  _35 = [vdi/vdi_line.c:416:31] *work_506;
+                          work += local_v_planes;
+                      }
+                      if (rightmask) {                /* right section */
+1                         *work |= pattern & rightmask;                                     	////  _39 = [vdi/vdi_line.c:420:31] *work_510;
+                      }
+                  } else {
+                      *work &= ~(pattern & leftmask); /* left section */
+                      work += local_v_planes;
+                      for (n = 0; n < centre; n++) {  /* centre section */
+1                         *work &= ~pattern;                                                	////  _47 = [vdi/vdi_line.c:426:31] *work_302;
+                          work += local_v_planes;
+                      }
+                      if (rightmask) {                /* right section */
+1                         *work &= ~(pattern & rightmask);                                  	////  _52 = [vdi/vdi_line.c:430:31] *work_511;
+                      }
+                  }
+1                 if (attr->multifill)                                                      	////  _55 = [vdi/vdi_line.c:433:25] attr_198(D)->multifill;
+                      patind += 16;                   /* advance pattern data */
+              }
+          }
+          break;
+      case 2:                 /* xor mode */
+1         for (y = rect->y1; y <= rect->y2; y++, addr += yinc) {                            	////  _80 = [vdi/vdi_line.c:439:37] rect_201(D)->y2;
+              int patind = patmsk & y;   /* starting pattern */
+              int plane;
+              UWORD color;
+  
+              for (plane = 0, color = attr->color; plane < local_v_planes; plane++, color>>=1, addr++) {
+                  UWORD *work = addr;
+2                 UWORD pattern = attr->patptr[patind];                                     	////  _62 = [vdi/vdi_line.c:446:37] attr_198(D)->patptr;   pattern_247 = [vdi/vdi_line.c:446:45] *_65;
+                  int n;
+  
+1                 *work ^= pattern & leftmask;        /* left section */                    	////  _66 = MEM[base: addr_502, offset: 0B];
+                  work += local_v_planes;
+                  for (n = 0; n < centre; n++) {      /* centre section */
+1                     *work ^= pattern;                                                     	////  _71 = [vdi/vdi_line.c:452:27] *work_445;
+                      work += local_v_planes;
+                  }
+                  if (rightmask) {                    /* right section */
+1                     *work ^= pattern & rightmask;                                         	////  _73 = [vdi/vdi_line.c:456:27] *work_305;
+                  }
+1                 if (attr->multifill)                                                      	////  _76 = [vdi/vdi_line.c:458:25] attr_198(D)->multifill;
+                      patind += 16;                   /* advance pattern data */
+              }
+          }
+          break;
+      case 1:                 /* transparent mode */
+1         for (y = rect->y1; y <= rect->y2; y++, addr += yinc) {                            	////  _115 = [vdi/vdi_line.c:464:37] rect_201(D)->y2;
+              int patind = patmsk & y;   /* starting pattern */
+              int plane;
+              UWORD color;
+  
+1             for (plane = 0, color = attr->color; plane < local_v_planes; plane++, color>>=	////  color_261 = [vdi/vdi_line.c:469:41] attr_198(D)->color;
+                  UWORD *work = addr;
+2                 UWORD pattern = attr->patptr[patind];                                     	////  _83 = [vdi/vdi_line.c:471:37] attr_198(D)->patptr;   pattern_262 = [vdi/vdi_line.c:471:45] *_86;
+                  int n;
+  
+                  if (color & 0x0001) {
+                      *work |= pattern & leftmask;    /* left section */
+                      work += local_v_planes;
+                      for (n = 0; n < centre; n++) {  /* centre section */
+1                         *work |= pattern;                                                 	////  _93 = [vdi/vdi_line.c:478:31] *work_533;
+                          work += local_v_planes;
+                      }
+                      if (rightmask) {                /* right section */
+1                         *work |= pattern & rightmask;                                     	////  _95 = [vdi/vdi_line.c:482:31] *work_534;
+                      }
+                  } else {
+                      *work &= ~(pattern & leftmask); /* left section */
+                      work += local_v_planes;
+                      for (n = 0; n < centre; n++) {  /* centre section */
+1                         *work &= ~pattern;                                                	////  _104 = [vdi/vdi_line.c:488:31] *work_535;
+                          work += local_v_planes;
+                      }
+                      if (rightmask) {                /* right section */
+1                         *work &= ~(pattern & rightmask);                                  	////  _107 = [vdi/vdi_line.c:492:31] *work_536;
+                      }
+                  }
+1                 if (attr->multifill)                                                      	////  _111 = [vdi/vdi_line.c:495:25] attr_198(D)->multifill;
+                      patind += 16;                   /* advance pattern data */
+              }
+          }
+          break;
+      default:                /* replace mode */
+1         for (y = rect->y1; y <= rect->y2; y++, addr += yinc) {                            	////  _131 = [vdi/vdi_line.c:501:37] rect_201(D)->y2;
+              int patind = patmsk & y;   /* starting pattern */
+              int plane;
+              UWORD color;
+  
+1             for (plane = 0, color = attr->color; plane < local_v_planes; plane++, color>>=	////  color_283 = [vdi/vdi_line.c:506:41] attr_198(D)->color;
+                  UWORD data, *work = addr;
+2                 UWORD pattern = (color & 0x0001) ? attr->patptr[patind] : 0x0000;         	////  _119 = [vdi/vdi_line.c:508:56] attr_198(D)->patptr;   iftmp.40_284 = [vdi/vdi_line.c:508:73] *_122;
+                  int n;
+  
+1                 data = *work & ~leftmask;           /* left section */                    	////  _123 = MEM[base: _137, offset: 0B];
+                  data |= pattern & leftmask;
+                  *work = data;
+                  work += local_v_planes;
+                  for (n = 0; n < centre; n++) {      /* centre section */
+                      *work = pattern;
+                      work += local_v_planes;
+                  }
+                  if (rightmask) {                    /* right section */
+1                     data = *work & ~rightmask;                                            	////  _126 = [vdi/vdi_line.c:520:28] *work_543;
+                      data |= pattern & rightmask;
+                      *work = data;
+                  }
+1                 if (attr->multifill)                                                      	////  _127 = [vdi/vdi_line.c:524:25] attr_198(D)->multifill;
+                      patind += 16;                   /* advance pattern data */
+              }
+          }
+          break;
+      }
+  }
+  
+  
+  /*
+   * helper to copy relevant Vwk members to the VwkAttrib struct, which is
+   * used to pass the required Vwk info from VDI/Line-A polygon drawing to
+   * draw_rect().
+   */
+  void Vwk2Attrib(const Vwk *vwk, VwkAttrib *attr, const UWORD color)
+  {
+      /* in the same order as in Vwk, so that gcc
+       * can use longs for copying words
+       */
+2     attr->clip = vwk->clip;                                                               	////  _1 = [vdi/vdi_line.c:543:21] vwk_7(D)->clip;   _7 = [vdi/vdi_line.c:543:21] vwk_2(D)->clip;
+2     attr->multifill = vwk->multifill;                                                     	////  _2 = [vdi/vdi_line.c:544:26] vwk_7(D)->multifill;   _8 = [vdi/vdi_line.c:544:26] vwk_2(D)->multifill;
+2     attr->patmsk = vwk->patmsk;                                                           	////  _3 = [vdi/vdi_line.c:545:23] vwk_7(D)->patmsk;   _9 = [vdi/vdi_line.c:545:23] vwk_2(D)->patmsk;
+2     attr->patptr = vwk->patptr;                                                           	////  _4 = [vdi/vdi_line.c:546:23] vwk_7(D)->patptr;   _10 = [vdi/vdi_line.c:546:23] vwk_2(D)->patptr;
+2     attr->wrt_mode = vwk->wrt_mode;                                                       	////  _5 = [vdi/vdi_line.c:547:25] vwk_7(D)->wrt_mode;   _11 = [vdi/vdi_line.c:547:25] vwk_2(D)->wrt_mode;
+      attr->color = color;
+1 }                                                                                         	////  return;
+  
+  
+  /*
+   * VDI wrapper for draw_rect_common
+   */
+  void draw_rect(const Vwk * vwk, Rect * rect, const UWORD fillcolor)
+  {
+      VwkAttrib attr;
+  
+      Vwk2Attrib(vwk, &attr, fillcolor);
+      draw_rect_common(&attr, rect);
+1 }                                                                                         	////  return;
+  
+  
+  /*
+   * VDI helper/wrapper for horizontal line drawing
+   */
+  static __inline__ void horzline(const Vwk * vwk, Line * line)
+  {
+      /* a horizontal line is a rectangle with one pixel height */
+      arb_corner((Rect *)line);
+2     draw_rect(vwk, (Rect*)line, vwk->line_color);                                         	////  _36 = [vdi/vdi_line.c:571:36] MEM[(const struct Vwk *)vwk_26(D)].line_color;   _38 = [vdi/vdi_line.c:571:36] MEM[(const struct Vwk *)vwk_26(D)].line_color;
+  }
+  
+  
+  /*
+   * compose color for draw_rect_common & abline from line-A variables
+   */
+  static UWORD linea_color(void)
+  {
+      UWORD color = 0;
+  
+      /* Below we use += instead of |= because GCC produces better code
+       * especially addq.w instead of ori.w
+       */
+  
+2     if (COLBIT0 != 0)                                                                     	////  COLBIT0.86_14 = COLBIT0;   COLBIT0.86_11 = COLBIT0;
+          color += 1;
+  
+2     if (COLBIT1 != 0)                                                                     	////  COLBIT1.87_16 = COLBIT1;   COLBIT1.87_14 = COLBIT1;
+          color += 2;
+  
+2     if (COLBIT2 != 0)                                                                     	////  COLBIT2.88_19 = COLBIT2;   COLBIT2.88_17 = COLBIT2;
+          color += 4;
+  
+2     if (COLBIT3 != 0)                                                                     	////  COLBIT3.89_22 = COLBIT3;   COLBIT3.89_20 = COLBIT3;
+          color += 8;
+  
+      return color;
+  }
+  
+  
+  /*
+   * lineA2Attrib - sets VwkAttrib fields from line-A variables
+   */
+  static void lineA2Attrib(VwkAttrib *attr)
+  {
+1     attr->clip = CLIP;      /* only used by polygon drawing */                            	////  CLIP.81_1 = CLIP;
+1     if (PATPTR) {                                                                         	////  PATPTR.82_2 = PATPTR;
+1         attr->patmsk = PATMSK;                                                            	////  PATMSK.83_3 = PATMSK;
+          attr->patptr = PATPTR;
+      } else {
+          /* pattern is always needed for draw_rect_common, default to solid */
+          attr->patmsk = 0;
+          attr->patptr = &SOLID;
+      }
+1     attr->wrt_mode = WRT_MODE;                                                            	////  WRT_MODE.85_4 = WRT_MODE;
+      attr->color = linea_color();
+1 }                                                                                         	////  return;
+  
+  
+  /*
+   * Line-A wrapper for draw_rect_common
+   */
+  void linea_rect(void)
+  {
+      VwkAttrib attr;
+      Rect line;
+  
+1     if (CLIP) {                                                                           	////  CLIP.63_1 = CLIP;
+1         if (X1 < XMINCL) X1 = XMINCL;                                                     	////  XMINCL.65_3 = XMINCL;
+1         if (X2 > XMAXCL) X2 = XMAXCL;                                                     	////  XMAXCL.68_5 = XMAXCL;
+1         if (Y1 < YMINCL) Y1 = YMINCL;                                                     	////  YMINCL.71_7 = YMINCL;
+1         if (Y2 > YMAXCL) Y2 = YMAXCL;                                                     	////  YMAXCL.74_9 = YMAXCL;
+      }
+      line.x1 = X1;
+      line.x2 = X2;
+      line.y1 = Y1;
+      line.y2 = Y2;
+  
+      lineA2Attrib(&attr);
+1     attr.multifill = MFILL;         /* linea5 supports MFILL */                           	////  MFILL.80_14 = MFILL;
+      draw_rect_common(&attr, &line);
+1 }                                                                                         	////  return;
+  
+  
+  /*
+   * Line-A wrapper for horizontal line
+   */
+  void linea_hline(void)
+  {
+      VwkAttrib attr;
+      Rect line;
+  
+1     line.x1 = X1;                                                                         	////  X1.90_1 = X1;
+1     line.x2 = X2;                                                                         	////  X2.91_2 = X2;
+1     line.y1 = Y1;                                                                         	////  Y1.92_3 = Y1;
+      line.y2 = Y1;
+  
+      lineA2Attrib(&attr);
+1     attr.multifill = MFILL;         /* linea4 supports MFILL */                           	////  MFILL.94_4 = MFILL;
+      draw_rect_common(&attr, &line);
+1 }                                                                                         	////  return;
+  
+  
+  /*
+   * Line-A wrapper for clc_flit
+   */
+  void linea_polygon(void)
+  {
+      VwkClip clipper;
+1     Point *points = (Point*) PTSIN;                                                       	////  points_9 = PTSIN;
+2     int count = CONTRL[1];                                                                	////  CONTRL.95_1 = CONTRL;   count_10 = [vdi/vdi_line.c:672:23] MEM[(WORD *)CONTRL.95_1 + 2B];
+      VwkAttrib attr;
+  
+      lineA2Attrib(&attr);
+      attr.multifill = 0;         /* linea6 does not support MFILL */
+1     if (CLIP) {                                                                           	////  CLIP.96_2 = CLIP;
+          /* clc_flit does only X-clipping */
+1         clipper.xmn_clip = XMINCL;                                                        	////  XMINCL.97_3 = XMINCL;
+1         clipper.xmx_clip = XMAXCL;                                                        	////  XMAXCL.98_4 = XMAXCL;
+      } else {
+          clipper.xmn_clip = 0;
+1         clipper.xmx_clip = xres;                                                          	////  _5 = [vdi/vdi_line.c:683:28] DEV_TAB[0];
+      }
+      /* compared to real line-A, clc_flit explicitly skips outline */
+1     clc_flit(&attr, &clipper, points, Y1, count);                                         	////  Y1.99_6 = Y1;
+1 }                                                                                         	////  return;
+  
+  
+  /*
+   * Line-A wrapper for floodfill
+   */
+  void linea_fill(void)
+  {
+      VwkClip clipper;
+      VwkAttrib attr;
+      lineA2Attrib(&attr);
+      attr.multifill = 0;         /* lineaf does not support MFILL */
+2     attr.color = CUR_WORK->fill_color;                                                    	////  CUR_WORK.100_1 = CUR_WORK;   _2 = [vdi/vdi_line.c:699:26] CUR_WORK.100_1->fill_color;
+1     if (CLIP) {                                                                           	////  CLIP.101_4 = CLIP;
+1         clipper.xmn_clip = XMINCL;                                                        	////  XMINCL.102_5 = XMINCL;
+1         clipper.xmx_clip = XMAXCL;                                                        	////  XMAXCL.103_6 = XMAXCL;
+1         clipper.ymn_clip = YMINCL;                                                        	////  YMINCL.104_7 = YMINCL;
+1         clipper.ymx_clip = YMAXCL;                                                        	////  YMAXCL.105_8 = YMAXCL;
+      } else {
+          clipper.xmn_clip = 0;
+1         clipper.xmx_clip = xres;                                                          	////  _9 = [vdi/vdi_line.c:707:28] DEV_TAB[0];
+          clipper.ymn_clip = 0;
+1         clipper.ymx_clip = yres;                                                          	////  _10 = [vdi/vdi_line.c:709:28] DEV_TAB[1];
+      }
+      contourfill(&attr, &clipper);
+1 }                                                                                         	////  return;
+  
+  
+  /*
+   * vdi_v_pline - wrapper for polyline/wideline
+   */
+  void vdi_v_pline(Vwk * vwk)
+  {
+1     Point * point = (Point*)PTSIN;                                                        	////  point_10 = PTSIN;
+2     int count = CONTRL[1];                                                                	////  CONTRL.106_1 = CONTRL;   count_11 = [vdi/vdi_line.c:721:23] MEM[(WORD *)CONTRL.106_1 + 2B];
+  
+      set_LN_MASK(vwk);
+  
+  #if HAVE_BEZIER
+      /* check, if we want to draw a bezier curve */
+      if (CONTRL[5] == 13 && vwk->bez_qual )        /* FIXME: bez_qual ok?? */
+          v_bez(vwk, point, count);
+      else
+  #endif
+      {
+1         if (vwk->line_width == 1) {                                                       	////  _2 = [vdi/vdi_line.c:732:16] vwk_12(D)->line_width;
+1             polyline(vwk, point, count, vwk->line_color);                                 	////  _3 = [vdi/vdi_line.c:733:13] vwk_12(D)->line_color;
+2             if ((vwk->line_beg | vwk->line_end) & ARROWED)                                	////  _4 = [vdi/vdi_line.c:734:21] vwk_12(D)->line_beg;   _5 = [vdi/vdi_line.c:734:37] vwk_12(D)->line_end;
+                  arrow(vwk, point, count);
+          } else
+              wideline(vwk, point, count);
+      }
+1 }                                                                                         	////  return;
+  
+  
+  /*
+   * clip_code - helper function, used by clip_line()
+   *
+   * returns a bit mask indicating where x and y are, relative
+   * to the clipping rectangle:
+   *  1   x is left
+   *  2   x is right
+   *  4   y is above
+   *  8   y is below
+   */
+  static WORD clip_code(Vwk * vwk, WORD x, WORD y)
+  {
+      WORD clip_flag;
+  
+      clip_flag = 0;
+      if (x < vwk->xmn_clip)
+          clip_flag = 1;
+2     else if (x > vwk->xmx_clip)                                                           	////  _58 = [vdi/vdi_line.c:759:21] vwk_32(D)->xmx_clip;   _41 = [vdi/vdi_line.c:759:21] vwk_32(D)->xmx_clip;
+          clip_flag = 2;
+      if (y < vwk->ymn_clip)
+          clip_flag += 4;
+2     else if (y > vwk->ymx_clip)                                                           	////  _62 = [vdi/vdi_line.c:763:21] vwk_32(D)->ymx_clip;   _54 = [vdi/vdi_line.c:763:21] vwk_32(D)->ymx_clip;
+          clip_flag += 8;
+      return (clip_flag);
+  }
+  
+  
+  /*
+   * clip_line - clip line if necessary
+   *
+   * returns FALSE iff the line lies outside the clipping rectangle
+   * otherwise, updates the contents of the Line structure & returns TRUE
+   */
+  BOOL clip_line(Vwk * vwk, Line * line)
+  {
+      WORD deltax, deltay, x1y1_clip_flag, x2y2_clip_flag, line_clip_flag;
+      WORD *x, *y;
+  
+      while ((x1y1_clip_flag = clip_code(vwk, line->x1, line->y1)) |
+             (x2y2_clip_flag = clip_code(vwk, line->x2, line->y2))) {
+          if ((x1y1_clip_flag & x2y2_clip_flag))
+              return (FALSE);
+          if (x1y1_clip_flag) {
+              line_clip_flag = x1y1_clip_flag;
+              x = &line->x1;
+              y = &line->y1;
+          } else {
+              line_clip_flag = x2y2_clip_flag;
+              x = &line->x2;
+              y = &line->y2;
+          }
+          deltax = line->x2 - line->x1;
+          deltay = line->y2 - line->y1;
+          if (line_clip_flag & 1) {               /* left ? */
+              *y = line->y1 + mul_div(deltay, (vwk->xmn_clip - line->x1), deltax);
+1             *x = vwk->xmn_clip;                                                           	////  _5 = [vdi/vdi_line.c:797:21] vwk_32(D)->xmn_clip;
+          } else if (line_clip_flag & 2) {        /* right ? */
+1             *y = line->y1 + mul_div(deltay, (vwk->xmx_clip - line->x1), deltax);          	////  _7 = [vdi/vdi_line.c:799:49] vwk_32(D)->xmx_clip;
+1             *x = vwk->xmx_clip;                                                           	////  _10 = [vdi/vdi_line.c:800:21] vwk_32(D)->xmx_clip;
+          } else if (line_clip_flag & 4) {        /* top ? */
+              *x = line->x1 + mul_div(deltax, (vwk->ymn_clip - line->y1), deltay);
+1             *y = vwk->ymn_clip;                                                           	////  _14 = [vdi/vdi_line.c:803:21] vwk_32(D)->ymn_clip;
+          } else if (line_clip_flag & 8) {        /* bottom ? */
+1             *x = line->x1 + mul_div(deltax, (vwk->ymx_clip - line->y1), deltay);          	////  _16 = [vdi/vdi_line.c:805:49] vwk_32(D)->ymx_clip;
+1             *y = vwk->ymx_clip;                                                           	////  _19 = [vdi/vdi_line.c:806:21] vwk_32(D)->ymx_clip;
+          }
+      }
+      return (TRUE);              /* segment now clipped  */
+  }
+  
+  
+  /*
+   * polyline - draw a poly-line
+   *
+   * note: we pass the colour, since this routine is also used for
+   * perimeters, which are drawn in the fill colour ...
+   */
+  void polyline(Vwk * vwk, Point * point, int count, WORD color)
+  {
+      int i;
+      Line line;
+  
+      for(i = count - 1; i > 0; i--) {
+1         line.x1 = point->x;                                                               	////  _1 = MEM[base: point_30, offset: 0B];
+1         line.y1 = point->y;                                                               	////  _2 = MEM[base: point_30, offset: 2B];
+          point++;                /* advance point by point */
+1         line.x2 = point->x;                                                               	////  _3 = MEM[base: point_20, offset: 0B];
+1         line.y2 = point->y;                                                               	////  _4 = MEM[base: point_20, offset: 2B];
+  
+1         if (!vwk->clip || clip_line(vwk, &line))                                          	////  _5 = [vdi/vdi_line.c:831:17] vwk_23(D)->clip;
+1             abline(&line, vwk->wrt_mode, color);                                          	////  _8 = [vdi/vdi_line.c:832:13] vwk_23(D)->wrt_mode;
+      }
+1 }                                                                                         	////  return;
+  
+  
+  /*
+   * quad_xform - helper function for perp_off()
+   *
+   * Converts input (x,y) to output (x,y) according to the value in 'quad':
+   *  1 ("south-east" quadrant):  x -> x,  y -> y
+   *  2 ("south-west" quadrant):  x -> -x, y -> y
+   *  3 ("north-west" quadrant):  x -> -x, y -> -y
+   *  4 ("north-east" quadrant):  x -> x,  y -> -y
+   */
+  static void quad_xform(WORD quad, WORD x, WORD y, WORD *tx, WORD *ty)
+  {
+      switch (quad) {
+      case 1:
+      case 4:
+          *tx = x;
+          break;
+  
+      case 2:
+      case 3:
+          *tx = -x;
+          break;
+      }
+  
+      switch (quad) {
+      case 1:
+      case 2:
+          *ty = y;
+          break;
+  
+      case 3:
+      case 4:
+          *ty = -y;
+          break;
+      }
+  }
+  
+  
+  /*
+   * perp_off - calculate the perpendicular offsets
+   *
+   * Given a vector (vx,vy) which specifies the length and direction of
+   * a line segment, this function returns x & y offsets to add/subtract
+   * to the endpoints of the line segment.  The four points thereby
+   * specified form a box which is the wideline segment.
+   */
+  static void perp_off(WORD * px, WORD * py)
+  {
+      WORD *vx, *vy, *pcircle, u, v;
+      WORD x, y, quad, magnitude, min_val;
+      WORD x_val = 0;
+      WORD y_val = 0;
+  
+      vx = px;
+      vy = py;
+  
+      pcircle = q_circle;
+  
+      /* Mirror transform the vector so that it is in the first quadrant. */
+      if (*vx >= 0)
+          quad = (*vy >= 0) ? 1 : 4;
+      else
+          quad = (*vy >= 0) ? 2 : 3;
+  
+      quad_xform(quad, *vx, *vy, &x, &y);
+  
+      /*
+       * Traverse the circle in a dda-like manner and find the coordinate
+       * pair (u, v) such that the magnitude of (u*y - v*x) is minimized.
+       * In case of a tie, choose the value which causes (u - v) to be
+       * minimized.  If not possible, do something.
+       */
+      min_val = 32767;
+1     u = *pcircle;                                                                         	////  u_192 = MEM[(WORD *)[vdi/vdi_line.c:892:15] &q_circle];
+      v = 0;
+      while (TRUE) {
+          /* Check for new minimum, same minimum, or finished. */
+          magnitude = ABS(u * y - v * x);
+          if ((magnitude < min_val) ||
+              ((magnitude == min_val) && (ABS(x_val - y_val) > ABS(u - v)))) {
+              min_val = magnitude;
+              x_val = u;
+              y_val = v;
+          }
+          else
+              break;
+  
+          /* Step to the next pixel. */
+          if (v == num_qc_lines - 1) {
+              if (u == 1)
+                  break;
+              else
+                  u--;
+          }
+          else {
+1             if (pcircle[v + 1] >= u - 1) {                                                	////  _217 = *_216;
+                  v++;
+1                 u = pcircle[v];                                                           	////  u_225 = *_224;
+              } /* End if:  do next row up. */
+              else {
+                  u--;
+              }                   /* End else:  continue on row. */
+          }                       /* End else:  other than top row. */
+      }                           /* End FOREVER loop. */
+  
+      /* Transform the solution according to the quadrant. */
+      quad_xform(quad, x_val, y_val, vx, vy);
+  }
+  
+  
+  /*
+   * cir_dda - populate q_circle[] array
+   *
+   * This is called by wideline() when the current wideline width (line_cw)
+   * changes, in order to reinitialise q_circle[].  It uses Bresenham's
+   * circle algorithm.
+   */
+  static void cir_dda(WORD line_width)
+  {
+      WORD i, j, m, n;
+      WORD *xptr, *yptr, x, y, d;
+  
+      /* Calculate the number of vertical pixels required. */
+2     num_qc_lines = (line_width * xsize / ysize) / 2 + 1;                                  	////  _118 = [vdi/vdi_line.c:959:34] DEV_TAB[3];   _120 = [vdi/vdi_line.c:959:42] DEV_TAB[4];
+      if (num_qc_lines > MAX_QC_LINES)
+          num_qc_lines = MAX_QC_LINES;    /* circles will be flattened */
+  
+      /* Initialize the circle DDA.  "y" is set to the radius. */
+      x = 0;
+      y = (line_width + 1) / 2;
+      d = 3 - 2 * y;
+  
+      /* Do an octant, starting at north.  The values for the next octant */
+      /* (clockwise) will be filled by transposing x and y.               */
+      while (x <= y) {
+          q_circle[y] = x;
+          q_circle[x] = y;
+  
+          if (d < 0)
+              d += 4 * x + 6;
+          else {
+              d += 4 * (x - y) + 10;
+              y--;
+          }
+          x++;
+      }
+  
+      if (xsize == ysize)     /* square pixels, e.g. ST high, ST low */
+          return;
+  
+      if (xsize < ysize) {    /* tall pixels, e.g. ST medium, Falcon 640x240 */
+          /* Fake pixel averaging */
+          x = 0;
+  
+          yptr = q_circle;
+          for (i = 0; i < num_qc_lines; i++) {
+              y = ((2 * i + 1) * ysize / xsize) / 2;
+              d = 0;
+  
+              xptr = &q_circle[x];
+              for (j = x; j <= y; j++)
+1                 d += *xptr++;                                                             	////  _154 = MEM[base: xptr_153, offset: 4294967294B];
+  
+              *yptr++ = d / (y - x + 1);
+              x = y + 1;
+          }
+          return;
+      }
+  
+      /*
+       * handle xsize > ysize (wide pixels, e.g. Falcon 320x480)
+       *
+       * we interpolate from the previously-generated table.  for now we
+       * greatly simplify things by assuming that xsize = 2 * ysize (true
+       * for the Falcon).  the following code sets:
+       *  q_circle[i] = q_circle[i/2]                         (for even i)
+       *  q_circle[i] = (q_circle[i/2] + q_circle[i/2+1])/2   (for odd i)
+       */
+      for (i = num_qc_lines-1, n = 0; i > 0; i--) {
+1         m = q_circle[i/2];                                                                	////  m_176 = [vdi/vdi_line.c:1015:21] q_circle[_175];
+          q_circle[i] = (m + n) / 2;
+          n = m;
+      }
+  }
+  
+  
+  /*
+   * do_circ - draw a circle
+   *
+   * This is used by wideline():
+   *  a) to round the ends of the line if not SQUARED
+   *  b) to make a smooth join between line segments of a polyline
+   */
+  static void do_circ(Vwk * vwk, WORD cx, WORD cy)
+  {
+      Line line;
+      WORD k;
+      WORD *pointer;
+  
+      /* Do the upper and lower semi-circles. */
+2     for (k = 0, pointer = q_circle; k < num_qc_lines; k++, pointer++) {                   	////  num_qc_lines.157_48 = num_qc_lines;   num_qc_lines.157_13 = num_qc_lines;
+          /* Upper semi-circle, plus the horizontal line through the center of the circle. */
+1         line.x1 = cx - *pointer;                                                          	////  _1 = MEM[base: _15, offset: 0B];
+          line.x2 = cx + *pointer;
+          line.y1 = cy - k;
+          line.y2 = cy - k;
+          if (clip_line(vwk, &line))
+              horzline(vwk, &line);
+  
+          if (k == 0)
+              continue;
+  
+          /* Lower semi-circle. */
+1         line.x1 = cx - *pointer;                                                          	////  _6 = MEM[base: _14, offset: 4294967294B];
+          line.x2 = cx + *pointer;
+          line.y1 = cy + k;
+          line.y2 = cy + k;
+          if (clip_line(vwk, &line))
+              horzline(vwk, &line);
+      }
+1 }                                                                                         	////  return;
+  
+  
+  /*
+   * s_fa_attr - Save the fill area attribute
+   */
+  static void s_fa_attr(Vwk * vwk)
+  {
+      /* Set up the fill area attribute environment. */
+      LN_MASK = LINE_STYLE[0];
+2     s_fil_col = vwk->fill_color;                                                          	////  _16 = [vdi/vdi_line.c:1066:20] vwk_10(D)->fill_color;   _76 = [vdi/vdi_line.c:1066:20] vwk_57(D)->fill_color;
+2     s_fill_per = vwk->fill_per;                                                           	////  _17 = [vdi/vdi_line.c:1067:21] vwk_10(D)->fill_per;   _75 = [vdi/vdi_line.c:1067:21] vwk_57(D)->fill_per;
+1     s_begsty = vwk->line_beg;                                                             	////  _18 = [vdi/vdi_line.c:1068:19] vwk_10(D)->line_beg;
+1     s_endsty = vwk->line_end;                                                             	////  _19 = [vdi/vdi_line.c:1069:19] vwk_10(D)->line_end;
+  
+2     vwk->fill_color = vwk->line_color;                                                    	////  _20 = [vdi/vdi_line.c:1071:26] vwk_10(D)->line_color;   _96 = [vdi/vdi_line.c:1071:26] vwk_57(D)->line_color;
+      vwk->line_beg = SQUARED;
+      vwk->line_end = SQUARED;
+      vwk->fill_per = TRUE;
+      vwk->patptr = (UWORD *)&SOLID;
+      vwk->patmsk = 0;
+  }                               /* End "s_fa_attr". */
+  
+  
+  /*
+   * r_fa_attr - Restore the fill area attribute
+   */
+  static void r_fa_attr(Vwk * vwk)
+  {
+      /* Restore the fill area attribute environment. */
+2     vwk->fill_color = s_fil_col;                                                          	////  s_fil_col.158_21 = s_fil_col;   s_fil_col.158_99 = s_fil_col;
+2     vwk->fill_per = s_fill_per;                                                           	////  s_fill_per.159_22 = s_fill_per;   s_fill_per.159_100 = s_fill_per;
+2     vwk->line_beg = s_begsty;                                                             	////  s_begsty.160_23 = s_begsty;   s_begsty.160_101 = s_begsty;
+1     vwk->line_end = s_endsty;                                                             	////  s_endsty.161_102 = s_endsty;
+  }                               /* End "r_fa_attr". */
+  
+  
+  /*
+   * wideline - draw a line with width >1
+   */
+  void wideline(Vwk * vwk, Point * point, int count)
+  {
+      WORD i, k;
+      WORD wx1, wy1, wx2, wy2, vx, vy;
+      BOOL closed = FALSE;
+      Point *ptr, box[5];      /* box too high, to close polygon */
+  
+      /* Don't attempt wide lining on a degenerate polyline */
+      if (count < 2)
+          return;
+  
+      /* See if we need to rebuild q_circle[] */
+2     if (vwk->line_width != line_cw) {                                                     	////  _1 = [vdi/vdi_line.c:1108:12] vwk_57(D)->line_width;   line_cw.108_2 = line_cw;
+          line_cw = vwk->line_width;
+          cir_dda(line_cw);
+      }
+  
+      /* If the ends are arrowed, output them. */
+2     if ((vwk->line_beg | vwk->line_end) & ARROWED)                                        	////  _5 = [vdi/vdi_line.c:1114:13] vwk_57(D)->line_beg;   _6 = [vdi/vdi_line.c:1114:29] vwk_57(D)->line_end;
+          arrow(vwk, point, count);
+  
+      s_fa_attr(vwk);
+  
+      /* Initialize the starting point for the loop. */
+1     wx1 = point->x;                                                                       	////  wx1_62 = [vdi/vdi_line.c:1120:16] point_60(D)->x;
+1     wy1 = point->y;                                                                       	////  wy1_63 = [vdi/vdi_line.c:1121:16] point_60(D)->y;
+  
+      /* Determine if the line is a closed polyline */
+      ptr = point + count - 1;    /* point to last vertex */
+2     if ((ptr->x == wx1) && (ptr->y == wy1))                                               	////  _12 = [vdi/vdi_line.c:1125:13] ptr_64->x;   _13 = [vdi/vdi_line.c:1125:32] ptr_64->y;
+          closed = TRUE;
+  
+      /*
+       * If the end style for the first point is not squared,
+       * or the polyline is closed, output a circle
+       */
+      if ((s_begsty != SQUARED) || closed)
+          do_circ(vwk, wx1, wy1);
+  
+      /* Loop over the number of points passed in. */
+      for (i = 1; i < count; i++) {
+          /* Get ending point for line segment */
+          point++;
+1         wx2 = point->x;                                                                   	////  wx2_67 = MEM[base: point_66, offset: 0B];
+1         wy2 = point->y;                                                                   	////  wy2_68 = MEM[base: point_66, offset: 2B];
+  
+          /* Get vector from start to end of the segment. */
+          vx = wx2 - wx1;
+          vy = wy2 - wy1;
+  
+          /* Ignore lines of zero length. */
+          if ((vx == 0) && (vy == 0))
+              continue;
+  
+          /* Calculate offsets to fatten the line. */
+          if (vx == 0) {
+              /* line is horizontal - do it the simple way */
+1             vx = q_circle[0];                                                             	////  _17 = [vdi/vdi_line.c:1153:26] q_circle[0];
+              vy = 0;
+          }
+          else if (vy == 0) {
+              /* line is vertical - do it the simple way */
+              vx = 0;
+              vy = num_qc_lines - 1;
+          }
+          else {
+              /* Find the offsets in x and y for a point perpendicular */
+              /* to the line segment at the appropriate distance. */
+2             k = mul_div(-vy, ysize, xsize);                                               	////  _20 = [vdi/vdi_line.c:1164:17] DEV_TAB[3];   _21 = [vdi/vdi_line.c:1164:17] DEV_TAB[4];
+              vy = mul_div(vx, xsize, ysize);
+              vx = k;
+              perp_off(&vx, &vy);
+          }                       /* End else:  neither horizontal nor
+                                     vertical. */
+  
+          /* Prepare the control and points parameters for the polygon call. */
+          ptr = box;
+          ptr->x = wx1 + vx;
+          ptr->y = wy1 + vy;
+  
+          ptr++;
+          ptr->x = wx1 - vx;
+          ptr->y = wy1 - vy;
+  
+          ptr++;
+          ptr->x = wx2 - vx;
+          ptr->y = wy2 - vy;
+  
+          ptr++;
+          ptr->x = wx2 + vx;
+          ptr->y = wy2 + vy;
+  
+          polygon(vwk, box, 4);
+  
+          /*
+           * If the terminal point of the line segment is an internal joint,
+           * or the end style for the last point is not squared,
+           * or the polyline is closed, output a filled circle
+           */
+1         if ((i < count - 1) || (s_endsty != SQUARED) || closed)                           	////  s_endsty.126_34 = s_endsty;
+              do_circ(vwk, wx2, wy2);
+  
+          /* end point becomes the starting point for the next line segment. */
+          wx1 = wx2;
+          wy1 = wy2;
+      }
+  
+      /* Restore the attribute environment. */
+      r_fa_attr(vwk);
+  }
+  
+  
+  /*
+   * draw_arrow - helper function for arrow()
+   *
+   * performs the actual drawing
+   */
+  static void draw_arrow(Vwk * vwk, Point * point, int count, int inc)
+  {
+      LONG line_len2;
+      WORD arrow_len, arrow_wid, line_len;
+      WORD dx, dy;
+      WORD base_x, base_y, ht_x, ht_y;
+      WORD temp, i;
+      Point triangle[8];       /* triangle 2 high to close polygon */
+      Point *ptr1, *ptr2, *xybeg;
+  
+      line_len2 = dx = dy = 0;
+  
+      /* Set up the arrow-head length and width as a function of line width. */
+1     temp = vwk->line_width;                                                               	////  temp_58 = [vdi/vdi_line.c:1226:15] vwk_57(D)->line_width;
+      arrow_len = (temp < 4) ? 8 : (3 * temp - 1);
+      arrow_wid = arrow_len / 2;
+  
+      /* Initialize the beginning pointer. */
+      ptr1 = ptr2 = point;
+  
+      /* Find the first point which is not so close to the end point that it */
+      /* will be obscured by the arrowhead.                                  */
+      for (i = 1; i < count; i++) {
+          /* Find the deltas between the next point and the end point. Transform */
+          /* to a space such that the aspect ratio is uniform and the x axis */
+          /* distance is preserved. */
+  
+          ptr1 += inc;
+3         dx = ptr2->x - ptr1->x;                                                           	////  _110 = [vdi/vdi_line.c:1241:18] point_61(D)->x;   _111 = [vdi/vdi_line.c:1241:28] ptr1_109->x;   _5 = MEM[base: ptr1_64, offset: 0B];
+5         dy = mul_div(ptr2->y - ptr1->y, ysize, xsize);                                    	////  _113 = [vdi/vdi_line.c:1242:14] DEV_TAB[3];   _114 = [vdi/vdi_line.c:1242:14] DEV_TAB[4];   _115 = [vdi/vdi_line.c:1242:26] point_61(D)->y;   _116 = [vdi/vdi_line.c:1242:36] ptr1_109->y;   _9 = MEM[base: ptr1_64, offset: 2B];
+  
+          /* Get length of vector connecting the point with the end point. */
+          /* If the vector is of sufficient length, the search is over. */
+          line_len2 = (LONG)dx*dx + (LONG)dy*dy;
+          if (line_len2 >= (LONG)arrow_len*arrow_len)
+              break;
+      }                           /* End for:  over i. */
+      line_len = Isqrt(line_len2);
+  
+      /* Set xybeg to the point we found */
+      xybeg = ptr1;
+  
+      /* If the longest vector is insufficiently long, don't draw an arrow. */
+      if (line_len < arrow_len)
+          return;
+  
+      /* Rotate the arrow-head height and base vectors.  Perform calculations */
+      /* in 1000x space.                                                      */
+  
+      ht_x = mul_div(arrow_len, mul_div(dx, 1000, line_len), 1000);
+      ht_y = mul_div(arrow_len, mul_div(dy, 1000, line_len), 1000);
+      base_x = mul_div(arrow_wid, mul_div(dy, -1000, line_len), 1000);
+      base_y = mul_div(arrow_wid, mul_div(dx, 1000, line_len), 1000);
+  
+      /* Transform the y offsets back to the correct aspect ratio space. */
+  
+2     ht_y = mul_div(ht_y, xsize, ysize);                                                   	////  _21 = [vdi/vdi_line.c:1269:12] DEV_TAB[4];   _22 = [vdi/vdi_line.c:1269:12] DEV_TAB[3];
+      base_y = mul_div(base_y, xsize, ysize);
+  
+      /* Build a polygon into a local array first */
+      ptr1 = triangle;
+      ptr2 = point;
+  
+1     ptr1->x = ptr2->x + base_x - ht_x;                                                    	////  _23 = [vdi/vdi_line.c:1276:19] point_61(D)->x;
+1     ptr1->y = ptr2->y + base_y - ht_y;                                                    	////  _26 = [vdi/vdi_line.c:1277:19] point_61(D)->y;
+      ptr1++;
+      ptr1->x = ptr2->x - base_x - ht_x;
+      ptr1->y = ptr2->y - base_y - ht_y;
+      ptr1++;
+      ptr1->x = ptr2->x;
+      ptr1->y = ptr2->y;
+  
+      polygon(vwk, triangle, 3);
+  
+      /* Adjust the end point and all points skipped. */
+      ptr1 = point;
+      ptr2 = xybeg;
+  
+1     ptr1->x -= ht_x;                                                                      	////  _33 = point_61(D)->x;
+1     ptr1->y -= ht_y;                                                                      	////  _35 = point_61(D)->y;
+  
+      while ((ptr2 -= inc) != ptr1) {
+          ptr2->x = ptr1->x;
+          ptr2->y = ptr1->y;
+      }
+  }
+  
+  
+  /*
+   * arrow - draw arrow(s) at the end(s) of the line
+   *
+   * Will alter the end of the line segment.
+   */
+  void arrow(Vwk * vwk, Point * point, int count)
+  {
+      /* Set up the attribute environment. */
+      s_fa_attr(vwk);
+  
+      /* beginning point is arrowed. */
+      if (s_begsty & ARROWED) {
+          draw_arrow(vwk, point, count, 1);
+      }
+  
+      /* ending point is arrowed. */
+      point += count - 1;
+      if (s_endsty & ARROWED) {
+          draw_arrow(vwk, point, count, -1);
+      }
+  
+      /* Restore the attribute environment. */
+      r_fa_attr(vwk);
+1 }                                                                                         	////  return;
+  
+  
+  /*
+   * draw_line - draw a line (general purpose)
+   *
+   * This routine draws a line defined by the Line structure, using
+   * Bresenham's algorithm.  The line is modified by the LN_MASK
+   * variable and the wrt_mode parameter.  This routine handles
+   * all interleaved-bitplane video resolutions.
+   *
+   * Note that for line-drawing the background color is always 0
+   * (i.e., there is no user-settable background color).  This fact
+   * allows coding short-cuts in the implementation of "replace" and
+   * "not" modes, resulting in faster execution of their inner loops.
+   *
+   * This routine is more or less the one from the original VDI asm
+   * code, with the following exception:
+   *  . when the writing mode is XOR, and this is not the last line
+   *    in a polyline, the original code decremented the x coordinate
+   *    of the ending point.  this prevented polylines from xor'ing
+   *    themselves at the intersection points.  this was done in both
+   *    the XOR handler within abline() and, for horizontal lines,
+   *    before calling a separate function to draw a horizontal line.
+   *    NOTE: the determination of 'last line or not' was done via
+   *    the _LSTLIN variable which was set in the polyline() function.
+   *
+   */
+  static void draw_line(const Line *line, WORD wrt_mode, UWORD color)
+  {
+      UWORD *adr;
+      WORD dx;                    /* width of rectangle around line */
+      WORD dy;                    /* height of rectangle around line */
+      WORD yinc;                  /* in/decrease for each y step */
+1     const WORD xinc = v_planes; /* positive increase for each x step, planes WORDS */     	////  v_planes.178_56 = v_planes;
+      UWORD msk;
+      int plane;
+      UWORD linemask = LN_MASK;   /* linestyle bits */
+  
+      dx = line->x2 - line->x1;
+      dy = line->y2 - line->y1;
+  
+      /* calculate increase values for x and y to add to actual address */
+      if (dy < 0) {
+          dy = -dy;                       /* make dy absolute */
+          yinc = (LONG) -1 * v_lin_wr / 2; /* sub one line of words */
+      } else {
+          yinc = (LONG) v_lin_wr / 2;     /* add one line of words */
+      }
+  
+      adr = get_start_addr(line->x1, line->y1);   /* init address counter */
+      msk = 0x8000 >> (line->x1&0xf);             /* initial bit position in WORD */
+  
+1     for (plane = v_planes-1; plane >= 0; plane-- ) {                                      	////  v_planes.182_78 = v_planes;
+          UWORD *addr;
+          WORD  eps;              /* epsilon */
+          WORD  e1;               /* epsilon 1 */
+          WORD  e2;               /* epsilon 2 */
+          WORD  loopcnt;
+          UWORD bit;
+  
+          /* load values fresh for this bitplane */
+          addr = adr;             /* initial start address for changes */
+          bit = msk;              /* initial bit position in WORD */
+1         linemask = LN_MASK;                                                               	////  LN_MASK.183_81 = LN_MASK;
+  
+          if (dx >= dy) {
+              e1 = 2*dy;
+              eps = -dx;
+              e2 = 2*dx;
+  
+              switch (wrt_mode) {
+              case 3:              /* reverse transparent  */
+                  if (color & 0x0001) {
+                      for (loopcnt=dx;loopcnt >= 0;loopcnt--) {
+                          rolw1(linemask);        /* get next bit of line style */
+                          if (linemask&0x0001)
+1                             *addr &= ~bit;                                                	////  _93 = *addr_586;
+                          rorw1(bit);
+                          if (bit&0x8000)
+                              addr += xinc;
+                          eps += e1;
+                          if (eps >= 0 ) {
+                              eps -= e2;
+                              addr += yinc;       /* increment y */
+                          }
+                      }
+                  } else {
+                      for (loopcnt=dx;loopcnt >= 0;loopcnt--) {
+                          rolw1(linemask);        /* get next bit of line style */
+                          if (linemask&0x0001)
+1                             *addr |= bit;                                                 	////  _118 = *addr_583;
+                          rorw1(bit);
+                          if (bit&0x8000)
+                              addr += xinc;
+                          eps += e1;
+                          if (eps >= 0 ) {
+                              eps -= e2;
+                              addr += yinc;       /* increment y */
+                          }
+                      }
+                  }
+                  break;
+              case 2:              /* xor */
+                  for (loopcnt=dx;loopcnt >= 0;loopcnt--) {
+                      rolw1(linemask);        /* get next bit of line style */
+                      if (linemask&0x0001)
+1                         *addr ^= bit;                                                     	////  _141 = *addr_578;
+                      rorw1(bit);
+                      if (bit&0x8000)
+                          addr += xinc;
+                      eps += e1;
+                      if (eps >= 0 ) {
+                          eps -= e2;
+                          addr += yinc;       /* increment y */
+                      }
+                  }
+                  break;
+              case 1:              /* or */
+                  if (color & 0x0001) {
+                      for (loopcnt=dx;loopcnt >= 0;loopcnt--) {
+                          rolw1(linemask);        /* get next bit of line style */
+                          if (linemask&0x0001)
+1                             *addr |= bit;                                                 	////  _165 = *addr_575;
+                          rorw1(bit);
+                          if (bit&0x8000)
+                              addr += xinc;
+                          eps += e1;
+                          if (eps >= 0 ) {
+                              eps -= e2;
+                              addr += yinc;       /* increment y */
+                          }
+                      }
+                  } else {
+                      for (loopcnt=dx;loopcnt >= 0;loopcnt--) {
+                          rolw1(linemask);        /* get next bit of line style */
+                          if (linemask&0x0001)
+1                             *addr &= ~bit;                                                	////  _188 = *addr_568;
+                          rorw1(bit);
+                          if (bit&0x8000)
+                              addr += xinc;
+                          eps += e1;
+                          if (eps >= 0 ) {
+                              eps -= e2;
+                              addr += yinc;       /* increment y */
+                          }
+                      }
+                  }
+                  break;
+              case 0:              /* rep */
+                  if (color & 0x0001) {
+                      for (loopcnt=dx;loopcnt >= 0;loopcnt--) {
+                          rolw1(linemask);        /* get next bit of line style */
+                          if (linemask&0x0001)
+                              *addr |= bit;
+                          else
+                              *addr &= ~bit;
+                          rorw1(bit);
+                          if (bit&0x8000)
+                              addr += xinc;
+                          eps += e1;
+                          if (eps >= 0 ) {
+                              eps -= e2;
+                              addr += yinc;       /* increment y */
+                          }
+                      }
+                  }
+                  else {
+                      for (loopcnt=dx;loopcnt >= 0;loopcnt--) {
+                          rolw1(linemask);        /* get next bit of line style */
+1                         *addr &= ~bit;                                                    	////  _238 = *addr_562;
+                          rorw1(bit);
+                          if (bit&0x8000)
+                              addr += xinc;
+                          eps += e1;
+                          if (eps >= 0 ) {
+                              eps -= e2;
+                              addr += yinc;       /* increment y */
+                          }
+                      }
+                  }
+              }
+          } else {
+              e1 = 2*dx;
+              eps = -dy;
+              e2 = 2*dy;
+  
+              switch (wrt_mode) {
+              case 3:              /* reverse transparent */
+                  if (color & 0x0001) {
+                      for (loopcnt=dy;loopcnt >= 0;loopcnt--) {
+                          rolw1(linemask);        /* get next bit of line style */
+                          if (linemask&0x0001)
+1                             *addr &= ~bit;                                                	////  _266 = *addr_556;
+                          addr += yinc;
+                          eps += e1;
+                          if (eps >= 0 ) {
+                              eps -= e2;
+                              rorw1(bit);
+                              if (bit&0x8000)
+                                  addr += xinc;
+                          }
+                      }
+                  } else {
+                      for (loopcnt=dy;loopcnt >= 0;loopcnt--) {
+                          rolw1(linemask);        /* get next bit of line style */
+                          if (linemask&0x0001)
+1                             *addr |= bit;                                                 	////  _289 = *addr_551;
+                          addr += yinc;
+                          eps += e1;
+                          if (eps >= 0 ) {
+                              eps -= e2;
+                              rorw1(bit);
+                              if (bit&0x8000)
+                                  addr += xinc;
+                          }
+                      }
+                  }
+                  break;
+              case 2:              /* xor */
+                  for (loopcnt=dy;loopcnt >= 0;loopcnt--) {
+                      rolw1(linemask);        /* get next bit of line style */
+                      if (linemask&0x0001)
+1                         *addr ^= bit;                                                     	////  _311 = *addr_548;
+                      addr += yinc;
+                      eps += e1;
+                      if (eps >= 0 ) {
+                          eps -= e2;
+                          rorw1(bit);
+                          if (bit&0x8000)
+                              addr += xinc;
+                      }
+                  }
+                  break;
+              case 1:              /* or */
+                  if (color & 0x0001) {
+                      for (loopcnt=dy;loopcnt >= 0;loopcnt--) {
+                          rolw1(linemask);        /* get next bit of line style */
+                          if (linemask&0x0001)
+1                             *addr |= bit;                                                 	////  _334 = *addr_541;
+                          addr += yinc;
+                          eps += e1;
+                          if (eps >= 0 ) {
+                              eps -= e2;
+                              rorw1(bit);
+                              if (bit&0x8000)
+                                  addr += xinc;
+                          }
+                      }
+                  } else {
+                      for (loopcnt=dy;loopcnt >= 0;loopcnt--) {
+                          rolw1(linemask);        /* get next bit of line style */
+                          if (linemask&0x0001)
+1                             *addr &= ~bit;                                                	////  _356 = *addr_531;
+                          addr += yinc;
+                          eps += e1;
+                          if (eps >= 0 ) {
+                              eps -= e2;
+                              rorw1(bit);
+                              if (bit&0x8000)
+                                  addr += xinc;
+                          }
+                      }
+                  }
+                  break;
+              case 0:              /* rep */
+                  if (color & 0x0001) {
+                      for (loopcnt=dy;loopcnt >= 0;loopcnt--) {
+                          rolw1(linemask);        /* get next bit of line style */
+                          if (linemask&0x0001)
+                              *addr |= bit;
+                          else
+                              *addr &= ~bit;
+                          addr += yinc;
+                          eps += e1;
+                          if (eps >= 0 ) {
+                              eps -= e2;
+                              rorw1(bit);
+                              if (bit&0x8000)
+                                  addr += xinc;
+                          }
+                      }
+                  }
+                  else {
+                      for (loopcnt=dy;loopcnt >= 0;loopcnt--) {
+                          rolw1(linemask);        /* get next bit of line style */
+1                         *addr &= ~bit;                                                    	////  _404 = *addr_516;
+                          addr += yinc;
+                          eps += e1;
+                          if (eps >= 0 ) {
+                              eps -= e2;
+                              rorw1(bit);
+                              if (bit&0x8000)
+                                  addr += xinc;
+                          }
+                      }
+                  }
+              }
+          }
+          adr++;
+          color >>= 1;    /* shift color index: next plane */
+      }
+      LN_MASK = linemask;
+  }
+  
+  
+  /*
+   * abline - draw a line
+   *
+   * this is now a wrapper for the actual line drawing routines
+   *
+   * input:
+   *     line         = pointer to structure containing coordinates
+   *     v_planes     = number of video planes
+   *     LN_MASK      = line mask (for dashed/dotted lines)
+   *     wrt_mode     = writing mode:
+   *                          0 => replace mode.
+   *                          1 => or mode.
+   *                          2 => xor mode.
+   *                          3 => not mode.
+   *
+   * output:
+   *     LN_MASK rotated to proper alignment with x coordinate of line end
+   */
+  void abline(const Line *line, WORD wrt_mode, UWORD color)
+  {
+      Line ordered;
+      UWORD x1,y1,x2,y2;          /* the coordinates */
+  
+      /* Always draw from left to right */
+2     if (line->x2 < line->x1) {                                                            	////  _1 = [vdi/vdi_line.c:1654:13] line_23(D)->x2;   _2 = [vdi/vdi_line.c:1654:24] line_23(D)->x1;
+          /* if delta x < 0 then draw from point 2 to 1 */
+          x1 = line->x2;
+          y1 = line->y2;
+          x2 = line->x1;
+          y2 = line->y1;
+      } else {
+          /* positive, start with first point */
+          x1 = line->x1;
+          y1 = line->y1;
+          x2 = line->x2;
+          y2 = line->y2;
+      }
+  
+      /*
+       * optimize drawing of horizontal lines
+       */
+      if (y1 == y2) {
+          UWORD linemask = LN_MASK;   /* linestyle bits */
+          VwkAttrib attr;
+          Rect rect;
+  
+          attr.clip = 0;
+          attr.multifill = 0;
+          attr.patmsk = 0;
+          attr.patptr = &linemask;
+          attr.wrt_mode = wrt_mode;
+          attr.color = color;
+          rect.x1 = x1;
+          rect.y1 = y1;
+          rect.x2 = x2;
+          rect.y2 = y2;
+          draw_rect_common(&attr, &rect);
+          return;
+      }
+  
+      /*
+       * draw any line
+       */
+      ordered.x1 = x1;
+      ordered.y1 = y1;
+      ordered.x2 = x2;
+      ordered.y2 = y2;
+      draw_line(&ordered, wrt_mode, color);
+  }
+  
+  /*
+   * Line-A wrapper for line drawing with abline
+   */
+  void linea_line(void)
+  {
+      Line line;
+  
+1     line.x1 = X1;                                                                         	////  X1.227_1 = X1;
+1     line.y1 = Y1;                                                                         	////  Y1.228_2 = Y1;
+1     line.x2 = X2;                                                                         	////  X2.229_3 = X2;
+1     line.y2 = Y2;                                                                         	////  Y2.230_4 = Y2;
+  
+      /* Line-A LN_MASK is already set by caller */
+1     abline(&line, WRT_MODE, linea_color());                                               	////  WRT_MODE.231_5 = WRT_MODE;
+1 }                                                                                         	////  return;
+  
+  
+  /*
+   * set LN_MASK from virtual workstation values
+   */
+  void set_LN_MASK(Vwk *vwk)
+  {
+      WORD l;
+  
+2     l = vwk->line_index;                                                                  	////  l_16 = [vdi/vdi_line.c:1724:12] vwk_12(D)->line_index;   l_5 = [vdi/vdi_line.c:1724:12] vwk_4(D)->line_index;
+4     LN_MASK = (l < 6) ? LINE_STYLE[l] : vwk->ud_ls;                                       	////  _17 = [vdi/vdi_line.c:1725:35] LINE_STYLE[l_16];   iftmp.232_19 = [vdi/vdi_line.c:1725:44] vwk_12(D)->ud_ls;   _1 = [vdi/vdi_line.c:1725:35] LINE_STYLE[l_5];   iftmp.232_7 = [vdi/vdi_line.c:1725:44] vwk_4(D)->ud_ls;
+1 }                                                                                         	////  return;

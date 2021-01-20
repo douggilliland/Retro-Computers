@@ -1,0 +1,253 @@
+nls.txt - native language support for EmuTOS,
+or how having printf("welcome") display "willkommen".
+
+
+Principle
+=========
+
+Two different methods are used, depending on whether EmuTOS is being
+built for a single language or multiple languages.  For single languages,
+the strings are translated 'in place'; for multiple languages, they are
+translated at run time via gettext(). gettext() is a function which is
+called on translatable strings, looks in a hash table and returns a
+translation. If no translation is found, the supplied string is returned.
+
+In either case, we need to know which strings are translatable.
+Translatable strings are marked in the source code in two ways:
+  _("blah") specifies a string used in an expression
+  N_("blah") specifies a string used in a declaration
+
+Both macros are defined in "nls.h".  For single-language support, both
+macros just expand to a string, i.e.
+  _("blah") => "blah"
+  N_("blah") => "blah"
+For multiple-language support, the macros expand as follows:
+  _("blah") => gettext("blah")
+  N_("blah") => "blah"
+
+Here's a simple example of usage:
+  #include "nls.h"
+  char *answer_names[] = { N_("yes"), N_("no") };
+
+  void print_answer(int answer)
+  {
+    printf( _("the answer\nis: %s\n"),
+           gettext( answer_names[answer] ));
+  }
+
+Note that translatable strings not immediately translated by _(...)
+need to be translated using gettext() explicitly.
+
+
+Operation
+=========
+
+A tool called "bug" is supplied. Bug does four operations:
+- xgettext: scans the C source files to collect translatable strings
+  by looking for _("...") and N_("..."), and puts all such strings into
+  a po-file called messages.pot
+- update po-file: compares the supplied po-file to messages.pot and
+  updates the po-file (adding for instance new entries for new
+  translatable strings)
+- make: creates the C file langs.c that will be linked to EmuTOS to
+  provide the translation hashes for multi-language versions of EmuTOS.
+  NOTE: "bug make" is invoked by the EmuTOS Makefile; you should not
+  invoke it directly.
+- translate: translates the translatable strings in a single C file,
+  creating a temporary C file that will be directly compiled into
+  EmuTOS, when it is being built for a single language
+
+po/POTFILES.in  }   bug xgettext
+C source code   }------------------> po/messages.pot
+
+                    cp
+po/messages.pot }-------->  po/xx.po    (the first time only)
+
+po/messages.pot }   bug update po/xx.po
+po/xx.po        }------------------------->  po/xx.po
+
+po/LINGUAS      }   bug make   (invoked by the Makefile)
+po files        }--------------> langs.c
+po/messages.pot }
+
+po/LINGUAS      }   bug translate (invoked by the Makefile)
+po file         }--------------> translated C source file
+C source file   }
+
+Note that many text strings are maintained in resource files and
+dynamically converted to C code during the make process by specialised
+resource decompilers, so those decompilers must be run before invoking
+bug.
+
+
+Who does what
+=============
+
+The translator for language 'xx' owns po/xx.po. The translator edits it,
+adding translations (initially all translations are empty).
+
+The EmuTOS administrator is responsible for requesting translations,
+although translators who have write access to the repository may do their
+translations at any time.  To avoid translating text that may be changed
+again before a release, translations are normally deferred until a release
+is planned.
+
+The process is as follows:
+1. For each language xx, the administrator does:
+    make bugready
+    ./bug update po/xx.po
+   ("make bugready" runs the resource decompilers and then "./bug xgettext")
+2. At the end of each xx.po file are the untranslated strings.  The
+   administrator cuts/pastes these to text files which are sent to the
+   translators.
+3. When each translation is received, the administrator inserts the
+   translated strings into the appropriate po file; for neatness, this
+   should be done so that the sequence of messages in xx.po matches the
+   sequence in messages.pot.
+
+To build EmuTOS for multiple languages, a C source file containing the
+translation hashes are needed. This file, langs.c, is output by bug make.
+Bug make needs a po/messages.pot. Thus, the Makefile contains rules to
+run bug make and if po/messages.pot is not present, bug xgettext.
+
+Running bug xgettext over an existing messages.pot is not done by the
+Makefile, because the Makefile has no easy way of knowing when this is
+needed.
+
+
+Makefile and Git usage
+======================
+
+                  |   created  |  deleted by  |  committed
+file              |   by make  |  make clean  |  into Git
+------------------+------------+--------------+-------------
+po/POTFILES.in    |      no    |      no      |    yes
+po/LINGUAS        |      no    |      no      |    yes
+po/messages.pot   | only when  |      yes     |    no
+                  | absent     |              |
+po/xx.po          |      no    |      no      |    yes
+C lang hashes     |     yes    |      yes     |    no
+
+
+Files
+=====
+
+po/POTFILES.in is a list of C source files, one file per line,
+ignoring empty lines and lines beginning with #.
+
+po/LINGUAS gives the list of language names to consider, together
+with the charset name to which they will be displayed in the
+destination software.
+
+po/messages.pot and the various po/xx.po are po-files, described below.
+
+
+Format of po-files
+==================
+
+The po-file contains free comments (blocks of lines beginning with #),
+and entries. Each entry has
+- optional free comment lines, beginning with '# ' (sharp, space)
+- optional special comments, beginning with #, and whose second
+  character is not a space
+- the English string,    msgid "..."
+- the translation,       msgstr "..."
+
+The strings after msgid and msgstr follow the C syntax, and can contain
+several "..." strings concatenated. Example:
+
+  #
+  # this is a commented po-file for the sample C source code above
+  # this part is a free comment
+  #
+
+  # this is an entry
+  # the line starting with #: is a special comment giving pointers
+  # to source code where the English string was found
+  #: source/file.c:2
+  msgid "yes"
+  msgstr "Ja"
+
+  #: source/file.c:2
+  msgid "no"
+  msgstr "Nein"
+
+  # This entry shows multi-line entries
+  #: source/file.c:7
+  msgid ""
+  "the answer\n"
+  "is: %s\n"
+  msgstr ""
+  "Die Antwort\n"
+  "ist: %s\n"
+
+
+Administrative entry
+====================
+
+The first entry in a po-file is the administrative entry.
+Its msgid is the empty string, and its msgstr contains
+lines in the form "Keyword: value\n". This is an example
+from the French po-file:
+
+  msgid ""
+  msgstr ""
+  "Last-Translator: Vincent Riviere <vincent.riviere@freesbee.fr>\n"
+  "Language-Team: French\n"
+  "MIME-Version: 1.0\n"
+  "Content-Type: text/plain; charset=ISO-8859-1\n"
+  "Content-Transfer-Encoding: 8bit\n"
+
+The five lines shown here are mandatory, in this order.
+Bug uses the charset given in "Content-Type".
+
+
+Details
+=======
+
+updating po-files will
+- create a backup po/xx.po.bak
+- keep all user comments from the previous po-file
+- take no user comments from messages.pot (messages.pot is not intended
+  to be edited)
+- replace all #: references by those found in messages.pot
+- comment out entries not found in messages.pot
+- add entries found in messages.pot, but missing from the previous po-file
+- create an administrative entry if there is none
+The po-files are parsed entirely in memory, then written back to files.
+Any special string formatting will be lost.
+
+
+Hints
+=====
+
+GNU Emacs has a po mode that tend to annoy some people (including
+myself). To prevent GNU Emacs from opening your po-file in po mode,
+put this text in your po-file's first line:
+
+  # -*-C-*-
+
+if your po-file in in ISO latin1 encoding, or a line like
+
+  # -*- mode: C; coding: iso-latin-2; -*-
+
+if your po-file is in another encoding (here, ISO latin 2).
+
+When translating a *.po file, please note that some strings are limited
+in size. For example, the texts used in a "form_alert" box are limited
+to five lines with 32 characters each. Each of the three buttons of such
+a "form_alert" box is limited to 10 characters.
+You should always check the translated text in EmuTOS to see if it looks
+as you expected it.
+
+
+References
+==========
+
+- the bug source code
+
+The following are probably only slightly relevant:
+
+- the GNU gettext manual
+- GNU gettext tools
+- GNU recode, for the names of some charsets.

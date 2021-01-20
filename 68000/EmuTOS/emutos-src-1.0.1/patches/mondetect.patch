@@ -1,0 +1,174 @@
+diff --git a/bios/bios.c b/bios/bios.c
+index f127542e..69edfae4 100644
+--- a/bios/bios.c
++++ b/bios/bios.c
+@@ -304,6 +304,9 @@ static void bios_init(void)
+     etv_timer = (ETV_TIMER_T) just_rts;
+     etv_critic = default_etv_critic;
+     etv_term = just_rts;
++#if CONF_WITH_MON_DETECT
++    swv_vec = just_rts;
++#endif
+ 
+     /* setup default VBL queue with vbl_list[] */
+     nvbls = ARRAY_SIZE(vbl_list);
+@@ -433,6 +436,10 @@ static void bios_init(void)
+     boot_status |= DOS_AVAILABLE;   /* track progress */
+ 
+     /* Enable VBL processing */
++#if CONF_WITH_MON_DETECT
++    /* RESET system on monitor change, and jump to _main */
++    swv_vec = os_header.reseth;
++#endif
+     vblsem = 1;
+ 
+ #if CONF_WITH_CARTRIDGE
+diff --git a/bios/vectors.S b/bios/vectors.S
+index 9b945334..6715d111 100644
+--- a/bios/vectors.S
++++ b/bios/vectors.S
+@@ -318,8 +318,109 @@ _int_vbl:
+ #endif
+         addq.l  #1, _vbclock.w          // count number of VBL interrupts
+ 
+-        // TODO: Check for monitor switching on normal ST(E) here,
++        // Check for monitor switching on normal ST(E),
+         // and jump to _swv_vec if necessary...
++#if CONF_WITH_MON_DETECT
++#if CONF_WITH_VIDEL
++        /* not supported yet on VIDEL */
++        tst.w     _has_videl
++        jbne      no_monitor_change
++#endif
++        move.b    0xfffffa01.w,d1
++#if CONF_WITH_DMASOUND
++        tst.w     _has_dmasound
++        jbeq      moncheck_dmadone
++        /* on STE with dmasound, the monochrome signal
++           is XORed with the dma control flag */
++        move.w    sr,d3
++#ifdef __mcoldfire__
++        move.w    d3,d0
++        ori.l     #0x0700,d0
++        move.w    d0,sr
++#else
++        ori.w     #0x0700,sr
++#endif
++moncheck_dma:
++        move.b    0xffff8901.w,d0
++        move.b    0xfffffa01.w,d1
++        nop
++        move.b    0xfffffa01.w,d2
++#ifdef __mcoldfire__
++        eor.l     d1,d2
++        tst.b     d2
++#else
++        eor.b     d1,d2
++#endif
++        jbmi      moncheck_dma
++        cmp.b     0xffff8901.w,d0
++        jbne      moncheck_dma
++        move.w    d3,sr
++        btst      #0,d0
++        jbeq      moncheck_dmadone
++#ifdef __mcoldfire__
++        not.l     d1
++#else
++        not.b     d1
++#endif
++moncheck_dmadone:
++#endif /* CONF_WITH_DMASOUND */
++
++#if CONF_WITH_TT_SHIFTER
++        tst.w     has_tt_shifter
++        jbeq      no_tt_shifter
++        lea       0xffff8262.w,a2
++        move.b    (a2),d0
++#ifdef __mcoldfire__
++        and.l     #7,d0
++#else
++        and.b     #7,d0
++#endif
++        cmp.b     #6,d0
++        jbeq      wasmono_res
++        moveq     #6,d2
++        jbra      done_tt_shifter
++no_tt_shifter:
++#endif
++        lea       0xffff8260.w,a2
++        move.b    (a2),d0
++#ifdef __mcoldfire__
++        and.l     #3,d0
++#else
++        and.b     #3,d0
++#endif
++        cmp.b     #2,d0
++        jbge      wasmono_res
++        moveq     #2,d2
++done_tt_shifter:
++        btst      #7,d1
++        jbne      no_monitor_change
++        /* jsr       _vsync */ /* TOS calls this here, but we are already in VBL handler? */
++        move.b    d2,d0
++        jbra      monitor_change
++wasmono_res:
++        btst      #7,d1
++        jbeq      no_monitor_change
++        move.b    _defshiftmod.w,d0
++        cmp.b     d2,d0
++        jbne      monitor_change
++        clr.b     d0
++monitor_change:
++        move.b    d0,_sshiftmod.w
++        move.b    (a2),d1
++#ifdef __mcoldfire__
++        and.l     #0xf8,d1
++        or.l      d0,d1
++#else
++        and.b     #0xf8,d1
++        or.b      d0,d1
++#endif
++        move.b    d1,(a2)
++        movea.l   _swv_vec.w,a0
++        jsr       (a0)
++
++no_monitor_change:
++
++#endif /* CONF_WITH_MON_DETECT */
+ 
+         jsr     _blink                  // blink cursor
+ 
+diff --git a/include/config.h b/include/config.h
+index 9db0798e..2da6a989 100644
+--- a/include/config.h
++++ b/include/config.h
+@@ -1002,6 +1002,18 @@
+ # endif
+ #endif
+ 
++/*
++ * Set CONF_WITH_MON_DETECT to enable support for detecting monitor change
++ * (mono/color)
++ */
++#ifndef CONF_WITH_MON_DETECT
++# if CONF_WITH_ATARI_VIDEO
++#  define CONF_WITH_MON_DETECT 1
++# else
++#  define CONF_WITH_MON_DETECT 0
++# endif
++#endif
++
+ 
+ 
+ /****************************************
+diff --git a/include/tosvars.h b/include/tosvars.h
+index b6fc740e..f305cd91 100644
+--- a/include/tosvars.h
++++ b/include/tosvars.h
+@@ -108,4 +108,6 @@ extern ETV_TIMER_T etv_timer;
+ extern LONG (*etv_critic)(WORD err,WORD dev);
+ extern void (*etv_term)(void);
+ 
++extern void (*swv_vec)(void);
++
+ #endif /* TOSVARS_H */

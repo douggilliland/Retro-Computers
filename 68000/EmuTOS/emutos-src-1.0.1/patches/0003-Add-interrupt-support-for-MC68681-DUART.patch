@@ -1,0 +1,173 @@
+From 87973c3d709175a2073af2d4d451ce5c1fd81e13 Mon Sep 17 00:00:00 2001
+From: Rob Gowin <robgowin@gmail.com>
+Date: Sat, 14 Nov 2020 15:09:30 -0600
+Subject: [PATCH 3/3] Add interrupt support for MC68681 DUART.
+
+Implement serial and timer interrupt support for the DUART.
+
+bios/ikbd.c: Enable duart serial interrupt if configured.
+
+bios/mfp.c: Init DUART system timer if configured.
+
+bios/vectors.h: Add declaration for DUART interrupt function.
+
+bios/vectors.S: Implement DUART interrupt handler ASM part. C
+    part lives in serport.c
+
+bios/serport.c: Compile in interrupt handling code.
+---
+ bios/ikbd.c    |  3 +++
+ bios/mfp.c     |  3 +++
+ bios/serport.c |  2 --
+ bios/vectors.S | 51 ++++++++++++++++++++++++++++++++++++++++++++++++++
+ bios/vectors.h |  3 +++
+ 5 files changed, 60 insertions(+), 2 deletions(-)
+
+diff --git a/bios/ikbd.c b/bios/ikbd.c
+index f9182ff9..ea8df70f 100644
+--- a/bios/ikbd.c
++++ b/bios/ikbd.c
+@@ -37,6 +37,7 @@
+ #include "delay.h"
+ #include "bios.h"
+ #include "coldfire.h"
++#include "serport.h"
+ #ifdef MACHINE_AMIGA
+ #include "amiga.h"
+ #endif
+@@ -1043,6 +1044,8 @@ void kbd_init(void)
+ #if CONF_SERIAL_CONSOLE
+ # ifdef __mcoldfire__
+     coldfire_rs232_enable_interrupt();
++# elif CONF_WITH_DUART
++    duart_rs232_enable_interrupt();
+ # else
+     /* FIXME: Enable interrupts on other hardware. */
+ # endif
+diff --git a/bios/mfp.c b/bios/mfp.c
+index 5480d47a..3f3abe9d 100644
+--- a/bios/mfp.c
++++ b/bios/mfp.c
+@@ -16,6 +16,7 @@
+ #include "mfp.h"
+ #include "tosvars.h"
+ #include "vectors.h"
++#include "serport.h"
+ #include "coldfire.h"
+ 
+ #if CONF_WITH_MFP || CONF_WITH_TT_MFP
+@@ -195,6 +196,8 @@ void init_system_timer(void)
+ 
+ #if CONF_COLDFIRE_TIMER_C
+     coldfire_init_system_timer();
++#elif CONF_DUART_TIMER_C
++    duart_init_system_timer();
+ #elif CONF_WITH_MFP
+     /* Timer C: ctrl = divide 64, data = 192 */
+     xbtimer(2, 0x50, 192, (LONG)int_timerc);
+diff --git a/bios/serport.c b/bios/serport.c
+index a6ad50ea..369c8353 100644
+--- a/bios/serport.c
++++ b/bios/serport.c
+@@ -919,7 +919,6 @@ void duart_rs232_interrupt_handler(void)
+ 
+ static void duart_init_interrupts_common(void)
+ {
+-#if 0 /* Enabled in interrupt commmit */	
+     LONG *vector_addr;
+     /* Disable DUART interrupts before configuration */
+     write_duart(DUART_IMR, 0);
+@@ -940,7 +939,6 @@ static void duart_init_interrupts_common(void)
+ #endif
+     /* Enable the interrupt(s). */
+     write_duart(DUART_IMR, IMR_value);
+-#endif
+ }
+ 
+ #if CONF_DUART_TIMER_C
+diff --git a/bios/vectors.S b/bios/vectors.S
+index 6895f6ac..7d875b9a 100644
+--- a/bios/vectors.S
++++ b/bios/vectors.S
+@@ -41,6 +41,10 @@
+         .globl  _call_etv_critic
+         .globl  _default_etv_critic
+ 
++#if CONF_WITH_DUART
++        .globl  _duart_interrupt
++#endif
++
+ // ==== References ===========================================================
+ 
+         // TOS System variables
+@@ -570,6 +574,53 @@ timerc_end:
+         // our caller with RTE.
+         rte
+ 
++#if CONF_WITH_DUART
++// ==== Motorola 68681 Dual UART Interrupt Handler ====
++
++// We look at two sources of interrupt from the DUART: Counter Ready
++// (bit 3 of Interrupt Status register) and Channel A Receive Ready (bit 1 of the ISR).
++// Currenty, we leave Channel B to be polled.
++
++_duart_interrupt:
++        move.l  d0,-(sp)
++        move.l  a0,-(sp)
++
++        lea     DUART_BASE, a0
++        move.b  11(a0), d0     // grab the Interrupt Status Register
++#if CONF_DUART_TIMER_C
++        btst.b  #3, d0                // Is Counter Ready (bit 3) set?
++        beq     duart_check_rx        //    No, skip timer handling code
++
++// Call vector_5ms
++// As it will return with RTE, we must setup a proper stack frame
++        pea     duart_check_rx(pc)    // Return address
++        move.w  sr, -(sp)             // Status Register
++
++        .extern _vector_5ms
++        move.l  _vector_5ms, a0
++        jmp     (a0)                  // Call the 200 Hz system timer
++#endif
++duart_check_rx:
++        lea     DUART_BASE, a0
++#if CONF_DUART_TIMER_C
++        tst.b   0x1f(a0)     // Send stop counter to ack timer interrupt. Does not actually stop since in timer mode.
++#endif
++#if CONF_SERIAL_CONSOLE
++        move.b  11(a0), d0            // Get the ISR again
++        btst.b  #1, d0                // Is the Chan A Receive Ready (bit 1) set?
++        beq     duart_intr_done       //    No, skip serial handling code
++
++        jbsr    _duart_rs232_interrupt_handler
++#endif
++duart_intr_done:
++        move.l  (sp)+, a0
++        move.l  (sp)+, d0
++        rte
++
++#endif /* CONF_WITH_DUART */
++
++
++#endf /* WITH_CONF_DUART */
+ 
+ // ==== Critical error handler functions =====================================
+ 
+diff --git a/bios/vectors.h b/bios/vectors.h
+index 6cbe720e..7a3ebde2 100644
+--- a/bios/vectors.h
++++ b/bios/vectors.h
+@@ -40,6 +40,9 @@ void just_rte(void);
+ long check_read_byte(long);
+ #endif
+ 
++#if CONF_WITH_DUART
++void duart_interrupt(void);
++#endif
+ 
+ /* */
+ LONG default_etv_critic(WORD err,WORD dev);
+-- 
+2.25.1
+

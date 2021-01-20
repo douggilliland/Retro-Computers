@@ -1,0 +1,142 @@
+From d72c699f206afb1b7b83d9c0aed80539b2bf0f8d Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Vincent=20Rivi=C3=A8re?= <vincent.riviere@freesbee.fr>
+Date: Sun, 1 Dec 2019 23:56:26 +0100
+Subject: [PATCH] Fix Geneva compatibility
+
+This bug has been introduced in commit e1455dee.
+Thanks to Mia Jaap for having spotted this bug,
+and to Christian Zietz for the investigation.
+
+Without this, Geneva fails with:
+"Something is already hooked into exec_os"
+
+Solution is to move ui_mupb at the end of the ROM.
+---
+ Makefile      | 13 ++++++++++---
+ bios/bios.c   | 17 -----------------
+ bios/endrom.c | 37 +++++++++++++++++++++++++++++++++++++
+ 3 files changed, 47 insertions(+), 20 deletions(-)
+ create mode 100644 bios/endrom.c
+
+diff --git a/Makefile b/Makefile
+index bc95317a..fb3008df 100644
+--- a/Makefile
++++ b/Makefile
+@@ -270,6 +270,12 @@ desk_src = deskstart.S deskmain.c gembind.c deskact.c deskapp.c deskdir.c \
+ 
+ cli_src = cmdasm.S cmdmain.c cmdedit.c cmdexec.c cmdint.c cmdparse.c cmdutil.c
+ 
++#
++# source code to put at the end of the ROM
++#
++
++end_src = bios/endrom.c
++
+ #
+ # Makefile functions
+ #
+@@ -333,11 +339,12 @@ include country.mk
+ # everything should work fine below.
+ #
+ 
+-SRC = $(foreach d,$(dirs),$(addprefix $(d)/,$($(d)_src)))
++SRC = $(foreach d,$(dirs),$(addprefix $(d)/,$($(d)_src))) $(end_src)
+ 
+ CORE_OBJ = $(foreach d,$(core_dirs),$(patsubst %.c,obj/%.o,$(patsubst %.S,obj/%.o,$($(d)_src)))) $(FONTOBJ) obj/version.o
+ OPTIONAL_OBJ = $(foreach d,$(optional_dirs),$(patsubst %.c,obj/%.o,$(patsubst %.S,obj/%.o,$($(d)_src))))
+-OBJECTS = $(CORE_OBJ) $(OPTIONAL_OBJ)
++END_OBJ = $(patsubst %,obj/%.o,$(basename $(notdir $(end_src))))
++OBJECTS = $(CORE_OBJ) $(OPTIONAL_OBJ) $(END_OBJ)
+ 
+ #
+ # production targets
+@@ -409,7 +416,7 @@ obj/emutospp.ld: emutos.ld include/config.h tosvars.ld
+ TOCLEAN += *.img *.map
+ 
+ emutos.img: $(OBJECTS) obj/emutospp.ld Makefile
+-	$(LD) $(CORE_OBJ) $(LIBS) $(OPTIONAL_OBJ) $(LIBS) $(LDFLAGS) -Wl,-Map=emutos.map -o emutos.img
++	$(LD) $(CORE_OBJ) $(LIBS) $(OPTIONAL_OBJ) $(LIBS) $(END_OBJ) $(LDFLAGS) -Wl,-Map=emutos.map -o emutos.img
+ 	@if [ $$(($$(awk '/^\.data /{print $$3}' emutos.map))) -gt 0 ]; then \
+ 	  echo "### Warning: The DATA segment is not empty."; \
+ 	  echo "### Please examine emutos.map and use \"const\" where appropriate."; \
+diff --git a/bios/bios.c b/bios/bios.c
+index 22cae161..f127542e 100644
+--- a/bios/bios.c
++++ b/bios/bios.c
+@@ -64,9 +64,6 @@
+ #ifdef MACHINE_FIREBEE
+ #include "coldfire.h"
+ #endif
+-#if WITH_AES
+-#include "../aes/aesstub.h"
+-#endif
+ #if WITH_CLI
+ #include "../cli/clistub.h"
+ #endif
+@@ -1124,20 +1121,6 @@ const PFLONG bios_vecs[] = {
+ 
+ const UWORD bios_ent = ARRAY_SIZE(bios_vecs);
+ 
+-/* GEM memory usage parameters block */
+-const GEM_MUPB ui_mupb =
+-{
+-    GEM_MUPB_MAGIC, /* Magic value identifying this structure */
+-    _end_os_stram,  /* End of the static ST-RAM used by the OS */
+-#if WITH_AES
+-    ui_start        /* AES entry point */
+-#elif WITH_CLI
+-    coma_start      /* EmuCON entry point */
+-#else
+-#  error You must provide a main UI
+-#endif
+-};
+-
+ #if CONF_WITH_EXTENDED_MOUSE
+ 
+ /* Does this pointer belong to our TEXT segment? */
+diff --git a/bios/endrom.c b/bios/endrom.c
+new file mode 100644
+index 00000000..a1614036
+--- /dev/null
++++ b/bios/endrom.c
+@@ -0,0 +1,37 @@
++/*
++ * endrom.c - data to put at the end of the ROM
++ *
++ * Copyright (C) 2019 The EmuTOS development team
++ *
++ * This file is distributed under the GPL, version 2 or at your
++ * option any later version.  See doc/license.txt for details.
++ */
++
++/* #define ENABLE_KDEBUG */
++
++#include "emutos.h"
++#include "biosdefs.h"
++#include "bios.h"
++#if WITH_AES
++#include "../aes/aesstub.h"
++#endif
++#if WITH_CLI
++#include "../cli/clistub.h"
++#endif
++
++/* GEM memory usage parameters block.
++ * This *must* live after the exec_os contents for Geneva compatibility.
++ * In other words, the address of ui_mupb must be greater than the value
++ * of its third field. */
++const GEM_MUPB ui_mupb =
++{
++    GEM_MUPB_MAGIC, /* Magic value identifying this structure */
++    _end_os_stram,  /* End of the static ST-RAM used by the OS */
++#if WITH_AES
++    ui_start        /* AES entry point */
++#elif WITH_CLI
++    coma_start      /* EmuCON entry point */
++#else
++#  error You must provide a main UI
++#endif
++};
+-- 
+2.21.0
+

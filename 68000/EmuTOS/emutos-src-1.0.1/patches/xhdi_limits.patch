@@ -1,0 +1,137 @@
+From 751a49bf31d01db3b909fa65355c84e4dd936ff8 Mon Sep 17 00:00:00 2001
+From: Christian Zietz <czietz@gmx.net>
+Date: Sat, 23 Sep 2017 11:07:52 +0100
+Subject: [PATCH] Add support for XHDOSLimits - reading system limits via XHDI
+
+---
+ bios/xhdi.c | 83 ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++---
+ bios/xhdi.h | 15 +++++++++++
+ 2 files changed, 95 insertions(+), 3 deletions(-)
+
+diff --git a/bios/xhdi.c b/bios/xhdi.c
+index e9a7f35..edd1c06 100644
+--- a/bios/xhdi.c
++++ b/bios/xhdi.c
+@@ -248,13 +248,90 @@ static long XHMiNTInfo(UWORD opcode, void *data)
+ 
+ static long XHDOSLimits(UWORD which, ULONG limit)
+ {
+-   if (next_handler) {
+-        long ret = next_handler(XHDOSLIMITS, which, limit);
++    long ret;
++
++    if (next_handler) {
++        ret = next_handler(XHDOSLIMITS, which, limit);
+         if (ret != EINVFN && ret != EUNDEV && ret != EDRIVE)
+             return ret;
+     }
+ 
+-    return EINVFN;
++    /* Currently setting new limits is not supported */
++    if (limit == 0) {
++
++        switch (which) {
++            case XH_DL_SECSIZ:
++                /* Maximum sector size (BIOS level) */
++                ret = 16384;
++                break;
++
++            case XH_DL_MINFAT:
++            case XH_DL_MAXFAT:
++                /* Minimum number of FATs */
++                /* Maximal number of FATs */
++                ret = 2;
++                break;
++
++            case XH_DL_MINSPC:
++                /* Minimum sectors per cluster */
++                ret = 1;
++                break;
++
++            case XH_DL_MAXSPC:
++                /* Maximum sectors per cluster */
++                ret = 64;
++                break;
++
++            case XH_DL_CLUSTS:
++                /* Maximum number of clusters of a 16-bit FAT */
++                ret = MAX_FAT16_CLUSTERS;
++                break;
++
++            case XH_DL_MAXSEC:
++                /* Maximum number of sectors */
++                ret = 4194303L; /* i.e. size in bytes < LONG_MAX */
++                break;
++
++            case XH_DL_DRIVES:
++                /* Maximum number of BIOS drives supported by the DOS */
++                ret = BLKDEVNUM;
++                break;
++
++            case XH_DL_CLSIZB:
++                /* Maximum cluster size */
++                ret = 32768;
++                break;
++
++            case XH_DL_RDLEN:
++                /* Max. (bpb->rdlen * bpb->recsiz/32) */
++                ret = EINVFN; /* meaning of XH_DL_RDLEN is unclear */
++                break;
++
++            case XH_DL_CLUSTS12:
++                /* Max. number of clusters of a 12-bit FAT */
++                ret = MAX_FAT12_CLUSTERS;
++                break;
++
++            case XH_DL_CLUSTS32:
++                /* Max. number of clusters of a 32 bit FAT */
++                ret = EINVFN; /* No FAT32 support. */
++                break;
++
++            case XH_DL_BFLAGS:
++                /* Supported bits in bpb->bflags */
++                ret = 1; /* Bit 0 (16 bit fat) */
++                break;
++
++            default:
++                ret = EINVFN;
++                break;
++        }
++
++    } else { /* limit != 0 */
++        ret = EINVFN;
++    }
++
++    return ret;
+ }
+ 
+ static long XHLastAccess(UWORD major, UWORD minor, ULONG *ms)
+diff --git a/bios/xhdi.h b/bios/xhdi.h
+index 95d962c..9d55990 100644
+--- a/bios/xhdi.h
++++ b/bios/xhdi.h
+@@ -34,6 +34,21 @@
+ /* values in device_flags for XHInqTarget(), XHInqTarget2() */
+ #define XH_TARGET_REMOVABLE 0x02L
+ 
++/* values used for XHDOSLimits() */
++#define XH_DL_SECSIZ    0   /* maximal sector size (BIOS level) */
++#define XH_DL_MINFAT    1   /* minimal number of FATs */
++#define XH_DL_MAXFAT    2   /* maximal number of FATs */
++#define XH_DL_MINSPC    3   /* sectors per cluster minimal */
++#define XH_DL_MAXSPC    4   /* sectors per cluster maximal */
++#define XH_DL_CLUSTS    5   /* maximal number of clusters of a 16 bit FAT */
++#define XH_DL_MAXSEC    6   /* maximal number of sectors */
++#define XH_DL_DRIVES    7   /* maximal number of BIOS drives supported by the DOS */
++#define XH_DL_CLSIZB    8   /* maximal clustersize */
++#define XH_DL_RDLEN     9   /* max. (bpb->rdlen * bpb->recsiz / 32) */
++#define XH_DL_CLUSTS12  12  /* max. number of clusters of a 12 bit FAT */
++#define XH_DL_CLUSTS32  13  /* max. number of clusters of a 32 bit FAT */
++#define XH_DL_BFLAGS    14  /* supported bits in bpb->bflags */
++
+ /* Information for XHInqDriver() */
+ #define DRIVER_NAME                 "EmuTOS"
+ #define DRIVER_NAME_MAXLENGTH       17
+-- 
+2.8.2.windows.1
+

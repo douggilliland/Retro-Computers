@@ -1,0 +1,1322 @@
+#
+# Makefile - the EmuTOS overbloated Makefile
+#
+# Copyright (C) 2001-2020 The EmuTOS development team.
+#
+# This file is distributed under the GPL, version 2 or at your
+# option any later version.  See doc/license.txt for details.
+#
+
+# The Makefile is suitable for Linux and Cygwin setups.
+# only GCC (cross-mint) is supported. GNU-make *is* required.
+#
+# for a list of main targets do
+#   make help
+#
+# C code (C) and assembler (S) source go in directories bios/, bdos/, ...
+# To modify the list of source code files, update the variables xxx_src below.
+
+
+#
+# General settings
+#
+
+MAKEFLAGS = --no-print-directory
+
+#
+# EmuTOS version
+#
+
+include version.mk
+
+#
+# the country. should be a lowercase two-letter code as found in
+# the table in tools/mkheader.c and bios/country.c
+#
+
+COUNTRY = us
+
+#
+# Unique-country support: if UNIQUE is defined, then
+# EmuTOS will be built with only one country.
+#
+# example: make UNIQUE=fr 256
+#
+
+DEF =
+UNIQUE =
+ifneq (,$(UNIQUE))
+COUNTRY = $(UNIQUE)
+endif
+
+#
+# Choose the features that should be included into EmuTOS
+#
+
+# Include the AES and EmuDesk
+WITH_AES=1
+
+# Include EmuCON
+WITH_CLI=1
+
+#
+# crude machine detection (Unix or Cygwin)
+#
+
+ifneq (,$(findstring CYGWIN,$(shell uname)))
+# CYGWIN-dependent stuff
+CORE = *.stackdump
+DDOPTS = iflag=binary oflag=binary
+else
+# ordinary Unix stuff
+CORE = core
+DDOPTS =
+endif
+
+#
+# test for localconf.h
+#
+
+ifneq (,$(wildcard localconf.h))
+LOCALCONF = -DLOCALCONF
+else
+LOCALCONF =
+endif
+
+#
+# GEN_SRC will accumulate the all the generated source files.
+# Consequences for such files are:
+# - they are automatically built before generating makefile.dep
+# - they are automatically deleted on make clean
+#
+
+GEN_SRC =
+
+#
+# TOCLEAN will accumulate over the Makefile the names of files to remove
+# when doing make clean; temporary Makefile files are *.tmp
+#
+
+TOCLEAN = *~ */*~ $(CORE) *.tmp obj/*.h $(GEN_SRC)
+
+#
+# NODEP will accumulate the names of the targets which does not need to include
+# makefile.dep, to avoid rebuilding that file when not necessary.
+# This includes targets not using $(CC) and targets recursively invoking $(MAKE).
+#
+
+NODEP := %.c %.h %.pot
+
+#
+# compilation flags
+#
+
+# Override with 1 to use the ELF toolchain instead of the MiNT one
+ELF = 0
+
+ifeq (1,$(ELF))
+# Standard ELF toolchain
+TOOLCHAIN_PREFIX = m68k-elf-
+TOOLCHAIN_CFLAGS = -fleading-underscore -Wa,--register-prefix-optional -fno-reorder-functions -DELF_TOOLCHAIN
+else
+# MiNT toolchain
+TOOLCHAIN_PREFIX = m68k-atari-mint-
+TOOLCHAIN_CFLAGS =
+endif
+
+# indent flags
+INDENT = indent -kr
+
+# Linker with relocation information and binary output (image)
+LD = $(CC) $(MULTILIBFLAGS) -nostartfiles -nostdlib
+LIBS = -lgcc
+LDFLAGS = -Wl,-T,obj/emutospp.ld
+PCREL_LDFLAGS = -Wl,--oformat=binary,-Ttext=0,--entry=0
+
+# C compiler
+CC = $(TOOLCHAIN_PREFIX)gcc
+CPP = $(CC) -E
+CPUFLAGS = -m68000
+MULTILIBFLAGS = $(CPUFLAGS) -mshort
+INC = -Iinclude
+OTHERFLAGS = -fomit-frame-pointer -fno-common
+
+# Optimization flags (affects ROM size and execution speed)
+STANDARD_OPTFLAGS = -O2
+SMALL_OPTFLAGS = -Os
+BUILD_TOOLS_OPTFLAGS = -O
+OPTFLAGS = $(STANDARD_OPTFLAGS)
+
+WARNFLAGS =
+WARNFLAGS += -Wall
+WARNFLAGS += -Werror=undef
+WARNFLAGS += -Werror=missing-prototypes
+WARNFLAGS += -Werror=strict-prototypes
+WARNFLAGS += -Werror=implicit-function-declaration
+WARNFLAGS += -Werror=format
+WARNFLAGS += -Werror=redundant-decls
+WARNFLAGS += -Werror=format-extra-args
+#WARNFLAGS += -Wshadow
+#WARNFLAGS += -Werror
+
+GCCVERSION := $(shell $(CC) -dumpversion | cut -d. -f1)
+# add warning flags not supported by GCC v2
+ifneq (,$(GCCVERSION))
+ifneq (2,$(GCCVERSION))
+WARNFLAGS += -Werror=old-style-definition
+WARNFLAGS += -Werror=type-limits
+endif
+endif
+
+DEFINES = $(LOCALCONF) -DWITH_AES=$(WITH_AES) -DWITH_CLI=$(WITH_CLI) $(DEF)
+CFLAGS = $(MULTILIBFLAGS) $(TOOLCHAIN_CFLAGS) $(OPTFLAGS) $(OTHERFLAGS) $(WARNFLAGS) $(INC) $(DEFINES)
+
+CPPFLAGS = $(CFLAGS)
+
+# The objdump utility (disassembler)
+OBJDUMP = $(TOOLCHAIN_PREFIX)objdump
+
+# The objcopy utility
+OBJCOPY = $(TOOLCHAIN_PREFIX)objcopy
+
+# the native C compiler, for tools
+NATIVECC = gcc -ansi -pedantic $(WARNFLAGS) -W $(BUILD_TOOLS_OPTFLAGS)
+
+#
+# source code in bios/
+#
+
+# The source below must be the first to be linked
+bios_src = startup.S
+
+# These sources will be placed in ST-RAM by the linked script
+bios_src += lowstram.c
+
+# Other BIOS sources can be put in any order
+bios_src +=  memory.S processor.S vectors.S aciavecs.S bios.c xbios.c acsi.c \
+             biosmem.c blkdev.c chardev.c clock.c conout.c country.c \
+             disk.c dma.c dmasound.c floppy.c font.c ide.c ikbd.c initinfo.c \
+             kprint.c kprintasm.S linea.S lineainit.c lineavars.S machine.c \
+             mfp.c midi.c mouse.c natfeat.S natfeats.c nvram.c panicasm.S \
+             parport.c screen.c serport.c sound.c videl.c vt52.c xhdi.c \
+             pmmu030.c 68040_pmmu.S \
+             amiga.c amiga2.S spi_vamp.c \
+             delay.c delayasm.S sd.c memory2.c bootparams.c scsi.c nova.c
+
+ifeq (1,$(COLDFIRE))
+  bios_src += coldfire.c coldfire2.S spi_cf.c
+endif
+
+#
+# source code in bdos/
+#
+
+bdos_src = bdosmain.c console.c fsbuf.c fsdir.c fsdrive.c fsfat.c fsglob.c \
+           fshand.c fsio.c fsmain.c fsopnclo.c iumem.c kpgmld.c osmem.c \
+           proc.c rwa.S time.c umem.c
+
+#
+# source code in util/
+#
+
+util_src = cookie.c doprintf.c intmath.c langs.c memmove.S memset.S miscasm.S \
+           nls.c nlsasm.S setjmp.S string.c
+
+# The functions in the following modules are used by the AES and EmuDesk
+ifeq ($(WITH_AES),1)
+util_src += gemdos.c optimize.c optimopt.S rectfunc.c stringasm.S
+endif
+
+#
+# source code in vdi/
+#
+
+vdi_src = vdi_asm.S vdi_bezier.c vdi_col.c vdi_control.c vdi_esc.c \
+          vdi_fill.c vdi_gdp.c vdi_input.c vdi_line.c vdi_main.c \
+          vdi_marker.c vdi_misc.c vdi_mouse.c vdi_raster.c vdi_text.c \
+          vdi_textblit.c
+
+ifeq (1,$(COLDFIRE))
+vdi_src += vdi_tblit_cf.S
+else
+vdi_src += vdi_blit.S vdi_tblit.S
+endif
+
+# The source below must be the last VDI one
+vdi_src += endvdi.S
+
+#
+# source code in aes/
+#
+
+aes_src = gemasm.S gemstart.S gemdosif.S gemaplib.c gemasync.c gemctrl.c \
+          gemdisp.c gemevlib.c gemflag.c gemfmalt.c gemfmlib.c \
+          gemfslib.c gemgraf.c gemgrlib.c gemgsxif.c geminit.c geminput.c \
+          gemmnlib.c gemobed.c gemobjop.c gemoblib.c gempd.c gemqueue.c \
+          gemrslib.c gemsclib.c gemshlib.c gemsuper.c gemwmlib.c gemwrect.c \
+          gsx2.c gem_rsc.c mforms.c
+
+#
+# source code in desk/
+#
+
+desk_src = deskstart.S deskmain.c gembind.c deskact.c deskapp.c deskdir.c \
+           deskfpd.c deskfun.c deskglob.c deskinf.c deskins.c deskobj.c \
+           deskpro.c deskrez.c deskrsrc.c desksupp.c deskwin.c \
+           desk_rsc.c icons.c
+
+#
+# source code in cli/ for EmuTOS console EmuCON
+#
+
+cli_src = cmdasm.S cmdmain.c cmdedit.c cmdexec.c cmdint.c cmdparse.c cmdutil.c
+
+#
+# source code to put at the end of the ROM
+#
+
+end_src = bios/endrom.c
+
+#
+# Makefile functions
+#
+
+# Shell command to get the address of a symbol
+FUNCTION_SHELL_GET_SYMBOL_ADDRESS = printf 0x%08x $$(awk '/^ *0x[^ ]* *$(1)( |$$)/{print $$1}' $(2))
+
+# Function to get the address of a symbol into a Makefile variable
+# $(1) = symbol name
+# $(2) = map file name
+MAKE_SYMADDR = $(shell $(call FUNCTION_SHELL_GET_SYMBOL_ADDRESS,$(1),$(2)))
+
+# Function to get the address of a symbol into a shell variable
+# This is useful to make an action in the first line of a recipe,
+# then to get the result on the second line.
+# Makefile variables in recipe can't be used for that, because they are
+# evaluated before executing all recipe lines (but after building prerequisites)
+# $(1) = symbol name
+# $(2) = map file name
+SHELL_SYMADDR = $$($(call FUNCTION_SHELL_GET_SYMBOL_ADDRESS,$(1),$(2)))
+
+# The following reference values have been gathered from major TOS versions
+MEMBOT_TOS100 = 0x0000a100
+MEMBOT_TOS102 = 0x0000ca00
+MEMBOT_TOS104 = 0x0000a84e
+MEMBOT_TOS162 = 0x0000a892
+MEMBOT_TOS206 = 0x0000ccb2
+MEMBOT_TOS306 = 0x0000e6fc
+MEMBOT_TOS404 = 0x0000f99c
+
+#
+# Directory selection depending on the features
+#
+
+# Core directories are essential for basic OS operation
+core_dirs = bios bdos util
+
+# Optional directories may be disabled for reduced features
+optional_dirs = vdi
+
+ifeq ($(WITH_AES),1)
+ optional_dirs += aes desk
+endif
+
+ifeq ($(WITH_CLI),1)
+ optional_dirs += cli
+endif
+
+dirs = $(core_dirs) $(optional_dirs)
+
+vpath %.c $(dirs)
+vpath %.S $(dirs)
+
+#
+# country-specific settings
+#
+
+include country.mk
+
+#
+# everything should work fine below.
+#
+
+SRC = $(foreach d,$(dirs),$(addprefix $(d)/,$($(d)_src))) $(end_src)
+
+CORE_OBJ = $(foreach d,$(core_dirs),$(patsubst %.c,obj/%.o,$(patsubst %.S,obj/%.o,$($(d)_src)))) $(FONTOBJ) obj/version.o
+OPTIONAL_OBJ = $(foreach d,$(optional_dirs),$(patsubst %.c,obj/%.o,$(patsubst %.S,obj/%.o,$($(d)_src))))
+END_OBJ = $(patsubst %,obj/%.o,$(basename $(notdir $(end_src))))
+OBJECTS = $(CORE_OBJ) $(OPTIONAL_OBJ) $(END_OBJ)
+
+#
+# production targets
+#
+
+.PHONY: all
+NODEP += all
+all:	help
+
+.PHONY: help
+NODEP += help
+help: UNIQUE = $(COUNTRY)
+help:
+	@echo "target  meaning"
+	@echo "------  -------"
+	@echo "help    this help message"
+	@echo "version display the EmuTOS version"
+	@echo "192     $(ROM_192), EmuTOS ROM padded to size 192 KB"
+	@echo "256     $(ROM_256), EmuTOS ROM padded to size 256 KB"
+	@echo "512     $(ROM_512), EmuTOS ROM padded to size 512 KB"
+	@echo "aranym  $(ROM_ARANYM), suitable for ARAnyM"
+	@echo "firebee $(SREC_FIREBEE), to be flashed on the FireBee"
+	@echo "firebee-prg emutos.prg, a RAM tos for the FireBee"
+	@echo "amiga   $(ROM_AMIGA), EmuTOS ROM for Amiga hardware"
+	@echo "amigavampire $(VAMPIRE_ROM_AMIGA), EmuTOS ROM for Amiga optimized for Vampire V2"
+	@echo "v4sa    $(V4_ROM_AMIGA), EmuTOS ROM for Amiga Vampire V4 Standalone"
+	@echo "amigakd $(AMIGA_KICKDISK), EmuTOS as Amiga 1000 Kickstart disk"
+	@echo "amigaflop $(EMUTOS_ADF), EmuTOS RAM as Amiga boot floppy"
+	@echo "amigaflopvampire $(EMUTOS_VAMPIRE_ADF), EmuTOS RAM as Amiga boot floppy optimized for Vampire V2"
+	@echo "m548x-dbug $(SREC_M548X_DBUG), EmuTOS-RAM for dBUG on ColdFire Evaluation Boards"
+	@echo "m548x-bas  $(SREC_M548X_BAS), EmuTOS for BaS_gcc on ColdFire Evaluation Boards"
+	@echo "m548x-prg  emutos.prg, a RAM tos for ColdFire Evaluation Boards with BaS_gcc"
+	@echo "prg     emutos.prg, a RAM tos"
+	@echo "flop    $(EMUTOS_ST), a bootable floppy with RAM tos"
+	@echo "pak3    $(ROM_PAK3), suitable for PAK/3 systems"
+	@echo "all192  all 192 KB images"
+	@echo "all256  all 256 KB images"
+	@echo "allpak3 all PAK/3 images"
+	@echo "allprg  all emutos*.prg"
+	@echo "allflop all emutos*.st"
+	@echo "cart    $(ROM_CARTRIDGE), EmuTOS as a diagnostic cartridge"
+	@echo "clean"
+	@echo "expand  expand tabs to spaces"
+	@echo "crlf    convert all end of lines to LF"
+	@echo "charset check the charset of all the source files"
+	@echo "bugready set up files in preparation for 'bug update'"
+	@echo "gitready same as $(MAKE) expand crlf"
+	@echo "dsm     dsm.txt, an edited disassembly of emutos.img"
+	@echo "release build the release archives into $(RELEASE_DIR)"
+
+# Display the EmuTOS version
+.PHONY: version
+NODEP += version
+version:
+	@echo '$(VERSION)'
+
+#
+# Preprocess the linker script, to allow #include, #define, #if, etc.
+#
+
+TOCLEAN += obj/*.ld
+
+obj/emutospp.ld: emutos.ld include/config.h tosvars.ld
+	$(CPP) $(CPPFLAGS) -P -x c $< -o $@
+
+#
+# the maps must be built at the same time as the images, to enable
+# one generic target to deal with all edited disassembly.
+#
+
+TOCLEAN += *.img *.map
+
+emutos.img: $(OBJECTS) obj/emutospp.ld Makefile
+	$(LD) $(CORE_OBJ) $(LIBS) $(OPTIONAL_OBJ) $(LIBS) $(END_OBJ) $(LDFLAGS) -Wl,-Map=emutos.map -o emutos.img
+	@if [ $$(($$(awk '/^\.data /{print $$3}' emutos.map))) -gt 0 ]; then \
+	  echo "### Warning: The DATA segment is not empty."; \
+	  echo "### Please examine emutos.map and use \"const\" where appropriate."; \
+	fi
+	@echo "# TEXT=$(call SHELL_SYMADDR,__text,emutos.map)"\
+" STKBOT=$(call SHELL_SYMADDR,_stkbot,emutos.map)"\
+" LOWSTRAM=$(call SHELL_SYMADDR,__low_stram_start,emutos.map)"\
+" BSS=$(call SHELL_SYMADDR,__bss,emutos.map)"\
+" MEMBOT=$(call SHELL_SYMADDR,__end_os_stram,emutos.map)"
+
+#
+# 128kB Image
+#
+
+ROM_128 = etos128k.img
+
+$(ROM_128): ROMSIZE = 128
+$(ROM_128): emutos.img mkrom
+	./mkrom pad $(ROMSIZE)k $< $(ROM_128)
+
+#
+# 192kB Image
+#
+
+ROM_192 = etos192$(UNIQUE).img
+
+.PHONY: 192
+NODEP += 192
+192: UNIQUE = $(COUNTRY)
+192: OPTFLAGS = $(SMALL_OPTFLAGS)
+192: override DEF += -DTARGET_192
+192: WITH_CLI = 0
+192:
+	$(MAKE) DEF='$(DEF)' OPTFLAGS='$(OPTFLAGS)' WITH_CLI=$(WITH_CLI) UNIQUE=$(UNIQUE) ROM_192=$(ROM_192) $(ROM_192)
+	@MEMBOT=$(call SHELL_SYMADDR,__end_os_stram,emutos.map);\
+	echo "# RAM used: $$(($$MEMBOT)) bytes ($$(($$MEMBOT - $(MEMBOT_TOS104))) bytes more than TOS 1.04)"
+
+$(ROM_192): ROMSIZE = 192
+$(ROM_192): emutos.img mkrom
+	./mkrom pad $(ROMSIZE)k $< $(ROM_192)
+
+#
+# 256kB Image
+#
+
+ROM_256 = etos256$(UNIQUE).img
+
+.PHONY: 256
+NODEP += 256
+256: UNIQUE = $(COUNTRY)
+256: OPTFLAGS = $(SMALL_OPTFLAGS)
+256: override DEF += -DTARGET_256
+256:
+	$(MAKE) DEF='$(DEF)' OPTFLAGS='$(OPTFLAGS)' UNIQUE=$(UNIQUE) ROM_256=$(ROM_256) $(ROM_256)
+	@MEMBOT=$(call SHELL_SYMADDR,__end_os_stram,emutos.map);\
+	echo "# RAM used: $$(($$MEMBOT)) bytes ($$(($$MEMBOT - $(MEMBOT_TOS206))) bytes more than TOS 2.06)"
+
+$(ROM_256): ROMSIZE = 256
+$(ROM_256): emutos.img mkrom
+	./mkrom pad $(ROMSIZE)k $< $(ROM_256)
+
+#
+# 512kB Image (for Falcon)
+#
+
+ROM_512 = etos512k.img
+SYMFILE = $(addsuffix .sym,$(basename $(ROM_512)))
+
+.PHONY: 512
+512: override DEF += -DTARGET_512
+512: $(ROM_512) $(SYMFILE)
+	@MEMBOT=$(call SHELL_SYMADDR,__end_os_stram,emutos.map);\
+	echo "# RAM used: $$(($$MEMBOT)) bytes ($$(($$MEMBOT - $(MEMBOT_TOS404))) bytes more than TOS 4.04)"
+
+$(ROM_512): ROMSIZE = 512
+$(ROM_512): emutos.img mkrom
+	./mkrom pad $(ROMSIZE)k $< $(ROM_512)
+
+.PHONY: falcon
+falcon: help
+
+#
+# 512kB PAK/3 Image (based on 256kB Image)
+#
+
+ROM_PAK3 = etospak3$(UNIQUE).img
+
+.PHONY: pak3
+NODEP += pak3
+pak3: UNIQUE = $(COUNTRY)
+pak3: OPTFLAGS = $(SMALL_OPTFLAGS)
+pak3: override DEF += -DTARGET_256
+pak3:
+	$(MAKE) DEF='$(DEF)' OPTFLAGS='$(OPTFLAGS)' UNIQUE=$(UNIQUE) ROM_PAK3=$(ROM_PAK3) $(ROM_PAK3)
+	@MEMBOT=$(call SHELL_SYMADDR,__end_os_stram,emutos.map);\
+	echo "# RAM used: $$(($$MEMBOT)) bytes ($$(($$MEMBOT - $(MEMBOT_TOS206))) bytes more than TOS 2.06)"
+
+$(ROM_PAK3): ROMSIZE = 256
+$(ROM_PAK3): emutos.img mkrom
+	./mkrom pak3 $< $(ROM_PAK3)
+
+#
+# ARAnyM Image
+#
+
+ROM_ARANYM = emutos-aranym.img
+
+.PHONY: aranym
+NODEP += aranym
+aranym: override DEF += -DMACHINE_ARANYM
+aranym: CPUFLAGS = -m68040
+aranym:
+	@echo "# Building ARAnyM EmuTOS into $(ROM_ARANYM)"
+	$(MAKE) CPUFLAGS='$(CPUFLAGS)' DEF='$(DEF)' ROM_512=$(ROM_ARANYM) $(ROM_ARANYM)
+	@MEMBOT=$(call SHELL_SYMADDR,__end_os_stram,emutos.map);\
+	echo "# RAM used: $$(($$MEMBOT)) bytes ($$(($$MEMBOT - $(MEMBOT_TOS404))) bytes more than TOS 4.04)"
+
+#
+# Diagnostic Cartridge Image
+#
+
+TOCLEAN += *.stc
+ROM_CARTRIDGE = etoscart.img
+
+.PHONY: cart
+NODEP += cart
+cart: OPTFLAGS = $(SMALL_OPTFLAGS)
+cart: override DEF += -DTARGET_CART
+cart: WITH_AES = 0
+cart:
+	@echo "# Building Diagnostic Cartridge EmuTOS into $(ROM_CARTRIDGE)"
+	$(MAKE) OPTFLAGS='$(OPTFLAGS)' DEF='$(DEF)' UNIQUE=$(COUNTRY) WITH_AES=$(WITH_AES) ROM_128=$(ROM_CARTRIDGE) $(ROM_CARTRIDGE)
+	./mkrom stc emutos.img emutos.stc
+	@MEMBOT=$(call SHELL_SYMADDR,__end_os_stram,emutos.map);\
+	echo "# RAM used: $$(($$MEMBOT)) bytes ($$(($$MEMBOT - $(MEMBOT_TOS104))) bytes more than TOS 1.04)"
+
+#
+# Amiga Image
+#
+
+TOCLEAN += *.rom
+
+ROM_AMIGA = emutos-amiga.rom
+AMIGA_DEFS =
+
+.PHONY: amiga
+NODEP += amiga
+amiga: UNIQUE = $(COUNTRY)
+amiga: OPTFLAGS = $(SMALL_OPTFLAGS)
+amiga: override DEF += -DTARGET_AMIGA_ROM $(AMIGA_DEFS)
+amiga:
+	@echo "# Building Amiga EmuTOS into $(ROM_AMIGA)"
+	$(MAKE) CPUFLAGS='$(CPUFLAGS)' DEF='$(DEF)' OPTFLAGS='$(OPTFLAGS)' UNIQUE=$(UNIQUE) ROM_AMIGA=$(ROM_AMIGA) $(ROM_AMIGA)
+	@MEMBOT=$(call SHELL_SYMADDR,__end_os_stram,emutos.map);\
+	echo "# RAM used: $$(($$MEMBOT)) bytes ($$(($$MEMBOT - $(MEMBOT_TOS206))) bytes more than TOS 2.06)"
+
+$(ROM_AMIGA): emutos.img mkrom
+	./mkrom amiga $< $(ROM_AMIGA)
+
+# Special Amiga ROM optimized for Vampire V2
+
+VAMPIRE_CPUFLAGS = -m68040
+VAMPIRE_COMMON_DEF = -DCONF_WITH_VAMPIRE_SPI=1 -DCONF_WITH_SDMMC=1
+VAMPIRE_DEF = -DSTATIC_ALT_RAM_ADDRESS=0x08000000 -DSTATIC_ALT_RAM_SIZE=126UL*1024*1024
+VAMPIRE_ROM_AMIGA = emutos-vampire.rom
+
+.PHONY: amigavampire
+NODEP += amigavampire
+amigavampire: CPUFLAGS = $(VAMPIRE_CPUFLAGS)
+amigavampire: override DEF += $(VAMPIRE_COMMON_DEF) $(VAMPIRE_DEF)
+amigavampire: ROM_AMIGA = $(VAMPIRE_ROM_AMIGA)
+amigavampire: amiga
+
+# Special Amiga ROM optimized for Vampire V4 Standalone
+V4_DEF = -DSTATIC_ALT_RAM_ADDRESS=0x01000000 -DSTATIC_ALT_RAM_SIZE=496UL*1024*1024
+V4_ROM_AMIGA = emutos-vampire-v4sa.rom
+
+.PHONY: v4sa
+NODEP += v4sa
+v4sa: CPUFLAGS = $(VAMPIRE_CPUFLAGS)
+v4sa: override DEF += $(VAMPIRE_COMMON_DEF) $(V4_DEF)
+v4sa: ROM_AMIGA = $(V4_ROM_AMIGA)
+v4sa: amiga
+
+#
+# Amiga Kickstart disk image for Amiga 1000
+#
+
+TOCLEAN += *.adf
+
+AMIGA_KICKDISK = emutos-kickdisk.adf
+
+.PHONY: amigakd
+NODEP += amigakd
+amigakd: amiga
+	./mkrom amiga-kickdisk $(ROM_AMIGA) $(AMIGA_KICKDISK)
+
+#
+# ColdFire images
+#
+
+TOCLEAN += *.s19
+SRECFILE = emutos.s19
+LMA = $(error LMA must be set)
+
+$(SRECFILE): emutos.img
+	$(OBJCOPY) -I binary -O srec --change-addresses $(LMA) $< $(SRECFILE)
+
+CPUFLAGS_FIREBEE = -mcpu=5474
+SREC_FIREBEE = emutosfb.s19
+
+.PHONY: firebee
+NODEP += firebee
+firebee: override DEF += -DMACHINE_FIREBEE
+firebee: CPUFLAGS = $(CPUFLAGS_FIREBEE)
+firebee:
+	@echo "# Building FireBee EmuTOS into $(SREC_FIREBEE)"
+	$(MAKE) COLDFIRE=1 CPUFLAGS='$(CPUFLAGS)' DEF='$(DEF)' LMA=0xe0600000 SRECFILE=$(SREC_FIREBEE) $(SREC_FIREBEE)
+	@MEMBOT=$(call SHELL_SYMADDR,__end_os_stram,emutos.map);\
+	echo "# RAM used: $$(($$MEMBOT)) bytes ($$(($$MEMBOT - $(MEMBOT_TOS404))) bytes more than TOS 4.04)"
+
+.PHONY: firebee-prg
+NODEP += firebee-prg
+firebee-prg: OPTFLAGS = $(STANDARD_OPTFLAGS)
+firebee-prg: override DEF += -DMACHINE_FIREBEE
+firebee-prg: CPUFLAGS = $(CPUFLAGS_FIREBEE)
+firebee-prg:
+	@echo "# Building FireBee $(EMUTOS_PRG)"
+	$(MAKE) COLDFIRE=1 CPUFLAGS='$(CPUFLAGS)' DEF='$(DEF)' OPTFLAGS='$(OPTFLAGS)' prg
+
+CPUFLAGS_M548X = -mcpu=5475
+
+.PHONY: m548x-prg
+NODEP += m548x-prg
+m548x-prg: OPTFLAGS = $(STANDARD_OPTFLAGS)
+m548x-prg: override DEF += -DMACHINE_M548X -DCONF_WITH_BAS_MEMORY_MAP=1
+m548x-prg: CPUFLAGS = $(CPUFLAGS_M548X)
+m548x-prg:
+	@echo "# Building m548x $(EMUTOS_PRG)"
+	$(MAKE) COLDFIRE=1 CPUFLAGS='$(CPUFLAGS)' DEF='$(DEF)' OPTFLAGS='$(OPTFLAGS)' prg
+
+SREC_M548X_DBUG = emutos-m548x-dbug.s19
+.PHONY: m548x-dbug
+NODEP += m548x-dbug
+m548x-dbug: UNIQUE = $(COUNTRY)
+m548x-dbug: override DEF += -DMACHINE_M548X
+m548x-dbug: CPUFLAGS = $(CPUFLAGS_M548X)
+m548x-dbug:
+	@echo "# Building M548x dBUG EmuTOS in $(SREC_M548X_DBUG)"
+	$(MAKE) COLDFIRE=1 CPUFLAGS='$(CPUFLAGS)' DEF='$(DEF)' UNIQUE=$(UNIQUE) LMA=0x00e00000 SRECFILE=$(SREC_M548X_DBUG) $(SREC_M548X_DBUG)
+	@MEMBOT=$(call SHELL_SYMADDR,__end_os_stram,emutos.map);\
+	echo "# RAM used: $$(($$MEMBOT)) bytes ($$(($$MEMBOT - $(MEMBOT_TOS404))) bytes more than TOS 4.04)"
+
+SREC_M548X_BAS = emutos-m548x-bas.s19
+.PHONY: m548x-bas
+NODEP += m548x-bas
+m548x-bas: UNIQUE = $(COUNTRY)
+m548x-bas: override DEF += -DMACHINE_M548X -DCONF_WITH_BAS_MEMORY_MAP=1
+m548x-bas: CPUFLAGS = $(CPUFLAGS_M548X)
+m548x-bas:
+	@echo "# Building M548x BaS_gcc EmuTOS in $(SREC_M548X_BAS)"
+	$(MAKE) COLDFIRE=1 CPUFLAGS='$(CPUFLAGS)' DEF='$(DEF)' UNIQUE=$(UNIQUE) LMA=0xe0100000 SRECFILE=$(SREC_M548X_BAS) $(SREC_M548X_BAS)
+	@MEMBOT=$(call SHELL_SYMADDR,__end_os_stram,emutos.map);\
+	echo "# RAM used: $$(($$MEMBOT)) bytes ($$(($$MEMBOT - $(MEMBOT_TOS404))) bytes more than TOS 4.04)"
+
+#
+# Special variants of EmuTOS running in RAM instead of ROM.
+# In this case, emutos.img needs to be loaded into RAM by some loader.
+#
+
+obj/ramtos.h: emutos.img
+	@echo '# Generating $@'
+	@printf \
+'/* Generated from emutos.map */\n'\
+'#define ADR_TEXT $(call MAKE_SYMADDR,__text,emutos.map)\n'\
+'#define ADR_ALTRAM_REGIONS $(call MAKE_SYMADDR,_altram_regions,emutos.map)\n'\
+>$@
+
+#
+# emutos.prg
+#
+
+EMUTOS_PRG = emutos$(UNIQUE).prg
+TOCLEAN += emutos*.prg
+
+.PHONY: prg
+prg: $(EMUTOS_PRG)
+	@MEMBOT=$(call SHELL_SYMADDR,__end_os_stram,emutos.map);\
+	echo "# RAM used: $$(($$MEMBOT)) bytes"
+
+obj/boot.o: obj/ramtos.h
+# incbin dependencies are not automatically detected
+obj/ramtos.o: emutos.img
+
+$(EMUTOS_PRG): override DEF += -DTARGET_PRG
+$(EMUTOS_PRG): OPTFLAGS = $(SMALL_OPTFLAGS)
+$(EMUTOS_PRG): obj/minicrt.o obj/boot.o obj/bootram.o obj/ramtos.o
+	$(LD) $+ -lgcc -o $@ -s
+
+#
+# flop
+#
+
+EMUTOS_ST = emutos$(UNIQUE).st
+TOCLEAN += emutos*.st mkflop
+
+.PHONY: flop
+NODEP += flop
+flop: UNIQUE = $(COUNTRY)
+flop:
+	$(MAKE) UNIQUE=$(UNIQUE) $(EMUTOS_ST)
+	@MEMBOT=$(call SHELL_SYMADDR,__end_os_stram,emutos.map);\
+	echo "# RAM used: $$(($$MEMBOT)) bytes"
+
+$(EMUTOS_ST): override DEF += -DTARGET_FLOPPY
+$(EMUTOS_ST): OPTFLAGS = $(SMALL_OPTFLAGS)
+$(EMUTOS_ST): mkflop bootsect.img emutos.img
+	./mkflop bootsect.img emutos.img $@
+
+bootsect.img : obj/bootsect.o obj/bootram.o
+	$(LD) $+ $(PCREL_LDFLAGS) -o $@
+
+obj/bootsect.o: obj/ramtos.h
+
+NODEP += mkflop
+mkflop : tools/mkflop.c
+	$(NATIVECC) $< -o $@
+
+#
+# amigaflop
+#
+
+EMUTOS_ADF = emutos.adf
+
+.PHONY: amigaflop
+NODEP += amigaflop
+amigaflop: UNIQUE = $(COUNTRY)
+amigaflop: OPTFLAGS = $(SMALL_OPTFLAGS)
+amigaflop: override DEF += -DTARGET_AMIGA_FLOPPY $(AMIGA_DEFS)
+amigaflop:
+	$(MAKE) CPUFLAGS='$(CPUFLAGS)' DEF='$(DEF)' OPTFLAGS='$(OPTFLAGS)' UNIQUE=$(UNIQUE) EMUTOS_ADF=$(EMUTOS_ADF) $(EMUTOS_ADF)
+	@MEMBOT=$(call SHELL_SYMADDR,__end_os_stram,emutos.map);\
+	echo "# RAM used: $$(($$MEMBOT)) bytes"
+
+EMUTOS_VAMPIRE_ADF = emutos-vampire.adf
+
+.PHONY: amigaflopvampire
+NODEP += amigaflopvampire
+amigaflopvampire: override DEF += $(VAMPIRE_COMMON_DEF) -DSTATIC_ALT_RAM_ADDRESS=0x08000000 $(AMIGA_DEFS)
+amigaflopvampire: CPUFLAGS = $(VAMPIRE_CPUFLAGS)
+amigaflopvampire: EMUTOS_ADF = $(EMUTOS_VAMPIRE_ADF)
+amigaflopvampire: amigaflop
+
+# Convenient target to test amigaflopvampire on WinUAE
+.PHONY: amigaflopwinuae
+NODEP += amigaflopwinuae
+amigaflopwinuae: override DEF += -DSTATIC_ALT_RAM_ADDRESS=0x40000000 $(AMIGA_DEFS)
+amigaflopwinuae: CPUFLAGS = $(VAMPIRE_CPUFLAGS)
+amigaflopwinuae: amigaflop
+
+$(EMUTOS_ADF): amigaboot.img emutos.img mkrom
+	./mkrom amiga-floppy amigaboot.img emutos.img $@
+
+amigaboot.img: obj/amigaboot.o obj/bootram.o
+	$(LD) $+ $(PCREL_LDFLAGS) -o $@
+
+obj/amigaboot.o: obj/ramtos.h
+
+#
+# NLS support
+#
+
+POFILES = $(wildcard po/*.po)
+
+GEN_SRC += util/langs.c
+TOCLEAN += bug po/messages.pot
+
+NODEP += bug
+bug: tools/bug.c
+	$(NATIVECC) $< -o $@
+
+util/langs.c: $(POFILES) po/LINGUAS bug po/messages.pot
+	./bug make
+
+po/messages.pot: bug po/POTFILES.in $(shell grep -v '^#' po/POTFILES.in)
+	./bug xgettext
+
+#
+# Resource support
+#
+
+TOCLEAN += erd grd ird mrd draft temp.rsc temp.def
+
+NODEP += erd grd ird mrd draft
+erd: tools/erd.c
+	$(NATIVECC) $< -o $@
+grd: tools/erd.c
+	$(NATIVECC) -DGEM_RSC $< -o grd
+ird: tools/erd.c
+	$(NATIVECC) -DICON_RSC $< -o ird
+mrd: tools/erd.c
+	$(NATIVECC) -DMFORM_RSC $< -o mrd
+draft: tools/draft.c tools/draftexc.c
+	$(NATIVECC) $(DEFINES) $^ -o $@
+
+DESKRSC_BASE = desk/desktop
+DESKRSCGEN_BASE = desk/desk_rsc
+GEMRSC_BASE = aes/gem
+GEMRSCGEN_BASE = aes/gem_rsc
+ICONRSC_BASE = desk/icon
+ICONRSCGEN_BASE = desk/icons
+MFORMRSC_BASE = aes/mform
+MFORMRSCGEN_BASE = aes/mforms
+GEN_SRC += $(DESKRSCGEN_BASE).c $(DESKRSCGEN_BASE).h $(GEMRSCGEN_BASE).c $(GEMRSCGEN_BASE).h
+GEN_SRC += $(ICONRSCGEN_BASE).c $(ICONRSCGEN_BASE).h $(MFORMRSCGEN_BASE).c $(MFORMRSCGEN_BASE).h
+
+$(DESKRSCGEN_BASE).c $(DESKRSCGEN_BASE).h: draft erd $(DESKRSC_BASE).rsc $(DESKRSC_BASE).def
+	./draft $(DESKRSC_BASE) temp
+	./erd -pdesk temp $(DESKRSCGEN_BASE)
+$(GEMRSCGEN_BASE).c $(GEMRSCGEN_BASE).h: grd $(GEMRSC_BASE).rsc $(GEMRSC_BASE).def
+	./grd $(GEMRSC_BASE) $(GEMRSCGEN_BASE)
+$(ICONRSCGEN_BASE).c $(ICONRSCGEN_BASE).h: ird $(ICONRSC_BASE).rsc $(ICONRSC_BASE).def
+	./ird -picon $(ICONRSC_BASE) $(ICONRSCGEN_BASE)
+$(MFORMRSCGEN_BASE).c $(MFORMRSCGEN_BASE).h: mrd $(MFORMRSC_BASE).rsc $(MFORMRSC_BASE).def
+	./mrd -pmform $(MFORMRSC_BASE) $(MFORMRSCGEN_BASE)
+
+#
+# Special ROM support
+#
+
+TOCLEAN += mkrom
+
+NODEP += mkrom
+mkrom: tools/mkrom.c
+	$(NATIVECC) $< -o $@
+
+# test target to build all tools
+.PHONY: tools
+NODEP += tools
+tools: bug draft erd mkflop mkrom tos-lang-change
+
+# user tool, not needed in EmuTOS building
+TOCLEAN += tos-lang-change
+NODEP += tos-lang-change
+tos-lang-change: tools/tos-lang-change.c
+	$(NATIVECC) $< -o $@
+
+# The sleep command in targets below ensure that all the generated sources
+# will have a timestamp older than any object file.
+# This matters on filesystems having low timestamp resolution (ext2, ext3).
+
+.PHONY: allpak3
+NODEP += allpak3
+allpak3:
+	@for i in $(COUNTRIES); \
+	do \
+	  echo; \
+	  echo "sleep 1"; \
+	  sleep 1; \
+	  $(MAKE) pak3 UNIQUE=$$i || exit 1; \
+	done
+
+.PHONY: all256
+NODEP += all256
+all256:
+	@for i in $(COUNTRIES); \
+	do \
+	  echo; \
+	  echo "sleep 1"; \
+	  sleep 1; \
+	  $(MAKE) 256 UNIQUE=$$i || exit 1; \
+	done
+
+.PHONY: all192
+NODEP += all192
+all192:
+	@for i in $(COUNTRIES); \
+	do \
+	  echo; \
+	  echo "sleep 1"; \
+	  sleep 1; \
+	  $(MAKE) 192 UNIQUE=$$i || exit 1; \
+	done
+
+.PHONY: allprg
+NODEP += allprg
+allprg:
+	$(MAKE) prg
+	@for i in $(COUNTRIES); \
+	do \
+	  echo; \
+	  echo "sleep 1"; \
+	  sleep 1; \
+	  $(MAKE) prg UNIQUE=$$i || exit 1; \
+	done
+
+.PHONY: allflop
+NODEP += allflop
+allflop:
+	@for i in $(COUNTRIES); \
+	do \
+	  echo; \
+	  echo "sleep 1"; \
+	  sleep 1; \
+	  $(MAKE) flop UNIQUE=$$i || exit 1; \
+	done
+
+#
+# Mono-country translated EmuTOS: translate files only if the language
+# is not 'us', and if a UNIQUE EmuTOS is requested.
+#
+# If the '.tr.c' files are present the '.o' files are compiled from these
+# source files because the '%.o: %.tr.c' rule comes before the normal
+# '%.o: %.c' rule.
+# Changing the settings of $(COUNTRY) or $(UNIQUE) will remove both
+# the '.o' files (to force rebuilding them) and the '.tr.c' files
+# (otherwise 'make UNIQUE=fr; make UNIQUE=us' falsely keeps the
+# .tr.c french translations). See target obj/country below.
+#
+
+TRANS_SRC = $(shell sed -e '/^[^a-z]/d;s/\.c/.tr&/' <po/POTFILES.in)
+
+TOCLEAN += */*.tr.c
+
+ifneq (,$(UNIQUE))
+ifneq (us,$(ETOSLANG))
+emutos.img: $(TRANS_SRC)
+
+%.tr.c : %.c po/$(ETOSLANG).po bug po/LINGUAS obj/country
+	./bug translate $(ETOSLANG) $<
+endif
+endif
+
+#
+# obj/country contains the current values of $(COUNTRY) and $(UNIQUE).
+# whenever it changes, whatever necessary steps are taken so that the
+# correct files get re-compiled.
+#
+
+TOCLEAN += obj/country
+
+# A phony target is never up to date.
+.PHONY: always-execute-recipe
+
+# The recipe of a target depending on a phony target will always be executed
+# in order to determine if the target is up to date or not.
+# If the recipe does not touch the target, it is considered up to date.
+obj/country: always-execute-recipe
+	@echo $(COUNTRY) $(UNIQUE) > last.tmp; \
+	if [ -e $@ ]; \
+	then \
+	  if cmp -s last.tmp $@; \
+	  then \
+	    rm last.tmp; \
+	    exit 0; \
+	  fi; \
+	fi; \
+	echo "echo $(COUNTRY) $(UNIQUE) > $@"; \
+	mv last.tmp $@; \
+	for i in $(TRANS_SRC); \
+	do \
+	  j=obj/$$(basename $$i tr.c)o; \
+	  echo "rm -f $$i $$j"; \
+	  rm -f $$i $$j; \
+	done
+
+#
+# i18nconf.h - this file is automatically created by the Makefile. This
+# is done this way instead of simply passing the flags as -D on the
+# command line because:
+# - the command line is shorter
+# - it allows #defining CONF_KEYB as KEYB_US with KEYB_US #defined elsewhere
+# - explicit dependencies can force rebuilding files that include it
+#
+
+GEN_SRC += include/i18nconf.h
+
+ifneq (,$(UNIQUE))
+include/i18nconf.h: obj/country
+	@echo '# Generating $@ with CONF_LANG="$(ETOSLANG)" CONF_KEYB=KEYB_$(ETOSKEYB) CONF_CHARSET=CHARSET_$(ETOSCSET)'
+	@rm -f $@; touch $@
+	@echo '#define CONF_MULTILANG 0' >> $@
+	@echo '#define CONF_WITH_NLS 0' >> $@
+	@echo '#define CONF_LANG "$(ETOSLANG)"' >> $@
+	@echo '#define CONF_KEYB KEYB_$(ETOSKEYB)' >> $@
+	@echo '#define CONF_CHARSET CHARSET_$(ETOSCSET)' >> $@
+	@echo "#define CONF_IDT ($(ETOSIDT))" >> $@
+else
+include/i18nconf.h: obj/country
+	@echo '# Generating $@ with CONF_MULTILANG=1'
+	@rm -f $@; touch $@
+	@echo '#define CONF_MULTILANG 1' >> $@
+	@echo '#define CONF_WITH_NLS 1' >> $@
+endif
+
+#
+# ctables.h - the country tables, generated from country.mk, and only
+# included in bios/country.c
+#
+
+GEN_SRC += bios/ctables.h
+
+bios/ctables.h: country.mk tools/genctables.awk
+	awk -f tools/genctables.awk < country.mk > $@
+
+#
+# OS header
+#
+
+GEN_SRC += obj/header.h
+
+obj/header.h: tools/mkheader.awk obj/country version.mk
+	awk -f tools/mkheader.awk $(COUNTRY) $(MAJOR_VERSION) $(MINOR_VERSION) $(FIX_VERSION) $(UNOFFICIAL) > $@
+
+#
+# build rules
+#
+
+TOCLEAN += obj/*.o
+
+CFILE_FLAGS = $(strip $(CFLAGS))
+SFILE_FLAGS = $(strip $(CFLAGS))
+
+obj/%.o : %.tr.c
+	$(CC) $(CFILE_FLAGS) -c $< -o $@
+
+obj/%.o : %.c
+	$(CC) $(CFILE_FLAGS) -c $< -o $@
+
+obj/%.o : %.S
+	$(CC) $(SFILE_FLAGS) -c $< -o $@
+
+#
+# version string
+#
+
+GEN_SRC += obj/version.c
+
+# This temporary file is always generated
+obj/version2.c:
+	@echo '/* Generated from Makefile */' > $@
+	@echo '#define MAJOR_VERSION $(MAJOR_VERSION)' >> $@
+	@echo '#define MINOR_VERSION $(MINOR_VERSION)' >> $@
+	@echo '#define FIX_VERSION $(FIX_VERSION)' >> $@
+	@echo 'const char version[] = "$(VERSION)";' >> $@
+
+# If the official version file is different than the temporary one, update it
+obj/version.c: obj/version2.c
+	@if ! cmp -s $@ $< ; then \
+	  echo '# Updating $@ with VERSION=$(VERSION)' ; \
+	  cp $< $@ ; \
+	fi ; \
+	rm $<
+
+obj/version.o: obj/version.c
+	$(CC) $(CFILE_FLAGS) -c $< -o $@
+
+#
+# Disassembly
+#
+
+DSM_OUTPUT = dsm.txt
+DSM_TMP_CODE = obj/dsm.tmp
+DSM_TMP_LABELS = obj/map.tmp
+TOCLEAN += $(DSM_OUTPUT)
+
+.PHONY: check_target_exists
+check_target_exists:
+	@test -f emutos.img -a -f emutos.map \
+	  || (echo "Please make a target before disassembling." >&2 ; false)
+
+.PHONY: dsm
+NODEP += dsm
+dsm: VMA = $(shell sed -e '/^\.text/!d;s/[^0]*//;s/ .*//;q' emutos.map)
+dsm: check_target_exists
+	$(OBJDUMP) --target=binary --architecture=m68k --adjust-vma=$(VMA) -D emutos.img \
+	  | sed -e '/^ *[0-9a-f]*:/!d;s/^    /0000/;s/^   /000/;s/^  /00/;s/^ /0/;s/:	/: /' > $(DSM_TMP_CODE)
+	sed -e '/^ *0x/!d;s///;s/  */:  /;s/^00000000//;/^00000001:  ASSERT /d;/ \. = /d;s/ = .*//' emutos.map > $(DSM_TMP_LABELS)
+	cat $(DSM_TMP_CODE) $(DSM_TMP_LABELS) | LC_ALL=C sort > $(DSM_OUTPUT)
+	rm $(DSM_TMP_CODE) $(DSM_TMP_LABELS)
+	@echo "# $(DSM_OUTPUT) contains the disassembly of emutos.img"
+
+#
+# Hatari symbols file
+#
+
+TOCLEAN += *.sym
+
+%.sym: emutos.img tools/map2sym.sh
+	$(SHELL) tools/map2sym.sh emutos.map >$@
+
+#
+# indent - indents the files except when there are warnings
+# checkindent - check for indent warnings, but do not alter files.
+#
+
+INDENTFILES = bdos/*.c bios/*.c util/*.c tools/*.c desk/*.c aes/*.c vdi/*.c
+
+.PHONY: checkindent
+checkindent:
+	@err=0 ; \
+	for i in $(INDENTFILES) ; do \
+		$(INDENT) <$$i 2>err.tmp >/dev/null; \
+		if test -s err.tmp ; then \
+			err=$$(expr $$err + 1); \
+			echo in $$i:; \
+			cat err.tmp; \
+		fi \
+	done ; \
+	rm -f err.tmp; \
+	if [ $$err -ne 0 ] ; then \
+		echo indent issued warnings on $$err 'file(s)'; \
+		false; \
+	else \
+		echo done.; \
+	fi
+
+.PHONY: indent
+indent:
+	@err=0 ; \
+	for i in $(INDENTFILES) ; do \
+		$(INDENT) <$$i 2>err.tmp | expand >indent.tmp; \
+		if ! test -s err.tmp ; then \
+			if ! cmp -s indent.tmp $$i ; then \
+				echo indenting $$i; \
+				mv $$i $$i~; \
+				mv indent.tmp $$i; \
+			fi \
+		else \
+			err=$$(expr $$err + 1); \
+			echo in $$i:; \
+			cat err.tmp; \
+		fi \
+	done ; \
+	rm -f err.tmp indent.tmp; \
+	if [ $$err -ne 0 ] ; then \
+		echo $$err 'file(s)' untouched because of warnings; \
+		false; \
+	fi
+
+
+#
+# gitready
+#
+
+EXPAND_FILES = $(wildcard */*.[chS] */*.awk */*.sh)
+EXPAND_NOFILES = vdi/vdi_tblit_cf.S
+
+.PHONY: expand
+NODEP += expand
+expand:
+	@for i in $$(grep -l '	' $(filter-out $(EXPAND_NOFILES), $(EXPAND_FILES))) ; do \
+		echo expanding $$i; \
+		expand <$$i >expand.tmp; \
+		mv expand.tmp $$i; \
+	done
+
+.PHONY: crlf
+NODEP += crlf
+crlf:
+	find -type f '!' -path './.git/*' '!' -name '*.rsc' '!' -name '*.def' | xargs dos2unix
+
+# Check the sources charset (no automatic fix)
+.PHONY: charset
+NODEP += charset
+charset:
+	@echo "# All the files below should use charset=utf-8"
+	find . -type f '!' -path '*/.git/*' '!' -path './obj/*' '!' -path './*.img' '!' -path './?rd*' '!' -path './draft*' '!' -path './bug*' '!' -path './mkrom*' '!' -name '*.def' '!' -name '*.rsc' '!' -name '*.icn' '!' -name '*.po' -print0 | xargs -0 file -i |grep -v us-ascii
+
+.PHONY: gitready
+NODEP += gitready
+gitready: expand crlf
+
+#
+# set up files in preparation for 'bug update'
+#
+.PHONY: bugready
+NODEP += bugready
+bugready: bug erd grd
+	./erd -pdesk $(DESKRSC_BASE) $(DESKRSCGEN_BASE)
+	./grd $(GEMRSC_BASE) $(GEMRSCGEN_BASE)
+	./bug xgettext
+
+#
+# Standalone EmuCON
+#
+
+TOCLEAN += cli/version.c cli/*.o cli/*.tos
+
+#
+# local Makefile
+#
+
+ifneq (,$(wildcard local.mk))
+include local.mk
+endif
+
+#
+# clean
+#
+
+.PHONY: clean
+NODEP += clean
+clean:
+	rm -f $(TOCLEAN)
+	@for dir in $(wildcard tests/*/Makefile) ; do \
+		$(MAKE) -C $$(dirname $$dir) clean ; \
+	done
+
+#
+# ColdFire autoconverted sources.
+# They are not generated automatically.
+# To regenerate them, type "make coldfire-sources".
+# You will need the PortAsm/68K for ColdFire tool from MicroAPL.
+# See http://www.microapl.co.uk/Porting/ColdFire/pacf_download.html
+#
+
+PORTASM = pacf
+PORTASMFLAGS = -blanks on -core v4 -hardware_divide -hardware_mac -a gnu -out_syntax standard -nowarning 402,502,900,1111,1150 -noerrfile
+
+GENERATED_COLDFIRE_SOURCES = vdi/vdi_tblit_cf.S
+
+.PHONY: coldfire-sources
+NODEP += coldfire-sources
+coldfire-sources:
+	rm -f $(GENERATED_COLDFIRE_SOURCES)
+	$(MAKE) COLDFIRE=1 $(GENERATED_COLDFIRE_SOURCES)
+
+# Intermediate target (intermediate files are automatically removed)
+TOCLEAN += vdi/*_preprocessed.*
+vdi/%_preprocessed.s: vdi/%.S
+	$(CPP) $(CFILE_FLAGS) $< -o $@
+
+NODEP += $(GENERATED_COLDFIRE_SOURCES)
+vdi/%_cf.S: vdi/%_preprocessed.s
+	cd $(<D) && $(PORTASM) $(PORTASMFLAGS) -o $(@F) $(<F)
+	dos2unix $@
+	sed -i $@ \
+		-e "s:\.section\t.bss,.*:.bss:g" \
+		-e "s:\( \|\t\)bsr\(  \|\..\):\1jbsr :g" \
+		-e "s:\( \|\t\)bra\(  \|\..\):\1jra  :g" \
+		-e "s:\( \|\t\)beq\(  \|\..\):\1jeq  :g" \
+		-e "s:\( \|\t\)bne\(  \|\..\):\1jne  :g" \
+		-e "s:\( \|\t\)bgt\(  \|\..\):\1jgt  :g" \
+		-e "s:\( \|\t\)bge\(  \|\..\):\1jge  :g" \
+		-e "s:\( \|\t\)blt\(  \|\..\):\1jlt  :g" \
+		-e "s:\( \|\t\)ble\(  \|\..\):\1jle  :g" \
+		-e "s:\( \|\t\)bcc\(  \|\..\):\1jcc  :g" \
+		-e "s:\( \|\t\)bcs\(  \|\..\):\1jcs  :g" \
+		-e "s:\( \|\t\)bpl\(  \|\..\):\1jpl  :g" \
+		-e "s:\( \|\t\)bmi\(  \|\..\):\1jmi  :g" \
+		-e "s:\( \|\t\)bhi\(  \|\..\):\1jhi  :g" \
+		-e "s:\( \|\t\)blo\(  \|\..\):\1jlo  :g" \
+		-e "s:\( \|\t\)bhs\(  \|\..\):\1jhs  :g" \
+		-e "s:\( \|\t\)bls\(  \|\..\):\1jls  :g" \
+		-e "s:\( \|,\)0(%:\1(%:g"
+
+#
+# The targets for building a release are in a separate file
+#
+
+include release.mk
+
+#
+# Tests
+#
+
+.PHONY: test
+NODEP += test
+test:
+	@for dir in $(wildcard tests/*/Makefile) ; do \
+		$(MAKE) -C $$(dirname $$dir) test CC=$(CC) || exit 1; \
+	done
+
+#
+# file dependencies (makefile.dep)
+#
+
+ALL_UTIL_SRC = $(wildcard util/*.[cS])
+DEP_SRC = $(sort $(SRC) $(ALL_UTIL_SRC))
+
+TOCLEAN += makefile.dep
+NODEP += makefile.dep
+# Theoretically, makefile.dep should depend on $(DEP_SRC). But in that case,
+# makefile.dep would be rebuilt every time a single source is modified, even
+# for trivial changes. This would be useless in most cases. As a pragmatic
+# workaround, makefile.dep only depends on generated sources, which ensures
+# they are always created first.
+makefile.dep: $(GEN_SRC)
+	$(CC) $(CFLAGS) -MM -DGENERATING_DEPENDENCIES $(DEP_SRC) | sed -e '/:/s,^,obj/,' >makefile.dep
+
+# Do not include or rebuild makefile.dep for the targets listed in NODEP
+# as well as the default target (currently "help").
+# Since NODEP is used inside an ifeq condition, it must be fully set before
+# being used. Be sure to keep this block at the end of the Makefile.
+ifneq (,$(MAKECMDGOALS))
+ifeq (,$(filter $(NODEP), $(MAKECMDGOALS)))
+-include makefile.dep
+endif
+endif
