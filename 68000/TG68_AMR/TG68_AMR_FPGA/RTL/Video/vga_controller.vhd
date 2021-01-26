@@ -197,6 +197,8 @@ begin
 
 	chargen_reset<=reset and chargen_overlay;
 
+	-- Hardcoded start address on the screen
+	-- 76 columns, 26 rows
 	mychargen : entity work.charactergenerator
 		generic map (
 			xstart => 16,

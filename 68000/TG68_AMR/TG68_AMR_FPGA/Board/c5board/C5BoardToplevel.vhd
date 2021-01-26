@@ -1,4 +1,7 @@
 --
+--	TG68_AMR Design
+--		https://hackaday.io/project/174679-68k-cpu-with-frame-buffer-on-fpga
+--	
 -- Top level TG68 files
 --
 -- Features
@@ -8,7 +11,9 @@
 --		PS/2 Keyboard and Mouse support
 --		SD Card support
 -- Runs on RETRO-EP4CE15 basecard
+--		http://land-boards.com/blwiki/index.php?title=RETRO-EP4CE15#QMTECH_EP4CE15
 -- FPGA card is 5CEFA2 Cyclone V FPGA
+--		http://land-boards.com/blwiki/index.php?title=QM_Tech_Cyclone_V_FPGA_Board
 --
 -- Memory Map
 --		0x00000000-0x0000ffff = ROM 
@@ -16,6 +21,8 @@
 --		0x81000000 = Peripherals
 --		0x82000000 = Audio controller
 --		Everywhere else = SDRAM - 8 MB?
+--
+-- Doug Gilliland 2020
 --
 
 library ieee;
@@ -147,6 +154,7 @@ sd_cs		<= W_sd_cs;
 sd_mosi	<= W_sd_mosi;
 sd_clk	<= W_sd_clk;
 
+-- I/O connector has VGA 5"6"5 video on pins 3-14.
 --	IO_PIN(3) <= '0';
 --	IO_PIN(4) <= '0';
 --	IO_PIN(5) <= '0';
@@ -159,6 +167,7 @@ sd_clk	<= W_sd_clk;
 --	IO_PIN(12) <= '0';
 --	IO_PIN(13) <= '0';
 --	IO_PIN(14) <= '0';
+-- Rest of the I/O pins are unused and driven low.
 	IO_PIN(15) <= '0';
 	IO_PIN(16) <= '0';
 	IO_PIN(17) <= '0';
