@@ -48,95 +48,95 @@ entity VirtualToplevel is
 		txd	: out std_logic;
 
 		-- PS/2 keyboard / mouse
-		ps2k_clk_in : in std_logic;
-		ps2k_dat_in : in std_logic;
-		ps2k_clk_out : out std_logic;
-		ps2k_dat_out : out std_logic;
-		ps2m_clk_in : in std_logic;
-		ps2m_dat_in : in std_logic;
-		ps2m_clk_out : out std_logic;
-		ps2m_dat_out : out std_logic;
+		ps2k_clk_in		: in std_logic;
+		ps2k_dat_in		: in std_logic;
+		ps2k_clk_out	: out std_logic;
+		ps2k_dat_out	: out std_logic;
+		ps2m_clk_in		: in std_logic;
+		ps2m_dat_in		: in std_logic;
+		ps2m_clk_out	: out std_logic;
+		ps2m_dat_out	: out std_logic;
 		
 		-- SPI interface (SD card)
-		spi_cs : out std_logic;
-		spi_miso : in std_logic;
+		spi_cs	: out std_logic;
+		spi_miso	: in std_logic;
 		spi_mosi : out std_logic;
-		spi_clk : out std_logic;
+		spi_clk	: out std_logic;
 		
 		audio_l : out signed(15 downto 0);
 		audio_r : out signed(15 downto 0);
 		
-		gpio_dir : inout std_logic_vector(15 downto 0);
-		gpio_data : inout std_logic_vector(15 downto 0) := X"0000";
+		gpio_dir		: inout std_logic_vector(15 downto 0);
+		gpio_data	: inout std_logic_vector(15 downto 0) := X"0000";
 		
 		hex : out std_logic_vector(15 downto 0)
 	);
 end entity;
 
 architecture rtl of VirtualToplevel is
-signal cpu_datain : std_logic_vector(15 downto 0);	-- Data provided by us to CPU
-signal cpu_dataout : std_logic_vector(15 downto 0); -- Data received from the CPU
-signal cpu_dataout_r : std_logic_vector(15 downto 0); -- Above, registered
-signal cpu_addr : std_logic_vector(31 downto 0); -- CPU's current address
-signal cpu_addr_r : std_logic_vector(31 downto 0); -- CPU's current address
-signal cpu_as : std_logic; -- Address strobe
-signal cpu_uds : std_logic; -- upper data strobe
-signal cpu_lds : std_logic; -- lower data strobe
-signal cpu_r_w : std_logic; -- read(high)/write(low)
-signal cpu_uds_r : std_logic; -- upper data strobe
-signal cpu_lds_r : std_logic; -- lower data strobe
-signal cpu_r_w_r : std_logic; -- read(high)/write(low)
-signal busstate : std_logic_vector(1 downto 0);
-signal cpu_clkena : std_logic :='0';
-signal cpu_decode : std_logic;
-signal cpu_run : std_logic;
+signal cpu_datain		: std_logic_vector(15 downto 0);	-- Data provided by us to CPU
+signal cpu_dataout	: std_logic_vector(15 downto 0); -- Data received from the CPU
+signal cpu_dataout_r	: std_logic_vector(15 downto 0); -- Above, registered
+signal cpu_addr		: std_logic_vector(31 downto 0); -- CPU's current address
+signal cpu_addr_r		: std_logic_vector(31 downto 0); -- CPU's current address
+signal cpu_as			: std_logic; -- Address strobe
+signal cpu_uds			: std_logic; -- upper data strobe
+signal cpu_lds			: std_logic; -- lower data strobe
+signal cpu_r_w			: std_logic; -- read(high)/write(low)
+signal cpu_uds_r		: std_logic; -- upper data strobe
+signal cpu_lds_r		: std_logic; -- lower data strobe
+signal cpu_r_w_r		: std_logic; -- read(high)/write(low)
+signal busstate		: std_logic_vector(1 downto 0);
+signal cpu_clkena		: std_logic :='0';
+signal cpu_decode		: std_logic;
+signal cpu_run			: std_logic;
 
 -- VGA
-signal currentX : unsigned(11 downto 0);
-signal currentY : unsigned(11 downto 0);
-signal wred : unsigned(7 downto 0);
-signal wgreen : unsigned(7 downto 0);
-signal wblue : unsigned(7 downto 0);
-signal end_of_pixel : std_logic;
-signal refresh :std_logic;
-signal end_of_frame :std_logic;
-signal chargen_pixel : std_logic;
-signal chargen_window : std_logic;
+signal currentX			: unsigned(11 downto 0);
+signal currentY			: unsigned(11 downto 0);
+signal wred					: unsigned(7 downto 0);
+signal wgreen				: unsigned(7 downto 0);
+signal wblue				: unsigned(7 downto 0);
+signal end_of_pixel		: std_logic;
+signal refresh				: std_logic;
+signal end_of_frame		: std_logic;
+signal chargen_pixel		: std_logic;
+signal chargen_window	: std_logic;
 
 --
-signal reset_reg : std_logic;
-signal reset : std_logic := '0';
+signal reset_reg		: std_logic;
+signal reset			: std_logic := '0';
 signal reset_counter : unsigned(15 downto 0) := X"FFFF";
-signal tg68_ready : std_logic;
-signal sdr_ready : std_logic;
-signal write_address : std_logic_vector(31 downto 0);
-signal req_pending : std_logic :='0';
-signal sdram_req : std_logic;
+signal tg68_ready		: std_logic;
+signal sdr_ready		: std_logic;
+signal write_address	: std_logic_vector(31 downto 0);
+signal req_pending	: std_logic :='0';
+signal sdram_req		: std_logic;
+signal dtack1 			: std_logic;
 --signal write_pending : std_logic :='0';
-signal dtack1 : std_logic;
 
 -- Plumbing between DMA controller and SDRAM
 
-signal vga_addr : std_logic_vector(31 downto 0);
-signal vga_data : std_logic_vector(15 downto 0);
-signal vga_req : std_logic;
-signal vga_ack : std_logic;
-signal vga_nak : std_logic;
-signal vga_fill : std_logic;
-signal vga_refresh : std_logic;
-signal vga_newframe : std_logic;
-signal vga_reservebank : std_logic; -- Keep bank clear for instant access.
-signal vga_reserveaddr : std_logic_vector(31 downto 0); -- to SDRAM
+signal vga_addr			: std_logic_vector(31 downto 0);
+signal vga_data			: std_logic_vector(15 downto 0);
+signal vga_req				: std_logic;
+signal vga_ack				: std_logic;
+signal vga_nak				: std_logic;
+signal vga_fill			: std_logic;
+signal vga_refresh		: std_logic;
+signal vga_newframe 		: std_logic;
+signal vga_reservebank	: std_logic; -- Keep bank clear for instant access.
+signal vga_reserveaddr	: std_logic_vector(31 downto 0); -- to SDRAM
 
 signal dma_data : std_logic_vector(15 downto 0);
 
 
 -- Plumbing between VGA controller and DMA controller
 
-signal vgachannel_fromhost : DMAChannel_FromHost;
-signal vgachannel_tohost : DMAChannel_ToHost;
-signal spr0channel_fromhost : DMAChannel_FromHost;
-signal spr0channel_tohost : DMAChannel_ToHost;
+signal vgachannel_fromhost		: DMAChannel_FromHost;
+signal vgachannel_tohost		: DMAChannel_ToHost;
+signal spr0channel_fromhost	: DMAChannel_FromHost;
+signal spr0channel_tohost		: DMAChannel_ToHost;
 
 
 -- Audio channel plumbing
@@ -373,21 +373,21 @@ begin
 				-- SDRAM access, and when it's finished, this state machine is forced back
 				-- to the "run" state
 			when rom =>
-				cpu_datain<=romdata;
-				cpu_clkena<='1';
-				rom_we_n<=cpu_r_w;
-				prgstate<=run;
+				cpu_datain	<= romdata;
+				cpu_clkena	<= '1';
+				rom_we_n		<= cpu_r_w;
+				prgstate		<= run;
 			when vga =>
-				cpu_datain<=vga_reg_dataout;
-				vga_reg_rw<=cpu_r_w;
-				if vga_ack_d='1' then
-					vga_ackback<='1';
-					cpu_clkena<='1';
-					prgstate<=run;
+				cpu_datain <= vga_reg_dataout;
+				vga_reg_rw <= cpu_r_w;
+				if vga_ack_d = '1' then
+					vga_ackback	<= '1';
+					cpu_clkena	<= '1';
+					prgstate		<= run;
 				end if;
 			when peripheral =>
-				cpu_datain<=per_reg_dataout;
-				per_reg_rw<=cpu_r_w;
+				cpu_datain <= per_reg_dataout;
+				per_reg_rw <= cpu_r_w;
 				if per_reg_dtack='0' then
 					cpu_clkena<='1';
 					prgstate<=run;

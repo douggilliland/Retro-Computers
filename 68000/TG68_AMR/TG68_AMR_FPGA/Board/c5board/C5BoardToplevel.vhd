@@ -5,10 +5,16 @@
 -- Top level TG68 files
 --
 -- Features
---		68000 Core
+--		FPGA
+--			Altera Cyclone IV EP4CE15
+--			Uses 40% of the LEs, 6% of the SRAM
+--		68000 CPU
 --		SDRAM support
+--			32MB
 --		VGA Framebuffer
+--			5:6:6 with dithering for 2:2:2 on RETRO-EP4CE15 card
 --		PS/2 Keyboard and Mouse support
+--			Mouse requires external PS/2
 --		SD Card support
 -- Runs on RETRO-EP4CE15 basecard
 --		http://land-boards.com/blwiki/index.php?title=RETRO-EP4CE15#QMTECH_EP4CE15
@@ -22,7 +28,7 @@
 --		0x82000000 = Audio controller
 --		Everywhere else = SDRAM - 8 MB?
 --
--- Doug Gilliland 2020
+-- Doug Gilliland 2020-2021
 --
 
 library ieee;
@@ -73,8 +79,8 @@ port(
 		aud_r 			: out std_logic;
 		
 		-- Serial (USB-to-Serial)
-		rs232_rxd		: in std_logic;
-		rs232_txd		: out std_logic;
+		uart_rxd			: in std_logic;
+		uart_txd			: out std_logic;
 		n_cts				: in std_logic := '0';
 		n_rts				: out std_logic := '0';
 
@@ -221,9 +227,9 @@ sd_clk	<= W_sd_clk;
 	mypll : entity work.Clock_50to100
 		port map (
 			inclk0	=> clk_50,
-			c0	=> w_clk_fast,			-- 100 MHz
-			c1	=> o_sdram_clk,		-- 100 MHz
-			c2	=> clk,					-- 25 MHz
+			c0			=> w_clk_fast,			-- 100 MHz
+			c1			=> o_sdram_clk,		-- 100 MHz
+			c2			=> clk,					-- 25 MHz
 			locked	=> w_pll_locked
 		);
 
@@ -299,8 +305,8 @@ sd_clk	<= W_sd_clk;
 			vga_window => w_vga_window,
 
 			-- UART
-			rxd => rs232_rxd,
-			txd => rs232_txd,
+			rxd => uart_rxd,
+			txd => uart_txd,
 				
 			-- PS/2
 			ps2k_clk_in		=> w_ps2k_clk_in,
