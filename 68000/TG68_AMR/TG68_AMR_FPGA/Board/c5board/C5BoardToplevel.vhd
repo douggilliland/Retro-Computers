@@ -12,7 +12,7 @@
 --		SDRAM support
 --			32MB
 --		VGA Framebuffer
---			5:6:6 with dithering for 2:2:2 on RETRO-EP4CE15 card
+--			5:6:5 with dithering for 2:2:2 on RETRO-EP4CE15 card
 --		PS/2 Keyboard and Mouse support
 --			Mouse requires external PS/2
 --		SD Card support
@@ -26,7 +26,7 @@
 --		0x80000000 = VGA controller
 --		0x81000000 = Peripherals
 --		0x82000000 = Audio controller
---		Everywhere else = SDRAM - 8 MB?
+--		Everywhere else = SDRAM - 32 MB
 --
 -- Doug Gilliland 2020-2021
 --
