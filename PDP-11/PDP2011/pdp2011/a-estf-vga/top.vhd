@@ -59,9 +59,9 @@ entity top is
 
 -- when these are defined here then pins must exist
 -- alternative definitions below if output not needed
-      panel_xled : out std_logic_vector(5 downto 0); -- LED output multiplexor
-      panel_col : inout std_logic_vector(11 downto 0); -- i/o for LEDs and switches		
-      panel_row : out std_logic_vector(2 downto 0); -- current sinks for switches
+      panel_xled : out std_logic_vector(5 downto 0); 		-- LED output multiplexor
+      panel_col : inout std_logic_vector(11 downto 0); 	-- I/O for LEDs and switches		
+      panel_row : out std_logic_vector(2 downto 0); 		-- current sinks for switches
 
 -- ethernet, enc424j600 controller interface
       xu_cs : out std_logic;
