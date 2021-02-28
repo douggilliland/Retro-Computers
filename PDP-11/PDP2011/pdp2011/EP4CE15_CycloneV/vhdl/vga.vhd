@@ -19,7 +19,6 @@ use IEEE.STD_LOGIC_1164.ALL;
 use IEEE.STD_LOGIC_ARITH.ALL;
 use IEEE.STD_LOGIC_UNSIGNED.ALL;
 
-
 entity vga is
    port(
       base_addr : in std_logic_vector(17 downto 0);

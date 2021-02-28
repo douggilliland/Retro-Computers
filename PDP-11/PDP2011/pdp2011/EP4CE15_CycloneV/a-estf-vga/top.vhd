@@ -801,12 +801,9 @@ begin
    rl_miso <= sdcard_miso;
    rk_miso <= sdcard_miso;
 	
-	o_vgar(1) <= vgar(4) or vgar(3);
-	o_vgar(0) <= vgar(2) or vgar(1) or vgar(0);
-	o_vgag(1) <= vgag(5) or vgag(4) or vgag(3);
-	o_vgag(0) <= vgag(2) or vgag(1) or vgag(0);
-	o_vgab(1) <= vgab(4) or vgab(3);
-	o_vgab(0) <= vgab(2) or vgab(1) or vgab(0);
+	o_vgar <= vga_out & vga_out;
+	o_vgag <= '0' & vga_out;
+	o_vgab <= '0' & vga_out;
 	
    vgar <= (others => vga_out); --0b111111	
    vgag (5) <= '0';
@@ -1273,4 +1270,3 @@ begin
    end process;
 
 end implementation;
-
