@@ -1,4 +1,3 @@
-
 --
 -- Copyright (c) 2008-2019 Sytse van Slooten
 --
@@ -20,15 +19,8 @@ use IEEE.STD_LOGIC_ARITH.ALL;
 use IEEE.STD_LOGIC_UNSIGNED.ALL;
 
 entity top is
-   port(
---      redled : out std_logic_vector(7 downto 0);
---      beep : out std_logic;
---      sseg0 : out std_logic_vector(0 to 6);
---      ssegP : out std_logic;
---      Anode_Activate : out STD_LOGIC_VECTOR (2 downto 0);-- 3 mpx Anode signals
---		U2_138_select : out std_logic; -- 7 segment display 
---		U3_138_select : out std_logic; -- 8x8 dot display
-
+   port
+	(
       o_vgar : out std_logic_vector (1 downto 0);
       o_vgag : out std_logic_vector (1 downto 0);
       o_vgab : out std_logic_vector (1 downto 0);
@@ -56,12 +48,6 @@ entity top is
       sdcard_mosi : out std_logic;
       sdcard_sclk : out std_logic;
       sdcard_miso : in std_logic;
-
--- when these are defined here then pins must exist
--- alternative definitions below if output not needed
---      panel_xled : out std_logic_vector(5 downto 0); 		-- LED output multiplexor
---      panel_col : inout std_logic_vector(11 downto 0); 	-- I/O for LEDs and switches		
---      panel_row : out std_logic_vector(2 downto 0); 		-- current sinks for switches
 
 -- ethernet, enc424j600 controller interface
       xu_cs : out std_logic;
@@ -401,17 +387,17 @@ signal rxC : std_logic;
 signal txtx0 : std_logic;
 signal rxrx0 : std_logic;
 
-  signal t_cons_start: std_logic;
-  signal t_cons_cont: std_logic;
-  signal c_cons_cont: std_logic;
-  signal db_switch3: std_logic;
-  signal t_cons_ena: std_logic;
-  signal c_cons_ena: std_logic;
-  signal t_reset: std_logic;
-  signal t_cont: std_logic;
-  signal t_ena: std_logic;
-  signal t_swapcon: std_logic;
-  signal t_init: std_logic;
+signal t_cons_start: std_logic;
+signal t_cons_cont: std_logic;
+signal c_cons_cont: std_logic;
+signal db_switch3: std_logic;
+signal t_cons_ena: std_logic;
+signal c_cons_ena: std_logic;
+signal t_reset: std_logic;
+signal t_cont: std_logic;
+signal t_ena: std_logic;
+signal t_swapcon: std_logic;
+signal t_init: std_logic;
 
 signal txtx1 : std_logic;
 signal rxrx1 : std_logic;
@@ -510,7 +496,6 @@ signal  my_data : std_logic_vector ( 15 downto 0);
 signal sample_cycles : std_logic_vector(15 downto 0) := x"0400";
 signal minon_cycles : std_logic_vector(15 downto 0) := x"0400";
 
-
 type dram_fsm_type is (
    dram_init,
    dram_poweron,
@@ -533,6 +518,7 @@ type dram_fsm_type is (
    dram_c14,
    dram_idle
 );
+
 signal dram_fsm : dram_fsm_type := dram_init;
 
 ---------------------------------------------------------------------------------------------
@@ -804,90 +790,12 @@ begin
 	o_vgar <= vga_out & vga_out;
 	o_vgag <= '0' & vga_out;
 	o_vgab <= '0' & vga_out;
-	
-   vgar <= (others => vga_out); --0b111111	
-   vgag (5) <= '0';
-   vgag (4 downto 0) <= (others => vga_out); --0b	
-   vgab (4 downto 3)<= (others => '0');
-   vgab (2 downto 0)<= (others => vga_out);--0x07	
    vgav <= vga_vsync;
    vgah <= vga_hsync;
 
    dram_match <= '1' when addr(21 downto 18) /= "1111" else '0';
    dram_cke <= '1';
    dram_clk <= c0;
-
----------------------------------------------------------------------------------------------
---	U2_138_select <= '1'; -- enable 7 seg digits
---	U3_138_select <= '0'; -- disable 8x8 matrix
---  
---process(LED_BCD)
---begin
---    case LED_BCD is
---    when "0000" => sseg0 <= "0000001"; -- "0"     
---    when "0001" => sseg0 <= "1001111"; -- "1" 
---    when "0010" => sseg0 <= "0010010"; -- "2" 
---    when "0011" => sseg0 <= "0000110"; -- "3" 
---    when "0100" => sseg0 <= "1001100"; -- "4" 
---    when "0101" => sseg0 <= "0100100"; -- "5" 
---    when "0110" => sseg0 <= "0100000"; -- "6" 
---    when "0111" => sseg0 <= "0001111"; -- "7" 
---    when "1000" => sseg0 <= "0000000"; -- "8"     
---    when "1001" => sseg0 <= "0000100"; -- "9" 
---    when "1010" => sseg0 <= "0000010"; -- a
---    when "1011" => sseg0 <= "1100000"; -- b
---    when "1100" => sseg0 <= "0110001"; -- C
---    when "1101" => sseg0 <= "1000010"; -- d
---    when "1110" => sseg0 <= "0110000"; -- E
-----    when "1111" => sseg0 <= "0111000"; -- F
---    when "1111" => sseg0 <= "1111111"; -- all off
---    end case;
---end process;
-
---process(c0, reset)
---begin 
---    if(reset='1') then
---        refresh_counter <= (others => '0');
---    elsif(rising_edge(c0)) then
---        refresh_counter <= refresh_counter + 1;
---    end if;
---end process;
-
---LED_activating_counter <= refresh_counter(19 downto 17); -- onboard 7seg mpx rate
---
---process(LED_activating_counter, reset)
---begin
---   if(reset='1') then
---      Anode_Activate <= "111"; 
---   else
---      case LED_activating_counter is
---        when "000" =>
---          Anode_Activate <= "111"; 
---          LED_BCD <= "1111"; -- all segments off
---        when "001" =>
---          Anode_Activate <= "110"; 
---          LED_BCD <= "1111"; -- all segments off
---        when "010" =>
---          Anode_Activate <= "101"; 
---          LED_BCD <= "000" & my_data( 15);
---        when "011" =>
---          Anode_Activate <= "100"; 
---          LED_BCD <= '0' & my_data(14 downto 12);
---        when "100" =>
---          Anode_Activate <= "011"; 
---          LED_BCD <= '0' & my_data(11 downto 9);
---        when "101" =>
---          Anode_Activate <= "010"; 
---          LED_BCD <= '0' & my_data(8 downto 6);
---        when "110" =>
---          Anode_Activate <= "001"; 
---         LED_BCD <= '0' & my_data(5 downto 3);
---        when "111" =>
---          Anode_Activate <= "000"; 
---          LED_BCD <= '0' & my_data(2 downto 0);
---      end case;
---   end if;
---end process;
 
    process(c0)
    begin
