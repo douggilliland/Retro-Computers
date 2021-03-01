@@ -10,6 +10,8 @@
 -- The materials are distributed in the hope that they will be useful, but WITHOUT ANY WARRANTY;
 -- without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 --
+--	https://github.com/DavidJRichards/pdp2011
+--
 
 -- $Revision: 1.58 $
 
@@ -21,63 +23,64 @@ use IEEE.STD_LOGIC_UNSIGNED.ALL;
 entity top is
    port
 	(
-      o_vgar : out std_logic_vector (1 downto 0);
-      o_vgag : out std_logic_vector (1 downto 0);
-      o_vgab : out std_logic_vector (1 downto 0);
-      vgah : out std_logic;
-      vgav : out std_logic;
+      clkin		: in std_logic;
 
-      clkin : in std_logic;
+      resetbtn	: in std_logic;
+	  
+      switch	: in std_logic_vector(3 downto 0);
 
-      switch : in std_logic_vector(3 downto 0);
+	   sw_halt	: in std_logic;
+	   sw_cont	: in std_logic;
+	   led_run	: out std_logic;
 
-      ps2k_c : in std_logic;
-      ps2k_d : in std_logic;
+      o_vgar	: out std_logic_vector (1 downto 0);
+      o_vgag	: out std_logic_vector (1 downto 0);
+      o_vgab	: out std_logic_vector (1 downto 0);
+      vgah		: out std_logic;
+      vgav		: out std_logic;
 
-      rx1 : in std_logic;
-      tx1 : out std_logic;
-      cts1 : in std_logic;
-      rts1 : out std_logic;
+      ps2k_c	: in std_logic;
+      ps2k_d	: in std_logic;
 
-      rx2 : in std_logic;
-      tx2 : out std_logic;
-      cts2 : in std_logic;
-      rts2 : out std_logic;
+      rx1		: in std_logic;
+      tx1		: out std_logic;
+      cts1		: in std_logic;
+      rts1		: out std_logic;
 
-      sdcard_cs : out std_logic;
+      rx2		: in std_logic;
+      tx2		: out std_logic;
+      cts2		: in std_logic;
+      rts2		: out std_logic;
+
+      -- SD Card
+		sdcard_cs	: out std_logic;
       sdcard_mosi : out std_logic;
       sdcard_sclk : out std_logic;
       sdcard_miso : in std_logic;
 
--- ethernet, enc424j600 controller interface
-      xu_cs : out std_logic;
-      xu_mosi : out std_logic;
-      xu_sclk : out std_logic;
-      xu_miso : in std_logic;
-      xu_debug_tx : out std_logic;                                   -- rs232, 115200/8/n/1 debug output from microcode
+		-- ethernet, enc424j600 controller interface
+      xu_cs			: out std_logic;
+      xu_mosi		: out std_logic;
+      xu_sclk		: out std_logic;
+      xu_miso		: in std_logic;
+      xu_debug_tx	: out std_logic;                                   -- rs232, 115200/8/n/1 debug output from microcode
 
-      dram_addr : out std_logic_vector(12 downto 0);
-      dram_dq : inout std_logic_vector(15 downto 0);
-      dram_ba_1 : out std_logic;
-      dram_ba_0 : out std_logic;
-      dram_udqm : out std_logic;
-      dram_ldqm : out std_logic;
-      dram_ras_n : out std_logic;
-      dram_cas_n : out std_logic;
-      dram_cke : out std_logic;
-      dram_clk : out std_logic;
-      dram_we_n : out std_logic;
-      dram_cs_n : out std_logic;
+      dram_addr	: out std_logic_vector(12 downto 0);
+      dram_dq		: inout std_logic_vector(15 downto 0);
+      dram_ba_1	: out std_logic;
+      dram_ba_0	: out std_logic;
+      dram_udqm	: out std_logic;
+      dram_ldqm	: out std_logic;
+      dram_ras_n	: out std_logic;
+      dram_cas_n	: out std_logic;
+      dram_cke		: out std_logic;
+      dram_clk		: out std_logic;
+      dram_we_n	: out std_logic;
+      dram_cs_n	: out std_logic;
 
-      resetbtn : in std_logic;
-	  
-	   sw_halt : in std_logic;
-	   sw_cont : in std_logic;
-	   led_run : out std_logic;
-
-      max7219_load  : out std_logic;
-      max7219_data : out std_logic;
-      max7219_clock : out std_logic
+      max7219_load	: out std_logic;
+      max7219_data	: out std_logic;
+      max7219_clock	: out std_logic
    );
 end top;
 
@@ -86,74 +89,74 @@ architecture implementation of top is
 component unibus is
    port(
 -- bus interface
-      addr : out std_logic_vector(21 downto 0);                      -- physical address driven out to the bus by cpu or busmaster peripherals
-      dati : in std_logic_vector(15 downto 0);                       -- data input to cpu or busmaster peripherals
-      dato : out std_logic_vector(15 downto 0);                      -- data output from cpu or busmaster peripherals
-      control_dati : out std_logic;                                  -- if '1', this is an input cycle
-      control_dato : out std_logic;                                  -- if '1', this is an output cycle
-      control_datob : out std_logic;                                 -- if '1', the current output cycle is for a byte
-      addr_match : in std_logic;                                     -- '1' if the address is recognized
-		init : out std_logic;
+      addr				: out std_logic_vector(21 downto 0);	-- physical address driven out to the bus by cpu or busmaster peripherals
+      dati				: in std_logic_vector(15 downto 0);		-- data input to cpu or busmaster peripherals
+      dato				: out std_logic_vector(15 downto 0);	-- data output from cpu or busmaster peripherals
+      control_dati	: out std_logic;								-- if '1', this is an input cycle
+      control_dato	: out std_logic;								-- if '1', this is an output cycle
+      control_datob	: out std_logic;								-- if '1', the current output cycle is for a byte
+      addr_match		: in std_logic;								-- '1' if the address is recognized
+		init				: out std_logic;
 
 -- debug & blinkenlights
-      ifetch : out std_logic;                                        -- '1' if this cycle is an ifetch cycle
-      iwait : out std_logic;                                         -- '1' if the cpu is in wait state
-      cpu_addr_v : out std_logic_vector(15 downto 0);                -- virtual address from cpu, for debug and general interest
+      ifetch : out std_logic;										-- '1' if this cycle is an ifetch cycle
+      iwait : out std_logic;										-- '1' if the cpu is in wait state
+      cpu_addr_v : out std_logic_vector(15 downto 0);		-- virtual address from cpu, for debug and general interest
 
 -- rl controller
-      have_rl : in integer range 0 to 1 := 0;                        -- enable conditional compilation
-      have_rl_debug : in integer range 0 to 1 := 1;                  -- enable debug core
+      have_rl : in integer range 0 to 1 := 0;				-- enable conditional compilation
+      have_rl_debug : in integer range 0 to 1 := 1;		-- enable debug core
       rl_sdcard_cs : out std_logic;
       rl_sdcard_mosi : out std_logic;
       rl_sdcard_sclk : out std_logic;
       rl_sdcard_miso : in std_logic := '0';
-      rl_sdcard_debug : out std_logic_vector(3 downto 0);            -- debug/blinkenlights
+      rl_sdcard_debug : out std_logic_vector(3 downto 0);	-- debug/blinkenlights
 
 -- rk controller
-      have_rk : in integer range 0 to 1 := 0;                        -- enable conditional compilation
-      have_rk_debug : in integer range 0 to 2 := 1;                  -- enable debug core; 0=none; 1=all; 2=debug blinkenlights only
-      have_rk_num : in integer range 1 to 8 := 8;                    -- active number of drives on the controller; set to < 8 to save core
-      have_rk_minimal : in integer range 0 to 1 := 0;                -- 1 for smaller core, but not very compatible controller. Useful to fit s3b200 only
+      have_rk : in integer range 0 to 1 := 0;				-- enable conditional compilation
+      have_rk_debug : in integer range 0 to 2 := 1;		-- enable debug core; 0=none; 1=all; 2=debug blinkenlights only
+      have_rk_num : in integer range 1 to 8 := 8;			-- active number of drives on the controller; set to < 8 to save core
+      have_rk_minimal : in integer range 0 to 1 := 0;		-- 1 for smaller core, but not very compatible controller. Useful to fit s3b200 only
       rk_sdcard_cs : out std_logic;
       rk_sdcard_mosi : out std_logic;
       rk_sdcard_sclk : out std_logic;
       rk_sdcard_miso : in std_logic := '0';
-      rk_sdcard_debug : out std_logic_vector(3 downto 0);            -- debug/blinkenlights
+      rk_sdcard_debug : out std_logic_vector(3 downto 0);	-- debug/blinkenlights
 
 -- rh controller
-      have_rh : in integer range 0 to 1 := 0;                        -- enable conditional compilation
-      have_rh_debug : in integer range 0 to 1 := 1;                  -- enable debug core
+      have_rh : in integer range 0 to 1 := 0;					-- enable conditional compilation
+      have_rh_debug : in integer range 0 to 1 := 1;			-- enable debug core
       rh_sdcard_cs : out std_logic;
       rh_sdcard_mosi : out std_logic;
       rh_sdcard_sclk : out std_logic;
       rh_sdcard_miso : in std_logic := '0';
-      rh_sdcard_debug : out std_logic_vector(3 downto 0);            -- debug/blinkenlights
+      rh_sdcard_debug : out std_logic_vector(3 downto 0);	-- debug/blinkenlights
 
 -- xu enc424j600 controller interface
-      have_xu : in integer range 0 to 1 := 1;                        -- enable conditional compilation
-      have_xu_debug : in integer range 0 to 1 := 1;                  -- enable debug core
+      have_xu : in integer range 0 to 1 := 1;					-- enable conditional compilation
+      have_xu_debug : in integer range 0 to 1 := 1;			-- enable debug core
       xu_cs : out std_logic;
       xu_mosi : out std_logic;
       xu_sclk : out std_logic;
       xu_miso : in std_logic := '0';
-      xu_debug_tx : out std_logic;                                   -- rs232, 115200/8/n/1 debug output from microcode
+      xu_debug_tx : out std_logic;					-- rs232, 115200/8/n/1 debug output from microcode
 
 -- kl11, console ports
-      have_kl11 : in integer range 0 to 4 := 3;                      -- conditional compilation - number of kl11 controllers to include. Should normally be at least 1
+      have_kl11 : in integer range 0 to 4 := 3;	-- conditional compilation - number of kl11 controllers to include. Should normally be at least 1
 
       tx0 : out std_logic;
       rx0 : in std_logic := '1';
       rts0 : out std_logic;
       cts0 : in std_logic := '0';
-      kl0_bps : in integer range 300 to 230400 := 9600;             -- bps rate - don't set over 38400 for interrupt control applications
-      kl0_force7bit : in integer range 0 to 1 := 0;                  -- zero out high order bit on transmission and reception
-      kl0_rtscts : in integer range 0 to 1 := 0;                     -- conditional compilation switch for rts and cts signals; also implies to include core that implements a silo buffer
+      kl0_bps : in integer range 300 to 230400 := 9600;	-- bps rate - don't set over 38400 for interrupt control applications
+      kl0_force7bit : in integer range 0 to 1 := 0;		-- zero out high order bit on transmission and reception
+      kl0_rtscts : in integer range 0 to 1 := 0;			-- conditional compilation switch for rts and cts signals; also implies to include core that implements a silo buffer
 
       tx1 : out std_logic;
       rx1 : in std_logic := '1';
       rts1 : out std_logic;
       cts1 : in std_logic := '0';
-      kl1_bps : in integer range 300 to 230400 := 9600;              -- note, mod for 300 bps
+      kl1_bps : in integer range 300 to 230400 := 9600;	-- note, mod for 300 bps
       kl1_force7bit : in integer range 0 to 1 := 0;
       kl1_rtscts : in integer range 0 to 1 := 0;
 
@@ -272,56 +275,56 @@ component vt is
 end component;
 
 
-component paneldriver is
-   port(
-      panel_xled : out std_logic_vector(5 downto 0);
-      panel_col : inout std_logic_vector(11 downto 0);
-      panel_row : out std_logic_vector(2 downto 0);
-
-      cons_load : out std_logic;
-      cons_exa : out std_logic;
-      cons_dep : out std_logic;
-      cons_cont : out std_logic;
-      cons_ena : out std_logic;
-      cons_inst : out std_logic;
-      cons_start : out std_logic;
-      cons_sw : out std_logic_vector(21 downto 0);
-      cons_adss_mode : out std_logic_vector(1 downto 0);
-      cons_adss_id : out std_logic;
-      cons_adss_cons : out std_logic;
-
-      cons_consphy : in std_logic_vector(21 downto 0);
-      cons_progphy : in std_logic_vector(21 downto 0);
-      cons_shfr : in std_logic_vector(15 downto 0);
-      cons_maddr : in std_logic_vector(15 downto 0);                 -- microcode address fpu/cpu
-      cons_br : in std_logic_vector(15 downto 0);
-      cons_dr : in std_logic_vector(15 downto 0);
-      cons_parh : in std_logic;
-      cons_parl : in std_logic;
-
-      cons_adrserr : in std_logic;
-      cons_run : in std_logic;
-      cons_pause : in std_logic;
-      cons_master : in std_logic;
-      cons_kernel : in std_logic;
-      cons_super : in std_logic;
-      cons_user : in std_logic;
-      cons_id : in std_logic;
-      cons_map16 : in std_logic;
-      cons_map18 : in std_logic;
-      cons_map22 : in std_logic;
-
-      sample_cycles : in std_logic_vector(15 downto 0) := x"0400";
-      minon_cycles : in std_logic_vector(15 downto 0) := x"0400";
-
--- djrm, additions for local 7seg displays
-		cons_addr : out std_logic_vector(21 downto 0);
-		cons_data : out std_logic_vector(15 downto 0);
-
-      clkin : in std_logic;
-      reset : in std_logic
-   );
-end component;
+--component paneldriver is
+--   port(
+--      panel_xled : out std_logic_vector(5 downto 0);
+--      panel_col : inout std_logic_vector(11 downto 0);
+--      panel_row : out std_logic_vector(2 downto 0);
+--
+--      cons_load : out std_logic;
+--      cons_exa : out std_logic;
+--      cons_dep : out std_logic;
+--      cons_cont : out std_logic;
+--      cons_ena : out std_logic;
+--      cons_inst : out std_logic;
+--      cons_start : out std_logic;
+--      cons_sw : out std_logic_vector(21 downto 0);
+--      cons_adss_mode : out std_logic_vector(1 downto 0);
+--      cons_adss_id : out std_logic;
+--      cons_adss_cons : out std_logic;
+--
+--      cons_consphy : in std_logic_vector(21 downto 0);
+--      cons_progphy : in std_logic_vector(21 downto 0);
+--      cons_shfr : in std_logic_vector(15 downto 0);
+--      cons_maddr : in std_logic_vector(15 downto 0);                 -- microcode address fpu/cpu
+--      cons_br : in std_logic_vector(15 downto 0);
+--      cons_dr : in std_logic_vector(15 downto 0);
+--      cons_parh : in std_logic;
+--      cons_parl : in std_logic;
+--
+--      cons_adrserr : in std_logic;
+--      cons_run : in std_logic;
+--      cons_pause : in std_logic;
+--      cons_master : in std_logic;
+--      cons_kernel : in std_logic;
+--      cons_super : in std_logic;
+--      cons_user : in std_logic;
+--      cons_id : in std_logic;
+--      cons_map16 : in std_logic;
+--      cons_map18 : in std_logic;
+--      cons_map22 : in std_logic;
+--
+--      sample_cycles : in std_logic_vector(15 downto 0) := x"0400";
+--      minon_cycles : in std_logic_vector(15 downto 0) := x"0400";
+--
+---- djrm, additions for local 7seg displays
+--		cons_addr : out std_logic_vector(21 downto 0);
+--		cons_data : out std_logic_vector(15 downto 0);
+--
+--      clkin : in std_logic;
+--      reset : in std_logic
+--   );
+--end component;
 
 component pll is
    port(
@@ -524,54 +527,6 @@ signal dram_fsm : dram_fsm_type := dram_init;
 ---------------------------------------------------------------------------------------------
 begin
 
---   panel: paneldriver port map(
---      panel_xled => panel_xled,
----- select just only ONE of the next two lines
---      panel_col => panel_col, -- use this to enable console
-----      panel_col => t_panel_col, -- us this to disable console
---      panel_row => panel_row,
---
---      cons_load => cons_load,
---      cons_exa => cons_exa,
---      cons_dep => cons_dep,
---      cons_cont => cons_cont,
---      cons_ena => cons_ena,
---      cons_start => cons_start,
---      cons_sw => cons_sw,
---      cons_adss_mode => cons_adss_mode,
---      cons_adss_id => cons_adss_id,
---      cons_adss_cons => cons_adss_cons,
---
---      cons_consphy => cons_consphy,
---      cons_progphy => cons_progphy,
---      cons_shfr => cons_shfr,
---      cons_maddr => cons_maddr,
---      cons_br => cons_br,
---      cons_dr => cons_dr,
---      cons_parh => cons_parh,
---      cons_parl => cons_parl,
---
---      cons_adrserr => cons_adrserr,
---      cons_run => cons_run,
---      cons_pause => cons_pause,
---      cons_master => cons_master,
---      cons_kernel => cons_kernel,
---      cons_super => cons_super,
---      cons_user => cons_user,
---      cons_id => cons_id,
---      cons_map16 => cons_map16,
---      cons_map18 => cons_map18,
---      cons_map22 => cons_map22,
---
---      sample_cycles => sample_cycles,
---      minon_cycles => minon_cycles,
---		
---		cons_addr => my_address,
---		cons_data => my_data,
---
---      clkin => cpuclk,
---      reset => reset
---   );
 	t_LEDMatrix: LEDMatrix PORT map(
         RESET => resetbtn,
 --        RESET => t_reset,
