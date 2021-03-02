@@ -1,5 +1,6 @@
+-- 
 -- PDP-11 Build
-
+-- 
 -- Original Work is Copyright (c) 2008-2019 Sytse van Slooten
 --
 -- Permission is hereby granted to any person obtaining a copy of these VHDL source files and
@@ -11,6 +12,7 @@
 -- The materials are distributed in the hope that they will be useful, but WITHOUT ANY WARRANTY;
 -- without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 --
+--	https://pdp2011.sytse.net/wordpress/
 --	https://github.com/DavidJRichards/pdp2011
 --
 
