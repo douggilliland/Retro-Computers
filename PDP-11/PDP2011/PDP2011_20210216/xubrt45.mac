@@ -1,0 +1,2091 @@
+         .title test45 - xu proof of concept code
+
+;--
+;-- Copyright (c) 2008-2021 Sytse van Slooten
+;--
+;-- Permission is hereby granted to any person obtaining a copy of these VHDL source files and
+;-- other language source files and associated documentation files ("the materials") to use
+;-- these materials solely for personal, non-commercial purposes.
+;-- You are also granted permission to make changes to the materials, on the condition that this
+;-- copyright notice is retained unchanged.
+;--
+;-- The materials are distributed in the hope that they will be useful, but WITHOUT ANY WARRANTY;
+;-- without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+;--
+;
+;
+;
+         jmp t45
+;
+; reserve space for vectors, stack space
+;
+         .blkw 376
+;
+; misc definitions
+;
+ht       = 11
+lf       = 12
+cr       = 15
+ps       = 177776
+;
+; encx24j600 names
+;
+rcru     = 40
+wcru     = 42
+bfsu     = 44
+bfcu     = 46
+wgpdata  = 52
+rrxdata  = 54
+b0sel    = 300
+setpktdec = 314
+;
+etxst    = 0
+etxlen   = 2
+erxst    = 4
+erxtail  = 6
+estat    = 32
+econ1    = 36
+erxfcon  = 64
+eudast   = 66
+macon1   = 100
+econ2    = 156
+maadr3   = 140
+eidled   = 164
+egpwrpt  = 210
+erxrdpt  = 212
+;
+; general purpose register definitions
+;
+r0       = %0
+r1       = %1
+r2       = %2
+r3       = %3
+r4       = %4
+r5       = %5
+r6       = %6
+r7       = %7
+sp       = %6
+pc       = %7
+;
+; macros
+;
+         .macro xubl f,fl,t,tl                   ; xubl : busmaster device to dma bits from the xu cpu memory to the spi
+         jsr    pc,xubl
+         .word  f                                ; f  : from address - write to spi
+         .word  fl                               ; fl : from length in bits, multiple of 8 (lower three bits are ignored)
+         .word  t                                ; t  : to address - read from spi
+         .word  tl                               ; tl : to length in bits, multiple of 8 (lower three bits are ignored)
+         .endm
+;
+         .macro xubm u,u18,x,l
+         jsr    pc,xubm
+         .word  u
+         .word  u18
+         .word  x
+         .word  l
+         .endm
+;
+         .macro xasciz w
+         jsr    pc,xasciz
+         .asciz /w/
+         .even
+         .endm
+;
+         .macro xascil w
+         jsr    pc,xasciz
+         .ascii /w/
+         .asciz <15><12>
+         .even
+         .endm
+;
+         .macro xascnl
+         jsr    pc,xasciz
+         .asciz <15><12>
+         .even
+         .endm
+;
+         .macro xbhx w,l
+         jsr    pc,xbhx
+         .word  w
+         .word  l
+         .endm
+;
+         .macro xwhx w,l
+         jsr    pc,xwhx
+         .word  w
+         .word  l
+         .endm
+;
+; start of code
+;
+t45:
+         mov    #340,@#177776          ; set psw prio to 7 - block interrupts
+         mov    #1000,sp               ; setup stack
+         clr    dogtick                ; clear watchdog count
+         mov    #dog,@#100             ; setup vector for watchdog
+         mov    #340,@#102             ; psw for watchdog vector
+         mov    #100,@#177546          ; enable clock interrupt
+;
+; init ourselves
+;
+         jsr    pc,init                ; setup variable values
+         jsr    pc,waitabit            ; delay loop
+         xascil <Hello, world: xu-cpu [t45] deuna microcode>
+         jsr    pc,initenc             ; contact the encx24j600 and reset it
+;
+         clr    @#177776               ; clear psw - this enables the watchdog interrupts
+;
+         mov    #4000,@#174510         ; pcsr0 - dni
+         tst    r0
+         beq    5$
+         clr    @#174512               ; pcsr1 - state=reset
+         br     10$
+5$:
+         mov    #2,@#174512            ; pcsr1 - state=ready
+         br     10$
+;
+; main service loop - receive packets if we're running
+;
+10$:
+         clr    dogtick                ; need to do this every 10 seconds, or watchdog will cause reboot
+         tst    running                ; in running state?
+         beq    20$                    ; no - jump
+         jsr    pc,pktin               ; process input packets
+         tst    recvdw                 ; did we do any work receiving?
+         beq    20$                    ; no - jump
+         bis    #20000,@#174510        ; set rxi
+         br     10$                    ; see if there is another frame - FIXME, check if there is an owned buffer first?
+20$:
+;
+; check if the chip is ok - reading the eidled register; this serves no particular purpose other than checking if we're still talking to the chip
+; if comms was lost - including removing the chip and reconnecting it - reset it and set it up so it will work again.
+;
+         clr    deidled
+         xubl   reidled,20,deidled,20
+         tst    deidled
+         bne    30$
+         xascil <cannot read eidled>
+;         clr    @#174512               ; pcsr1 - state=reset  FIXME, this kills the software on bsd
+         jsr    pc,initenc
+         jsr    pc,waitabit
+         tstb   wlaa+2                 ; check to see if the mac address was set
+         bne    22$
+         tstb   wlaa+3
+         bne    22$
+         tstb   wlaa+4
+         bne    22$
+         tstb   wlaa+5
+         bne    22$
+         tstb   wlaa+6
+         bne    22$
+         tstb   wlaa+7
+         beq    23$
+22$:
+         xascil <restoring laa>        ; restore the mac address to what was set
+         movb   wlaa+2,dlaa+4
+         movb   wlaa+3,dlaa+5
+         movb   wlaa+4,dlaa+2
+         movb   wlaa+5,dlaa+3
+         movb   wlaa+6,dlaa+0
+         movb   wlaa+7,dlaa+1
+         jsr    pc,setlaa
+23$:
+         tst    modebits
+         beq    24$
+         xascil <restoring modebits>   ; restore the mode bits to what was set
+         jsr    pc,setmodebits
+24$:
+         xascil <chip reset>
+         br     10$
+;
+; check for command from host
+;
+30$:
+         jsr    pc,pcsrsrv             ; check pcsr register for command from host
+         mov    @#174512,r0            ; get status from register
+         bic    #177760,r0             ;
+         tst    r0                     ; 0 - reset, which is not ok, but the host should act on it, not us
+         bne    32$
+         jmp    10$                    ; yes - jump
+32$:
+         cmp    #2,r0                  ; 2 - ready ie ok, but not running as in not yet had start command
+         bne    33$
+         jmp    10$                    ; yes - jump
+33$:
+         cmp    #3,r0                  ; 3 - running
+         bne    34$
+         jmp    10$                    ; yes - jump
+34$:
+         xasciz <pcsr1 value wrong : >
+         xwhx   174510,10
+         xascil
+         jmp    10$                    ; FIXME, come up with something slightly more sensible
+;
+; pcsrsrv - service commands issued through the pcsr registers
+;
+pcsrsrv:
+         mov    @#174510,r1            ; #20 bit flags if a new command is in the register
+;
+; check if the reset bit is set in pcsr0
+;
+         bit    #40,r1                 ; rset bit set?
+         beq    psv100                 ; no
+         clrb   @#174510               ; reset rset bit - only a byte write to the low byte does this :-)
+         jmp    t45                    ; not a reboot, but fairly close
+;
+; check if the #20 bit is set - this is a bit in an unused bit field of the original deuna, that xu uses to detect that pcsr0 was written into
+;
+psv100:
+         bit    #20,r1                 ; cmd written bit set?
+         bne    psv110                 ; yes
+         jmp    psv900                 ; no
+psv110:
+         clrb   @#174510               ; reset flag bit - only a byte write to the low byte does this :-)
+         bic    #177760,r1             ; mask off p0cmd bit field from pcsr0
+         mov    r1,p0cmd               ; store it
+         asl    r1
+         add    #ptab,r1               ; add code to base of jump table
+         mov    (r1),r1
+         jsr    pc,(r1)                ; call the service routine
+psv900:
+         rts pc                        ; done
+;
+; nop : the real nop, command code 0
+;
+crnop:
+         xasciz <pcsr0 noop : >
+         xwhx   174510,2
+         xascil
+         ; ? manual says no-op, and dni bit not set
+         bis    #4000,@#174510
+         rts    pc
+;
+; nop : other command codes
+;
+conop:
+         xasciz <pcsr0 noopx: >
+         xwhx   174510,2
+         xascil
+         bis    #4000,@#174510
+         rts    pc
+
+;
+; cmd 1
+;
+c0001:
+         xasciz <pcsr0 cmd1 get pcbb : >
+         xwhx   174510,10
+         xascil
+         mov    @#174514,pcbbl
+         mov    @#174516,pcbbh
+         bis    #4000,@#174510            ; dni
+         rts    pc
+;
+; cmd 2
+;
+c0010:                                 ; get cmd
+         xasciz <pcsr0 cmd2 get cmd: >
+         xwhx   174510,10
+         xascil
+
+         mov    @#174514,10$
+         mov    @#174516,11$
+         jsr    pc,xubm
+10$:     .word  0
+11$:     .word  0
+         .word  pcbb
+         .word  10
+         xasciz <pcbb  cmd2 : >
+         xwhx   pcbb,10
+         xascil
+         movb   pcbb,r0
+         cmpb   #26,r0
+         blt    90$
+         asl    r0
+         add    #fctbl,r0
+         mov    (r0),r0
+         jsr    pc,(r0)
+90$:
+         rts    pc
+;
+; cmd 3 - self-test
+;
+c0011:                                 ; self-test
+         bis    #4000,@#174510            ; dni
+         rts    pc
+;
+; cmd 4 - start
+;
+c0100:                                 ; start
+         xasciz <pcsr0 START : >
+         xwhx   174510,10
+         xascil
+         mov    #3,@#174512            ; set state to running, clear error bits if any
+         tst    running
+         bne    90$                    ; was already running, skip resetting rings to start
+         mov    #1,running             ; set state
+;
+         mov    tdrbh,xcurrh              ; clear xcurr - manual 4-9
+         mov    tdrbl,xcurrl
+;
+         mov    rdrbh,rcurrh              ; clear rcurr - manual 4-9
+         mov    rdrbl,rcurrl
+;
+         bis    #4000,@#174510         ; dni
+90$:
+         rts    pc
+;
+; cmd 5 - boot
+;
+c0101:                                 ; boot
+         bis    #4000,@#174510         ; dni
+         rts    pc
+;
+; cmd 8 - polling demand
+;
+c1000:                                 ; pdmd
+;         xasciz <pcsr0 PDMD : >
+;         xwhx   174510,10
+;         xascil
+         jsr    pc,xmitpl              ; poll xmit ring
+         tst    xmitdw
+         beq    10$
+         bis    #10000,@#174510        ; txi --- FIXME, might not even be needed to set txi
+;         jsr pc,waitabit
+10$:
+         bis    #4000,@#174510         ; dni
+         rts    pc
+;
+; cmd 15 : stop
+;
+c1111:                                 ; stop
+         xasciz <pcsr0 STOP : >
+         xwhx   174510,10
+         xascil
+         clr    running                ; set state
+         mov    #2,@#174512            ; set state
+         bis    #4000,@#174510         ; dni
+         rts    pc
+;
+; command branch table
+;
+ptab:
+         .word  crnop                     ; 0
+         .word  c0001                     ; 1
+         .word  c0010                     ; 2
+         .word  c0011                     ; 3
+         .word  c0100                     ; 4
+         .word  c0101                     ; 5
+         .word  conop                     ; 6
+         .word  conop                     ; 7
+         .word  c1000                     ; 10
+         .word  conop                     ; 11
+         .word  conop                     ; 12
+         .word  conop                     ; 13
+         .word  conop                     ; 14
+         .word  conop                     ; 15
+         .word  conop                     ; 16
+         .word  c1111                     ; 17
+;
+; function branch table
+;
+fctbl:   .word  fc0
+         .word  fc1
+         .word  fc2
+         .word  fc3
+         .word  fc4
+         .word  fc5
+         .word  fc6
+         .word  fc7
+         .word  fc10
+         .word  fc11
+         .word  fc12
+         .word  fc13
+         .word  fc14
+         .word  fc15
+         .word  fc16
+         .word  fc17
+         .word  fc20
+         .word  fc21
+         .word  fc22
+         .word  fc23
+         .word  fc24
+         .word  fc25
+         .word  fc26
+         .word  fc27
+;
+; fc0 - no-op
+;
+fc0:
+         xascil <fc0 - noop>
+         bis    #4000,@#174510            ; dni
+         rts    pc
+;
+; fc1
+;
+fc1:
+         xasciz <fc1 - load and start>
+         bis    #40000,@#174510           ; pcei - this function is not implemented
+         rts    pc
+;
+; fc2
+;
+fc2:
+         xasciz <fc2 - read default physical address >
+         jsr    pc,getpcbb
+;
+; the bia is in crazy-chip format
+;
+         xbhx   dbia+4,1
+         xasciz <:>
+         xbhx   dbia+5,1
+         xasciz <:>
+         xbhx   dbia+2,1
+         xasciz <:>
+         xbhx   dbia+3,1
+         xasciz <:>
+         xbhx   dbia+0,1
+         xasciz <:>
+         xbhx   dbia+1,1
+         xascnl
+
+         movb   dbia+4,pcbb+2
+         movb   dbia+5,pcbb+3
+         movb   dbia+2,pcbb+4
+         movb   dbia+3,pcbb+5
+         movb   dbia+0,pcbb+6
+         movb   dbia+1,pcbb+7
+
+         jsr    pc,putpcbb
+         bis    #4000,@#174510            ; dni
+         rts    pc
+;
+; fc3
+;
+fc3:
+         xascil <fc3 - no op function>
+         bis    #4000,@#174510            ; dni, ach welja
+         rts    pc
+;
+; fc4
+;
+fc4:
+         xasciz <fc4 - read physical address >
+         jsr    pc,getpcbb
+         movb   dlaa+0,pcbb+2
+         movb   dlaa+1,pcbb+3
+         movb   dlaa+2,pcbb+4
+         movb   dlaa+3,pcbb+5
+         movb   dlaa+4,pcbb+6
+         movb   dlaa+5,pcbb+7
+         xbhx   pcbb+2,6
+         xascil
+         jsr    pc,putpcbb
+         bis    #4000,@#174510            ; dni
+         rts    pc
+;
+; fc5
+;
+fc5:
+         xasciz <fc5 - write physical address >
+         jsr    pc,getpcbb
+         movb   pcbb+2,dlaa+0
+         movb   pcbb+3,dlaa+1
+         movb   pcbb+4,dlaa+2
+         movb   pcbb+5,dlaa+3
+         movb   pcbb+6,dlaa+4
+         movb   pcbb+7,dlaa+5
+         xbhx   dlaa,6
+         xascil
+         jsr    pc,setlaa
+         bis    #4000,@#174510            ; dni
+         rts    pc
+;
+; fc6
+;
+fc6:
+         xascil <fc6 - read multicast address list>
+         jsr    pc,getpcbb
+         movb   pcbb+5,r0
+         cmp    #12,r0
+         blt    90$
+         mov    r0,mltreq
+         tst    r0
+         beq    80$
+         jsr    pc,putmlt
+80$:
+         bis    #4000,@#174510            ; dni
+         rts    pc
+90$:
+         bis    #44000,@#174510           ; pcei - error in req
+         rts    pc
+;
+; fc7
+;
+fc7:
+         xasciz <fc7 - write multicast address list >             ; FIXME, incomplete - the multicast list is ignored, only the mcen bit is set in the chip to match whether or not the list contains any entries at all             ; FIXME, incomplete
+         jsr    pc,getpcbb
+         movb   pcbb+5,r0
+         mov    r0,mltlen
+         tst    r0
+         bne    20$
+         xubl   cmcen,40
+         xasciz <clear>
+         br     80$
+20$:
+         cmp    #12,r0
+         blt    90$
+         xubl   smcen,40
+         jsr    pc,getmlt
+         xwhx   mltlen,2
+         xascil
+         xasciz <fc7        : >
+         xbhx   mltlist,14
+         xascil
+         xasciz <fc7        : >
+         xbhx   mltlist+14,14
+         xascil
+         xasciz <fc7        : >
+         xbhx   mltlist+30,14
+         xascil
+         xasciz <fc7        : >
+         xbhx   mltlist+44,14
+         xascil
+         xasciz <fc7        : >
+         xbhx   mltlist+60,14
+;         xascil
+;         xasciz <fc7        : >
+;         xbhx   mltlist+74,14
+80$:
+         xascil
+         bis    #4000,@#174510            ; dni
+         rts    pc
+90$:
+         bis    #44000,@#174510           ; pcei - error in req
+         rts    pc
+;
+; fc10
+;
+fc10:
+         xascil <fc10 - read ring format >
+         jsr    pc,getpcbb
+;
+         mov    tdrbl,udbb
+         mov    tdrbh,udbb+2
+         movb   telen,udbb+3
+         mov    trlen,udbb+4
+         mov    rdrbl,udbb+6
+         mov    rdrbh,udbb+10
+         movb   relen,udbb+11
+         mov    rrlen,udbb+12
+;
+         xwhx   udbb,14
+         xascil
+;
+         mov    #14,udbblen
+         jsr    pc,putudbb
+         bis    #4000,@#174510            ; dni
+         rts    pc
+;
+; fc11
+;
+fc11:
+         xasciz <fc11 - write ring format >
+         jsr    pc,getpcbb
+;
+         mov    #14,udbblen
+         jsr    pc,getudbb
+         xwhx   udbb,14
+         xascil
+;
+         mov    udbb,tdrbl
+         bic    #1,tdrbl
+         mov    udbb+2,tdrbh
+         bic    #177774,tdrbh
+         movb   udbb+3,r0
+         mov    r0,telen
+         mov    udbb+4,trlen
+         mov    udbb+6,rdrbl
+         bic    #1,rdrbl
+         mov    udbb+10,rdrbh
+         bic    #177774,rdrbh
+         movb   udbb+11,r0
+         mov    r0,relen
+         mov    udbb+12,rrlen
+         bis    #4000,@#174510            ; dni
+;
+         mov    tdrbh,xcurrh              ; clear xcurr
+         mov    tdrbl,xcurrl
+;
+         mov    rdrbh,rcurrh              ; clear rcurr
+         mov    rdrbl,rcurrl
+;
+; setup pointers to last buffer
+;
+         mov    tdrbh,tdrmxh
+         mov    tdrbl,tdrmxl
+
+         mov    trlen,r0
+         dec    r0
+10$:
+         add    telen,tdrmxl
+         adc    tdrmxh
+         add    telen,tdrmxl
+         adc    tdrmxh
+         dec    r0
+         bne    10$
+
+         mov    rdrbh,rdrmxh
+         mov    rdrbl,rdrmxl
+
+         mov    rrlen,r0
+         dec    r0
+20$:
+         add    relen,rdrmxl
+         adc    rdrmxh
+         add    relen,rdrmxl
+         adc    rdrmxh
+         dec    r0
+         bne    20$
+
+         rts    pc
+;
+; fc12
+;
+fc12:
+         xascil <fc12 - read counters>
+         bis    #4000,@#174510            ; dni
+         rts    pc
+;
+; fc13
+;
+fc13:
+         xascil <fc13 - read and clear counters>
+         bis    #4000,@#174510            ; dni
+         rts    pc
+;
+; fc14
+;
+fc14:
+         xasciz <fc14 - read mode bits >
+         xwhx   modebits,2
+         xascil
+         jsr    pc,getpcbb
+         mov    modebits,pcbb+2
+         jsr    pc,putpcbb
+         bis    #4000,@#174510            ; dni
+         rts    pc
+;
+; fc15
+;
+fc15:
+         xasciz <fc15 - write mode bits >
+         xwhx   modebits,2
+         xasciz ^/ -> /
+         jsr    pc,getpcbb
+         mov    pcbb+2,modebits
+         xwhx   modebits,2
+         xascil
+;
+         jsr    pc,setmodebits
+;
+         bis    #4000,@#174510            ; dni
+         rts    pc
+;
+; fc16
+;
+fc16:
+         xascil <fc16>
+         rts    pc
+;
+; fc17
+;
+fc17:
+         xascil <fc17>
+         rts    pc
+;
+; fc20
+;
+fc20:
+         xascil <fc20 - dump internal memory>
+         bis    #44000,@#174510           ; pcei - this function is not implemented
+         rts    pc
+;
+; fc21
+;
+fc21:
+         xascil <fc21 - load internal memory>
+         bis    #44000,@#174510           ; pcei - this function is not implemented
+         rts    pc
+;
+; fc22
+;
+fc22:
+         xascil <fc22>
+         rts    pc
+;
+; fc23
+;
+fc23:
+         xascil <fc23>
+         rts    pc
+;
+; fc24
+;
+fc24:
+         xascil <fc24>
+         rts    pc
+;
+; fc25
+;
+fc25:
+         xascil <fc25>
+         rts    pc
+;
+; fc26
+;
+fc26:
+         xascil <fc26>
+         rts    pc
+;
+; fc27
+;
+fc27:
+         xascil <fc27>
+         rts    pc
+;
+; xmitpl : poll xmit ring for entries with own set
+;
+xmitpl:
+         clr    xmitdw
+;         tst    running
+;         bne    xpl010
+;         jmp    xpl990
+xpl010:
+         tst    xcurrl
+         bne    xpl020
+         tst    xcurrh
+         bne    xpl020
+         jmp    xpl990
+xpl020:
+         mov    r0,-(sp)
+;
+;         xasciz <xmit poll  : >
+;         xwhx   xcurrh,2
+;         xwhx   xcurrl,2
+;         xascil
+;
+         mov    xcurrl,xolddl
+         mov    xcurrh,xolddh
+         clr    xplrun
+;
+xpl200:
+         jsr    pc,getxcnh                        ; get xcurr and next header
+
+         bit    #100000,xdre+4                   ; own bit set?
+         bne    xpl210
+;         xascil <not own, end>
+         br     xpl900                           ; not set - end run
+
+xpl210:
+;         xasciz <xmitpl ent : >
+;         xwhx   xcurrh,2
+;         xwhx   xcurrl,2
+;         xasciz < >
+;         xwhx   xdre,10
+
+         tst    xplrun
+         beq    xpl220                           ; not continuation
+;         xasciz <cont >
+         br     xpl320
+
+xpl220:
+         bit    #1000,xdre+4                     ; stp bit set?
+         bne    xpl300                           ; yes
+;         xascil <skip >
+         br     xpl340                           ; own, but not stp in the first message - skip/rel
+
+xpl300:
+;         xasciz <start >
+         mov    #1,xplrun
+         jsr    pc,xmitst
+;
+; 320 - if we get here, we have either the start bit in this buffer, or it is a chained buffer and we already saw start
+;
+xpl320:
+         bit    #400,xdre+4                      ; enp bit set?
+         beq    xpl330                           ; no
+         clr    xplrun
+;         xasciz <end >
+
+xpl330:
+;         xascil
+         jsr    pc,xmitld
+         bit    #400,xdre+4                      ; enp bit set?
+         beq    xpl340                           ; no
+         jsr    pc,xmitxx
+xpl340:
+         jsr    pc,xmitrb
+xpl350:
+;         xasciz <xmitpl rel : >
+;         xwhx   xcurrh,2
+;         xwhx   xcurrl,2
+;         xasciz < >
+;         xwhx   xdre,10
+;         xascil
+;
+; advance to next entry and loop back, if all entries have not been done yet
+;
+xpl700:
+         cmp    xnextl,xolddl
+         bne    xpl710
+         cmp    xnexth,xolddh
+         bne    xpl710
+         mov    xnextl,xcurrl
+         mov    xnexth,xcurrh
+         br     xpl900                    ; looped round, end of run
+xpl710:
+         mov    xnextl,xcurrl
+         mov    xnexth,xcurrh
+         jmp    xpl200
+;
+; exit
+;
+xpl900:
+         mov    (sp)+,r0
+xpl990:
+         rts    pc
+;
+; xmitst: do starting things re transmission, amongst others to the chip
+;
+xmitst:
+;
+; set egpwr pointer to zero
+;
+         xubl   wegpwr,40
+         xubl   wetxst,40
+         clr    xmitlen
+         rts    pc
+;
+         .even
+wegpwr:  .byte wcru,egpwrpt,0,0
+         .even
+wetxst:  .byte wcru,etxst,0,0
+;
+; xmitxx: do ending things re transmission, including causing the chip to transmit
+;
+xmitxx:
+         tst    xmitmch
+         beq    10$
+         bis    #20000,xdre+4
+10$:
+         mov    xmitlen,wetxlen+2
+         xubl   wetxlen,40
+;
+         xubl   tecon1,40
+20$:
+         xubl   recon1,20,decon1,20              ; set econ1 bit 1, this causes the chip to transmit.
+;         xasciz <econ1      : >
+;         xbhx   decon1,2
+;         xascnl
+
+         bitb   #2,decon1                        ; check if econ1 bit 1 is cleared; this means the chip is done transmitting.
+         bne    20$
+         rts    pc
+         .even
+wetxlen: .byte wcru,etxlen,0,0
+;
+; xmitld: load bytes from current buffer
+;
+xmitld:
+         mov    r0,-(sp)
+         mov    r1,-(sp)
+         mov    r2,-(sp)
+         mov    r3,-(sp)
+         mov    r4,-(sp)
+
+         mov    xdre+0,r3                        ; load slen into r3
+         mov    xdre+2,r1                        ; load segb
+         bic    #1,r1                            ; clean segb l      ; FIXME, we're disregarding byte alignment here
+         mov    xdre+4,r2                        ; load segb h
+         bic    #177774,r2                       ; clean segb h
+
+10$:
+         mov    r3,r0                            ; copy remainder of slen
+         cmp    #20,r3                           ; is the actual length left > 20
+         bge    20$                              ; no
+         mov    #20,r0                           ; set length for this run
+20$:
+;         xasciz <xmitld buf : >
+;         mov    r2,buf
+;         mov    r1,buf+2
+;         xwhx   buf,4
+         mov    r0,r4
+         bit    #1,r4
+         bne    22$
+;         xasciz < >
+         br     23$
+22$:
+;         xasciz <!>
+         inc    r4                                ; make length an even number
+23$:
+;         xasciz <xubm       : >
+
+;         mov    r2,workw
+;         xwhx   workw,2
+;         mov    r1,workw
+;         xwhx   workw,2
+;         xasciz < >
+;         mov    r4,workw
+;         xwhx   workw,2
+;         xasciz < >
+;         mov    xmitlen,workw
+;         xwhx   workw,2
+;         xascil
+
+;
+; setup xubm for transfer from main system core to our buffer - length limited by logic above to 16 bytes
+;
+         mov    r1,@#177100
+         mov    r2,@#177102
+         mov    #buf+2,@#177104
+         movb   #0,@#177107
+         movb   r4,@#177106
+
+         tst    xmitlen                          ; check if this is the first part of the frame? then we need to set the mac address into the buffer
+         bne    26$
+;
+; set mch bit for transmit ring entry
+;
+         clr    xmitmch
+         cmpb   dlaa+0,buf+2
+         bne    25$
+         cmpb   dlaa+1,buf+3
+         bne    25$
+         cmpb   dlaa+2,buf+4
+         bne    25$
+         cmpb   dlaa+3,buf+5
+         bne    25$
+         cmpb   dlaa+4,buf+6
+         bne    25$
+         cmpb   dlaa+5,buf+7
+         bne    25$
+         mov    #1,xmitmch
+;
+; set our own address into the frame
+;
+25$:
+         movb   dlaa+0,buf+10
+         movb   dlaa+1,buf+11
+         movb   dlaa+2,buf+12
+         movb   dlaa+3,buf+13
+         movb   dlaa+4,buf+14
+         movb   dlaa+5,buf+15
+;         xasciz <xmitld fib : >
+;         xbhx   buf+2,6
+;         xasciz < : >
+;         xbhx   buf+10,6
+;         xascil
+26$:
+         add    r0,xmitlen
+
+30$:
+         movb   #b0sel,buf
+         movb   #wgpdata,buf+1
+         mov    r0,r4
+         inc    r4
+         inc    r4
+         asl    r4
+         asl    r4
+         asl    r4
+         mov    r4,31$          ; set the number of bits in the parm list
+         jsr    pc,xubl
+         .word  buf
+31$:     .word  0
+         .word  0
+         .word  0
+
+40$:
+;         mov    r0,41$
+;         jsr    pc,xbhx
+;         .word  buf+2
+;41$:     .word  0
+;         xascil
+42$:
+
+         add    r0,r1                            ; add length of run to low
+         adc    r2                               ; carry to high
+
+         cmp    #20,r3
+         bge    50$
+         sub    #20,r3
+         jmp    10$
+50$:
+         mov    (sp)+,r4
+         mov    (sp)+,r3
+         mov    (sp)+,r2
+         mov    (sp)+,r1
+         mov    (sp)+,r0
+         rts    pc
+;
+; xmitrb: release current buffer from xmit ring
+;
+xmitrb:
+         bit    #400,xdre+4                      ; enp bit set?
+         bne    30$                              ; yes
+         bit    #100000,xdre+14                  ; own bit set in next buffer?
+         bne    30$                              ; yes
+;
+; not end, and the next buffer is not owned. Must release the buffer and set error codes
+;
+         bis    #40000,xdre+4                   ; err summary bit
+         bis    #100000,xdre+6                  ; set bufl
+;
+; reset own and write back
+;
+30$:
+         bic    #100000,xdre+4                  ; clear own
+         jsr    pc,putxdre                      ; write back
+         rts    pc
+;
+; pktin: deal with packets incoming on the encx24j600
+;
+pktin:
+         mov    r0,-(sp)
+         mov    r1,-(sp)
+         mov    r2,-(sp)
+         mov    r3,-(sp)
+         mov    r4,-(sp)
+         mov    r5,-(sp)
+         clr    recvdw                 ; clear flag, did not do any work yet
+;
+; check if there is a free buffer on the receive ring. If there isn't, skip - and hope that the encx24j600 has enough space to buffer
+;
+         tst    rcurrl                 ; ring pointer valid?
+         bne    10$                    ; yes
+         tst    rcurrh                 ; ring pointer valid?
+         bne    10$                    ; yes
+         jmp    90$                    ; no - can't even check buffer space yet
+;
+; read estat
+;
+10$:
+         xubl   restat,20,destat,20
+         movb   destat,pktcnt
+         tstb   pktcnt
+         bne    15$
+         jmp    90$
+;
+; check if there is a buffer free
+;
+15$:
+         jsr    pc,getrdre             ; might be current, but refresh just to be sure
+         bit    #100000,rdre+4         ; own?
+         beq    90$                    ; not own - skip pktin
+;
+; process read pointer in chip
+;
+         mov    npp,werxrdpt+2
+         xubl   werxrdpt,40            ; set erxrdpt to the value of npp
+         xubl   rnpp,20,dnpp,20        ; read first two bytes - pointer to the new npp
+         mov    dnpp,npp               ; copy the new npp
+;
+; read next 6 bytes
+;
+         xubl   rpkth,20,dpkth,60
+;         xasciz <pkt header : >
+;         xbhx   dpkth,6
+;         xascnl
+;
+; take length from header - from first two bytes
+;
+         mov    dpkth,flen
+;
+; process frame data
+;
+20$:
+         jsr    pc,getfr
+;
+; calculate new erxtail
+;
+30$:
+         mov    npp,r0
+         sub    #2,r0
+         cmp    #44000,r0
+         blt    31$
+         mov    #57776,r0
+31$:
+;
+; update erxtail - this releases the buffer in the encx24j600
+;
+         mov    r0,werxtail+2
+         xubl   werxtail,40
+;
+; dec pktcnt
+;
+         xubl   decpc,20
+;
+; done, exit
+;
+90$:
+         mov    (sp)+,r5
+         mov    (sp)+,r4
+         mov    (sp)+,r3
+         mov    (sp)+,r2
+         mov    (sp)+,r1
+         mov    (sp)+,r0
+         rts pc
+;
+; pktin data
+;
+         .even
+pincnt:  .byte 0
+
+         .even
+werxrdpt: .byte wcru,erxrdpt,0,0
+
+         .even
+rnpp:    .byte b0sel,rrxdata
+dnpp:    .word 0
+
+         .even
+rpkth:   .byte b0sel,rrxdata
+
+         .even
+dpkth:   .byte 0,0,0,0,0,0
+
+         .even
+rdata:   .byte b0sel,rrxdata
+
+         .even
+decpc:   .byte b0sel,setpktdec
+;
+; getfr: move a frame from the chip onto the receive ring buffer
+;
+getfr:
+         tst    running               ;; FIXME does this make sense? after all we;re coming here through pktin.
+         bne    1$
+         jmp    99$
+1$:
+         mov    r0,-(sp)
+         mov    r1,-(sp)
+         mov    r2,-(sp)
+         mov    r3,-(sp)
+         mov    r4,-(sp)
+         mov    r5,-(sp)
+
+         tst    rcurrl
+         bne    2$
+         tst    rcurrh
+         bne    2$
+         jmp    95$
+2$:
+         mov    flen,r3
+         clr    mlen
+         jsr    pc,getrdre             ; might be current, but refresh just to be sure
+         mov    rdre+2,r2              ; segbl into r2
+         mov    rdre+4,r4              ; segbh into r4
+         bic    #177774,r4             ; clean segbh
+         mov    rdre,r5                ; slen into r5
+         clr    rdre+6                 ; start clean
+         bit    #100000,rdre+4         ; own?
+         beq    5$                     ; current buffer is not own
+         bis    #1000,rdre+4           ; set stp
+         br     10$
+5$:
+         bis    #2000,@#174510         ; rcbi
+         jmp    95$                    ; done here!
+
+10$:
+         mov    r3,r0
+         cmp    #20,r3                 ; is the actual length left > 20
+         bge    20$                    ; no
+         mov    #20,r0                 ; set length for this run
+20$:
+         cmp    r5,r0
+         bge    22$
+         mov    r5,r0
+22$:
+         mov    r0,r1                  ; r1 now has copy of noof bytes
+         bit    #1,r1                  ; uneven number leftover? xubl can only deal with words...
+         beq    28$                    ; no
+         inc    r1                     ; make even
+28$:
+         asl    r1                     ; make into noof bits
+         asl    r1
+         asl    r1
+
+30$:
+         mov    r1,31$                 ; set the number of bits in the parm list
+         jsr    pc,xubl
+         .word  rdata
+         .word  20
+         .word  buf
+31$:     .word  0
+
+40$:
+         mov    r0,r1                  ; copy length
+         bit    #1,r1                  ; uneven number of bytes?
+         beq    42$                    ; no
+         inc    r1                     ; round up to the next word
+42$:
+         mov    r2,@#177100            ; dest low word addr
+         mov    r4,@#177102            ; dest high word addr
+         mov    #buf,@#177104          ; src addr
+         movb   #1,@#177107            ; direction - to xu busmaster
+         tst    r1
+         beq    48$
+         movb   r1,@#177106
+48$:
+;
+;
+;
+         mov    r0,r1                  ; copy length of run
+         add    r1,r2
+         adc    r4
+         sub    r1,r5
+         add    r1,mlen
+         sub    r1,r3                  ; subtract actual run length from frame length
+         cmp    #0,r3                  ; finished frame?
+         bge    90$                    ; yes
+
+50$:
+         cmp    r5,#0                  ; buffer filled?
+         bgt    60$
+
+;         xascil <BAZINGA!!!!!>
+         tst    drdc                   ; can we do data chaining?
+         beq    52$                    ; yes, go on
+         add    mlen,rdre+6            ; set message length - leave other bits in there intact, given that we started out at zero...
+         bis    #100000,rdre+6         ; set bufl
+         bis    #40000,rdre+4          ; set errs
+         br     90$
+52$:
+
+         bit    #100000,rdre+14        ; do we own the next buffer?
+         bne    53$                    ; yes
+         add    mlen,rdre+6            ; set message length - leave other bits in there intact, given that we started out at zero...
+         bis    #100000,rdre+6         ; set bufl
+         bis    #40000,rdre+4          ; set errs
+         br     90$
+
+53$:
+         bic    #100000,rdre+4         ; clear own
+         jsr    pc,putrdre                      ; write back
+         mov    rnexth,rcurrh          ; next buffer
+         mov    rnextl,rcurrl
+         jsr    pc,getrdre             ; might be current, but refresh just to be sure
+         mov    rdre+2,r2              ; segbl into r2
+         mov    rdre+4,r4              ; segbh into r4
+         bic    #177774,r4             ; clean segbh
+         mov    rdre,r5                ; slen into r5
+         clr    rdre+6                 ; start clean
+         br     10$                    ; current buffer is own - we're in business
+60$:
+         jmp    10$
+;
+;
+;
+90$:
+         bit    #100000,rdre+4
+         beq    95$                    ; not own
+         bis    #400,rdre+4            ; set enp
+         bic    #100000,rdre+4         ; clear own
+         bit    #100000,rdre+6         ; bufl already set?
+         bne    91$                    ; yes, skip setting mlen
+         add    mlen,rdre+6            ; set message length - leave other bits in there intact, given that we started out at zero...
+91$:
+         tst    drdc
+         beq    92$
+         bis    #20000,rdre+6          ; set nchn
+92$:
+         jsr    pc,putrdre                      ; write back
+         mov    rnexth,rcurrh
+         mov    rnextl,rcurrl
+         jsr    pc,getrdre
+95$:
+         mov    (sp)+,r5
+         mov    (sp)+,r4
+         mov    (sp)+,r3
+         mov    (sp)+,r2
+         mov    (sp)+,r1
+         mov    (sp)+,r0
+99$:
+         rts    pc
+;
+; init encx24j600 chip connected to spi xubl peripheral on our bus - see reset procedure in encx24j600 manual, ch. 8.1
+;
+initenc:
+;
+; check eudast to see if we are in touch with the chip
+;
+         jsr    pc,chkeudast
+         tst    r0
+         beq    10$
+         jmp    99$
+;
+; read estat, bit 12 - wait until that shows the chip finished powerup
+;
+10$:
+         mov    #10.,r0                          ; try the estat check 10 times
+11$:
+         xubl   restat,20,destat,20              ; checking if estat clkrdy (12) bit is set; this shows the chip is ready and all registers are available
+         bit    #10000,destat
+         bne    20$
+         xasciz <estat      : >
+         xbhx   destat,2
+         xascnl
+         dec    r0
+         bne    11$
+         jmp    99$
+20$:
+;
+; write reset bit into econ2
+;
+         xubl   qecon2,40
+;
+; wait
+;
+         jsr    pc,waitabit
+;
+; read eudast again, see if the reset took place
+;
+30$:
+         xubl   reudast,20,ceudast,20
+         tst    ceudast
+         beq    40$
+         xasciz <init: eudast did not reset, value is >
+         xbhx   ceudast,2
+         xascnl
+         jmp    99$
+40$:
+;
+; read mac addr from the chip
+;
+         xubl   rbia,20,dbia,60
+         xasciz <x24j600 bia: >
+         xbhx   dbia+4,1
+         xasciz <:>
+         xbhx   dbia+5,1
+         xasciz <:>
+         xbhx   dbia+2,1
+         xasciz <:>
+         xbhx   dbia+3,1
+         xasciz <:>
+         xbhx   dbia+0,1
+         xasciz <:>
+         xbhx   dbia+1,1
+         xascnl
+         movb   dbia+4,dlaa+0
+         movb   dbia+5,dlaa+1
+         movb   dbia+2,dlaa+2
+         movb   dbia+3,dlaa+3
+         movb   dbia+0,dlaa+4
+         movb   dbia+1,dlaa+5
+;
+; set npp, erxst to initial value
+;
+         mov    #44000,npp
+         mov    npp,werxst+2
+         xubl   werxst,40
+;
+; set erxtail
+;
+         mov    #57776,werxtail+2
+         xubl   werxtail,40
+;
+; read econ1, set rxen - enable the chip to receive frames
+;
+         xubl   recon1,20,decon1,20
+         xasciz <econ1      : >
+         xbhx   decon1,2
+         xascnl
+         xubl   xecon1,40
+         xubl   recon1,20,decon1,20
+         xasciz <econ1      : >
+         xbhx   decon1,2
+         xascnl
+;
+; read econ2
+;
+         xubl   recon2,20,decon2,20
+         xasciz <econ2      : >
+         xbhx   decon2,2
+         xascnl
+;
+; end
+;
+90$:
+         clr    r0
+         rts    pc
+99$:
+         mov    #1,r0
+         rts    pc
+;
+; write, read, verify eudast; to check if we are able to communicate to the encx24j600.
+;
+chkeudast:
+10$:
+         mov    #10.,r0
+11$:
+         mov    #22522,weudast+2                 ; setup buffer
+         xubl   weudast,40,0,0                   ; xubl write
+         clr    ceudast                          ; make sure data isnt left here
+         xubl   reudast,20,ceudast,20            ; xubl read
+         cmp    #22522,ceudast                   ; is it the pattern we did store in the eudast
+         beq    20$                              ; yes, worked
+         xasciz <init: eudast did not reset, value is >
+         xbhx   ceudast,2                        ; and value
+         xascnl
+         tst    r0
+         bne    11$
+         mov    #1,r0
+         rts    pc
+20$:
+         clr    r0
+         rts    pc                               ; return
+;
+; data for initenc
+;
+         .even
+weudast: .byte wcru,eudast,0,0
+          .even
+reudast: .byte rcru,eudast
+ceudast: .word 0
+
+seudast: .asciz /init: eudast did not update, value is /
+meudast: .asciz /init: eudast did not reset, value is /
+
+          .even
+rbia:    .byte rcru,maadr3l
+sbia:    .asciz /x24j600 bia: /
+
+         .even
+dbia:    .byte 0,0,0,0,0,0
+
+         .even
+restat:  .byte rcru,estat
+destat:  .word 0
+
+         .even
+reidled: .byte rcru,eidled
+deidled: .word 0
+
+         .even
+qecon2:  .byte bfsu,econ2,20,0
+
+         .even
+werxst:  .byte wcru,erxst,0,0
+
+         .even
+werxtail:.byte wcru,erxtail,0,0
+
+         .even
+recon1:  .byte rcru,econ1
+decon1:  .word 0
+xecon1:  .byte bfsu,econ1,1,0
+tecon1:  .byte bfsu,econ1,2,0
+
+         .even
+recon2:  .byte rcru,econ2
+decon2:  .word 0
+
+         .even
+setlpbk: .byte bfsu,macon1,20,0
+
+         .even
+clrlpbk: .byte bfcu,macon1,20,0
+
+         .even
+snotmeen:.byte bfsu,erxfcon,4,0
+
+         .even
+cnotmeen:.byte bfcu,erxfcon,4,0
+
+         .even
+smcen:   .byte bfsu,erxfcon,2,0
+
+         .even
+cmcen:   .byte bfcu,erxfcon,2,0
+;
+; setlaa : set the mac address into the encx24j600 - note that this acts on the unicast receive filter only
+;
+setlaa:
+         movb   dlaa+4,wlaa+2
+         movb   dlaa+5,wlaa+3
+         movb   dlaa+2,wlaa+4
+         movb   dlaa+3,wlaa+5
+         movb   dlaa+0,wlaa+6
+         movb   dlaa+1,wlaa+7
+;
+         xubl   wlaa,100
+         rts    pc
+
+         .even
+wlaa:    .byte  wcru,maadr3
+         .byte  0,0,0,0,0,0                        ; this field is also used to store the laa in. If the laa is default, this should be zero; if not, the laa should be in here
+;
+dlaa:    .byte  0,0,0,0,0,0
+
+         .even
+;
+; xubl stub routine
+;
+xubl:
+         mov r5,-(sp)
+         mov 2(sp),r5
+         add #10,2(sp)
+         mov 0(r5),@#177000
+         mov 4(r5),@#177004
+         mov 6(r5),@#177006
+         mov 2(r5),@#177002
+         mov (sp)+,r5
+         rts pc
+;
+; xubm stub routine
+;
+xubm:
+         mov r5,-(sp)
+         mov 2(sp),r5
+         add #10,2(sp)
+         mov 0(r5),@#177100
+         mov 2(r5),@#177102
+         mov 4(r5),@#177104
+         mov 6(r5),@#177106
+         mov (sp)+,r5
+         rts pc
+;
+; getpcbb: xubm the pcbb into our memory
+;
+getpcbb:
+         mov    pcbbl,@#177100
+         mov    pcbbh,@#177102
+         mov    #pcbb,@#177104
+         movb   #0,@#177107
+         movb   #10,@#177106
+         rts    pc
+;
+; putpcbb: xubm our pcbb copy into the unibus memory
+;
+putpcbb:
+         mov    pcbbl,@#177100
+         mov    pcbbh,@#177102
+         mov    #pcbb,@#177104
+         movb   #1,@#177107
+         movb   #10,@#177106
+         rts    pc
+;
+; getudbb: get udbb from unibus, address in pcbb must be valid and length must be set in udbblen
+;
+getudbb:
+         mov    pcbb+2,@#177100
+         mov    pcbb+4,@#177102
+         mov    #udbb,@#177104
+         movb   #0,@#177107
+         movb   udbblen,@#177106
+         rts    pc
+;
+; putudbb: move udbb to unibus, address in pcbb must be valid and length must be set in udbblen
+;
+putudbb:
+         mov    pcbb+2,@#177100
+         mov    pcbb+4,@#177102
+         mov    #udbb,@#177104
+         movb   #1,@#177107
+         movb   udbblen,@#177106
+         rts    pc
+;
+; getrdre: read receive descriptor ring entry from unibus
+;
+getrdre:
+         mov    rcurrl,@#177100
+         mov    rcurrh,@#177102
+         mov    #rdre,@#177104
+         movb   #0,@#177107
+         movb   #10,@#177106
+
+         cmp    rcurrl,rdrmxl             ; need to wrap?
+         bne    10$
+         cmp    rcurrh,rdrmxh
+         bne    10$
+         mov    rdrbh,rnexth              ; wrap, rnext is first buffer in ring
+         mov    rdrbl,rnextl
+         br     20$
+10$:
+         mov    rcurrl,rnextl
+         mov    rcurrh,rnexth
+         add    relen,rnextl
+         adc    rnexth
+         add    relen,rnextl                     ; words, so add twice
+         adc    rnexth
+20$:
+         mov    rnextl,@#177100
+         mov    rnexth,@#177102
+         mov    #rdre+10,@#177104
+         movb   #0,@#177107
+         movb   #10,@#177106
+         rts    pc
+;
+; putrdre: copy receive descriptor ring entry back onto unibus
+;
+putrdre:
+         mov    r0,-(sp)
+         mov    r1,-(sp)
+
+;         xasciz <recvpl put : >
+;         xwhx   rcurrh,2
+;         xwhx   rcurrl,2
+;         xasciz < >
+;         xwhx   rdre,10
+;         xascil
+
+         mov    rcurrl,r0
+         mov    rcurrh,r1
+         add    #4,r0
+         adc    r1
+         mov    r0,@#177100
+         mov    r1,@#177102
+         mov    #rdre+4,@#177104
+         movb   #1,@#177107
+         movb   #4,@#177106
+         mov    #1,recvdw
+
+         mov    (sp)+,r1
+         mov    (sp)+,r0
+         rts    pc
+;
+; putxdre: copy transmit descriptor ring entry back onto unibus
+;
+putxdre:
+         mov    r0,-(sp)
+         mov    r1,-(sp)
+
+;         xasciz <xmitpl put : >
+;         xwhx   xcurrh,2
+;         xwhx   xcurrl,2
+;         xasciz < >
+;         xwhx   xdre,10
+;         xascil
+
+         mov    xcurrl,r0
+         mov    xcurrh,r1
+         add    #4,r0
+         adc    r1
+         mov    r0,@#177100
+         mov    r1,@#177102
+         mov    #xdre+4,@#177104
+         movb   #1,@#177107
+         movb   #4,@#177106
+         mov    #1,xmitdw
+
+         mov    (sp)+,r1
+         mov    (sp)+,r0
+         rts    pc
+;
+; getxcnh: copy transmit descriptor ring entry from unibus at xcurr into xdre, find which buf is next, copy that to xdre+10
+;
+getxcnh:
+         mov    xcurrl,@#177100
+         mov    xcurrh,@#177102
+         mov    #xdre,@#177104
+         movb   #0,@#177107
+         movb   #10,@#177106
+
+         cmp    xcurrl,tdrmxl             ; need to wrap?
+         bne    10$
+         cmp    xcurrh,tdrmxh
+         bne    10$
+         mov    tdrbh,xnexth              ; wrap, xnext is first buffer in ring
+         mov    tdrbl,xnextl
+         br     20$
+10$:
+         mov    xcurrl,xnextl
+         mov    xcurrh,xnexth
+         add    telen,xnextl
+         adc    xnexth
+         add    telen,xnextl                     ; words, so add twice
+         adc    xnexth
+20$:
+         mov    xnextl,@#177100
+         mov    xnexth,@#177102
+         mov    #xdre+10,@#177104
+         movb   #0,@#177107
+         movb   #10,@#177106
+
+;         xasciz <getxcnh    : >
+;         xwhx   xcurrh,2
+;         xwhx   xcurrl,2
+;         xasciz < >
+;         xwhx   xnexth,2
+;         xwhx   xnextl,2
+;         xascil
+
+         rts    pc
+;
+; getmlt: get udbb multicast list from unibus, address in pcbb must be valid
+;
+getmlt:
+         mov    r0,-(sp)
+         mov    mltlen,r0
+         add    mltlen,r0
+         add    mltlen,r0
+         asl    r0
+         cmp    #74,r0
+         blt    90$
+         mov    pcbb+2,@#177100
+         mov    pcbb+4,@#177102
+         mov    #mltlist,@#177104
+         movb   #0,@#177107
+         movb   r0,@#177106
+90$:
+         mov    (sp)+,r0
+         rts    pc
+;
+; putmlt: put udbb multicast list to unibus, address in pcbb must be valid
+;
+putmlt:
+         mov    r0,-(sp)
+         cmp    mltreq,mltlen
+         bgt    10$
+         mov    mltlen,r0
+         add    mltlen,r0
+         add    mltlen,r0
+         asl    r0
+         br     20$
+10$:
+         mov    mltreq,r0
+         add    mltreq,r0
+         add    mltreq,r0
+         asl    r0
+         br     20$
+20$:
+         cmp    #74,r0
+         blt    90$
+         mov    pcbb+2,@#177100
+         mov    pcbb+4,@#177102
+         mov    #mltlist,@#177104
+         movb   #1,@#177107
+         movb   r0,@#177106
+90$:
+         mov    (sp)+,r0
+         rts    pc
+;
+; set mode bits into chip
+;
+setmodebits:
+         bit    #4,modebits
+         beq    10$
+         xubl   setlpbk,40
+         br     19$
+10$:
+         xubl   clrlpbk,40
+         br     19$
+19$:
+;
+         bit    #100000,modebits
+         beq    20$
+         xubl   snotmeen,40
+         br     29$
+20$:
+         xubl   cnotmeen,40
+         br     29$
+29$:
+;
+         bit    #20000,modebits
+         beq    30$
+         mov    #1,drdc
+         br     39$
+30$:
+         clr    drdc
+         br     39$
+39$:
+         rts    pc
+;
+; print an ascii zero terminated string, string directly follows jsr pc insn
+;
+xasciz:
+         mov r1,-(sp)                  ; push r1
+         mov 2(sp),r1                  ; set r1 to return address
+10$:
+         tstb @#177564                 ; output busy?
+         bpl 10$                       ; yes, spin
+         tstb (r1)                     ; byte zero?
+         beq 20$                       ; yes, exit
+         movb (r1)+,@#177566           ; move byte into transmit register
+         br 10$                        ; next byte
+20$:
+         inc r1
+         bit #1,r1                     ; check if even address
+         beq 30$                       ; yes
+         inc r1                        ; no - move to next byte
+30$:
+         mov r1,2(sp)                  ; correct stored return address
+         mov (sp)+,r1                  ; pop r1
+         rts pc                        ; return to corrected pc
+;
+; print a variable number of hex bytes, separated by space
+;
+xbhx:
+         mov r5,-(sp)
+         mov 2(sp),r5
+         add #4,2(sp)
+         mov r0,-(sp)
+         mov r1,-(sp)
+         mov r2,-(sp)
+         mov 0(r5),r2
+         mov 2(r5),r0
+10$:
+         movb (r2)+,r1
+         jsr pc,bhexb
+         dec r0
+         tst r0
+         beq 30$
+20$:
+         tstb @#177564                 ; output busy?
+         bpl 20$                       ; yes, spin
+         movb #40,@#177566             ; move byte into transmit register
+         br 10$
+30$:
+         mov (sp)+,r2
+         mov (sp)+,r1
+         mov (sp)+,r0
+         mov (sp)+,r5
+         rts pc
+;
+; print a variable number of hex words, separated by space
+;
+xwhx:
+         mov r5,-(sp)
+         mov 2(sp),r5
+         add #4,2(sp)
+         mov r0,-(sp)
+         mov r1,-(sp)
+         mov r2,-(sp)
+         mov 0(r5),r2
+         mov 2(r5),r0
+10$:
+         mov (r2)+,r1                  ; load the word
+         swab r1                       ; high byte first
+         jsr pc,bhexb
+         swab r1                       ; swap to low byte
+         jsr pc,bhexb
+         dec r0                        ; count in bytes, decrement twice
+         tst r0                        ; but check for zero anyway - dont want 65536 words, ever
+         beq 30$
+         dec r0
+         tst r0
+         beq 30$
+20$:
+         tstb @#177564                 ; output busy?
+         bpl 20$                       ; yes, spin
+         movb #40,@#177566             ; move byte into transmit register
+         br 10$
+30$:
+         mov (sp)+,r2
+         mov (sp)+,r1
+         mov (sp)+,r0
+         mov (sp)+,r5
+         rts pc
+;
+; print an ascii zero terminated string, r1 has pointer to string
+;
+basciz:
+         mov r1,-(sp)
+10$:
+         tstb @#177564                 ; output busy?
+         bpl 10$                       ; yes, spin
+         tstb (r1)                     ; byte zero?
+         beq 20$                       ; yes, exit
+         movb (r1)+,@#177566           ; move byte into transmit register
+         br 10$                        ; next byte
+20$:
+         mov (sp)+,r1
+         rts pc                        ; exit
+;
+; print a hex byte, contained in r1 lower byte
+;
+bhexb:
+         mov r0,-(sp)
+         mov r1,-(sp)
+         mov r1,r0
+         asr r0
+         asr r0
+         asr r0
+         asr r0
+         bic #177760,r0
+         add #hextab,r0
+10$:
+         tstb @#177564                 ; output busy?
+         bpl 10$                       ; yes, spin
+         movb (r0),@#177566            ; move byte into transmit register
+         bic #177760,r1
+         add #hextab,r1
+20$:
+         tstb @#177564                 ; output busy?
+         bpl 20$                       ; yes, spin
+         movb (r1),@#177566            ; move byte into transmit register
+         mov (sp)+,r1
+         mov (sp)+,r0
+         rts pc
+;
+; print two hex bytes separated by space, followed by crlf. Input in bytes pointed to by r1
+;
+bhx2:
+         mov r0,-(sp)
+         mov #2,r0
+         jsr pc,bhx
+         mov (sp)+,r0
+         rts pc
+;
+; print a variable number of hex bytes, separated by space, followed by crlf. Input in bytes pointed to by r1, r0 has length of buffer.
+;
+bhx:
+         mov r1,-(sp)
+         mov r2,-(sp)
+         mov r1,r2
+10$:
+         movb (r2)+,r1
+         jsr pc,bhexb
+         dec r0
+         tst r0
+         beq 30$
+20$:
+         tstb @#177564                 ; output busy?
+         bpl 20$                       ; yes, spin
+         movb #40,@#177566             ; move byte into transmit register
+         br 10$
+30$:
+         mov (sp)+,r2
+         mov (sp)+,r1
+         rts pc
+;
+; init - clear variables and status registers to their initial values
+;
+init:
+         clr    running
+         clr    flen
+         clr    drdc
+         clr    modebits
+
+         clr    tdrbh
+         clr    tdrbl
+         clr    telen
+         clr    trlen
+         clr    rdrbh
+         clr    rdrbl
+         clr    relen
+         clr    rrlen
+
+         clr    xcurrl
+         clr    xcurrh
+         clr    rcurrl
+         clr    rcurrh
+
+         mov    #0,@#174510               ; pcsr0 - clear any pending interrupts
+         mov    #0,@#174512               ; pcsr1 - state=reset
+         mov    #0,@#174514               ; pcsr2
+         mov    #0,@#174516               ; pcsr3
+
+         rts    pc
+;
+; waitabit - wait loop for 65535 cycles
+;
+waitabit:
+         mov r0,-(sp)
+         clr r0
+10$:
+         inc r0
+         bne 10$
+         mov (sp)+,r0
+         rts pc
+;
+; dog - timer service routine, watchdog timer
+;
+dog:
+         inc dogtick
+         cmp #600.,dogtick             ; assuming 60hz clock, 10 seconds
+         bgt 90$
+         xascil <dog barks>
+         jmp t45
+90$:
+         rti
+;
+; data
+;
+hextab:  .ascii /0123456789abcdef/
+
+         .even
+running: .word 0                       ; if nonzero, then recv/xmit is active
+npp:     .word 0                       ; the next packet pointer in the encx24j600
+flen:    .word 0                       ; frame length in the encx24j600 received frame header
+p0cmd:   .word 0                       ; masked off value of the pcsr0
+;
+dogtick: .word 0                       ; watchdog timer value
+;
+modebits:.word 0                       ; fc14/15 format mode bits word
+;
+tdrbh:   .word 0
+tdrbl:   .word 0
+telen:   .word 0
+trlen:   .word 0
+tdrmxh:  .word 0
+tdrmxl:  .word 0
+
+rdrbh:   .word 0
+rdrbl:   .word 0
+relen:   .word 0
+rrlen:   .word 0
+rdrmxh:  .word 0
+rdrmxl:  .word 0
+;
+xplrun:  .word 0                       ; xmitpl status, between start and end
+;
+rcurrh:  .word 0
+rcurrl:  .word 0
+;
+rnexth:  .word 0
+rnextl:  .word 0
+;
+xcurrh:  .word 0                       ; xmit current address, h
+xcurrl:  .word 0                       ; xmit current address, l
+;
+xnexth:  .word 0                       ; xmit next address, h
+xnextl:  .word 0                       ; xmit next address, l
+;
+xolddh:  .word 0                       ; xmit old address, h
+xolddl:  .word 0                       ; xmit old address, l
+;
+xmitlen: .word 0                       ; current frame length
+;
+xmitmch: .word 0                       ; xmit frame should have match bit set in enp buffer
+;
+mlen:    .word 0                       ; received message length placed in buffer
+;
+drdc:    .word 0                       ; disable recv data chaining
+;
+xdre:    .word 0,0,0,0,0,0,0,0         ; work area, transmit descriptor (curr+next)
+;
+rdre:    .word 0,0,0,0,0,0,0,0         ; work area, receive descriptor (curr+next)
+;
+recvdw:  .word 0                       ; flag receive did work
+xmitdw:  .word 0                       ; flag transmit did work
+;
+pcbbl:   .word 0
+pcbbh:   .word 0
+pcbb:    .word 0,0,0,0
+;
+mltreq:  .word 0
+mltlen:  .word 0
+mltlist: .blkw 36
+;
+udbblen: .word 0
+udbb:    .word 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0             ; 32 words
+         .word 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+;
+pktcnt:  .byte 0
+         .even
+workw:   .word 0
+         .even
+buf:     .word 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+         .word 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+         .word 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0

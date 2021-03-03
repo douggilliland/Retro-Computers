@@ -107,7 +107,7 @@ component unibus is
       cpu_addr_v : out std_logic_vector(15 downto 0);		-- virtual address from cpu, for debug and general interest
 
 -- rl controller
-      have_rl : in integer range 0 to 1 := 0;				-- enable conditional compilation
+      have_rl : in integer range 0 to 1 := 1;				-- enable conditional compilation
       have_rl_debug : in integer range 0 to 1 := 1;		-- enable debug core
       rl_sdcard_cs : out std_logic;
       rl_sdcard_mosi : out std_logic;
@@ -116,7 +116,7 @@ component unibus is
       rl_sdcard_debug : out std_logic_vector(3 downto 0);	-- debug/blinkenlights
 
 -- rk controller
-      have_rk : in integer range 0 to 1 := 0;				-- enable conditional compilation
+      have_rk : in integer range 0 to 1 := 1;				-- enable conditional compilation
       have_rk_debug : in integer range 0 to 2 := 1;		-- enable debug core; 0=none; 1=all; 2=debug blinkenlights only
       have_rk_num : in integer range 1 to 8 := 8;			-- active number of drives on the controller; set to < 8 to save core
       have_rk_minimal : in integer range 0 to 1 := 0;		-- 1 for smaller core, but not very compatible controller. Useful to fit s3b200 only
@@ -127,7 +127,7 @@ component unibus is
       rk_sdcard_debug : out std_logic_vector(3 downto 0);	-- debug/blinkenlights
 
 -- rh controller
-      have_rh : in integer range 0 to 1 := 0;					-- enable conditional compilation
+      have_rh : in integer range 0 to 1 := 1;					-- enable conditional compilation
       have_rh_debug : in integer range 0 to 1 := 1;			-- enable debug core
       rh_sdcard_cs : out std_logic;
       rh_sdcard_mosi : out std_logic;
@@ -153,7 +153,7 @@ component unibus is
       cts0 : in std_logic := '0';
       kl0_bps : in integer range 300 to 230400 := 9600;	-- bps rate - don't set over 38400 for interrupt control applications
       kl0_force7bit : in integer range 0 to 1 := 0;		-- zero out high order bit on transmission and reception
-      kl0_rtscts : in integer range 0 to 1 := 0;			-- conditional compilation switch for rts and cts signals; also implies to include core that implements a silo buffer
+      kl0_rtscts : in integer range 0 to 1 := 1;			-- conditional compilation switch for rts and cts signals; also implies to include core that implements a silo buffer
 
       tx1 : out std_logic;
       rx1 : in std_logic := '1';

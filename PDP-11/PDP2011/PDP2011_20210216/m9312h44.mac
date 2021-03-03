@@ -1,0 +1,196 @@
+         .title m9312h44 - standalone high rom - show model then boot rk or rl or rp
+
+;--
+;-- Copyright (c) 2008-2021 Sytse van Slooten
+;--
+;-- Permission is hereby granted to any person obtaining a copy of these VHDL source files and
+;-- other language source files and associated documentation files ("the materials") to use
+;-- these materials solely for personal, non-commercial purposes.
+;-- You are also granted permission to make changes to the materials, on the condition that this
+;-- copyright notice is retained unchanged.
+;--
+;-- The materials are distributed in the hope that they will be useful, but WITHOUT ANY WARRANTY;
+;-- without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+;--
+;
+; general purpose register definitions
+;
+r0       = %0
+r1       = %1
+r2       = %2
+r3       = %3
+r4       = %4
+r5       = %5
+r6       = %6
+r7       = %7
+sp       = %6
+pc       = %7
+
+         mov #hello+173000,r2
+         mov #m000+173000,r5
+         jmp barf
+m000:
+;
+; decode cpu modelcode, should be in kernel r0 after reset
+;
+         mov #47.,r2
+m100:
+         inc r2
+         cmp r0,#10.
+         blt m200
+         sub #10.,r0
+         br m100
+m200:
+         add #48.,r0
+         tstb @#177564
+         bpl .-4
+         movb r2,@#177566
+         tstb @#177564
+         bpl .-4
+         movb r0,@#177566
+;
+;
+;
+         mov #hello2+173000,r2
+         mov #l1+173000,r5
+         jmp barf
+l1:
+;
+; copied (more or less) from simh
+;
+         mov #brl+173000,r4           ; if probe fails, brl
+         mov #brk+173000,r5           ; if probe ok, brk
+         mov #177400,r1
+         mov #bootrk+173000,r2
+         jmp cbarf
+;
+brk:
+         mov #2000,sp
+         clr r0
+         mov #177412,r1                ; rkda
+         clr (r1)                      ; load da = 0
+         clr -(r1)                     ; clear ba
+         mov #-512.,-(r1)              ; load wc
+         mov #5,-(r1)                  ; read+go
+         tstb (r1)
+         bpl .-2
+         clrb (r1)
+
+         clr r0
+         clr r2
+         clr r3
+         mov #2000+20,r4
+         clr r5
+         clr pc
+;
+brl:
+         mov #nbrl+173000,r4           ; if probe fails, nbrl
+         mov #brl2+173000,r5           ; if probe ok, brl2
+         mov #174400,r1
+         mov #bootrl+173000,r2
+         jmp cbarf
+brl2:
+         mov #2000,sp
+         clr r0
+         mov #174400,r1                ; csr
+         mov #13,4(r1)                 ; clear error - set rst in the dar, prepare for get status cmd
+         mov #4,(r1)                   ; issue cmd - unit + gstat
+         tstb (r1)                     ; wait
+         bpl .-2
+         mov #10,(r1)                  ; issue cmd - unit + rhdr
+         tstb (r1)                     ; wait
+         bpl .-2
+         mov 6(r1),r2                  ; get hdr
+         bic #77,r2                    ; clear sector
+         inc r2                        ; magic bit
+         mov r2,4(r1)                  ; seek to 0
+         mov #6,(r1)                   ; issue cmd - unit + seek
+         tstb (r1)                     ; wait
+         bpl .-2
+         clr 2(r1)                     ; clr bar
+         clr 4(r1)                     ; clr dar
+         mov #-512.,6(r1)              ; set wc to read 512 words
+         mov #14,(r1)                  ; issue cmd - unit + read
+         tstb (r1)                     ; wait
+         bpl .-2
+
+         bic #377,(r1)
+         clr r2
+         clr r3
+         mov #2000+20,r4
+         clr r5
+         clr pc
+;
+nbrl:
+         mov #nob+173000,r4             ; if probe fails, nob
+         mov #brp+173000,r5             ; if probe ok, brp
+         mov #176700,r1
+         mov #bootrp+173000,r2
+         jmp cbarf
+;
+brp:
+         mov #2000,sp
+         clr r0
+         mov #176700,r1              ; address rpcs1
+         mov #40,10(r1)              ; set cs2_clr - clear drive
+         mov r0,10(r1)               ; set unit = 0
+         mov #21,(r1)                ; cmd 21, read-in-preset
+         mov #10000,32(r1)           ; fmt16b on
+         mov #-512.,2(r1)            ; load wc
+         clr 4(r1)                   ; clear ba
+         clr 6(r1)                   ; clear da
+         clr 34(r1)                  ; clear cyl
+         mov #71,(r1)                ; read
+         tstb (r1)                   ; wait for ready
+         bpl .-2                     ; loop
+         clr r2
+         clr r3
+         mov #2020,r4
+         clr r5
+         clrb (r1)
+         clr pc
+;
+nob:
+         mov #noboot+173000,r2
+         mov #nob2+173000,r5
+         jmp barf
+nob2:
+         halt
+;
+; subroutines
+;
+cbarf:
+         mov #2000,sp
+         clr @#6
+         mov r4,@#4
+         tst (r1)
+         jmp barf
+pbarf:
+         mov #2000,sp
+         clr @#6
+         mov r5,@#4
+         tst (r1)
+barf:
+         clr @#4
+         clr @#10
+         tstb @#177564
+         bpl .-4
+         movb (r2)+,r3
+         beq .+10
+         movb r3, @#177566
+         br .-16
+         jmp (r5)
+;
+; data
+;
+         .even
+
+hello:   .ascii / /<15><12>
+         .asciz /Hello, world [t44]: cpu 11/<57>
+hello2:  .asciz <15><12>
+
+bootrk:  .asciz /boot from rk:/<15><12>
+bootrl:  .asciz /boot from rl:/<15><12>
+bootrp:  .asciz /boot from rp:/<15><12>
+noboot:  .asciz /no dev/<15><12>
+         .even
