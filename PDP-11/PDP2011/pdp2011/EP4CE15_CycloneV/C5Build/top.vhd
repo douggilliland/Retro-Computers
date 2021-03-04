@@ -30,7 +30,7 @@ entity top is
 
       resetbtn	: in std_logic;
 	  
-      switch	: in std_logic_vector(3 downto 0);
+      switch	: in std_logic_vector(5 downto 0);
 
 	   sw_halt	: in std_logic;
 	   sw_cont	: in std_logic;
@@ -347,7 +347,7 @@ signal c_cons_cont: std_logic;
 signal db_switch3: std_logic;
 signal t_cons_ena: std_logic;
 signal c_cons_ena: std_logic;
-signal t_reset: std_logic;
+--signal t_reset: std_logic;
 signal t_cont: std_logic;
 signal t_ena: std_logic;
 signal t_swapcon: std_logic;
@@ -660,8 +660,8 @@ begin
 
 --   redled(7 downto 4) <= txtx1 & rxrx1 & txtx0 & rxrx0;
 --   redled <= (not sddebug);
-   t_reset <= switch(1);
-	t_swapcon <= switch(3);
+--   t_reset <= switch(1);
+	t_swapcon <= switch(5);
  
 --   redled(0) <= not cons_run;
 ----   redled(1) <= t_reset;
@@ -724,37 +724,27 @@ begin
             cpureset <= '1';
             cpuresetlength <= 63;
 
---            if switch(1) = '0' then                  -- beep when button 1 pressed
---               beep <= '0'; -- sound
---            else
---               beep <= '1'; -- quiet
---            end if;
-								
-            if switch(2) = '0' then                  -- swap boot drives when button 2 pressed
-					if switch(0) = '0' then               -- swap boot drives when button 0 pressed
-						have_rh <= 1;
-						have_rk <= 0;
-						have_rl <= 0;
-					else
-						-- no drives
-						have_rh <= 0;
-						have_rk <= 0;
-						have_rl <= 0;
-					end if; 					
-            else 
-					if switch(0) = '0' then               -- swap boot drives when button 0 pressed
-						have_rh <= 0;
-						have_rl <= 1;
-						have_rk <= 0;
-					else
-						have_rh <= 0;
-						have_rl <= 0;
-						have_rk <= 1;
-					end if; 
+				-- J3 jumpers control the selected drive
+				if switch(2 downto 0) = "110" then			-- rp drive
+					have_rh <= 1;
+					have_rk <= 0;
+					have_rl <= 0;
+				elsif switch(2 downto 0) = "101" then		-- rk drive
+					have_rh <= 0;
+					have_rk <= 1;
+					have_rl <= 0;
+				elsif switch(2 downto 0) = "011" then		-- rl drive
+					have_rh <= 0;
+					have_rk <= 0;
+					have_rl <= 1;
+				else													-- no drives
+					have_rh <= 0;
+					have_rk <= 0;
+					have_rl <= 0;
 				end if;			
 
 				else
-
+				
             case dram_fsm is
 
                when dram_init =>
