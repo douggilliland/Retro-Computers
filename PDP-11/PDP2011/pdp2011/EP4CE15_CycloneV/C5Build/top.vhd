@@ -15,6 +15,7 @@
 --	https://pdp2011.sytse.net/wordpress/
 --	https://github.com/DavidJRichards/pdp2011
 --
+-- https://pdp2011.sytse.net/wordpress/howto/running/
 
 -- $Revision: 1.58 $
 
@@ -136,7 +137,7 @@ component unibus is
       rh_sdcard_debug : out std_logic_vector(3 downto 0);	-- debug/blinkenlights
 
 -- xu enc424j600 controller interface
-      have_xu : in integer range 0 to 1 := 1;					-- enable conditional compilation
+      have_xu : in integer range 0 to 1 := 0;					-- enable conditional compilation
       have_xu_debug : in integer range 0 to 1 := 1;			-- enable debug core
       xu_cs : out std_logic;
       xu_mosi : out std_logic;
@@ -583,7 +584,7 @@ begin
       kl2_bps => 38400, -- tape reader
 
 		-- ethernet port
-      have_xu => 1,
+      have_xu => 0,
       xu_cs => xu_cs,
       xu_mosi => xu_mosi,
       xu_sclk => xu_sclk,
@@ -626,7 +627,7 @@ begin
       cons_map18 => cons_map18,
       cons_map22 => cons_map22,
 
-      modelcode => 70, --45, --20,--70,				-- mostly used are 20,34,44,45,70,94; others are less well tested
+      modelcode => 45, --45, --20,--70,				-- mostly used are 20,34,44,45,70,94; others are less well tested
       have_fp => 0,
 
       reset => cpureset,
