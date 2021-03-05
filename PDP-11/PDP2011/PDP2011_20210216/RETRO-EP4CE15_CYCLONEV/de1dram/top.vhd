@@ -537,7 +537,7 @@ begin
    dram_clk <= c0;
 
 --   have_rh <= 1; have_rl <= 0; have_rk <= 0;
-   have_rh <= 0;
+--   have_rh <= 0;
 
    process(c0)
    begin
@@ -558,12 +558,18 @@ begin
             cpuclk <= '0';
             cpureset <= '1';
             cpuresetlength <= 63;
-            if sw(0) = '0' then
+            if sw(2 downto 0) = "110" then
                have_rl <= 1;
                have_rk <= 0;
-            else
+					have_rh <= 0;
+            elsif sw(2 downto 0) = "101" then
                have_rl <= 0;
                have_rk <= 1;
+					have_rh <= 0;
+            elsif sw(2 downto 0) = "011" then
+               have_rl <= 0;
+               have_rk <= 0;
+					have_rh <= 1;
             end if;
          else
 
