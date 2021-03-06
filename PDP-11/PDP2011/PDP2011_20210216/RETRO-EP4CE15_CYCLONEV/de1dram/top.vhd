@@ -21,12 +21,11 @@ use IEEE.STD_LOGIC_UNSIGNED.ALL;
 
 entity top is
    port(
---      greenled : out std_logic_vector(9 downto 0);
+      clkin 		: in std_logic;
 
---      sseg3 : out std_logic_vector(6 downto 0);
---      sseg2 : out std_logic_vector(6 downto 0);
---      sseg1 : out std_logic_vector(6 downto 0);
---      sseg0 : out std_logic_vector(6 downto 0);
+      resetbtn 	: in std_logic;
+      sw 			: in std_logic_vector(5 downto 0);
+      greenled 	: out std_logic_vector(4 downto 0);
 
       vgar : out std_logic_vector(1 downto 0);
       vgag : out std_logic_vector(1 downto 0);
@@ -34,17 +33,13 @@ entity top is
       vgah : out std_logic;
       vgav : out std_logic;
 
-      clkin : in std_logic;
-
-      sw : in std_logic_vector(5 downto 0);
-
       ps2k_c : in std_logic;
       ps2k_d : in std_logic;
 
-      tx1 : out std_logic;
-      rx1 : in std_logic;
-      rts1 : out std_logic;
-      cts1 : in std_logic;
+      tx1	: out std_logic;
+      rx1	: in std_logic;
+      rts1	: out std_logic;
+      cts1	: in std_logic;
 
       sdcard_cs : out std_logic;
       sdcard_mosi : out std_logic;
@@ -52,27 +47,24 @@ entity top is
       sdcard_miso : in std_logic;
 
 -- ethernet, enc424j600 controller interface
-      xu_cs : out std_logic;
-      xu_mosi : out std_logic;
-      xu_sclk : out std_logic;
-      xu_miso : in std_logic;
-      xu_debug_tx : out std_logic;                                   -- rs232, 115200/8/n/1 debug output from microcode
+      xu_cs			: out std_logic;
+      xu_mosi		: out std_logic;
+      xu_sclk		: out std_logic;
+      xu_miso		: in std_logic;
+      xu_debug_tx	: out std_logic;                                   -- rs232, 115200/8/n/1 debug output from microcode
 
-      dram_addr : out std_logic_vector(12 downto 0);
-      dram_dq : inout std_logic_vector(15 downto 0);
-      dram_ba_1 : out std_logic;
-      dram_ba_0 : out std_logic;
-      dram_udqm : out std_logic;
-      dram_ldqm : out std_logic;
-      dram_ras_n : out std_logic;
-      dram_cas_n : out std_logic;
-      dram_cke : out std_logic;
-      dram_clk : out std_logic;
-      dram_we_n : out std_logic;
-      dram_cs_n : out std_logic;
-
-      --button1 : in std_logic;
-      resetbtn : in std_logic
+      dram_addr	: out std_logic_vector(12 downto 0);
+      dram_dq		: inout std_logic_vector(15 downto 0);
+      dram_ba_1	: out std_logic;
+      dram_ba_0	: out std_logic;
+      dram_udqm	: out std_logic;
+      dram_ldqm	: out std_logic;
+      dram_ras_n	: out std_logic;
+      dram_cas_n	: out std_logic;
+      dram_cke		: out std_logic;
+      dram_clk		: out std_logic;
+      dram_we_n	: out std_logic;
+      dram_cs_n	: out std_logic
    );
 end top;
 
@@ -311,13 +303,13 @@ component vt is
    );
 end component;
 
-component ssegdecoder is
-   port(
-      i : in std_logic_vector(3 downto 0);
-      idle : in std_logic;
-      u : out std_logic_vector(6 downto 0)
-   );
-end component;
+--component ssegdecoder is
+--   port(
+--      i : in std_logic_vector(3 downto 0);
+--      idle : in std_logic;
+--      u : out std_logic_vector(6 downto 0)
+--   );
+--end component;
 
 component pll is
    port(
@@ -374,10 +366,10 @@ signal rh_sddebug : std_logic_vector(3 downto 0);
 
 signal sddebug : std_logic_vector(3 downto 0);
 
-signal vga_hsync : std_logic;
-signal vga_vsync : std_logic;
-signal vga_fb : std_logic;
-signal vga_ht : std_logic;
+signal vga_hsync	: std_logic;
+signal vga_vsync	: std_logic;
+signal vga_fb		: std_logic;
+signal vga_ht		: std_logic;
 
 signal dram_match : std_logic;
 signal dram_counter : integer range 0 to 32767;
@@ -512,7 +504,7 @@ begin
 
    reset <= (not resetbtn) ; -- or power_on_reset;
 
-   -- greenled <= not ps2k_c & not ps2k_d & ifetch & not rxrx0 & not txtx1 & not rxrx1 & sddebug;
+   greenled <= ifetch & sddebug;
 
    tx1 <= txtx1;
    rxrx1 <= rx1;
@@ -525,9 +517,10 @@ begin
    rl_miso <= sdcard_miso;
    rk_miso <= sdcard_miso;
 
+	-- The hexadecimal RGB code of Amber color is #FFBF00
+   vgar <= "00";
    vgag <= "11" when vga_fb = '1' else "10" when vga_ht = '1' else "00";
    vgab <= "00";
-   vgar <= "00";
    vgav <= vga_vsync;
    vgah <= vga_hsync;
 
