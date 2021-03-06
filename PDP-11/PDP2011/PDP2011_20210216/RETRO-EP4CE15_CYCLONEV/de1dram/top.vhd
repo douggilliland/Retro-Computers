@@ -1,4 +1,4 @@
-
+-- PDP-11 build
 --
 -- Copyright (c) 2008-2021 Sytse van Slooten
 --
@@ -129,7 +129,7 @@ component unibus is
       rts0 : out std_logic;
       cts0 : in std_logic := '0';
       kl0_bps : in integer range 1200 to 230400 := 9600;             -- bps rate - don't set over 38400 for interrupt control applications
-      kl0_force7bit : in integer range 0 to 1 := 0;                  -- zero out high order bit on transmission and reception
+      kl0_force7bit : in integer range 0 to 1 := 1;                  -- zero out high order bit on transmission and reception
       kl0_rtscts : in integer range 0 to 1 := 0;                     -- conditional compilation switch for rts and cts signals; also implies to include core that implements a silo buffer
 
       tx1 : out std_logic;
@@ -137,7 +137,7 @@ component unibus is
       rts1 : out std_logic;
       cts1 : in std_logic := '0';
       kl1_bps : in integer range 1200 to 230400 := 9600;
-      kl1_force7bit : in integer range 0 to 1 := 0;
+      kl1_force7bit : in integer range 0 to 1 := 1;
       kl1_rtscts : in integer range 0 to 1 := 0;
 
       tx2 : out std_logic;
@@ -145,7 +145,7 @@ component unibus is
       rts2 : out std_logic;
       cts2 : in std_logic := '0';
       kl2_bps : in integer range 1200 to 230400 := 9600;
-      kl2_force7bit : in integer range 0 to 1 := 0;
+      kl2_force7bit : in integer range 0 to 1 := 1;
       kl2_rtscts : in integer range 0 to 1 := 0;
 
       tx3 : out std_logic;
@@ -153,7 +153,7 @@ component unibus is
       rts3 : out std_logic;
       cts3 : in std_logic := '0';
       kl3_bps : in integer range 1200 to 230400 := 9600;
-      kl3_force7bit : in integer range 0 to 1 := 0;
+      kl3_force7bit : in integer range 0 to 1 := 1;
       kl3_rtscts : in integer range 0 to 1 := 0;
 
 -- dr11c, universal interface
@@ -302,14 +302,6 @@ component vt is
       reset : in std_logic                                           -- reset
    );
 end component;
-
---component ssegdecoder is
---   port(
---      i : in std_logic_vector(3 downto 0);
---      idle : in std_logic;
---      u : out std_logic_vector(6 downto 0)
---   );
---end component;
 
 component pll is
    port(
@@ -480,27 +472,6 @@ begin
       reset => vtreset
    );
 
---   ssegd3: ssegdecoder port map(
---      i => addrq(15 downto 12),
---      idle => iwait,
---      u => sseg3
---   );
---   ssegd2: ssegdecoder port map(
---      i => addrq(11 downto 8),
---      idle => iwait,
---      u => sseg2
---   );
---   ssegd1: ssegdecoder port map(
---      i => addrq(7 downto 4),
---      idle => iwait,
---      u => sseg1
---   );
---   ssegd0: ssegdecoder port map(
---      i => addrq(3 downto 0),
---      idle => iwait,
---      u => sseg0
---   );
-
 
    reset <= (not resetbtn) ; -- or power_on_reset;
 
@@ -528,9 +499,6 @@ begin
 --   dram_match <= '1' when addr(21) /= '1' else '0';
    dram_cke <= '1';
    dram_clk <= c0;
-
---   have_rh <= 1; have_rl <= 0; have_rk <= 0;
---   have_rh <= 0;
 
    process(c0)
    begin
