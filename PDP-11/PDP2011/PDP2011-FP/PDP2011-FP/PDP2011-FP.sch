@@ -1,0 +1,223 @@
+EESchema Schematic File Version 4
+EELAYER 30 0
+EELAYER END
+$Descr A 11000 8500
+encoding utf-8
+Sheet 1 1
+Title "PDP2011 Front Panel"
+Date "2021-03-07"
+Rev "1"
+Comp "Land Boards"
+Comment1 ""
+Comment2 ""
+Comment3 ""
+Comment4 ""
+$EndDescr
+$Comp
+L Connector_Generic:Conn_01x12 J?
+U 1 1 604529A2
+P 7200 2050
+F 0 "J?" H 7280 2042 50  0000 L CNN
+F 1 "SLIDE_SWITCHES" H 7280 1951 50  0000 L CNN
+F 2 "" H 7200 2050 50  0001 C CNN
+F 3 "~" H 7200 2050 50  0001 C CNN
+	1    7200 2050
+	1    0    0    -1  
+$EndComp
+$Comp
+L Connector_Generic:Conn_01x12 J?
+U 1 1 604543BE
+P 7200 3450
+F 0 "J?" H 7280 3442 50  0000 L CNN
+F 1 "PUSHBUTTON_SWITCHES" H 7280 3351 50  0000 L CNN
+F 2 "" H 7200 3450 50  0001 C CNN
+F 3 "~" H 7200 3450 50  0001 C CNN
+	1    7200 3450
+	1    0    0    -1  
+$EndComp
+$Comp
+L Connector_Generic:Conn_01x10 J?
+U 1 1 60455CB9
+P 7200 4750
+F 0 "J?" H 7150 5250 50  0000 L CNN
+F 1 "LEDS" H 7150 4150 50  0000 L CNN
+F 2 "" H 7200 4750 50  0001 C CNN
+F 3 "~" H 7200 4750 50  0001 C CNN
+	1    7200 4750
+	1    0    0    -1  
+$EndComp
+Wire Wire Line
+	7000 2550 6900 2550
+Wire Wire Line
+	6900 2550 6900 2650
+Wire Wire Line
+	7000 5250 6900 5250
+Connection ~ 6900 5250
+Wire Wire Line
+	6900 5250 6900 5400
+Wire Wire Line
+	7000 5150 6900 5150
+Connection ~ 6900 5150
+Wire Wire Line
+	6900 5150 6900 5250
+Wire Wire Line
+	7000 4050 6900 4050
+Connection ~ 6900 4050
+Wire Wire Line
+	6900 4050 6900 5150
+Wire Wire Line
+	7000 3950 6900 3950
+Connection ~ 6900 3950
+Wire Wire Line
+	6900 3950 6900 4050
+Wire Wire Line
+	7000 2650 6900 2650
+Connection ~ 6900 2650
+Wire Wire Line
+	6900 2650 6900 3950
+Wire Wire Line
+	7000 3050 6800 3050
+Wire Wire Line
+	6800 3050 6800 2950
+Wire Wire Line
+	7000 1550 6800 1550
+Connection ~ 6800 1550
+Wire Wire Line
+	6800 1550 6800 1450
+Wire Wire Line
+	7000 1650 6800 1650
+Connection ~ 6800 1650
+Wire Wire Line
+	6800 1650 6800 1550
+Wire Wire Line
+	7000 2950 6800 2950
+Connection ~ 6800 2950
+Wire Wire Line
+	6800 2950 6800 1650
+$Comp
+L power:GND #PWR?
+U 1 1 60459FE6
+P 6900 5400
+F 0 "#PWR?" H 6900 5150 50  0001 C CNN
+F 1 "GND" H 6905 5227 50  0000 C CNN
+F 2 "" H 6900 5400 50  0001 C CNN
+F 3 "" H 6900 5400 50  0001 C CNN
+	1    6900 5400
+	1    0    0    -1  
+$EndComp
+$Comp
+L power:+3.3V #PWR?
+U 1 1 6045D82D
+P 6800 1450
+F 0 "#PWR?" H 6800 1300 50  0001 C CNN
+F 1 "+3.3V" H 6815 1623 50  0000 C CNN
+F 2 "" H 6800 1450 50  0001 C CNN
+F 3 "" H 6800 1450 50  0001 C CNN
+	1    6800 1450
+	1    0    0    -1  
+$EndComp
+$Comp
+L LandBoards_Conns:CONN_01X50 J1
+U 1 1 6046237A
+P 3200 3650
+F 0 "J1" H 3117 6315 50  0000 C CNN
+F 1 "CONN_02X25" H 3117 6224 50  0000 C CNN
+F 2 "" H 4350 3550 60  0000 C CNN
+F 3 "" H 4350 3550 60  0000 C CNN
+	1    3200 3650
+	-1   0    0    -1  
+$EndComp
+Wire Wire Line
+	3400 1300 3600 1300
+Wire Wire Line
+	3600 1300 3600 1200
+Wire Wire Line
+	3400 1200 3600 1200
+Connection ~ 3600 1200
+Wire Wire Line
+	3600 1200 3600 900 
+$Comp
+L power:+3.3V #PWR?
+U 1 1 604695B5
+P 3600 900
+F 0 "#PWR?" H 3600 750 50  0001 C CNN
+F 1 "+3.3V" H 3615 1073 50  0000 C CNN
+F 2 "" H 3600 900 50  0001 C CNN
+F 3 "" H 3600 900 50  0001 C CNN
+	1    3600 900 
+	1    0    0    -1  
+$EndComp
+Wire Wire Line
+	3500 6250 3500 6100
+Wire Wire Line
+	3500 6000 3400 6000
+$Comp
+L power:GND #PWR?
+U 1 1 60469F8A
+P 3500 6250
+F 0 "#PWR?" H 3500 6000 50  0001 C CNN
+F 1 "GND" H 3505 6077 50  0000 C CNN
+F 2 "" H 3500 6250 50  0001 C CNN
+F 3 "" H 3500 6250 50  0001 C CNN
+	1    3500 6250
+	1    0    0    -1  
+$EndComp
+Wire Wire Line
+	3400 6100 3500 6100
+Connection ~ 3500 6100
+Wire Wire Line
+	3500 6100 3500 6000
+Text Label 3500 4400 0    50   ~ 0
+GREENLED0
+Text Label 3500 4500 0    50   ~ 0
+GREENLED1
+Text Label 3500 4200 0    50   ~ 0
+GREENLED2
+Text Label 3500 4300 0    50   ~ 0
+GREENLED3
+Text Label 3500 4000 0    50   ~ 0
+GREENLED4
+Wire Wire Line
+	7000 5050 6800 5050
+Wire Wire Line
+	6800 5050 6800 3050
+Connection ~ 6800 3050
+Text Notes 7250 5250 0    62   ~ 0
+D1\nD2\nD3\nD4\nD5\nD6\nD7\nD8\nGND\nGND
+Wire Wire Line
+	7000 4350 4600 4350
+Wire Wire Line
+	4600 4350 4600 4400
+Wire Wire Line
+	4600 4400 3400 4400
+Wire Wire Line
+	3400 4500 4700 4500
+Wire Wire Line
+	4700 4500 4700 4450
+Wire Wire Line
+	4700 4450 7000 4450
+Wire Wire Line
+	3400 4200 4800 4200
+Wire Wire Line
+	4800 4200 4800 4550
+Wire Wire Line
+	4800 4550 7000 4550
+Wire Wire Line
+	3400 4300 4900 4300
+Wire Wire Line
+	4900 4300 4900 4650
+Wire Wire Line
+	4900 4650 7000 4650
+Wire Wire Line
+	3400 4000 5000 4000
+Wire Wire Line
+	5000 4000 5000 4750
+Wire Wire Line
+	5000 4750 7000 4750
+Wire Wire Line
+	3400 5900 5250 5900
+Wire Wire Line
+	5250 5900 5250 3150
+Wire Wire Line
+	5250 3150 7000 3150
+$EndSCHEMATC

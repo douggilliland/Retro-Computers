@@ -122,7 +122,7 @@ component unibus is
       xu_debug_tx : out std_logic;                                   -- rs232, 115200/8/n/1 debug output from microcode
 
 -- kl11, console ports
-      have_kl11 : in integer range 0 to 4 := 1;                      -- conditional compilation - number of kl11 controllers to include. Should normally be at least 1
+      have_kl11 : in integer range 0 to 4 := 2;                      -- conditional compilation - number of kl11 controllers to include. Should normally be at least 1
 
       tx0 : out std_logic;
       rx0 : in std_logic := '1';
@@ -130,7 +130,7 @@ component unibus is
       cts0 : in std_logic := '0';
       kl0_bps : in integer range 1200 to 230400 := 9600;             -- bps rate - don't set over 38400 for interrupt control applications
       kl0_force7bit : in integer range 0 to 1 := 1;                  -- zero out high order bit on transmission and reception
-      kl0_rtscts : in integer range 0 to 1 := 0;                     -- conditional compilation switch for rts and cts signals; also implies to include core that implements a silo buffer
+      kl0_rtscts : in integer range 0 to 1 := 1;                     -- conditional compilation switch for rts and cts signals; also implies to include core that implements a silo buffer
 
       tx1 : out std_logic;
       rx1 : in std_logic := '1';
@@ -489,7 +489,7 @@ begin
    rk_miso <= sdcard_miso;
 
 	-- The hexadecimal RGB code of Amber color is #FFBF00
-   vgar <= "00";
+   vgar <= "11" when vga_fb = '1' else "10" when vga_ht = '1' else "00";
    vgag <= "11" when vga_fb = '1' else "10" when vga_ht = '1' else "00";
    vgab <= "00";
    vgav <= vga_vsync;
