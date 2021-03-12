@@ -1,5 +1,6 @@
--- PDP-11 build
+-- PDP-11/70 build
 --	http://land-boards.com/blwiki/index.php?title=PDP-11_ON_RETRO-EP4CE15
+-- Wiki page: http://land-boards.com/blwiki/index.php?title=PDP-11_ON_RETRO-EP4CE15
 --
 -- Copyright (c) 2008-2021 Sytse van Slooten
 --
