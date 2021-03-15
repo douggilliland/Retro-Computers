@@ -1,0 +1,435 @@
+VISIBLE REGISTERS
+-----------------
+AC ACCUMULATOR
+L  LINK; AC PSEUDO-HIGH BIT
+PC PROGRAM COUNTER
+SR SWITCH REGISTER
+
+EAE FEATURE
+-----------
+MQ MULTIPLIER/QUOTIENT
+
+DOCUMENTED, NOT DIRECTLY ACCESSIBLE
+-----------------------------------
+MA MEMORY ADDRESS
+MB MEMORY BUFFER (DATA)
+IR INSTRUCTION REGISTER
+
+INSTRUCTION FORMAT
+------------------
+
+OOO IME EEE EEE
+PPP NPA AAA AAA
+210 DG6 543 210
+
+OP[2:0] - OPERATION CODE DETAILED BELOW
+
+IND - [EA] <- [EA] + 1 <=> 10 <= EA <= 17
+      EA <- [EA]
+
+MPG - EA[11:7] <- PC[11:7] <=> MPG == 1
+      EA[11:7] <- 0        <=> MPG == 0
+
+OPERATIONS
+----------
+
+PC <- PC + 1                   IN INSTRUCTION FETCH
+
+000 AND - AC <- [MEM] AND AC
+001 TAD - AC <- [MEM] + AC
+          L  <- ~L <=> CARRY OUT
+010 ISZ - [MEM] <- [MEM] + 1
+          PC <- PC + 1 <=> [MEM] == 0
+011 DCA - [MEM] <= AC
+          AC <= 0
+100 JMS - [MEM] <- PC + 1
+          PC <- [MEM] + 1
+101 JMP - PC <- MEM
+110 IOT - [8:3] = DEVICE; [2:0] IOP
+111 OPR
+
+--------------------------------------------------------------------------------
+GROUP 1
+--------------------------------------------------------------------------------
+111 0CC CCR RRI
+     LL MMA ATA
+     AL ALR L C
+
+TIME 1
+------
+CLA - AC <- 0
+CLL - L <- 0
+
+TIME 2
+------
+CMA - AC <- ~AC
+CML - L <- ~L
+* NB CL HAPPENS BEFORE CM EVEN THOUGH BOTH IN TIME 1
+
+TIME 3
+------
+IAC - AC <- AC + 1
+
+TIME 4
+------
+RAR - (L:AC) ROR 1
+RAL - (L:AC) ROL 1
+RT  - RAR/RAL ROT TWICE
+
+--------------------------------------------------------------------------------
+GROUP 2
+--------------------------------------------------------------------------------
+111 1CS SSR OH0
+     LM ZNE SL
+     AA ALV RT
+
+TIME 1
+------
+SMA - PC <- PC + 1 <=> AC[11] == 1
+SZA - PC <- PC + 1 <=> AC == 0
+SNL - PC <- PC + 1 <=> L == 1
+REV - 0 => SKIP IF *ANY* SKIP TEST IS TRUE
+      1 => SKIP IF *ALL* SKIP TESTS ARE FALSE
+
+TIME 2
+------
+CLA - AC <- 0
+
+TIME 3
+------
+HLT - HALT CPU
+OSR - AC <- AC OR SR
+
+--------------------------------------------------------------------------------
+GROUP 3 - EAE
+--------------------------------------------------------------------------------
+
+111 1CM SMO OO1
+     LQ CQP PP
+     AA AL2 10
+
+TIME 1
+------
+CLA - AC <- 0
+
+TIME 2
+------
+MQA - AC <- AC OR MQ
+SCA - MQ <- AC
+      AC <- 0
+
+TIME 3
+------
+OOO
+PPP
+210
+
+010 MUY - AC:MQ <- [PC+1] * MQ
+          L <- 0
+011 DVI - MQ <- AC:MQ / [PC+1]
+          AC <- AC:MQ % [PC+1]
+          L <- 1 <=> DIVIDE OVERFLOW
+100 NMI - DO
+           L <- AC[11]
+           AC <- AC SHL 1
+           AC[0] <- MQ[11]
+           MQ <- MQ SHL 1
+           MQ[0] <- 0
+          UNTIL AC[0] =/= AC[1] OR AC:MQ == 6000 0000
+101 SHL - DO [PC+1] TIMES
+           L <- AC[11]
+           AC <- AC SHL 1
+           AC[0] <- MQ[11]
+           MQ <- MQ SHL 1
+           MQ[0] <- 0
+          DONE
+110 ASR - DO [PC+1] TIMES
+           L <- AC[11]
+           MQ <- MQ SHR 1
+           MQ[11] <- AC[0]
+           AC <- AC SHR 1
+           AC[11] <- L
+          DONE
+111 LSR - DO [PC+1] TIMES
+           L <- 0 
+           MQ <- MQ SHR 1
+           MQ[11] <- AC[0]
+           AC <- AC SHR 1
+           AC[11] <- 0
+          DONE
+
+================================================================================
+
+
+    state                           CPU
+I0. if run or step
+      ir_from_mem <= 1
+      state_next <= F0 (*** merge F0 ***)
+    if loadpc 
+      pc_from_sr <= 1
+      state_next <= P0 
+    else if load ac
+      ac_from_sr <= 1
+      state_next <= P0
+    else if deposit
+      ma_from_pc <= 1
+      mb_from_sr <= 1
+      inc_pc <= 1
+      state_next <= P1
+
+P0.PC 
+    pc_from_sr <= 0                 pc <= sr
+    state_next <= I0
+
+P0.AC
+    ac_from_sr <= 0                 ac <= sr
+    state_next <= I0
+
+P1. ma_from_pc <= 0                 ma <= pc
+    mb_from_sr <= 0                 mb <= sr
+    inc_pc <= 0                     pc <= pc + 1
+    mem_start <= 1
+
+P2. if mem_done                     --- memory write ---
+      state_next <= I0
+
+*** loadac - loads AC from SR
+
+   state                            CPU
+0. ac_from_sr <= 1
+1. ac_from_sr <= 0                  ac <= sr
+
+loadpc - loads PC from SR
+
+   state                            CPU
+0. pc_from_sr <= 1
+1. pc_from_sr <= 0                  pc <= sr
+
+*** display memory (dispsel == MEM)
+trigger if sr changes when dispsel == MEM, or dispsel becomes MEM
+it's important to not always be doing this so switches are recognized
+
+   state                            CPU
+0. ma_from_sr <= 1
+1. mem_start <= 1                   ma <= sr
+2. mem_start <= 0                   --- memory read ---
+3..n wait for mem_done
+
+*** deposit - write memory at PC with SR
+
+   state                           CPU
+0. ma_from_pc <= 1
+   mb_from_sr <= 1
+   ma_write <= 1
+   inc_pc <= 1
+
+1. mem_start <= 1                   ma <= pc
+   inc_pc <= 0                      mb <= sr
+                                    pc <= pc + 1
+                                    mem_write <= 1
+2. mem_write <= 0                   --- memory write ---
+   mem_start <= 0
+
+3..n wait for mem_done
+
+*** run instruction (step or run flag)
+
+    state                           CPU
+F0. ma_from_pc <= 1
+    pg_from_pc <= 1
+    inc_pc <= 1
+
+F1. ma_from_pc <= 0                 ma <= pc
+    pg_from_pc <= 0                 pg <= pc[11:7]
+    inc_pc <= 0                     pc <= pc + 1
+    mem_start <= 1
+
+F2. mem_start <= 0                  --- memory read ---
+
+F3. if mem_done
+      ir_from_mem <= 1
+      state_next <= F4
+
+F4. ir_from_mem <= 0 
+    ea_from_ir <= 1                 ir <= mem
+
+F5. if ir.IOT or it.OPR
+      state_next <= E0
+    if ir.ind                       ea <= ir.zeropage ? ir[6:0] : { pg, ir[6:0] }
+      ma_from_ea <= 1
+    else
+      state_next <= E0 
+
+F6. mem_start <= 1                  ma <= ea
+
+F7. mem_start <= 0                  --- memory read ---
+    ea_from_mem <= 1
+
+F8. if mem_done                     ea <= mem
+      ea_from_mem <= 0
+      if ir.JMP or ir.JMS or ir.DCA
+        state_next <= E0
+
+F9. ma_from_ea <= 1
+
+F10.mem_start <= 1                  ma <= ea
+
+F11.mem_start <= 0                  --- memory read ---
+
+F12.if mem_done
+      state_next <= E0
+
+E0.AND
+    ac_and_mem <= 1
+
+E1.AND
+    state_next = I0                 ac <= ac OR mem
+
+E0.TAD
+    ac_add_mem <= 1
+
+E1.TAD
+    state_next = I0                 ac <= ac + mem       / NB 13 bit add including L
+
+E0.ISZ
+    mb_from_inc_mem <= 1
+    mem_write <= 1
+
+E1.ISZ
+    mb_from_inc_mem <= 0            mb <= mem + 1
+    mem_start <= 1
+    mem_write <= 0
+
+E2.ISZ
+    mem_start <= 0                  --- memory write ---
+    if mb == 0
+      inc_pc <= 1
+      
+E3.ISZ
+    inc_pc <= 0                     pc <= pc + 1
+    if mem_done
+        state_next <= I0  
+
+E0.DCA
+    ma_from_ea <= 1
+    mb_from_ac <= 1
+    mem_write <= 1
+
+E1.DCA
+    ma_from_ea <= 0                 ma <= ea 
+    mb_from_ac <= 0                 mb <= ac
+    mem_start <= 1
+    mem_write <= 0
+
+E2.DCA
+    mem_start <= 0                  --- memory write ---
+    
+E3.DCA
+    if mem_done
+        state_next <= I0
+
+E0.JMP
+    pc_from_ea <= 1
+
+E1.JMP
+    pc_from_ea <= 0                pc <= ea 
+    state_next <= I0
+
+E0.JMS
+    ma_from_ea <= 1
+    mb_from_pc <= 1
+    mem_write <= 1
+
+E1.JMS
+    ma_from_ea <= 0                ma <= ea
+    mb_from_pc <= 0                mb <= pc
+    inc_pc <= 1
+
+E2.JMS
+        
+
+
+
+
+
+Fetch
+1. MA <- PC; start memory read
+2. IR <- MEM; PAGE <- PC; ALU0 = PC; ALUOP = INC; PC <- ALUO
+3. if IR is IOT or OPR GOTO E1 
+   if INDIRECT MA <- EA else GOTO F4
+3a.EA <- MEM
+4. IF IR is JMP or JMS GOTO E1
+5. MA <- EA
+6 GOTO E1
+
+Exec
+1. IF IR is JMP PC <- EA; goto IDLE
+   IF IR is JMS MA <- EA; MB <- PC; MW <- 1; goto E9
+   IF IR is AND ALU0 = AC; ALU1 = MEM; ALUOP = AND; AC <- ALUO; goto IDLE
+   IF IR is TAD ALU0 = AC; ALU1 = MEM; ALUOP = ADD; LAC <- ALUO; goto IDLE
+   IF IR is ISZ ALU0 = MEM; ALUOP = INC; MA <- EA; MB <- ALUO; MW <- 1; goto E9
+   IF IR is DCA MA <- EA; MB <- AC; MW <- 1; AC <- 0; goto E9
+   IF IR is IOT DEV <- IR[DEV]; IOP1 <- IR[IOP1]; goto E3
+   IF IR is OPR GROUP 1 IF CLA { AC <- 0 }; IF CLL { L <- 0 }
+   IF IR is OPR GROUP 2 skip tests
+
+2. IF IR is JMS PC <- EA + 1; goto IDLE
+   IF IR is ISZ IF MEM == 0 { PC <- PC + 1 } 
+                goto IDLE
+   IF IR is DCA goto IDLE
+   IF IR is IOT DEV <- IR[DEV]; IOP2 <- IR[IOP2]; goto E3
+   IF IR is OPR GROUP 1 IF CMA { ALU0 = AC; ALUOP = COM; AC <- ALUO }
+                        IF CML { L <- ~L }
+   IF IR is OPR GROUP 2 IF CLA { AC <- 0 }
+
+3. IF IR is IOT DEV <- IR[DEV]; IOP3 <- IR[IOP3]; goto IDLE
+   IF IR is OPR GROUP 1 IF IAC { ALU0 = AC; ALUOP = INC; AC <- ALUO }
+   IF IR is OPR GROUP 2 IF HLT { HLT <- 1 }
+                        IF OSR { ALU0 = AC; ALU1 = SR; ALUOP = OR; AC <- ALUO }
+
+4. IF IR is OPR GROUP 1 IF rot ACSHIFTER = IR[shiftbits]; ALU0 <- ACSHIFTO; ALUOP = NOP; AC <- ALUO
+                        GOTO IDLE
+
+(write wait)
+9. IF MDONE goto E2 
+
+register sources
+
+ALU0 { PC, ACSHIFTO, MEM, L }
+ALU1 { MEM, SR }
+AC   { ALUO, 0 }
+L    { ALUO, ALUC, 0, ~L }
+PC   { ALUO, MEM }
+EA   { MEM, IR, PAGE+IR }
+IR   { MEM }
+MA   { PC, EA }
+
+signals
+RUN - CPU is running (from front panel)
+- load PC 
+
+
+
+IDLE:
+  IF RUN == 1 GOTO F0
+
+F0:
+  MA <- PC; MSTART <- 1
+
+F1:
+  MSTART <- 0
+  IF MDONE
+    IR <- MEM
+    GOTO F2
+
+F2:
+  
+
+
+
+   
+
+
+
+
+

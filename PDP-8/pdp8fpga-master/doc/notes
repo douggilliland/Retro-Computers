@@ -1,0 +1,270 @@
+/***
+ *
+ * `STATE`.`FLOW` means we are in STATE and processing FLOW, where FLOW
+ *   may be an instruction, a piece of fetch, etc.
+ *
+ * fn(reg) is a test of some condition of register clearer than the explicit
+ *   set of bits to be tested. For example, CLA(IR) means that IR has the CLA
+ *   condition set (in the OPR opcode).
+ *
+ * signal = value means that signal holds that value for the current clock
+ *   cycle; i.e. it is derived from combinational logic. if a signal named
+ *   `a`_from_`b` is asserted in clock cycle n, it means that a <= b will 
+ *   be executed by the CPU data path in the same clock cycle and `a` will
+ *   have `b`'s value in cycle n+1.
+ *
+ * register <= means that the given register will take on the given value
+ *   at the end of the current clock cycle
+ * 
+ */
+
+/** LOAD AC */
+I0.LOADAC: /* I0 && !running && loadac */
+    ac_from_sr = 1
+    state <= I0
+
+/** LOAD PC */
+I0.LOADPC: /* I0 && !running && loadpc */
+    pc_from_sr = 1
+    state <= I0
+
+/** DEPOSIT */
+I0.DEPOSIT: /* I0 && !running && deposit */
+    inc_pc = 1
+    ma_from_pc = 1
+    mb_from_sr = 1
+    state_next <= P0W
+    
+P0W:
+    /** MA is PC, MB is SR */
+    mem_write = 1
+    mem_start = 1
+    state <= P1W
+
+P1W:
+    mem_done => state <= I0
+
+/** RUNNING */
+I0.FETCH: /* I0 && running */
+    ma_from_pc = 1
+    state <= F0
+    
+/** Set up for read of IR */
+F0:
+    /** MA is PC */
+    inc_pc = 1
+    mem_start = 1
+    pg_from_pc = 1
+    state <= F1
+
+F1:
+    ma_from_mem_page = 1
+    ea_from_mem_page = 1
+    ir_from_mem = 1
+    mem_done => state <= F2
+
+F2:
+    !op_needs_ea(IR) => state_next <= E0
+    !indirect(IR) and !op_needs_val(IR) <= E0
+    !indirect(IR) and op_needs_val(IR) <= F8
+    default => state <= F3
+
+F3:
+    /** MA is effective address */
+    mem_start = 1
+    state <= F4
+    
+F4:
+    /** reading indirect from effective address */
+    ea_from_mem = 1
+    mem_done && MA is autoincr => state <= F5
+    mem_done && !op_needs_val(ir) => state <= E0
+    mem_done && default => state <= F8
+
+F5:
+    /** indirect and address was autoincr */
+    /** MA is effective address before indirection */
+    /** mem is effective address after indirection */
+    /** EA is effective address after indirection */
+    mb_from_mem_plus_one = 1
+    inc_ea = 1
+    state <= F6
+
+F6:
+    /** write indirect increment back into memory */
+    /** MA is effective address before indirection */
+    /** MB is incremented effective address */
+    /** EA is incremented effective address */
+    mem_write = 1
+    mem_start = 1
+    state <= F7
+
+F7:
+    /** writing back incremented autoincr address */
+    /** EA is effective address after indirection */
+    mem_done && !op_needs_val(ir) state <= E0
+    mem_done && default => state <= F8
+
+F8:
+    /** common entry -- op needs value */
+    ma_from_ea = 1
+    state_next <= F9
+    
+F9:
+    /** reading operand from effective address */
+    mem_start = 1
+    state_next <= F10
+
+F10:
+    mem_done => state <= E0
+
+E0.AND: /** AND instruction */
+    ac_from_ac_and_mem
+    state <= I0
+
+E0.TAD: /* TAD instruction */
+    ac_from_ac_plus_mem = 1 
+    state <= I0
+
+E0.ISZ: /* ISZ instruction */
+    /** mem is operand value */
+    ma_from_ea = 1
+    mb_from_mem_plus_one = 1
+    state <= E1
+
+E1.ISZ:
+    /** MA is effective address */
+    /** MB is incremented value */
+    mem_write = 1
+    mem_start = 1
+    state <= E2
+
+E2.ISZ:
+    /** MB is incremented value */
+    mem_done => state <= E3
+
+E3.ISZ:
+    /** MB is incremented value */
+    mb == 0 => inc_pc = 1
+    state <= I0
+
+E0.DCA: /* DCA instruction */
+    clear_ac = 1
+    ma_from_ea = 1
+    mb_from_ac = 1
+    state <= E1
+
+E1.DCA:
+    /** MA is effective address */
+    /** MB is AC before it was cleared */
+    mem_write = 1
+    mem_start = 1
+    state <= E2
+
+E2.DCA:
+    mem_done => state <= I0
+
+E0.JMS: /* JMS instruction */
+    pc_from_ea_plus_one = 1
+    ma_from_ea = 1
+    mb_from_pc = 1
+    state <= E1
+
+E1.JMS:
+    /** MA is effective address */
+    /** MB is return address */
+    mem_write = 1
+    mem_start = 1
+    state <= E2
+
+E2.JMS:
+    mem_done => state <= I0
+
+E0.JMP: /* JMP instruction */
+    pc_from_ea = 1
+    state <= I0
+
+E0.OPR1: /* Group 1 OPR instruction */
+    CLA(IR) => clear_ac = 1
+    CLL(IR) => clear_l = 1
+    state <= E1
+
+E1.OPR1:
+    CMA(IR) => com_ac = 1
+    CML(IR) => com_l = 1
+    state <= E2
+
+E2.OPR1:
+    inc_ac = 1
+    state <= E3 
+    
+E3.OPR1:
+    RAL(IR) => ral_lac = 1 
+    RAR(IR) => rar_lac = 1 
+    RT(IR) => rot2 = 1
+    state <= I0;
+
+E0.OPR2: /* Group 2 OPR instruction */
+    skips[0] = (SMA(IR) and AC < 0) or ~SMA(IR)
+    skips[1] = (SZA(IR) and AC == 0) or ~SZA(IR)
+    skips[2] = (SNL(IR) and L == 1) or ~SNL(IR)
+
+    REV(IR) == 0 and skips == 7 => inc_pc = 1
+    REV(IR) == 1 and skips == 0 => inc_pc = 1
+    
+    state <= E1
+
+E1.OPR2:
+    CLA(IR) => clear_ac = 1
+    state <= E2
+
+E2.OPR2:
+    OSR(IR) => ac_from_ac_or_sr = 1
+    HLT(IR) => halt_cpu = 1
+    state <= I0
+
+E0.OPR3: /* common functionality to all OPR group 3 */
+    IR(CLA) and ~MQL(IR) => clear_ac = 1
+    state <= E1
+
+E1.OPR3:
+    MQL(IR) and ~MQA(IR) => clear_ac = 1
+    ~MQL(IR) and MQA(IR) => ac_from_ac_or_mq
+    MQL(IR) and MQL(IR) => ac_from_mq
+    MQL(IR) => mq_from_ac = 1
+    NOP3(IR) => state <= I0
+
+E0.MUY: /* MUY instruction */
+    inc_pc = 1
+    ma_from_pc = 1
+    state <= E1 /* inherited from E0.OPR3 */
+
+E1.MUY:
+    /** MA contains EA of PC */
+    mem_start = 1    
+    state <= E2
+
+E2.MUY:
+    mem_done => state <= E3
+
+E3.MUY:
+    clear_l = 1
+    multiply = 1
+
+E0.DVI: /* DVI instruction */
+    inc_pc = 1
+    ma_from_pc = 1
+    state <= E1 /* inherited from E0.OPR3 */
+
+E1.DVI:
+    /** MA contains EA of PC */
+    mem_start = 1    
+    state <= E2
+
+E2.DVI:
+    mem_done => state <= E3
+    
+E3.DVI:
+    /** TODO finish DVI, implement division algorithm */
+    state <= I0
+

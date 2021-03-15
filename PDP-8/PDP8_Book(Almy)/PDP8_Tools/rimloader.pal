@@ -1,0 +1,20 @@
+/ RIM loader.
+
+*7756
+RIM, KCC	/ clear AC, clear KB, allow new data (12-bit word) -> KB.
+KSF		/ skip next instruction if KCF=1 (new data available in KB).
+JMP .-1		/ repeat last instruction (i.e. wait for new data).
+KRB		/ KB -> AC, clear KB, allow new data -> KB.
+CLL RTL		/ clear link, rotate AC twice.
+RTL		/ rotate AC twice more.
+SPA		/ skip next instruction if AC sign bit is zero (i.e. word contains half-address/data).
+JMP RIM+1	/ go back to waiting for new data word.
+RTL		/ rotate AC twice more (shifts half-address/data into upper 6-bits of AC).
+KSF		/ skip next instruction if KCF=1 (new data available in KB).
+JMP .-1		/ repeat last instruction (i.e. wait for new data).
+KRS		/ AC | KB -> AC (OR operation forms a full-word address/data).
+SNL		/ skip next instruction if link>0 (i.e. skip if AC contains an address).
+DCA I TEMP	/ store data word at the memory location specified in TEMP (address precedes data).
+DCA TEMP	/ store address word in TEMP memory location.
+JMP RIM		/ repeat endlessly.
+TEMP, 0		/ assign TEMP memory location.
