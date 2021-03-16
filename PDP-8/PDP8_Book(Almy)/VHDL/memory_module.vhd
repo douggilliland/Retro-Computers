@@ -63,9 +63,9 @@ end Memory_Module;
 architecture Behavioral of Memory_Module is
 COMPONENT corerom
   PORT (
-    clka : IN STD_LOGIC;
-    addra : IN STD_LOGIC_VECTOR(11 DOWNTO 0);
-    douta : OUT STD_LOGIC_VECTOR(11 DOWNTO 0)
+    clock : IN STD_LOGIC;
+    address : IN STD_LOGIC_VECTOR(11 DOWNTO 0);
+    q : OUT STD_LOGIC_VECTOR(11 DOWNTO 0)
   );
 END COMPONENT;
 
@@ -290,15 +290,12 @@ process (read_enable, write_enable, curr_state, count7777) begin -- state machin
         end case;
 end process;
 
-
-your_instance_name2 : corerom
+myCoreROM : corerom
   PORT MAP (
-    clka => clk,
-    addra => addra,
-    douta => douta
+    clock	=> clk,
+    address	=> addra,
+    q			=> douta
   );
-
-
 
 end Behavioral;
 
