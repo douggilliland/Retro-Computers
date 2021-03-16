@@ -1,0 +1,448 @@
+; LIBRARY FILE
+; version 2.01
+; two pass assembler, dissembler and tracer- inspiration with permission from A1 by San Bergmans
+; REGB bits 0-3 are connected to LED's
+; tested in Michael Kowalski 6502 Simulator - using 65C02 Code 
+; "Programmed" by Joe DiMeglio
+		
+     		
+;--------------------------------------------------------------------
+;prints a string ending with EOS 
+STRING  		PHP				;print stringz to screen
+	        	PHA	        	
+        		PHX        		
+        		PHY        		
+        		LDA     SRCE        		;Save SRCE 	
+        		PHA        		
+        		LDA     SRCE+1        		
+        		PHA        		
+        		TSX        		
+        		LDA     $0107,x        		
+        		STA     SRCE        		
+        		LDA     $0108,x
+        		STA     SRCE+1        		
+        		LDY     #$01        		
+.NEXTCHAR 		LDA     (SRCE),Y        		
+			PHA
+			AND	#%01111111		;strip negative bit			
+        		JSR     WRCHAR        		
+        		PLA
+        		BMI	.ADJUST_RETURN 		;if z=1 then end.
+        		INY
+        		BNE     .NEXTCHAR		;more than $ff characters        		
+        		INC     SRCE+1
+        		BRA     .NEXTCHAR      		
+.ADJUST_RETURN 		TYA
+        		CLC	        		
+        		ADC     SRCE			;BUMPSRCE        		
+        		STA     $0107,x        		
+        		LDA     SRCE+1        		
+        		ADC     #$00        		
+        		STA     $0108,x        		
+        		PLA        			;Restore SRC
+        		STA     SRCE+1       	 		
+        		PLA        		
+        		STA     SRCE
+        		PLY        		
+        		PLX        		
+        		PLA        	
+        		PLP        		
+        		RTS    
+;------------------------------------------------------------
+; ANSI GOTO x & y 
+;------------------------------------------------------------
+GOTOXY 			 	
+		.IF MYWYM
+			PHA                		;goto [ <X> ; <Y> H
+        		LDA     #ESC        		
+        		JSR     WRCHAR        		
+        		LDA     #'['        		
+	        	JSR     WRCHAR	        	
+        		TYA        		
+        		JSR     WRDECI			;write in decimal        		
+        		LDA     #';'        		
+        		JSR     WRCHAR        		
+        		TXA        		
+        		JSR     WRDECI       		
+        		LDA     #'H'        		
+        		JSR     WRCHAR        		
+        		PLA	        		
+        		RTS    
+        	.ELSE
+        		STX	io_posx 		;use simlulator
+			STY	io_posy			
+			RTS		
+		.ENDIF			
+ 
+ ;------------------------------------------------------------------------
+; ANSI - CSI n x See https://en.wikipedia.org/wiki/ANSI_escape_code
+;  low level
+;------------------------------------------------------------------------
+WRCSI
+ 			PHA                		;save value
+        		LDA     #ESC        		
+        		JSR     WRCHAR        		
+        		LDA     #'['        		
+	        	JSR     WRCHAR	        	
+        		TXA        		
+        		JSR     WRCHAR			;write in decimal 
+        		PLA        		
+        		JSR     WRCHAR        		;write ANSI Mode        			        		
+        		RTS    
+        			
+;------------------------------------------------------------------------
+; ANSI - Clear Screen; ;.BYTE 	ESC,"[2J",EOS		        		
+;  low level
+;------------------------------------------------------------------------
+CLS     		
+		.IF MYWYM
+			LDX	#'2'
+			LDA	#'J'			;Clrscrn
+			JSR     WRCSI            	;				
+        		RTS        	
+		.ELSE			
+			STA	io_cls			;use simlulator	
+			RTS			
+        	.ENDIF
+        	
+;------------------------------------------------------------------------
+; ANSI -  Bring Cursor Home 
+;------------------------------------------------------------------------
+HOME    		JSR     STRING        		
+        		.ASCII	ESC
+        		.ASCIS	"[1;1H"
+        		RTS       	        	
+        		
+;------------------------------------------------------------------------
+; ANSI -  Save Cursor Position
+;------------------------------------------------------------------------
+SAVECUR    		JSR     STRING 
+			.ASCII	ESC
+        		.ASCIS	"[s"          		        	        		
+        		RTS       	        	
+
+;------------------------------------------------------------------------
+; ANSI -  Restore Cursor Position 
+;------------------------------------------------------------------------
+RESTCUR    		JSR     STRING 			
+        		.ASCIS	ESC,"[u"          		        	        		
+        		RTS      	        	
+        	        	        	
+;------------------------------------------------------------------------
+; Print a dot
+;------------------------------------------------------------------------
+WRDOT           	LDA     #'.'            	;Print a dot
+                	BRA     WRCHAR
+
+;------------------------------------------------------------------------
+; Check Tabs
+;------------------------------------------------------------------------
+TABS3
+   		.IF MYWYM
+			LDA	#'C'
+			LDX	#20
+			JSR	WRCSI
+			
+		.ELSE
+			PHA
+			LDA 	io_posx
+			LDA 	#20
+			;CLC
+			;ADC	#06
+			STA 	io_posx
+			PLA
+		.ENDIF	
+			RTS	
+		                
+;------------------------------------------------------------------------
+; Print a space
+;------------------------------------------------------------------------
+WRSPACE         	LDA     #SP            		;Print a space
+			BRA     WRCHAR		
+                
+;------------------------------------------------------------------------
+; Print a CR
+;------------------------------------------------------------------------
+
+WRCRLF          	LDA     #CR             	;Print a CR & LF		
+			JSR	WRCHAR
+PRLF			LDA	#LF			;fall through to WRCHAR
+
+;--------------------------------------------------------------
+;WRCHAR Out charater to the screen
+;  Low level
+;--------------------------------------------------------------
+WRCHAR  	
+		.IF LCD_ROUTINES
+		
+			BBR 	#01, WR2LCD,.SERIAL	
+			JMP	LCD_WRCHAR
+.SERIAL				
+		.ENDIF			
+
+		.IF MYWYM
+		
+		
+			PHP				;save flags			
+        		PHA        		
+.WAITTX  		LDA     #%00010000
+        		BIT    	ASTAT        		
+        		BEQ     .WAITTX        		
+        		PLA        		
+        		STA     ADATA        		        		
+        		PLP        		
+        		RTS
+		
+		.ELSE
+			STA	io_putc			;Else use simulator
+			RTS
+		.ENDIF	
+						
+;--------------------------------------------------------------
+;REPWRCHAR Out charater to the screen
+; A= Char  y= times
+;--------------------------------------------------------------
+DRAWLINE		JSR	WRCRLF
+			LDA	#DASH
+			LDY	#50
+REPWRCHAR 		JSR	WRCHAR					
+			DEY
+			BPL	REPWRCHAR 						
+			BRA	WRCRLF
+
+;--------------------------------------------------------------
+;convert binary into a ASCII characters 
+;write to screen eg xx
+
+WR2HEX  		PHA        	
+        		LSR				;write 2 hex digits        	
+        		LSR        	
+        		LSR        	
+        		LSR        	
+        		JSR     WR1HEX        	
+        		PLA        	
+WR1HEX        		CLD        			;write 1 character HEX eg x 
+        		AND     #$0f        	
+        		CMP     #$0a        	
+        		BCC     .z09        	        	
+        		ADC     #$06			;carry is set        	
+.z09     		ADC     #$30
+        		BRA     WRCHAR     
+        	
+;------------------------------------------------------------------------
+; Print word in hex
+; A holds MSB, Y holds LSB, eg $xxxx
+;------------------------------------------------------------------------
+
+WRWORD         		PHA                     	;Save MSB
+                	LDA     #'$'            	;Print dollar symbol
+                	JSR     WRCHAR
+                	PLA
+WRWORDAY       		JSR     WR2HEX          	;Print MSB
+                	TYA
+                	BRA     WR2HEX          	;Print LSB
+
+;------------------------------------------------------------------------
+; SCAN_ESC if key is pressed
+;  Low level
+;------------------------------------------------------------------------
+
+SCAN_ESC    
+		.IF MYWYM		
+			LDA     #%00001000
+			AND     ACIA+1     		; ACIA Status register        	
+			BEQ	.NOTHING		; Anything in the buffer
+			JSR	READACIA	
+.NOTHING		CMP	#ESC
+			RTS		
+		
+		.ELSE
+			LDA     KBDCR           	;Was a key pressed?
+			CMP     #ESC   			;Make Z=1 if ESC
+			RTS
+		.ENDIF
+
+
+;------------------------------------------------------------------------
+; Wait for keypressed
+;  Low level
+;------------------------------------------------------------------------
+
+RDCHAR
+  		.IF MYWYM 
+			;CLC                		;Read ASCII byte into AC
+.WAITRX  		LDA     ACIA+1 
+        		AND     #%00001000		;ACIA Status register        	
+        		BEQ     .WAITRX        	
+READACIA       		LDA     ACIA        		
+        		PHA        		
+        		LDA     ACIA+1        		;clear status register		        
+        		PLA        	
+        		RTS        	
+		.ELSE	
+			LDA	KBDCR			;Else use simulator 		
+			BEQ 	RDCHAR 		
+			RTS	
+		.ENDIF
+	
+
+;--------------------------------------------------------------------
+RD1HEX  		JSR     RDCHAR
+        		BRA     HEX2BIN        	
+
+;--------------------------------------------------------------------
+RD2HEX  		JSR     RD1HEX        	
+        		ASL        	
+        		ASL        	
+        		ASL        	
+        		ASL        	        	
+        		STA     TEMP1            	
+        		JSR     RD1HEX        	        	
+        		ORA     TEMP1       	        	        	
+        		RTS      	
+
+
+;--------------------------------------------------------------
+;AC in HEX out BIN
+
+HEX2BIN			EOR     #'0'            	;Ignore ASCII part for decimals				
+                	CMP     #9+1	
+                	BCC     .okhex          	;It was a decimal digit!
+                	ADC     #$88            	;Map letters A - F to $FA-FF
+                	CMP     #$fa
+                	BCC     .invalid        	;No hex digit anymore!
+                	AND	#$0F		  	
+.okhex   		RTS
+
+.invalid 		LDA 	#FAIL
+			RTS
+			;SEC
+			;JSR     STRING
+        		;.ASCIS   CR,LF,BELL," :HEX 2 BIN CONVERSION",CR,LF        	
+        		;BRK
+
+;--------------------------------------------------------------
+;Restore saved registers
+;--------------------------------------------------------------
+RESTORE 		LDA SAVP     		 	;Restore 6502 Register Contents 
+        		PHA             	 	;Used by tracing software
+        		LDA SAVA	
+			LDX SAVX
+        		LDY SAVY
+        		PLP
+        		RTS
+
+;------------------------------------------------------------------------
+; Save HW registers
+;------------------------------------------------------------------------    	
+        	
+SAVE    		STA SAVA        		;Save 6502 HW registers
+			STX SAVX
+        		STY SAVY
+        		PHP
+        		PLA
+        		STA SAVP			;svae the flags
+        		TSX
+        		STX SAVS			;stack pointer        		
+        		RTS	
+        	
+;--------------------------------------------------------------
+;Convert buffer to uppercase         	
+UPPERCASE 		LDA 	IN,x
+        		CMP     #'z'+1        		
+	        	BCS     .NEXTDIGIT        	
+        		CMP     #'a'	        	
+        		BCC     .NEXTDIGIT        	
+        		SBC     #SP        	
+        		STA     IN,x        		
+.NEXTDIGIT 		DEX
+			BPL     UPPERCASE		;end of string        	
+        		RTS       	
+ 
+ 
+  
+ 
+ 		.IF LCD_ROUTINES
+;------------------------------------------------------------------------
+; *** LCD initialisation
+;------------------------------------------------------------------------
+LCD_LINIT		LDX 	#$04			;do function set 4 times
+.LINIT0			LDA 	#%00111000		;function set: 8 bit, 2 lines, 5x7
+			STA 	LCD0
+			JSR 	LCD_BUSY		;wait for busy flag to clear
+			DEX
+			BNE 	.LINIT0
+			LDA	#%00000110		;entry mode set: increment, no shift
+			STA 	LCD0
+			JSR 	LCD_BUSY
+			LDA 	#%00001110		;display on, cursor on, blink off
+			STA 	LCD0
+			JSR 	LCD_BUSY
+			LDA 	#$01			;clear display
+			STA 	LCD0
+			JSR 	LCD_BUSY
+			LDA 	#$80			;DDRAM address set: $00
+			STA 	LCD0
+			JSR 	LCD_BUSY	
+			JSR	LCD_CLR			
+			INC	WR2LCD
+			JSR 	STRING			
+			.ASCII  "LCD initiated  ",EOS						
+			RTS   
+		
+;------------------------------------------------------------------------
+
+LCD_SCROLL		LDA	#%0000001
+				
+
+
+;------------------------------------------------------------------------
+;LCD Clear screen
+;------------------------------------------------------------------------
+LCD_CLR			LDA	#%00000001
+			STA	LCD0 						
+			JSR	LCD_BUSY			
+			RTS			
+;------------------------------------------------------------------------			
+;LCD_home			
+;------------------------------------------------------------------------
+LCD_HOME		LDA	#%00000011
+			STA	LCD0 						
+			JSR	LCD_BUSY			
+			RTS		
+						
+
+ ;------------------------------------------------------------------------			
+; *** Wait for LCD busy bit to clear
+;------------------------------------------------------------------------
+LCD_BUSY		PHA
+.LCD_BUSY0		LDA	LCD0			;read from LCD register 0
+			AND	#%10000000		;check bit 7 (busy)			
+			BNE	.LCD_BUSY0			
+			PLA			
+			RTS	
+						
+;------------------------------------------------------------------------						        
+; *** Print character on LCD
+;------------------------------------------------------------------------
+LCD_WRCHAR		STA 	LCD1
+			JSR 	LCD_BUSY			
+			LDA 	LCD0			;get current DDRAM address			
+			AND 	#%01111111		;everthing but busy flag			
+			CMP 	#20			;wrap from pos $13 (line 1 char 20)...			
+			BNE 	.LCDPRINT0			
+			LDA 	#$C0			;...to $40 (line 2 char 1)			
+			STA 	LCD0			
+			JSR 	LCD_BUSY
+.LCDPRINT0		RTS
+
+
+;;------------------------------------------------------------------------
+;prints a string ending with EOS 
+;------------------------------------------------------------------------
+;LCD_STRING  		INC	WR2LCD	
+;			JSR	STRING
+;			STZ	WR2LCD	
+;			RTS			
+        	
+		.ENDIF       				;End of LCD Routines

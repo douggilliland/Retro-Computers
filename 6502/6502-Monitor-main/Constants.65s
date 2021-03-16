@@ -1,0 +1,224 @@
+; LIBRARY FILE
+; version 2.02
+; two pass assembler, dissembler and tracer- inspiration with permission from A1 by San Bergmans
+; REGB bits 0-3 are connected to LED's
+; tested in Michael Kowalski 6502 Simulator - using 65C02 Code 
+; "Programmed" by Joe DiMeglio
+		
+
+;------------------------------------------------------------------------
+; Symbols used in source code
+;------------------------------------------------------------------------
+
+IMV		='#'				;Indicates immediate mode value
+HEX		='$'				;Indicates a hex value
+OPEN		='('				;Open bracket for indirect addressing
+CLOSE		=')'				;Close bracket for indirect addressing
+PCREL		='*'				;Indicates PC relative addressing
+LOBYTE		='<'				;Indicates lo-byte of following word
+HIBYTE		='>'				;Indicates hi-byte of following word
+PLUS		='+'				;Plus in simple expressions
+MINUS		='-'				;Minus in simple expressions
+DOT		='.'				;Indicates a local label
+QUOTE		='''				;delimits a string
+COMMA		=','				
+CMNT		=';'				;indicates a full line comment
+PROMPT		='.'				;The assembler prompt character
+DASH		='-'				;Dash for crued graphics
+EOL		=$00				;End of line marker
+EOS		=$00				;End of string marker
+EOFLD		=$01				;End of field in tokenised source line
+BLANK		=$02				;used to mark a blank line
+PRGEND		=$FE				;used to flag end of program parsing
+FAIL		=$FF				;used to flag failure in various searches
+CR		=$0D				;CR character
+ESC		=$1B				;ESC character
+BELL		=$07				;BELL should be $07 but $20 for testing 
+BS		=$08				;Back space key
+TAB		=$09				;TAB character
+LF		=$0a				;Line feed
+SP		=$20				;Space
+
+TAB1            =12				;1st tab stop 8
+TAB2            =16				;2nd tab stop 12
+TAB3            =20				;3rd tab stop 21
+TAB4		=26				;4th tab
+
+
+;------------------------------------------------------------------------
+; Constants
+;------------------------------------------------------------------------
+
+DEF_LOMEM       =     	$04             	;Default lomem page
+DEF_AUTO        =     	1000            	;Default Auto line number start
+DEF_INC         =     	10              	;Default Auto increment step
+DEF_ORG         =     	$1000         	;Default .OR
+DEF_OBJLOW      =     	$0200           	;Default lowest object address
+
+
+
+;------------------------------------------------------------------------
+; Zero page memory
+; Input buffer placed in ZP because of the many references to it. Must be
+;  completely in ZP because address + index remains only one byte address
+; PASS must remain the first label here! See INIT routine
+;------------------------------------------------------------------------
+
+                .ORG    $0018          		;Leave 1st part of ZP free
+IN              .RS     128            		;Input and parse buffer 128 Characters input
+	
+	.IF LCD_ROUTINES
+WR2LCD		.RS	1			;Wrire to LCD or Serial Flag	
+	.ENDIF
+;------------------------------------------------------------------------
+; Tracing/debuging varials
+;------------------------------------------------------------------------
+XQT		.RS	15			;Used for tacing
+SAVP		.RS	1			;registers save - 5 locations must be contiguous1
+SAVS		.RS	1		
+SAVY		.RS	1
+SAVX		.RS	1
+SAVA		.RS	1
+	
+;------------------------------------------------------------------------
+; Assembler registers
+
+PASS            .RS     1               	;Assembler pass 0=1, 1=2
+GLOBAL          .RS     2               	;Last defined Global label
+GLOBAL_VAL      .RS     2              	 	;Last defined Global's value
+LABEL_FLAG      .RS     1              		;Found label's assigned flag (b7)
+PNTR            .RS     2             		;Pointer in source
+INDEX           .RS     1               	;Index mode 0, X or Y
+PC              .RS     2              		;Current program counter
+TA              .RS     2              		;Current target address
+TA_BEGIN        .RS     2               	;Begin of target address block
+PC_BEG          .RS     2               	;Program counter at start of line
+ASM_ERR         .RS     1               	;Assemble errors (max 255)
+UNDEF           .RS     1               	;Undefined label if <> 0
+FORWARD         .RS     1               	;Forward referenced label if <> 0
+LL_NUM          .RS     1               	;Local label's number
+FIRST_CHAR      .RS     1               	;First character of a label
+
+CURMNE		.RS	1			;Holds the current mne index
+CURADM		.RS	1			;Holds the current addressing mode
+
+;------------------------------------------------------------------------
+; Editor's registers
+
+CMD_CHR         .RS     1               	;First character of command
+ERROR           .RS     1               	;Latest error
+DUMP            .RS     1               	;Dump mode in list command
+PARM1           .RS     2               	;Parameter 1
+PARM2           .RS     2               	;Parameter 2
+
+;------------------------------------------------------------------------
+; General purpose registers
+
+NEG_FLAG        .RS     1               	;Negative flag (if <> 0)
+COUNT           .RS     1               	;GP counter
+DELIM           .RS     1               	;String/ASCII delimiter
+HEXVAL          .RS     2               	;16-bit value of expression
+LEAD0           .RS     1               	;Leading 0 flag
+CHAR            .RS     1               	;Character compilation register
+MULDIV          .RS     2               	;Multiply/divide temp
+EXP_SAVE        .RS     2               	;Expression save value
+DEC_SAVE        .RS     2               	;Decimal convert save value
+SAVE_Y          .RS     1               	;Save Y pointer
+LENG            .RS     2               	;Length of block move
+SRCE            .RS     2               	;Source for block move
+DEST            .RS     2			;Destination for block move
+
+;------------------------------------------------------------------------
+; for disassembler
+
+PRFLAG		.RS	2
+TEMP1		.RS	1			;general purpose storage
+TEMP2		.RS	1
+
+;------------------------------------------------------------------------
+; Registers which are best NOT to be disturbed by user's program!
+
+OLD_SAVE        .RS     1               	;OLD possible if <> 0
+AUTO            .RS     2               	;Next Auto line number
+AUTO_INC        .RS     1               	;Auto increment
+AUTO_FLAG       .RS     1               	;Auto mode flag (if <> -)
+SYM_TABLE       .RS     2               	;Symbol table (if MSB <> 0)
+USR_OBJLO       .RS     2               	;User's safe object begin
+USR_OBJHI       .RS     2			;User's safe object end	
+LOMEM           .RS     2			;Lomem address   | Don't
+HIMEM        	.RS     2			;Himem address |  change order
+XEC_LAST        .RS     2			;Last Xec address
+USERKEYDEF	.RS	2			;User defined @keys 
+USIRQ		.RS     2			;User IRQ vector
+USBRK		.RS     2			;User BRK vector
+USMNI		.RS     2			;User NMI vector
+USRRS		.RS     2			;User RESET vector
+
+
+;------------------------------------------------------------------------
+; Hardware mapping
+;------------------------------------------------------------------------
+	.IF LCD_ROUTINES
+	
+LCD0		=	$2000			;pretty low in memory map :-) 
+LCD1		=	LCD0+1   	
+	.ENDIF
+
+
+
+
+;------------------------------------------------------------------------
+; My board settings
+;------------------------------------------------------------------------	
+	.IF MYWYM
+	
+	.IF	SYMON
+	
+VIA     	= $8000				;My board settings
+ACIA    	= $8800	
+	.ELSE
+VIA     	= $4000				;My board settings
+ACIA    	= $6000				
+		
+	.ENDIF
+	
+		
+ADATA		= ACIA				;ACIA 6551 definations
+ASTAT		= ADATA +1
+ACMND		= ADATA +2
+ACTRL		= ADATA +3		
+REGB    	= VIA				;VIA 6522 definations
+REGA		= REGB +1
+DIRB		= REGB +2
+DIRA		= REGB +3
+TICL		= REGB +4
+TICH		= REGB +5
+ACR		= REGB +$B
+PCR		= REGB +$C
+IFR		= REGB +$D
+IER		= REGB +$E
+	.ELSE
+	
+
+;------------------------------------------------------------------------
+; Simulator or HARDWARE Mapping 6502 Simulator
+;------------------------------------------------------------------------
+VIA     	= $8000
+ACIA   	 	= io_area		
+io_cls	 	= io_area + 0 			;writing to this clears the output window
+io_putc 	= io_area + 1 			;a "glass teletype" output window. BS, CR and LF are actioned
+io_putr 	= io_area + 2 			;raw output, bytes are output as their
+						;characters and not actioned.
+io_puth 	= io_area + 3 			;hex output, bytes are output as their hex code
+io_getc 	= io_area + 4 			;SCAN_ESCing character get, will wait for input
+io_posx 	= io_area + 5 			;set cursor x position by writing here
+io_posy 	= io_area + 6 			;set cursor y position by writing here        
+	
+KBD             = io_getc       		;Keyboard input register
+KBDCR           = io_getc 	        	;Keyboard control register
+
+		
+	.ENDIF
+	
+	
+		

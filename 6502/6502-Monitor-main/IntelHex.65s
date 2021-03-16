@@ -1,0 +1,165 @@
+; LIBRARY FILE
+; version 2.01
+; two pass assembler, dissembler and tracer- inspiration with permission from A1 by San Bergmans
+; REGB bits 0-3 are connected to LED's
+; tested in Michael Kowalski 6502 Simulator - using 65C02 Code 
+; "Programmed" by Joe DiMeglio
+		
+
+;----------------------------------------------------------------------------------------
+;Intel HEX loader
+;----------------------------------------------------------------------------------------
+
+CHECKSUM	=	LENG		
+
+CMD_INTELHEX		SEI				;stop Interrupts			
+			CLD				;binary mode additons			
+			STZ	EXP_SAVE		;temp			
+			STZ	DEC_SAVE		;Bytes count
+			STZ	DEC_SAVE+1						
+			STZ	CHECKSUM		;checksum	
+			LDA	#CR			
+			STA     ACIA			;dont wait on port status			
+			LDA	#LF			
+			STA     ACIA			;dont wait on port status			  						
+        		BRA     CONTINUE        		        		
+        		
+NEXTRECORD 		JSR 	RDCHAR
+        		CMP     #CR        		
+        		BNE     PROTOCOLERROR        		
+        		JSR     RDCHAR			;CRLF and end of line (BUG there's a CHECKSUM)        		
+        		CMP     #LF        		
+        		BNE     PROTOCOLERROR        		
+        		JSR     RDCHAR        		
+        		CMP     #':'        		
+        		BEQ     CONTINUE        		
+        		
+PROTOCOLERROR 		JSR 	WRCHAR
+        		JSR     STRING        		
+        		.ASCII    BELL,CR,LF," :PROTOCOL ERROR",CR,LF + $80
+        		JMP     TERMINATE        		
+
+CONTINUE 		JSR    	READ_DATA		;read rcord length with checksum add
+        		STA     COUNT			;load the amount of bytes to load into memory        		
+        		JSR     READ_DATA		;read hgh byte of memory location         		       		
+        		STA     SRCE+1			;store hgh byte of memory location        		        		
+        		JSR     READ_DATA		;read low byte with checksum add			        		
+        		STA     SRCE			;store			        		        		
+        		JSR     READ_DATA		;get record type 01 = end        		
+        		;CMP     #$00			;check if 00 if yes then type #00        		
+        		BEQ     .DATARECORD		;get the data frame        		        		
+        		CMP     #$01			;is it type #01 ie: end of record        		
+        		BNE     .INVREC			;else invalid        		
+        		JMP     .END_RECORD        		
+
+.INVREC  		JSR     STRING
+        		.ASCII    BELL,CR,LF," :INVALID RECORD TYPE",CR,LF +$80
+        		JMP     TERMINATE
+        		
+
+		.IF	MYWYM
+.LEDS    		.BYTE   1          		;quicker than a shift
+        		.BYTE   2          		;knight rider lights
+        		.BYTE   4
+        		.BYTE   8
+        		.BYTE   4
+        		.BYTE   2
+		.ENDIF        		
+
+.DATARECORD 		LDX  	COUNT			;DATASIZE
+        		LDY     #$00        		
+.NEXT_BYTE 		JSR   	READ_DATA		;read two hex characters
+        		STA     (SRCE),y		;store in RAM        		
+        		CMP     (SRCE),y		;did it actually store			
+        		BNE     .WRITEERROR		;no then error - probably no ram there        		
+			LDA	#'#'			;write fast			
+			STA     ACIA			;dont wait on port status							
+        		INY				;next address        		
+        		DEX				;next byte to recieve        		
+        		;CPX     #$00			;all bytes recieved?         		
+        		BNE     .NEXT_BYTE		;no then get next record        		
+        		JSR     READ_DATA		;get checksum	        
+
+		.IF	MYWYM        					
+        		LDX     EXP_SAVE		;which LED to turn on        		
+        		LDY     .LEDS,x		        		
+        		STY     VIA        		
+        		INX        		
+        		STX     EXP_SAVE        		
+	        	CPX     #$06	        	
+        		BNE     .LEDCNT        		
+        		STZ     EXP_SAVE		;leds shifting counter restart        		
+        	.ENDiF	
+.LEDCNT  		JMP    NEXTRECORD
+
+.WRITEERROR 		JSR  	STRING
+        		.ASCII   BELL,CR,LF
+			.ASCIS   " :CANNOT WRITE AT ADDRESS $"
+
+        		LDA	SRCE+1        		
+        		JSR	WR2HEX        		
+        		LDA	SRCE        		
+        		JSR	WR2HEX        		
+        		JSR	WRCRLF        		        			
+        		BRA     TERMINATE	
+
+.CHECKSUMERR        	JSR     STRING
+        		.ASCII    BELL,LF,CR," :CHECK SUM ERROR",LF,CR  +$80       		
+        		BRA     TERMINATE        		
+        		
+.END_RECORD  		JSR    	RD2HEX			;last two byes the CheckSUM
+			CLC			
+			ADC	CHECKSUM			
+			BNE	.CHECKSUMERR				
+        		JSR     STRING
+        		.ASCII  BELL,CR,LF        		
+        		.ASCIS   " :INTEL-HEX SUCCESSFUL"        		
+        		JSR     STRING    		        		
+        		.ASCII   CR,LF
+        		.ASCIS   " :TOTAL BYTES WRITTEN "			
+			LDY	DEC_SAVE
+			LDA	DEC_SAVE+1
+			JSR	WRDECI        	        		
+			
+        	.IF	MYWYM        						
+        		LDA     #%00001001		;set lights        		
+        		STA	REGB
+		.ENDIF        		
+        		CLI        		
+        		CLC        		
+        		RTS				;return to caller
+        			
+TERMINATE  
+		.IF	MYWYM   
+			LDA   	#%00001111 		;LEDS arrange in the
+        		STA     REGB       		;mode means an error        		        		
+		.ENDIF        		
+        		SEC        		
+        		CLI        		
+        		RTS 	       		        ;return to caller
+        		
+;---------------------------------------------------------------------------------
+READ_DATA 		JSR   	RD2HEX			;read two hex characters & checksum
+        		;bcs     ERRS
+        		PHA        		
+        		CLC        		
+        		ADC     CHECKSUM		;add to checksum        		
+        		STA     CHECKSUM        		        		
+        		CLC
+        		LDA	DEC_SAVE
+        		ADC	#01
+        		STA	DEC_SAVE
+        		LDA	DEC_SAVE+1		;add the carry	
+        		ADC	#00
+        		STA	DEC_SAVE+1
+        		PLA        		
+        		RTS
+        		
+;ERRS    		tsx				;remove the last RTS from stack
+;        		inx
+;        		inx
+;        		txs
+;        		jsr     STRING     ;read error from RS232
+;        		.ASCIS   BELL,CR,LF," :READ ERROR FROM ACIA",CR,LF
+;        		BRA     TERMINATE
+        		        			

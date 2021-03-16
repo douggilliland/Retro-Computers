@@ -1,0 +1,1114 @@
+; Utility to pack large ASCII text - expecially if has lots of space and hash
+;for VERSION 2.07	
+
+
+			.OPT proc65C02,swapbin		;Michal Kowaski Simulator
+			.START	START			;version 1.3.2
+			.IO_WND 80,25	
+		
+			
+IMV		='#'				;Indicates immediate mode value
+HEX		='$'				;Indicates a hex value
+OPEN		='('				;Open bracket for indirect addressing
+CLOSE		=')'				;Close bracket for indirect addressing
+PCREL		='*'				;Indicates PC relative addressing
+LOBYTE		='<'				;Indicates lo-byte of following word
+HIBYTE		='>'				;Indicates hi-byte of following word
+PLUS		='+'				;Plus in simple expressions
+MINUS		='-'				;Minus in simple expressions
+DOT		='.'				;Indicates a local label
+QUOTE		=$27				;delimits a string
+COMMA		=','				
+CMNT		=';'				;indicates a full line comment
+PROMPT		='.'				;The assembler prompt character
+DASH		='-'				;Dash for crued graphics
+EOL		=$00				;End of line marker
+EOS		=$00				;End of string marker
+EOFLD		=$01				;End of field in tokenised source line
+BLANK		=$02				;used to mark a blank line
+PRGEND		=$FE				;used to flag end of program parsing
+FAIL		=$FF				;used to flag failure in various searches
+CR		=$0D				;CR character
+ESC		=$1B				;ESC character
+BELL		=$07				;BELL should be $07 but $20 for testing 
+BS		=$08				;Back space key
+TAB		=$09				;TAB character
+LF		=$0a				;Line feed
+SP		=$20				;Space	
+
+
+;suspectiable to change as ROM's are generated. 
+
+STRING		=	$F5F0	
+WRCSI 		= 	$F651
+RDCHAR		=	$F6EA
+HEX2BIN 	= 	$F70E
+RD2HEX 		= 	$F6FF
+RD1HEX 		= 	$F6FA
+SCAN_ESC 	=	$F6DD
+WRWORD		=	$F6D0
+WR2HEX		= 	$F6BA
+DRAWLINE	=	$F6AB
+WRCHAR		=	$F695
+WRCRLF		=	$F645
+WRDECI		=	$E76A
+WRSPACE		=	$F691
+CMD_AUT		=	$E81B
+IN_BLANK	=	$EC26
+NNONSPC		=	$E565
+
+;complier flags 	
+BRKAS2		= 0					;Add a second BRK byte
+MYWYM		= 1					;has MYWYM Board settings/Chips
+LCD_ROUTINES	= 0					;Compile with LCD 16x2 lines 	
+SYMON		= 0					;used for SYMON to define CIA and VIA
+	
+;special memory locations	
+USERKEYDEF	= $f6					;User defined @keys
+CMD_CHR         = $C5  			             	;First character of command
+ERROR           = $C6   
+IN		= $0E
+
+		;*= $40
+
+; General purpose registers
+
+NEG_FLAG         = $40               			;Negative flag (if <> 0)
+COUNT            = $41                  		;GP counter
+DELIM            = $42              			;String/ASCII delimiter
+HEXVAL           = $43               			;16-bit value of expression
+LEAD0            = $45               			;Leading 0 flag
+CHAR             = $46              	;Character compilation register
+MULDIV           = $48               	;Multiply/divide temp
+EXP_SAVE         = $4a               	;Expression save value
+DEC_SAVE         = $4c               	;Decimal convert save value
+SAVE_Y           = $4d               	;Save Y pointer
+LENG             = $4f              	;Length of block move
+SRCE             = $51               	;Source for block move
+DEST             = $53			;Destination for block move
+SAVE_X           = $55               	;Save X pointer
+
+
+
+;------------------------------------------------------------------------
+; My board settings
+;------------------------------------------------------------------------	
+	.IF MYWYM
+	
+	.IF	SYMON
+	
+VIA     	= $8000				;My board settings
+ACIA    	= $8800	
+	.ELSE
+VIA     	= $4000				;My board settings
+ACIA    	= $6000				
+		
+	.ENDIF
+	
+		
+ADATA		= ACIA				;ACIA 6551 definations
+ASTAT		= ADATA +1
+ACMND		= ADATA +2
+ACTRL		= ADATA +3		
+REGB    	= VIA				;VIA 6522 definations
+REGA		= REGB +1
+DIRB		= REGB +2
+DIRA		= REGB +3
+TICL		= REGB +4
+TICH		= REGB +5
+ACR		= REGB +$B
+PCR		= REGB +$C
+IFR		= REGB +$D
+IER		= REGB +$E
+	.ELSE
+	
+
+;------------------------------------------------------------------------
+; Simulator or HARDWARE Mapping 6502 Simulator
+;------------------------------------------------------------------------
+VIA     	= $8000
+ACIA   	 	= io_area		
+io_cls	 	= io_area + 0 			;writing to this clears the output window
+io_putc 	= io_area + 1 			;a "glass teletype" output window. BS, CR and LF are actioned
+io_putr 	= io_area + 2 			;raw output, bytes are output as their
+						;characters and not actioned.
+io_puth 	= io_area + 3 			;hex output, bytes are output as their hex code
+io_getc 	= io_area + 4 			;SCAN_ESCing character get, will wait for input
+io_posx 	= io_area + 5 			;set cursor x position by writing here
+io_posy 	= io_area + 6 			;set cursor y position by writing here        
+	
+KBD             = io_getc       		;Keyboard input register
+KBDCR           = io_getc 	        	;Keyboard control register
+
+		
+	.ENDIF
+
+
+;------------------------------------------------------------------------
+; Start Here
+;---------------------------------------------------------------------
+			*= $1000
+START		
+			lda	#<help		;klocation for text area to pack
+			sta	SRCE
+			lda	#>help
+			STA	SRCE +1
+			
+			
+			LDA	#00
+			STA	DEST
+			LDA	#$20
+			STA	DEST+1		;$2000 location to store	
+			ldy	#0
+			
+.LOOP           	LDA	(SRCE),y						
+			BMI	.eol
+						
+			cmp	#SP
+			beq	.pack
+			CMP     #DASH 
+			BEQ	.pack			
+			JSR	BUMPSOURCE		
+			
+.WRITE          	STA     (DEST),Y      	;Save normal character
+	                JSR	BUMPDEST
+	                
+	                BRA     .LOOP          	;Always taken!
+
+.pack           	STA     DELIM           ;Save character to pack
+               		LDA     #1              ;Init repetition counter
+                	STA     COUNT
+
+.PCKLOOP        	JSR	BUMPSOURCE     	;Count number of same characters
+                	LDA     (SRCE),y
+	                CMP     DELIM
+	                BNE     .PCKEXIT        ;It's not the same anymore!
+	                INC     COUNT           ;Increment counter
+	                LDA     COUNT           ;Don't allow it to exceed 63
+	                CMP     #63
+	                BCC     .PCKLOOP   	;Still OK!
+
+	                JSR	BUMPSOURCE      ;Compensate for normal exit
+.PCKEXIT        	LDA     DELIM           ;Was it space or dash?
+	                EOR     #' '            ;  (Makes A=0 if it is space                
+	                BEQ     .SPACE          ;It was space!
+	                LDA     #%01000000      ;Set dash flag
+.SPACE          	ORA     COUNT          	;Combine with counter
+			ORA	#%10000000	;Set PACK flag
+	                BRA     .WRITE          				
+.eol			RTS
+
+
+;-----------------------------------------------------------------------------		
+		
+BUMPSOURCE		INC	SRCE	
+			BNE	.skipbump	
+			INC	SRCE+1				
+.skipbump		RTS	
+
+;-----------------------------------------------------------------------------				
+
+BUMPDEST		INC	DEST							
+			BNE	.skipbump	
+			INC	DEST+1				
+.skipbump		RTS			
+		
+;-----------------------------------------------------------------------------			
+		
+
+help		.ASCII CR,"  _______  _______  _____    ______  __ ",CR,LF 		                         
+		.ASCII " |   |   ||    ___||     |  |   __ \|  |",CR,LF 		 	
+		.ASCII " |       ||    ___||     |_ |    __/|__|           @  User defined command",CR,LF                          
+		.ASCII " |___|___||_______||_______||___|   |__|           A  Auto line numbering",CR,LF 
+		.ASCII "                                                   B  Break command",CR,LF                
+		.ASCII "   EXPANSION PORT LOW     EXPANSION PORT TOP       C  Copy command",CR,LF                      
+		.ASCII "  +-------------------+  +-------------------+     D  Dissassembler",CR,LF                  
+		.ASCII "  |[]GND         +5V[]|  |[]PA0         IRQ[]|     I  ASCII Dump",CR,LF     
+		.ASCII "  |[]A12         +5V[]|  |[]PA1         NMI[]|     L  List command",CR,LF                        
+		.ASCII "  |[]A7           NC[]|  |[]PA2         R/W[]|     M  Memory command",CR,LF                     
+		.ASCII "  |[]A6           A8[]|  |[]PA3          02[]|     N  New command",CR,LF                     
+		.ASCII "  |[]A5           A9[]|  |[]PA4         CA1[]|     O  Old command",CR,LF                   
+		.ASCII "  |[]A4          A11[]|  |[]PA5         PB5[]|     R  Renumber command",CR,LF              
+		.ASCII "  |[]A3          GND[]|  |[]PA6         PB6[]|     S  Start assembling",CR,LF                   
+		.ASCII "  |[]A2          A10[]|  |[]PA7         PB7[]|     T  Trace code",CR,LF                       
+		.ASCII "  |[]A1           CS[]|  +-------------------+     V  Value command",CR,LF                  
+		.ASCII "  |[]A0           D7[]|                            G  Go command",CR,LF                    
+		.ASCII "  |[]D0           D6[]|   HARDWARE MAPPING         Y  Memory configuraion",CR,LF 
+		.ASCII "  |[]D1           D5[]|                            E  Erase line",CR,LF                    
+		.ASCII "  |[]D2           D4[]|    CS   $2000              Z  Clear Screen",CR,LF                                                                                       
+		.ASCII "  |[]GND          D3[]|    VIA  $4000              W  Display Register",CR,LF                                              
+		.ASCII "  +-------------------+    ACIA $6000",CR,LF + $80		
+		
+		
+		*= $3000
+		
+;-----------------------------------------------------------------------------		
+; the result packed 40% reduction
+;-----------------------------------------------------------------------------		
+           
+help1          .byte   $0d
+               .byte   $82
+               .byte   $5f
+               .byte   $5f
+               .byte   $5f
+               .byte   $5f
+               .byte   $5f
+               .byte   $5f
+               .byte   $5f
+               .byte   $82
+               .byte   $5f
+               .byte   $5f
+               .byte   $5f
+               .byte   $5f
+               .byte   $5f
+               .byte   $5f
+               .byte   $5f
+               .byte   $82
+               .byte   $5f
+               .byte   $5f
+               .byte   $5f
+               .byte   $5f
+               .byte   $5f
+               .byte   $84
+               .byte   $5f
+               .byte   $5f
+               .byte   $5f
+               .byte   $5f
+               .byte   $5f
+               .byte   $5f
+               .byte   $82
+               .byte   $5f
+               .byte   $5f
+               .byte   $81
+               .byte   $0d
+               .byte   $0a
+               .byte   $81
+               .byte   $7c
+               .byte   $83
+               .byte   $7c
+               .byte   $83
+               .byte   $7c
+               .byte   $7c
+               .byte   $84
+               .byte   $5f
+               .byte   $5f
+               .byte   $5f
+               .byte   $7c
+               .byte   $7c
+               .byte   $85
+               .byte   $7c
+               .byte   $82
+               .byte   $7c
+               .byte   $83
+               .byte   $5f
+               .byte   $5f
+               .byte   $81
+               .byte   $5c
+               .byte   $7c
+               .byte   $82
+               .byte   $7c
+               .byte   $0d
+               .byte   $0a
+               .byte   $81
+               .byte   $7c
+               .byte   $87
+               .byte   $7c
+               .byte   $7c
+               .byte   $84
+               .byte   $5f
+               .byte   $5f
+               .byte   $5f
+               .byte   $7c
+               .byte   $7c
+               .byte   $85
+               .byte   $7c
+               .byte   $5f
+               .byte   $81
+               .byte   $7c
+               .byte   $84
+               .byte   $5f
+               .byte   $5f
+               .byte   $2f
+               .byte   $7c
+               .byte   $5f
+               .byte   $5f
+               .byte   $7c
+               .byte   $8b
+               .byte   $40
+               .byte   $82
+               .byte   $55
+               .byte   $73
+               .byte   $65
+               .byte   $72
+               .byte   $81
+               .byte   $64
+               .byte   $65
+               .byte   $66
+               .byte   $69
+               .byte   $6e
+               .byte   $65
+               .byte   $64
+               .byte   $81
+               .byte   $63
+               .byte   $6f
+               .byte   $6d
+               .byte   $6d
+               .byte   $61
+               .byte   $6e
+               .byte   $64
+               .byte   $0d
+               .byte   $0a
+               .byte   $81
+               .byte   $7c
+               .byte   $5f
+               .byte   $5f
+               .byte   $5f
+               .byte   $7c
+               .byte   $5f
+               .byte   $5f
+               .byte   $5f
+               .byte   $7c
+               .byte   $7c
+               .byte   $5f
+               .byte   $5f
+               .byte   $5f
+               .byte   $5f
+               .byte   $5f
+               .byte   $5f
+               .byte   $5f
+               .byte   $7c
+               .byte   $7c
+               .byte   $5f
+               .byte   $5f
+               .byte   $5f
+               .byte   $5f
+               .byte   $5f
+               .byte   $5f
+               .byte   $5f
+               .byte   $7c
+               .byte   $7c
+               .byte   $5f
+               .byte   $5f
+               .byte   $5f
+               .byte   $7c
+               .byte   $83
+               .byte   $7c
+               .byte   $5f
+               .byte   $5f
+               .byte   $7c
+               .byte   $8b
+               .byte   $41
+               .byte   $82
+               .byte   $41
+               .byte   $75
+               .byte   $74
+               .byte   $6f
+               .byte   $81
+               .byte   $6c
+               .byte   $69
+               .byte   $6e
+               .byte   $65
+               .byte   $81
+               .byte   $6e
+               .byte   $75
+               .byte   $6d
+               .byte   $62
+               .byte   $65
+               .byte   $72
+               .byte   $69
+               .byte   $6e
+               .byte   $67
+               .byte   $0d
+               .byte   $0a
+               .byte   $b3
+               .byte   $42
+               .byte   $82
+               .byte   $42
+               .byte   $72
+               .byte   $65
+               .byte   $61
+               .byte   $6b
+               .byte   $81
+               .byte   $63
+               .byte   $6f
+               .byte   $6d
+               .byte   $6d
+               .byte   $61
+               .byte   $6e
+               .byte   $64
+               .byte   $0d
+               .byte   $0a
+               .byte   $83
+               .byte   $45
+               .byte   $58
+               .byte   $50
+               .byte   $41
+               .byte   $4e
+               .byte   $53
+               .byte   $49
+               .byte   $4f
+               .byte   $4e
+               .byte   $81
+               .byte   $50
+               .byte   $4f
+               .byte   $52
+               .byte   $54
+               .byte   $81
+               .byte   $4c
+               .byte   $4f
+               .byte   $57
+               .byte   $85
+               .byte   $45
+               .byte   $58
+               .byte   $50
+               .byte   $41
+               .byte   $4e
+               .byte   $53
+               .byte   $49
+               .byte   $4f
+               .byte   $4e
+               .byte   $81
+               .byte   $50
+               .byte   $4f
+               .byte   $52
+               .byte   $54
+               .byte   $81
+               .byte   $54
+               .byte   $4f
+               .byte   $50
+               .byte   $87
+               .byte   $43
+               .byte   $82
+               .byte   $43
+               .byte   $6f
+               .byte   $70
+               .byte   $79
+               .byte   $81
+               .byte   $63
+               .byte   $6f
+               .byte   $6d
+               .byte   $6d
+               .byte   $61
+               .byte   $6e
+               .byte   $64
+               .byte   $0d
+               .byte   $0a
+               .byte   $82
+               .byte   $2b
+               .byte   $d3
+               .byte   $2b
+               .byte   $82
+               .byte   $2b
+               .byte   $d3
+               .byte   $2b
+               .byte   $85
+               .byte   $44
+               .byte   $82
+               .byte   $44
+               .byte   $69
+               .byte   $73
+               .byte   $73
+               .byte   $61
+               .byte   $73
+               .byte   $73
+               .byte   $65
+               .byte   $6d
+               .byte   $62
+               .byte   $6c
+               .byte   $65
+               .byte   $72
+               .byte   $0d
+               .byte   $0a
+               .byte   $82
+               .byte   $7c
+               .byte   $5b
+               .byte   $5d
+               .byte   $47
+               .byte   $4e
+               .byte   $44
+               .byte   $89
+               .byte   $2b
+               .byte   $35
+               .byte   $56
+               .byte   $5b
+               .byte   $5d
+               .byte   $7c
+               .byte   $82
+               .byte   $7c
+               .byte   $5b
+               .byte   $5d
+               .byte   $50
+               .byte   $41
+               .byte   $30
+               .byte   $89
+               .byte   $49
+               .byte   $52
+               .byte   $51
+               .byte   $5b
+               .byte   $5d
+               .byte   $7c
+               .byte   $85
+               .byte   $49
+               .byte   $82
+               .byte   $41
+               .byte   $53
+               .byte   $43
+               .byte   $49
+               .byte   $49
+               .byte   $81
+               .byte   $44
+               .byte   $75
+               .byte   $6d
+               .byte   $70
+               .byte   $0d
+               .byte   $0a
+               .byte   $82
+               .byte   $7c
+               .byte   $5b
+               .byte   $5d
+               .byte   $41
+               .byte   $31
+               .byte   $32
+               .byte   $89
+               .byte   $2b
+               .byte   $35
+               .byte   $56
+               .byte   $5b
+               .byte   $5d
+               .byte   $7c
+               .byte   $82
+               .byte   $7c
+               .byte   $5b
+               .byte   $5d
+               .byte   $50
+               .byte   $41
+               .byte   $31
+               .byte   $89
+               .byte   $4e
+               .byte   $4d
+               .byte   $49
+               .byte   $5b
+               .byte   $5d
+               .byte   $7c
+               .byte   $85
+               .byte   $4c
+               .byte   $82
+               .byte   $4c
+               .byte   $69
+               .byte   $73
+               .byte   $74
+               .byte   $81
+               .byte   $63
+               .byte   $6f
+               .byte   $6d
+               .byte   $6d
+               .byte   $61
+               .byte   $6e
+               .byte   $64
+               .byte   $0d
+               .byte   $0a
+               .byte   $82
+               .byte   $7c
+               .byte   $5b
+               .byte   $5d
+               .byte   $41
+               .byte   $37
+               .byte   $8b
+               .byte   $4e
+               .byte   $43
+               .byte   $5b
+               .byte   $5d
+               .byte   $7c
+               .byte   $82
+               .byte   $7c
+               .byte   $5b
+               .byte   $5d
+               .byte   $50
+               .byte   $41
+               .byte   $32
+               .byte   $89
+               .byte   $52
+               .byte   $2f
+               .byte   $57
+               .byte   $5b
+               .byte   $5d
+               .byte   $7c
+               .byte   $85
+               .byte   $4d
+               .byte   $82
+               .byte   $4d
+               .byte   $65
+               .byte   $6d
+               .byte   $6f
+               .byte   $72
+               .byte   $79
+               .byte   $81
+               .byte   $63
+               .byte   $6f
+               .byte   $6d
+               .byte   $6d
+               .byte   $61
+               .byte   $6e
+               .byte   $64
+               .byte   $0d
+               .byte   $0a
+               .byte   $82
+               .byte   $7c
+               .byte   $5b
+               .byte   $5d
+               .byte   $41
+               .byte   $36
+               .byte   $8b
+               .byte   $41
+               .byte   $38
+               .byte   $5b
+               .byte   $5d
+               .byte   $7c
+               .byte   $82
+               .byte   $7c
+               .byte   $5b
+               .byte   $5d
+               .byte   $50
+               .byte   $41
+               .byte   $33
+               .byte   $8a
+               .byte   $30
+               .byte   $32
+               .byte   $5b
+               .byte   $5d
+               .byte   $7c
+               .byte   $85
+               .byte   $4e
+               .byte   $82
+               .byte   $4e
+               .byte   $65
+               .byte   $77
+               .byte   $81
+               .byte   $63
+               .byte   $6f
+               .byte   $6d
+               .byte   $6d
+               .byte   $61
+               .byte   $6e
+               .byte   $64
+               .byte   $0d
+               .byte   $0a
+               .byte   $82
+               .byte   $7c
+               .byte   $5b
+               .byte   $5d
+               .byte   $41
+               .byte   $35
+               .byte   $8b
+               .byte   $41
+               .byte   $39
+               .byte   $5b
+               .byte   $5d
+               .byte   $7c
+               .byte   $82
+               .byte   $7c
+               .byte   $5b
+               .byte   $5d
+               .byte   $50
+               .byte   $41
+               .byte   $34
+               .byte   $89
+               .byte   $43
+               .byte   $41
+               .byte   $31
+               .byte   $5b
+               .byte   $5d
+               .byte   $7c
+               .byte   $85
+               .byte   $4f
+               .byte   $82
+               .byte   $4f
+               .byte   $6c
+               .byte   $64
+               .byte   $81
+               .byte   $63
+               .byte   $6f
+               .byte   $6d
+               .byte   $6d
+               .byte   $61
+               .byte   $6e
+               .byte   $64
+               .byte   $0d
+               .byte   $0a
+               .byte   $82
+               .byte   $7c
+               .byte   $5b
+               .byte   $5d
+               .byte   $41
+               .byte   $34
+               .byte   $8a
+               .byte   $41
+               .byte   $31
+               .byte   $31
+               .byte   $5b
+               .byte   $5d
+               .byte   $7c
+               .byte   $82
+               .byte   $7c
+               .byte   $5b
+               .byte   $5d
+               .byte   $50
+               .byte   $41
+               .byte   $35
+               .byte   $89
+               .byte   $50
+               .byte   $42
+               .byte   $35
+               .byte   $5b
+               .byte   $5d
+               .byte   $7c
+               .byte   $85
+               .byte   $52
+               .byte   $82
+               .byte   $52
+               .byte   $65
+               .byte   $6e
+               .byte   $75
+               .byte   $6d
+               .byte   $62
+               .byte   $65
+               .byte   $72
+               .byte   $81
+               .byte   $63
+               .byte   $6f
+               .byte   $6d
+               .byte   $6d
+               .byte   $61
+               .byte   $6e
+               .byte   $64
+               .byte   $0d
+               .byte   $0a
+               .byte   $82
+               .byte   $7c
+               .byte   $5b
+               .byte   $5d
+               .byte   $41
+               .byte   $33
+               .byte   $8a
+               .byte   $47
+               .byte   $4e
+               .byte   $44
+               .byte   $5b
+               .byte   $5d
+               .byte   $7c
+               .byte   $82
+               .byte   $7c
+               .byte   $5b
+               .byte   $5d
+               .byte   $50
+               .byte   $41
+               .byte   $36
+               .byte   $89
+               .byte   $50
+               .byte   $42
+               .byte   $36
+               .byte   $5b
+               .byte   $5d
+               .byte   $7c
+               .byte   $85
+               .byte   $53
+               .byte   $82
+               .byte   $53
+               .byte   $74
+               .byte   $61
+               .byte   $72
+               .byte   $74
+               .byte   $81
+               .byte   $61
+               .byte   $73
+               .byte   $73
+               .byte   $65
+               .byte   $6d
+               .byte   $62
+               .byte   $6c
+               .byte   $69
+               .byte   $6e
+               .byte   $67
+               .byte   $0d
+               .byte   $0a
+               .byte   $82
+               .byte   $7c
+               .byte   $5b
+               .byte   $5d
+               .byte   $41
+               .byte   $32
+               .byte   $8a
+               .byte   $41
+               .byte   $31
+               .byte   $30
+               .byte   $5b
+               .byte   $5d
+               .byte   $7c
+               .byte   $82
+               .byte   $7c
+               .byte   $5b
+               .byte   $5d
+               .byte   $50
+               .byte   $41
+               .byte   $37
+               .byte   $89
+               .byte   $50
+               .byte   $42
+               .byte   $37
+               .byte   $5b
+               .byte   $5d
+               .byte   $7c
+               .byte   $85
+               .byte   $54
+               .byte   $82
+               .byte   $54
+               .byte   $72
+               .byte   $61
+               .byte   $63
+               .byte   $65
+               .byte   $81
+               .byte   $63
+               .byte   $6f
+               .byte   $64
+               .byte   $65
+               .byte   $0d
+               .byte   $0a
+               .byte   $82
+               .byte   $7c
+               .byte   $5b
+               .byte   $5d
+               .byte   $41
+               .byte   $31
+               .byte   $8b
+               .byte   $43
+               .byte   $53
+               .byte   $5b
+               .byte   $5d
+               .byte   $7c
+               .byte   $82
+               .byte   $2b
+               .byte   $d3
+               .byte   $2b
+               .byte   $85
+               .byte   $56
+               .byte   $82
+               .byte   $56
+               .byte   $61
+               .byte   $6c
+               .byte   $75
+               .byte   $65
+               .byte   $81
+               .byte   $63
+               .byte   $6f
+               .byte   $6d
+               .byte   $6d
+               .byte   $61
+               .byte   $6e
+               .byte   $64
+               .byte   $0d
+               .byte   $0a
+               .byte   $82
+               .byte   $7c
+               .byte   $5b
+               .byte   $5d
+               .byte   $41
+               .byte   $30
+               .byte   $8b
+               .byte   $44
+               .byte   $37
+               .byte   $5b
+               .byte   $5d
+               .byte   $7c
+               .byte   $9c
+               .byte   $47
+               .byte   $82
+               .byte   $47
+               .byte   $6f
+               .byte   $81
+               .byte   $63
+               .byte   $6f
+               .byte   $6d
+               .byte   $6d
+               .byte   $61
+               .byte   $6e
+               .byte   $64
+               .byte   $0d
+               .byte   $0a
+               .byte   $82
+               .byte   $7c
+               .byte   $5b
+               .byte   $5d
+               .byte   $44
+               .byte   $30
+               .byte   $8b
+               .byte   $44
+               .byte   $36
+               .byte   $5b
+               .byte   $5d
+               .byte   $7c
+               .byte   $83
+               .byte   $48
+               .byte   $41
+               .byte   $52
+               .byte   $44
+               .byte   $57
+               .byte   $41
+               .byte   $52
+               .byte   $45
+               .byte   $81
+               .byte   $4d
+               .byte   $41
+               .byte   $50
+               .byte   $50
+               .byte   $49
+               .byte   $4e
+               .byte   $47
+               .byte   $89
+               .byte   $59
+               .byte   $82
+               .byte   $4d
+               .byte   $65
+               .byte   $6d
+               .byte   $6f
+               .byte   $72
+               .byte   $79
+               .byte   $81
+               .byte   $63
+               .byte   $6f
+               .byte   $6e
+               .byte   $66
+               .byte   $69
+               .byte   $67
+               .byte   $75
+               .byte   $72
+               .byte   $61
+               .byte   $69
+               .byte   $6f
+               .byte   $6e
+               .byte   $0d
+               .byte   $0a
+               .byte   $82
+               .byte   $7c
+               .byte   $5b
+               .byte   $5d
+               .byte   $44
+               .byte   $31
+               .byte   $8b
+               .byte   $44
+               .byte   $35
+               .byte   $5b
+               .byte   $5d
+               .byte   $7c
+               .byte   $9c
+               .byte   $45
+               .byte   $82
+               .byte   $45
+               .byte   $72
+               .byte   $61
+               .byte   $73
+               .byte   $65
+               .byte   $81
+               .byte   $6c
+               .byte   $69
+               .byte   $6e
+               .byte   $65
+               .byte   $0d
+               .byte   $0a
+               .byte   $82
+               .byte   $7c
+               .byte   $5b
+               .byte   $5d
+               .byte   $44
+               .byte   $32
+               .byte   $8b
+               .byte   $44
+               .byte   $34
+               .byte   $5b
+               .byte   $5d
+               .byte   $7c
+               .byte   $84
+               .byte   $43
+               .byte   $53
+               .byte   $83
+               .byte   $24
+               .byte   $32
+               .byte   $30
+               .byte   $30
+               .byte   $30
+               .byte   $8e
+               .byte   $5a
+               .byte   $82
+               .byte   $43
+               .byte   $6c
+               .byte   $65
+               .byte   $61
+               .byte   $72
+               .byte   $81
+               .byte   $53
+               .byte   $63
+               .byte   $72
+               .byte   $65
+               .byte   $65
+               .byte   $6e
+               .byte   $0d
+               .byte   $0a
+               .byte   $82
+               .byte   $7c
+               .byte   $5b
+               .byte   $5d
+               .byte   $47
+               .byte   $4e
+               .byte   $44
+               .byte   $8a
+               .byte   $44
+               .byte   $33
+               .byte   $5b
+               .byte   $5d
+               .byte   $7c
+               .byte   $84
+               .byte   $56
+               .byte   $49
+               .byte   $41
+               .byte   $82
+               .byte   $24
+               .byte   $34
+               .byte   $30
+               .byte   $30
+               .byte   $30
+               .byte   $8e
+               .byte   $57
+               .byte   $82
+               .byte   $44
+               .byte   $69
+               .byte   $73
+               .byte   $70
+               .byte   $6c
+               .byte   $61
+               .byte   $79
+               .byte   $81
+               .byte   $52
+               .byte   $65
+               .byte   $67
+               .byte   $69
+               .byte   $73
+               .byte   $74
+               .byte   $65
+               .byte   $72
+               .byte   $0d
+               .byte   $0a
+               .byte   $82
+               .byte   $2b
+               .byte   $d3
+               .byte   $2b
+               .byte   $84
+               .byte   $41
+               .byte   $43
+               .byte   $49
+               .byte   $41
+               .byte   $81
+               .byte   $24
+               .byte   $36
+               .byte   $30
+               .byte   $30
+               .byte   $30
+               .byte   $0d
