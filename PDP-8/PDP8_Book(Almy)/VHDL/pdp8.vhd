@@ -81,7 +81,8 @@ architecture Behavioral of pdp8 is
 		clearacc		: OUT std_logic;
 		datain		: OUT std_logic_vector(7 downto 0)
 		);
-	  END COMPONENT;
+	END COMPONENT;
+	
 	COMPONENT Panel
 	PORT(
 		clk			: IN std_logic;
@@ -108,6 +109,7 @@ architecture Behavioral of pdp8 is
 		an				: OUT std_logic_vector(7 downto 0)
 		);
 	END COMPONENT;
+	
 --	COMPONENT Panel_Phoney
 --	PORT(
 --		clk			: IN std_logic;
@@ -134,6 +136,7 @@ architecture Behavioral of pdp8 is
 --		an				: OUT std_logic_vector(7 downto 0)
 --	);
 --	END COMPONENT;
+
 	COMPONENT Memory
 	PORT(
 		clk				: IN std_logic;
@@ -146,6 +149,7 @@ architecture Behavioral of pdp8 is
 		mem_finished	: OUT std_logic
 		);
 	END COMPONENT;
+	
 	COMPONENT Memory_Alternate
 	PORT(
 		clk				: IN std_logic;
@@ -158,6 +162,7 @@ architecture Behavioral of pdp8 is
 		mem_finished	: OUT std_logic
 	 );
 	END COMPONENT;
+
 	COMPONENT Memory_Module
 	PORT(
 		clk				: IN std_logic;
@@ -181,6 +186,7 @@ architecture Behavioral of pdp8 is
 		MemAdr			: out STD_LOGIC_VECTOR (22 downto 0)
 	);
 	END COMPONENT;
+
 	COMPONENT CPU
 	PORT(
 		clk				: IN std_logic;
@@ -210,6 +216,7 @@ architecture Behavioral of pdp8 is
 		dataout			: OUT std_logic_vector(7 downto 0)
 	);
 	END COMPONENT;
+
 	COMPONENT UART
 	PORT(
 		clk			: IN std_logic;
@@ -229,6 +236,7 @@ architecture Behavioral of pdp8 is
 		datain_4		: OUT std_logic_vector(7 downto 0)
 	);
 	END COMPONENT;
+
 -- Systemwide
 signal reset : std_logic;
 -- Memory Interface
@@ -303,7 +311,6 @@ begin
 		io_address	=> io_address
 	);
 
-
 	Inst_Panel: Panel PORT MAP(
 		clk			=> clk,
 		dispout		=> dispout,
@@ -329,9 +336,8 @@ begin
 		an				=> an
 	);
 
-
---        Inst_Memory: Memory PORT MAP(
---        Inst_Memory: Memory_Alternate PORT MAP(
+-- Inst_Memory: Memory PORT MAP(
+-- Inst_Memory: Memory_Alternate PORT MAP(
 	Inst_Memory: Memory_Module PORT MAP(
 		clk				=> clk,
 		reset				=> reset,
@@ -354,7 +360,6 @@ begin
 		MemDB				=> MemDB,
 		MemAdr			=> MemAdr
 	);
-
 
 	Inst_CPU: CPU PORT MAP(
 		clk				=> clk,
@@ -403,4 +408,3 @@ begin
 	);
 
 end Behavioral;
-
