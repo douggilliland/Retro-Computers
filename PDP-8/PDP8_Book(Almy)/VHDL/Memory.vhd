@@ -50,18 +50,28 @@ end Memory;
 
 architecture Behavioral of Memory is
 ------------- Begin Cut here for COMPONENT Declaration ------ COMP_TAG
-COMPONENT coreram
-  PORT (
-    clka : IN STD_LOGIC;
-    wea : IN STD_LOGIC_VECTOR(0 DOWNTO 0);
-    addra : IN STD_LOGIC_VECTOR(11 DOWNTO 0);
-    dina : IN STD_LOGIC_VECTOR(11 DOWNTO 0);
-    douta : OUT STD_LOGIC_VECTOR(11 DOWNTO 0)
-  );
+--COMPONENT coreram
+--  PORT (
+--    clka : IN STD_LOGIC;
+--    wea : IN STD_LOGIC_VECTOR(0 DOWNTO 0);
+--    addra : IN STD_LOGIC_VECTOR(11 DOWNTO 0);
+--    dina : IN STD_LOGIC_VECTOR(11 DOWNTO 0);
+--    douta : OUT STD_LOGIC_VECTOR(11 DOWNTO 0)
+--  );
+--END COMPONENT;
+
+ COMPONENT InternalSRAM 
+	PORT (
+		address		: IN STD_LOGIC_VECTOR (11 DOWNTO 0);
+		clock		: IN STD_LOGIC  := '1';
+		data		: IN STD_LOGIC_VECTOR (11 DOWNTO 0);
+		wren		: IN STD_LOGIC ;
+		q		: OUT STD_LOGIC_VECTOR (11 DOWNTO 0)
+	);
 END COMPONENT;
 -- COMP_TAG_END ------ End COMPONENT Declaration ------------
 
-signal wea : std_logic_vector (0 downto 0);
+signal wea : std_logic;
 type STATES is (S0, S1, S1A, S2, S3, S3A);
 signal curr_state : STATES := S0;
 signal next_state : STATES;
@@ -98,7 +108,7 @@ end process;
 
 process (read_enable, write_enable, curr_state) begin -- state machine combinatorial logic
 	next_state <= curr_state; -- set defaults
-	wea <= "0";
+	wea <= '0';
 	mem_finished <= '0';
 	load_rdata <= '0';
 	case curr_state is
@@ -108,7 +118,7 @@ process (read_enable, write_enable, curr_state) begin -- state machine combinato
 		when S1 => next_state <= S1A; -- delay for operation
 		when S1A => load_rdata <= '1'; next_state <= S2;
 		when S2 => mem_finished <= '1'; next_state <= S0;
-		when S3 => wea <= "1"; next_state <= S3A;
+		when S3 => wea <= '1'; next_state <= S3A;
 		when S3A => mem_finished <= '1'; next_state <= S0;
 		when others => next_state <= S0;
 	end case;
@@ -118,14 +128,25 @@ end process;
 -- body. Substitute your own instance name and net names.
 
 ------------- Begin Cut here for INSTANTIATION Template ----- INST_TAG
-your_instance_name : coreram
-  PORT MAP (
-    clka => clk,
-    wea => wea,
-    addra => addr_buf,
-    dina => wdata_buf,
-    douta => rdata_buf
-  );
+--your_instance_name : coreram
+--  PORT MAP (
+--    clka => clk,
+--    wea => wea,
+--    addra => addr_buf,
+--    dina => wdata_buf,
+--    douta => rdata_buf
+--  );
+
+ mySRAM : InternalSRAM
+	PORT MAP
+	(
+		address	=> addr_buf,
+		clock		=> clk,	
+		data		=> wdata_buf,
+		wren		=> wea,
+		q			=> rdata_buf
+	);
+  
 -- INST_TAG_END ------ End INSTANTIATION Template ------------
 
 

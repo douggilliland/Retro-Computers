@@ -33,27 +33,16 @@ entity pdp8 is
 	Port (
 		clk			: in  STD_LOGIC;
 		sw				: in STD_LOGIC_VECTOR(15 downto 0);
-		btnc			: in std_logic;
-		btnu			: in std_logic;
-		btnd			: in std_logic;
-		btnl			: in std_logic;
-		btnr			: in std_logic;
-		btnCpuReset	: in std_logic;
+		btnc			: in std_logic;		-- display select button
+		btnu			: in std_logic;		-- step button
+		btnd			: in std_logic;		-- deposit button
+		btnl			: in std_logic;		-- load PC button
+		btnr			: in std_logic;		-- load AC button
+		btnCpuReset	: in std_logic;		-- reset button
 		-- Outs
 		seg			: out  STD_LOGIC_VECTOR (7 downto 0);
 		an				: out  STD_LOGIC_VECTOR (7 downto 0);
 		led			: out  STD_LOGIC_VECTOR (15 downto 0);
-		RamCLK		: out STD_LOGIC;
-		RamADVn		: out STD_LOGIC;
-		RamCEn		: out STD_LOGIC;
-		RamCRE		: out STD_LOGIC;
-		RamOEn		: out STD_LOGIC;
-		RamWEn		: out STD_LOGIC;
-		RamLBn		: out STD_LOGIC;
-		RamUBn		: out STD_LOGIC;
-		RamWait		: in STD_LOGIC;
-		MemDB			: inout STD_LOGIC_VECTOR (15 downto 0);
-		MemAdr		: out STD_LOGIC_VECTOR (22 downto 0);
 		RsRx			: in  STD_LOGIC;
 		RsTx			: out  STD_LOGIC);
 end pdp8;
@@ -150,43 +139,6 @@ architecture Behavioral of pdp8 is
 		);
 	END COMPONENT;
 	
-	COMPONENT Memory_Alternate
-	PORT(
-		clk				: IN std_logic;
-		reset				: IN std_logic;
-		address			: IN std_logic_vector(11 downto 0);
-		write_data		: IN std_logic_vector(11 downto 0);
-		write_enable	: IN std_logic;
-		read_enable		: IN std_logic;          
-		read_data		: OUT std_logic_vector(11 downto 0);
-		mem_finished	: OUT std_logic
-	 );
-	END COMPONENT;
-
-	COMPONENT Memory_Module
-	PORT(
-		clk				: IN std_logic;
-		reset				: IN std_logic;
-		address			: IN std_logic_vector(11 downto 0);
-		write_data		: IN std_logic_vector(11 downto 0);
-		write_enable	: IN std_logic;
-		read_enable		: IN std_logic;          
-		read_data		: OUT std_logic_vector(11 downto 0);
-		mem_finished	: OUT std_logic;
-		RamCLK			: out STD_LOGIC;
-		RamADVn			: out STD_LOGIC;
-		RamCEn			: out STD_LOGIC;
-		RamCRE			: out STD_LOGIC;
-		RamOEn			: out STD_LOGIC;
-		RamWEn			: out STD_LOGIC;
-		RamLBn			: out STD_LOGIC;
-		RamUBn			: out STD_LOGIC;
-		RamWait			: in STD_LOGIC;
-		MemDB				: inout STD_LOGIC_VECTOR (15 downto 0);
-		MemAdr			: out STD_LOGIC_VECTOR (22 downto 0)
-	);
-	END COMPONENT;
-
 	COMPONENT CPU
 	PORT(
 		clk				: IN std_logic;
@@ -336,9 +288,7 @@ begin
 		an				=> an
 	);
 
--- Inst_Memory: Memory PORT MAP(
--- Inst_Memory: Memory_Alternate PORT MAP(
-	Inst_Memory: Memory_Module PORT MAP(
+Inst_Memory: Memory PORT MAP(
 		clk				=> clk,
 		reset				=> reset,
 		address			=> address,
@@ -346,19 +296,7 @@ begin
 		read_data		=> read_data,
 		write_enable	=> write_enable,
 		read_enable		=> read_enable,
-		mem_finished	=> mem_finished,
-		-- Memory_Module only
-		RamCLK			=> RamCLK,
-		RamADVn			=> RamADVn,
-		RamCEn			=> RamCEn,
-		RamCRE			=> RamCRE,
-		RamOEn			=> RamOEn,
-		RamWEn			=> RamWEn,
-		RamLBn			=> RamLBn,
-		RamUBn			=> RamUBn,
-		RamWait			=> RamWait,
-		MemDB				=> MemDB,
-		MemAdr			=> MemAdr
+		mem_finished	=> mem_finished
 	);
 
 	Inst_CPU: CPU PORT MAP(

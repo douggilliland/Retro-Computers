@@ -80,8 +80,7 @@ begin
 		resetout <= prereset; -- Make this non-inverted
 	end if;
 	end process;
-	reset <= resetout;	
-
+	reset <= resetout;
 
 	-- Run/Stop Switch
 		process (clk) begin
