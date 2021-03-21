@@ -1,0 +1,1455 @@
+  Mon May 13 2019 21:04                                                                                                    Page 1
+
+
+                                               ***************************************
+                                               **      WDC 65C02 Macro Assembler    **
+                                               **                                   **
+                                               **     Version 3.49.1- Feb  6 2006    **
+                                               ***************************************
+
+     1                        ;
+     2                        ;**************************************************************************************************
+     3                        ;*                     Micromon Version 1.2 (c)2013-2019 by Kevin E. Maier                        *
+     4                        ;*             Extendable Mini BIOS and Monitor for 65C02 CPU - 26th February 2019                *
+     5                        ;*                                                *                                               *
+     6                        ;*  Uses 1.75KB EEPROM - JMP table page at $FF00  *  Basic functions include:                     *
+     7                        ;*     Default I/O page is 256 bytes at $FE00     *  - Byte/Text memory search                    *
+     8                        ;*        Default assembly start at $F800         *   - CPU register display/modify               *
+     9                        ;*                                                *  - Memory fill, move, compare, display        *
+    10                        ;*  C02BIOS 1.2L (c)2013-2019                     *  - Macro init/run                             *
+    11                        ;*  - BIOS in pages $FD, $FF                      *  - Execute code at $XXXX                      *
+    12                        ;*  - Full duplex interrupt-driven/buffered I/O   *  - Reset System                               *
+    13                        ;*  - extendable BIOS structure with soft vectors *                                               *
+    14                        ;*  - soft config parameters for 65C51 UART       *   Note default HW system memory map as:       *
+    15                        ;*  - monitor cold/warm start soft vectored       *    - RAM - $0000 - $7FFF                      *
+    16                        ;*  - Panic routine via NMI trigger               *    - ROM - $8000 - $FFFF (less I/O page)      *
+    17                        ;*  - fully relocatable code (sans page $FF)      *    - I/O - $FE00 - $FEFF                      *
+    18                        ;**************************************************************************************************
+    19                                        PL      66              ;Page Length
+    20                                        PW      132             ;Page Width (# of char/line)
+    21                                        CHIP    W65C02S         ;Enable WDC 65C02 instructions
+    22                                        PASS1   OFF             ;Set ON when used for debug
+    23                        ;**************************************************************************************************
+    24                        ;                                       Page Zero definitions
+    25                        ;**************************************************************************************************
+    26                        ;Page Zero from $00 to $CF available for user routines
+    27                        ;
+    28             000000D0   PGZERO_ST       .EQU    $D0             ;Start of Page Zero usage
+    29                        ;
+    30                        ;Buffer used by the default Monitor code
+    31             000000D0   INBUFF          .EQU    PGZERO_ST+0     ;4 byte buffer for HEX input ($D0-$D3)
+    32                        ;
+    33                        ;16-bit variables:
+    34             000000D4   HEXDATAH        .EQU    PGZERO_ST+4     ;Hexadecimal input
+    35             000000D5   HEXDATAL        .EQU    PGZERO_ST+5
+    36             000000D6   BUFADRL         .EQU    PGZERO_ST+6     ;Input address
+    37             000000D7   BUFADRH         .EQU    PGZERO_ST+7
+    38             000000D8   COMLO           .EQU    PGZERO_ST+8     ;User command address
+    39             000000D9   COMHI           .EQU    PGZERO_ST+9
+    40             000000DA   INDEXL          .EQU    PGZERO_ST+10    ;Index for address
+    41             000000DB   INDEXH          .EQU    PGZERO_ST+11
+    42             000000DC   TEMPL           .EQU    PGZERO_ST+12    ;Index for word temp value used by Memdump
+    43             000000DD   TEMPH           .EQU    PGZERO_ST+13
+    44             000000DE   PROMPTL         .EQU    PGZERO_ST+14    ;Prompt string address
+    45             000000DF   PROMPTH         .EQU    PGZERO_ST+15
+    46             000000E0   SRCL            .EQU    PGZERO_ST+16    ;Source address for memory operations
+    47             000000E1   SRCH            .EQU    PGZERO_ST+17
+    48             000000E2   TGTL            .EQU    PGZERO_ST+18    ;Target address for memory operations
+    49             000000E3   TGTH            .EQU    PGZERO_ST+19
+    50             000000E4   LENL            .EQU    PGZERO_ST+20    ;Length address for memory operations
+    51             000000E5   LENH            .EQU    PGZERO_ST+21
+    52                        ;
+    53                        ;8-bit variables and constants:
+    54             000000E6   BUFIDX          .EQU    PGZERO_ST+22    ;Buffer index
+    55             000000E7   BUFLEN          .EQU    PGZERO_ST+23    ;Buffer length
+    56             000000E8   INDEX           .EQU    PGZERO_ST+24    ;Temp Indexing
+    57             000000E9   TEMP1           .EQU    PGZERO_ST+25    ;Temp value - Code Conversion routines
+  Mon May 13 2019 21:04                                                                                                    Page 2
+
+
+    58             000000EA   TEMP2           .EQU    PGZERO_ST+26    ;Temp value - Memory routines
+    59             000000EB   CMDFLAG         .EQU    PGZERO_ST+27    ;Command Flag - used by RDLINE
+    60             000000EC   SPAREM1         .EQU    PGZERO_ST+28    ;Spare byte 1
+    61             000000ED   SPAREM2         .EQU    PGZERO_ST+29    ;Spare byte 2
+    62             000000EE   SPAREM3         .EQU    PGZERO_ST+30    ;Spare byte 3
+    63             000000EF   SPAREM4         .EQU    PGZERO_ST+31    ;Spare byte 4
+    64                        ;
+    65                        ;BIOS variables, pointers, flags located at top of Page Zero.
+    66             000000F0   BIOS_PG0        .EQU    PGZERO_ST+32    ;Start of BIOS page zero use
+    67                        ;
+    68                        ;BRK handler routine
+    69             000000F0   PCL             .EQU    BIOS_PG0+0      ;Program Counter Low index
+    70             000000F1   PCH             .EQU    BIOS_PG0+1      ;Program Counter High index
+    71             000000F2   PREG            .EQU    BIOS_PG0+2      ;Temp Status reg
+    72             000000F3   SREG            .EQU    BIOS_PG0+3      ;Temp Stack ptr
+    73             000000F4   YREG            .EQU    BIOS_PG0+4      ;Temp Y reg
+    74             000000F5   XREG            .EQU    BIOS_PG0+5      ;Temp X reg
+    75             000000F6   AREG            .EQU    BIOS_PG0+6      ;Temp A reg
+    76                        ;
+    77                        ;6551 IRQ handler pointers and status
+    78             000000F7   ICNT            .EQU    BIOS_PG0+7      ;Input buffer count
+    79             000000F8   IHEAD           .EQU    BIOS_PG0+8      ;Input buffer head pointer
+    80             000000F9   ITAIL           .EQU    BIOS_PG0+9      ;Input buffer tail pointer
+    81             000000FA   OCNT            .EQU    BIOS_PG0+10     ;Output buffer count
+    82             000000FB   OHEAD           .EQU    BIOS_PG0+11     ;Output buffer head pointer
+    83             000000FC   OTAIL           .EQU    BIOS_PG0+12     ;Output buffer tail pointer
+    84             000000FD   STTVAL          .EQU    BIOS_PG0+13     ;6551 BIOS status byte
+    85             000000FE   SPAREB1         .EQU    BIOS_PG0+14     ;Spare byte 1
+    86             000000FF   SPAREB2         .EQU    BIOS_PG0+15     ;Spare byte 2
+    87                        ;
+    88                        ;**************************************************************************************************
+    89                        ;Character input buffer address: $0200-$027F, Character output buffer address: $0280-$02FF
+    90                        ;Managed by full-duplex IRQ service routine.
+    91                        ;
+    92             00000200   IBUF            .EQU    $0200           ;INPUT BUFFER  128 BYTES - BIOS use only
+    93             00000280   OBUF            .EQU    $0280           ;OUTPUT BUFFER 128 BYTES - BIOS use only
+    94                        ;
+    95                        ;**************************************************************************************************
+    96             00000300   SOFTVEC         .EQU    $0300           ;Start of soft vectors
+    97                        ;
+    98                        ;The Interrupt structure is vector based. During startup, Page $03 is loaded from ROM.
+    99                        ; The soft vectors are structured to allow inserting additional routines either before
+   100                        ; or after the core routines. This allows flexibility and changing of routine priority.
+   101                        ;
+   102                        ;The main set of vectors occupy the first 16 bytes of Page $03. The ROM handler for
+   103                        ; NMI, BRK and IRQ jump to the first 3 vectors. The following 3 vectors are loaded with
+   104                        ; returns to the ROM handler for each. The following 2 vectors are the cold and warm
+   105                        ; entry points for the Monitor. After the basic initialization, the monitor is entered.
+   106                        ;
+   107                        ;The following vector set allows inserts for any of the above vectors.
+   108                        ; there are a total of 4 Inserts which occupy 8 bytes.
+   109                        ;
+   110             00000300   NMIVEC0         .EQU    SOFTVEC         ;NMI Interrupt Vector
+   111             00000302   BRKVEC0         .EQU    SOFTVEC+2       ;BRK Interrupt Vector
+   112             00000304   IRQVEC0         .EQU    SOFTVEC+4       ;INTERRUPT VECTOR
+   113                        ;
+   114             00000306   NMIRTVEC0       .EQU    SOFTVEC+6       ;NMI Return Handler
+   115             00000308   BRKRTVEC0       .EQU    SOFTVEC+8       ;BRK Return Handler
+   116             0000030A   IRQRTVEC0       .EQU    SOFTVEC+10      ;IRQ Return Handler
+   117                        ;
+   118             0000030C   CLDMNVEC0       .EQU    SOFTVEC+12      ;Cold Monitor Entry Vector
+   119             0000030E   WRMMNVEC0       .EQU    SOFTVEC+14      ;Warm Monitor Entry Vector
+   120                        ;
+  Mon May 13 2019 21:04                                                                                                    Page 3
+
+
+   121             00000310   VECINSRT0       .EQU    SOFTVEC+16      ;1st Vector Insert
+   122             00000312   VECINSRT1       .EQU    SOFTVEC+18      ;2nd Vector Insert
+   123             00000314   VECINSRT2       .EQU    SOFTVEC+20      ;3rd Vector Insert
+   124             00000316   VECINSRT3       .EQU    SOFTVEC+22      ;4th Vector Insert
+   125                        ;
+   126                        ;**************************************************************************************************
+   127             00000318   SOFTCFG         .EQU SOFTVEC+24         ;Start of hardware config parameters
+   128                        ;Soft Config values below are loaded from ROM and are the default I/O setup
+   129                        ; configuration data that the INIT_65xx routines use. As a result, you can write a
+   130                        ; routine to change the I/O configuration data and use the standard ROM routine
+   131                        ; to initialize the I/O without restarting or changing ROM. A Reset (cold or coded)
+   132                        ; will reinitialize the I/O with the ROM default I/O configuration.
+   133                        ; There are a total of 16 Bytes configuration data reserved starting at $0318
+   134             00000318   LOAD_6551       .EQU    SOFTCFG         ;6551 SOFT config data start
+   135                        ;**************************************************************************************************
+   136                        ;
+   137                        ;Search Buffer is 16 bytes in length
+   138                        ; Used to hold search string for text and hex data
+   139             00000330   SRCHBUFF        .EQU    $330            ;Located in Page $03 following HW config data
+   140                        ;
+   141                        ;I/O Page Base Address
+   142             0000FE00   IOPAGE          .EQU    $FE00           ;Start of I/O addresses
+   143                        ;
+   144                        ;ACIA device address:
+   145             0000FE20   SIOBase         .EQU    IOPAGE+$20      ;6551 Base HW address
+   146             0000FE20   SIODAT          .EQU    SIOBase+0       ;ACIA data register
+   147             0000FE21   SIOSTAT         .EQU    SIOBase+1       ;ACIA status register
+   148             0000FE22   SIOCOM          .EQU    SIOBase+2       ;ACIA command register
+   149             0000FE23   SIOCON          .EQU    SIOBase+3       ;ACIA control register
+   150                        ;**************************************************************************************************
+   151                                        .ORG    $F800           ;Target address range $F800 through $FDFF will be used
+   152                        ;**************************************************************************************************
+   153                        ;                                       START OF MONITOR CODE
+   154                        ;**************************************************************************************************
+   155                        ;The following 16 functions are provided by the Monitor and available via the JMP
+   156                        ; $FF00 RDLINE (read line of Ascii characters from console)
+   157                        ; $FF03 RDCHAR (read Ascii character from console)
+   158                        ; $FF06 HEXIN2 (get 2 HEX characters from console)
+   159                        ; $FF09 HEXIN4 (get 4 HEX characters from console)
+   160                        ; $FF0C BIN2ASC (convert one byte to 2 Ascii characters)
+   161                        ; $FF0F ASC2BIN (convert 2 Ascii characters to one byte)
+   162                        ; $FF12 DOLLAR (print $ sign to console)
+   163                        ; $FF15 PRBYTE (print byte in A reg to console as HEX)
+   164                        ; $FF18 PRWORD (print word in A/Y reg to console as HEX)
+   165                        ; $FF1B PRASC (print Ascii character to console)
+   166                        ; $FF1E PROMPT (send msg # to console)
+   167                        ; $FF21 PROMPT2 (send text string tp console terminate with null)
+   168                        ; $FF24 CONTINUE (prompt to continue execution)
+   169                        ; $FF27 CROUT (send CR/LF to console)
+   170                        ; $FF2A SPC (send Ascii space to console)
+   171                        ; $FF2D BSOUT (send Ascii backspace to console and clear previous character)
+   172                        ;**************************************************************************************************
+   173                        ;                                       This is the Monitor Cold start vector
+   174                        ;**************************************************************************************************
+   175 00:F800: A9 14        MONITOR         LDA     #$14            ;Get intro msg
+   176 00:F802: 20 0B FC                     JSR     PROMPT          ;Send to terminal
+   177                        ;
+   178                        ;**************************************************************************************************
+   179                        ;                       Command input loop - Monitor Warm start vector
+   180                        ;**************************************************************************************************
+   181                        ;
+   182 00:F805: A2 FF        NMON            LDX     #$FF            ;Initialize Stack pointer
+   183 00:F807: 9A                           TXS                     ;Xfer to stack
+  Mon May 13 2019 21:04                                                                                                    Page 4
+
+
+   184 00:F808: 64 EB                        STZ     CMDFLAG         ;Clear Command flag
+   185 00:F80A: A9 15                        LDA     #$15            ;Get prompt msg
+   186 00:F80C: 20 0B FC                     JSR     PROMPT          ;Send to terminal
+   187                        ;
+   188 00:F80F: 20 09 F9     CMON            JSR     RDCHAR          ;Wait for keystroke (converts to upper-case)
+   189 00:F812: A2 0F                        LDX     #MONTAB-MONCMD-1 ;Get command list count
+   190 00:F814: DD 31 FC     CMD_LP          CMP     MONCMD,X        ;Compare to command list
+   191 00:F817: D0 0D                        BNE     CMD_DEC         ;Check for next command and loop
+   192 00:F819: 48                           PHA                     ;Save keystroke
+   193 00:F81A: 8A                           TXA                     ;Xfer Command index to A reg
+   194 00:F81B: 0A                           ASL     A               ;Multiply keystroke value by 2
+   195 00:F81C: AA                           TAX                     ;Get monitor command processor address from table MONTAB
+   196 00:F81D: 68                           PLA                     ;Restore key (some commands send keystroke to terminal)
+   197 00:F81E: 20 23 F8                     JSR     DOCMD           ;Call selected monitor command processor as a subroutine
+   198 00:F821: 80 E2                        BRA     NMON            ;Command processed, branch and wait for next command
+   199 00:F823: 7C 41 FC     DOCMD           JMP     (MONTAB,X)      ;Execute CMD from Table
+   200                        ;
+   201 00:F826: CA           CMD_DEC         DEX                     ;Decrement index count
+   202 00:F827: 10 EB                        BPL     CMD_LP          ;If more to check, loop back
+   203 00:F829: 20 13 F9                     JSR     BEEP            ;Beep for error,
+   204 00:F82C: 80 E1                        BRA     CMON            ;re-enter monitor
+   205                        ;
+   206                        ;**************************************************************************************************
+   207                        ;                                       Basic Subroutines used by multiple routines
+   208                        ;**************************************************************************************************
+   209                        ;ASC2BIN subroutine: Convert 2 ASCII HEX digits to a binary (byte) value.
+   210                        ; Enter: A register = high digit, Y register = low digit
+   211                        ; Return: A register = binary value
+   212 00:F82E: 20 3E F8     ASC2BIN         JSR     BINARY          ;Convert high digit to 4-bit nibble
+   213 00:F831: 0A                           ASL     A               ;Shift to high nibble
+   214 00:F832: 0A                           ASL     A
+   215 00:F833: 0A                           ASL     A
+   216 00:F834: 0A                           ASL     A
+   217 00:F835: 85 E9                        STA     TEMP1           ;Store it in temp area
+   218 00:F837: 98                           TYA                     ;Get Low digit
+   219 00:F838: 20 3E F8                     JSR     BINARY          ;Convert low digit to 4-bit nibble
+   220 00:F83B: 05 E9                        ORA     TEMP1           ;OR in the high nibble
+   221 00:F83D: 60                           RTS                     ;Return to caller
+   222                        ;
+   223 00:F83E: 38           BINARY          SEC                     ;Set carry for subtraction
+   224 00:F83F: E9 30                        SBC     #$30            ;Subtract $30 from ASCII HEX digit
+   225 00:F841: C9 0A                        CMP     #$0A            ;Check for result < 10
+   226 00:F843: 90 02                        BCC     BNOK            ;Branch if 0-9
+   227 00:F845: E9 07                        SBC     #$07            ;Else, subtract 7 for A-F
+   228 00:F847: 60           BNOK            RTS                     ;Return to caller
+   229                        ;
+   230                        ;BIN2ASC subroutine: Convert byte in A register to two ASCII HEX digits.
+   231                        ; Return: A register = high digit, Y register = low digit
+   232 00:F848: 48           BIN2ASC         PHA                     ;Save A Reg on stack
+   233 00:F849: 29 0F                        AND     #$0F            ;Mask off high nibble
+   234 00:F84B: 20 54 F8                     JSR     ASCII           ;Convert nibble to ASCII HEX digit
+   235 00:F84E: A8                           TAY                     ;Move to Y Reg
+   236 00:F84F: 68                           PLA                     ;Get character back from stack
+   237 00:F850: 4A                           LSR     A               ;Shift high nibble to lower 4 bits
+   238 00:F851: 4A                           LSR     A
+   239 00:F852: 4A                           LSR     A
+   240 00:F853: 4A                           LSR     A
+   241                        ;
+   242 00:F854: C9 0A        ASCII           CMP     #$0A            ;Check for 10 or less
+   243 00:F856: 90 02                        BCC     ASOK            ;Branch if less than 10
+   244 00:F858: 69 06                        ADC     #$06            ;Add $06+Carry = $07
+   245 00:F85A: 69 30        ASOK            ADC     #$30            ;Add $30 for ASCII
+   246 00:F85C: 60                           RTS                     ;Return to caller
+  Mon May 13 2019 21:04                                                                                                    Page 5
+
+
+   247                        ;
+   248                        ;UPD_STL subroutine: Increments Source and Target pointers
+   249                        ;UPD_TL subroutine: Increments Target pointers only
+   250                        ; then drops into decrement length pointer. Used by multiple commands
+   251 00:F85D: E6 E0        UPD_STL         INC     SRCL            ;Increment source low byte
+   252 00:F85F: D0 02                        BNE     UPD_TL          ;Check for rollover
+   253 00:F861: E6 E1                        INC     SRCH            ;Increment source high byte
+   254 00:F863: E6 E2        UPD_TL          INC     TGTL            ;Increment target low byte
+   255 00:F865: D0 02                        BNE     DECLEN          ;Check for rollover
+   256 00:F867: E6 E3                        INC     TGTH            ;Increment target high byte
+   257                        ;
+   258                        ;DECLEN subroutine: decrement 16-bit variable LENL/LENH
+   259 00:F869: A5 E4        DECLEN          LDA     LENL            ;Get length low byte
+   260 00:F86B: D0 02                        BNE     SKP_LENH        ;Test for LENL = zero
+   261 00:F86D: C6 E5                        DEC     LENH            ;Else decrement length high byte
+   262 00:F86F: C6 E4        SKP_LENH        DEC     LENL            ;Decrement length low byte
+   263 00:F871: 60                           RTS                     ;Return to caller
+   264                        ;
+   265                        ;INCINDEX subroutine: increment 16 bit variable INDEXL/INDEXH
+   266 00:F872: E6 DA        INCINDEX        INC     INDEXL          ;Increment index low byte
+   267 00:F874: D0 02                        BNE     SKP_IDX         ;If not zero, skip high byte
+   268 00:F876: E6 DB                        INC     INDEXH          ;Increment index high byte
+   269 00:F878: 60           SKP_IDX         RTS                     ;Return to caller
+   270                        ;
+   271                        ;SETUP subroutine: Request HEX address input from terminal
+   272 00:F879: 20 57 FD     SETUP           JSR     CHROUT          ;Send command keystroke to terminal
+   273 00:F87C: 20 1E F9                     JSR     SPC             ;Send [SPACE] to terminal
+   274 00:F87F: 80 03                        BRA     HEXIN4          ;Request a 1-4 digit HEX address input from terminal
+   275                        ;
+   276                        ;HEX input subroutines:
+   277                        ; Request 1 to 4 ASCII HEX digits from terminal, then convert digits into a binary value
+   278                        ; HEXIN2 - returns value in A reg and Y reg only (Y reg always $00)
+   279                        ; HEXIN4 - returns values in A reg, Y reg and INDEXL/INDEXH
+   280                        ; For 1 to 4 digits entered, HEXDATAH and HEXDATAL contain the output
+   281                        ; Variable SCNT will contain the number of digits entered
+   282                        ; HEX2 - Prints MSG# in A reg then calls HEXIN2
+   283                        ; HEX4 - Prints MSG# in A reg then calls HEXIN4
+   284                        ;
+   285 00:F881: 20 0B FC     HEX4            JSR     PROMPT          ;Print MSG # from A reg
+   286 00:F884: A2 04        HEXIN4          LDX     #$04            ;Set for number of characters allowed
+   287 00:F886: 20 93 F8                     JSR     HEXINPUT        ;Convert digits
+   288 00:F889: 84 DB                        STY     INDEXH          ;Store to INDEXH
+   289 00:F88B: 85 DA                        STA     INDEXL          ;Store to INDEXL
+   290 00:F88D: 60                           RTS                     ;Return to caller
+   291                        ;
+   292 00:F88E: 20 0B FC     HEX2            JSR     PROMPT          ;Print MSG # from A reg
+   293 00:F891: A2 02        HEXIN2          LDX     #$02            ;Set for number of characters allowed
+   294                        ;
+   295                        ;HEXINPUT subroutine: request 1 to 4 HEX digits from terminal,
+   296                        ; then convert ASCII HEX to HEX
+   297                        ; Setup RDLINE subroutine parameters:
+   298 00:F893: 20 23 F9     HEXINPUT        JSR     DOLLAR          ;Send "$" to console
+   299 00:F896: 20 C4 F8                     JSR     RDLINE          ;Request ASCII HEX input from terminal
+   300 00:F899: E0 00                        CPX     #$00            ;Check for no input
+   301 00:F89B: F0 26                        BEQ     HINEXIT         ;Exit if none
+   302 00:F89D: 64 D4                        STZ     HEXDATAH        ;Clear Upper HEX byte, Lower HEX byte updated
+   303 00:F89F: A0 02                        LDY     #$02            ;Set index for 2 bytes
+   304 00:F8A1: 5A           ASCLOOP         PHY                     ;Save it to stack
+   305 00:F8A2: B5 CF                        LDA     INBUFF-1,X      ;Read ASCII digit from buffer
+   306 00:F8A4: A8                           TAY                     ;Xfer to Y Reg (LSD)
+   307 00:F8A5: CA                           DEX                     ;Decrement input count
+   308 00:F8A6: F0 04                        BEQ     NO_UPNB         ;Branch if no upper nibble
+   309 00:F8A8: B5 CF                        LDA     INBUFF-1,X      ;Read ASCII digit from buffer
+  Mon May 13 2019 21:04                                                                                                    Page 6
+
+
+   310 00:F8AA: 80 02                        BRA     DO_UPNB         ;Branch to include upper nibble
+   311 00:F8AC: A9 30        NO_UPNB         LDA     #$30            ;Load ASCII "0" (MSD)
+   312 00:F8AE: 20 2E F8     DO_UPNB         JSR     ASC2BIN         ;Convert ASCII digits to binary value
+   313 00:F8B1: 7A                           PLY                     ;Get index from stack
+   314 00:F8B2: 99 D3 00                     STA     HEXDATAH-1,Y    ;Write byte to indexed HEX input buffer location
+   315 00:F8B5: E0 00                        CPX     #$00            ;Any more digits?
+   316 00:F8B7: F0 04                        BEQ     HINDONE         ;If not, exit
+   317 00:F8B9: 88                           DEY                     ;Else, decrement to next byte set
+   318 00:F8BA: CA                           DEX                     ;Decrement index count
+   319 00:F8BB: D0 E4                        BNE     ASCLOOP         ;Loop back for next byte
+   320 00:F8BD: A6 E6        HINDONE         LDX     BUFIDX          ;Get input count
+   321 00:F8BF: A4 D4                        LDY     HEXDATAH        ;Get High Byte
+   322 00:F8C1: A5 D5                        LDA     HEXDATAL        ;Get Low Byte
+   323 00:F8C3: 60           HINEXIT         RTS                     ;And return to caller
+   324                        ;
+   325                        ;RDLINE subroutine: Store keystrokes in buffer until [RETURN] key it struck.
+   326                        ; Used only for Hex entry, so only (0-9,A-F) are accepted entries
+   327                        ; Lower-case alpha characters are converted to upper-case.
+   328                        ; On entry, X reg = buffer length.
+   329                        ; [BACKSPACE] key removes keystrokes from buffer.
+   330                        ; [ESCAPE] key aborts then re-enters monitor.
+   331 00:F8C4: 86 E7        RDLINE          STX     BUFLEN          ;Store buffer length
+   332 00:F8C6: 64 E6                        STZ     BUFIDX          ;Zero buffer index
+   333 00:F8C8: 20 09 F9     RDLOOP          JSR     RDCHAR          ;Get character from terminal, convert LC2UC
+   334 00:F8CB: C9 1B                        CMP     #$1B            ;Check for ESC key
+   335 00:F8CD: F0 37                        BEQ     RDNULL          ;If yes, exit back to Monitor
+   336 00:F8CF: C9 0D        NOTESC          CMP     #$0D            ;Check for C/R
+   337 00:F8D1: F0 2C                        BEQ     EXITRD          ;Exit if yes
+   338 00:F8D3: C9 08                        CMP     #$08            ;Check for Backspace
+   339 00:F8D5: F0 1D                        BEQ     RDBKSP          ;If yes handle backspace
+   340 00:F8D7: C9 30                        CMP     #$30            ;Check for '0' or higher
+   341 00:F8D9: 90 0A                        BCC     INPERR          ;Branch to error if less than '0'
+   342 00:F8DB: C9 47                        CMP     #$47            ;Check for 'G' ('F'+1)
+   343 00:F8DD: B0 06                        BCS     INPERR          ;Branch to error if 'G' or higher
+   344 00:F8DF: A4 E6                        LDY     BUFIDX          ;Get the current buffer index
+   345 00:F8E1: C4 E7                        CPY     BUFLEN          ;Compare to length for space
+   346 00:F8E3: 90 05                        BCC     STRCH           ;Branch to store in buffer
+   347 00:F8E5: 20 13 F9     INPERR          JSR     BEEP            ;Else, error, send Bell to terminal
+   348 00:F8E8: 80 DE                        BRA     RDLOOP          ;Branch back to RDLOOP
+   349 00:F8EA: 99 D0 00     STRCH           STA     INBUFF,Y        ;Store keystroke in buffer
+   350 00:F8ED: 20 57 FD                     JSR     CHROUT          ;Send keystroke to terminal
+   351 00:F8F0: E6 E6                        INC     BUFIDX          ;Increment buffer index
+   352 00:F8F2: 80 D4                        BRA     RDLOOP          ;Branch back to RDLOOP
+   353 00:F8F4: A5 E6        RDBKSP          LDA     BUFIDX          ;Check if buffer is empty
+   354 00:F8F6: F0 ED                        BEQ     INPERR          ;Branch if yes
+   355 00:F8F8: C6 E6                        DEC     BUFIDX          ;Else, decrement buffer index
+   356 00:F8FA: 20 28 F9                     JSR     BSOUT           ;Send Backspace to terminal
+   357 00:F8FD: 80 C9                        BRA     RDLOOP          ;Loop back and continue
+   358 00:F8FF: A6 E6        EXITRD          LDX     BUFIDX          ;Get keystroke count
+   359 00:F901: D0 0F                        BNE     AOK             ;If data entered, normal exit
+   360 00:F903: FF EB 0C                     BBS7    CMDFLAG,AOK     ;Branch if CMD flag active
+   361 00:F906: 6C 0E 03     RDNULL          JMP     (WRMMNVEC0)     ;Quit to Monitor warm start
+   362                        ;
+   363                        ;RDCHAR subroutine: Waits for a keystroke to be entered.
+   364                        ; if keystroke is a lower-case alphabetic, convert to upper-case
+   365 00:F909: 20 74 FD     RDCHAR          JSR     CHRIN           ;Request keystroke input from terminal
+   366 00:F90C: C9 61                        CMP     #$61            ;Check for lower case value range
+   367 00:F90E: 90 02                        BCC     AOK             ;Branch if < $61, control code, upper-case or numeric
+   368 00:F910: E9 20                        SBC     #$20            ;Else, subtract $20 to convert to upper case
+   369 00:F912: 60           AOK             RTS                     ;Return to caller
+   370                        ;
+   371                        ;BEEP subroutine: Send ASCII [BELL] to terminal
+   372 00:F913: 48           BEEP            PHA                     ;Save A reg on Stack
+  Mon May 13 2019 21:04                                                                                                    Page 7
+
+
+   373 00:F914: A9 07                        LDA     #$07            ;Get ASCII [BELL] character
+   374 00:F916: 80 26                        BRA     SENDIT          ;Branch to send
+   375                        ;
+   376                        ;SPC subroutines: Send a Space to terminal 1,2 or 4 times
+   377 00:F918: 20 1B F9     SPC4            JSR     SPC2            ;Send 4 Spaces to terminal
+   378 00:F91B: 20 1E F9     SPC2            JSR     SPC             ;Send 2 Spaces to terminal
+   379 00:F91E: 48           SPC             PHA                     ;Save character in A reg
+   380 00:F91F: A9 20                        LDA     #$20            ;Get ASCII Space
+   381 00:F921: 80 1B                        BRA     SENDIT          ;Branch to send
+   382                        ;
+   383                        ;DOLLAR subroutine: Send "$" to terminal
+   384 00:F923: 48           DOLLAR          PHA                     ;Save A reg on Stack
+   385 00:F924: A9 24                        LDA     #$24            ;Get ASCII "$"
+   386 00:F926: 80 16                        BRA     SENDIT          ;Branch to send
+   387                        ;
+   388                        ;BSOUT subroutine: send a Backspace to terminal
+   389 00:F928: 20 2E F9     BSOUT           JSR     BSOUT2          ;Send an ASCII backspace
+   390 00:F92B: 20 1E F9                     JSR     SPC             ;Send space to clear out character
+   391 00:F92E: 48           BSOUT2          PHA                     ;Save A reg on Stack
+   392 00:F92F: A9 08                        LDA     #$08            ;Get an ASCII backspace
+   393 00:F931: 80 0B                        BRA     SENDIT          ;Branch and send, then return
+   394                        ;
+   395                        ;Send CR,LF to terminal
+   396 00:F933: 20 36 F9     CR2             JSR     CROUT           ;Send LF,CR to terminal
+   397 00:F936: 48           CROUT           PHA                     ;Save A reg
+   398 00:F937: A9 0D                        LDA     #$0D            ;Get ASCII Return
+   399 00:F939: 20 57 FD                     JSR     CHROUT          ;Send to terminal
+   400 00:F93C: A9 0A                        LDA     #$0A            ;Get ASCII Linefeed
+   401 00:F93E: 20 57 FD     SENDIT          JSR     CHROUT          ;Send to terminal
+   402 00:F941: 68                           PLA                     ;Restore A reg
+   403 00:F942: 60                           RTS                     ;Return to caller
+   404                        ;
+   405                        ;GLINE subroutine: Send a horizontal line to terminal
+   406 00:F943: A2 4F        GLINE           LDX     #$4F            ;Load index for 79 decimal
+   407 00:F945: A9 7E                        LDA     #$7E            ;Get "~" character
+   408 00:F947: 20 57 FD     GLINEL          JSR     CHROUT          ;Send to terminal (draw a line)
+   409 00:F94A: CA                           DEX                     ;Decrement count
+   410 00:F94B: D0 FA                        BNE     GLINEL          ;Branch back until done
+   411 00:F94D: 60                           RTS                     ;Return to caller
+   412                        ;
+   413                        ;Routines to output 8/16-bit Binary Data and Ascii characters
+   414                        ;
+   415                        ; PRASC subroutine: Print A-reg as ASCII (Printable ASCII values = $20 - $7E), else print "."
+   416 00:F94E: C9 7F        PRASC           CMP     #$7F            ;Check for first 128
+   417 00:F950: B0 04                        BCS     PERIOD          ;If = or higher, branch
+   418 00:F952: C9 20                        CMP     #$20            ;Check for control characters
+   419 00:F954: B0 02                        BCS     ASCOUT          ;If space or higher, branch and print
+   420 00:F956: A9 2E        PERIOD          LDA     #$2E            ;Else, print a "."
+   421 00:F958: 4C 57 FD     ASCOUT          JMP     CHROUT          ;Send byte in A-Reg, then return
+   422                        ;
+   423                        ;PRBYTE subroutine:
+   424                        ; Converts a single Byte to 2 HEX ASCII characters and sends to console
+   425                        ; on entry, A reg contains the Byte to convert/send
+   426                        ; Register contents are preserved on entry/exit
+   427 00:F95B: 48           PRBYTE          PHA                     ;Save A register
+   428 00:F95C: 5A                           PHY                     ;Save Y register
+   429 00:F95D: 20 48 F8     PRBYT2          JSR     BIN2ASC         ;Convert A reg to 2 ASCII Hex characters
+   430 00:F960: 20 57 FD                     JSR     CHROUT          ;Print high nibble from A reg
+   431 00:F963: 98                           TYA                     ;Transfer low nibble to A reg
+   432 00:F964: 20 57 FD                     JSR     CHROUT          ;Print low nibble from A reg
+   433 00:F967: 7A                           PLY                     ;Restore Y Register
+   434 00:F968: 68                           PLA                     ;Restore A Register
+   435 00:F969: 60                           RTS                     ;And return to caller
+  Mon May 13 2019 21:04                                                                                                    Page 8
+
+
+   436                        ;
+   437                        ;PRINDEX subroutine:
+   438                        ; Used by Memory Dump and Text Entry routines
+   439                        ; Prints a $ sign followed by the current value of INDEXH/L
+   440 00:F96A: 20 23 F9     PRINDEX         JSR     DOLLAR          ;Print a $ sign
+   441 00:F96D: A5 DB                        LDA     INDEXH          ;Get Index high byte
+   442 00:F96F: A4 DA                        LDY     INDEXL          ;Get Index low byte
+   443                        ;
+   444                        ;PRWORD subroutine:
+   445                        ; Converts a 16-bit word to 4 HEX ASCII characters and sends to console
+   446                        ; on entry, A reg contains High Byte, Y reg contains Low Byte
+   447                        ; Register contents are preserved on entry/exit
+   448 00:F971: 48           PRWORD          PHA                     ;Save A register
+   449 00:F972: 5A                           PHY                     ;Save Y register
+   450 00:F973: 20 5B F9                     JSR     PRBYTE          ;Convert and print one HEX character (00-FF)
+   451 00:F976: 98                           TYA                     ;Get Low byte value
+   452 00:F977: 80 E4                        BRA     PRBYT2          ;Finish up Low Byte and exit
+   453                        ;
+   454                        ;Continue routine, called by commands to confirm execution
+   455                        ; when No is confirmed, return address removed from stack
+   456                        ; and the exit goes back to the monitor loop.
+   457                        ; Short version prompts for (Y/N) only.
+   458 00:F979: A9 00        CONTINUE        LDA     #$00            ;Get msg "cont? (Y/N)" to terminal
+   459 00:F97B: 80 02                        BRA     SH_CONT         ;Branch down
+   460 00:F97D: A9 01        CONTINUE2       LDA     #$01            ;Get short msg "(Y/N)" only
+   461 00:F97F: 20 0B FC     SH_CONT         JSR     PROMPT          ;Send to terminal
+   462 00:F982: 20 09 F9     TRY_AGN         JSR     RDCHAR          ;Get keystroke from terminal
+   463 00:F985: C9 59                        CMP     #$59            ;"Y" key?
+   464 00:F987: F0 0B                        BEQ     DOCONT          ;if yes, continue/exit
+   465 00:F989: C9 4E                        CMP     #$4E            ;if "N", quit/exit
+   466 00:F98B: F0 05                        BEQ     DONTCNT         ;Quit if "N"
+   467 00:F98D: 20 13 F9                     JSR     BEEP            ;Else, send Beep to console
+   468 00:F990: 80 F0                        BRA     TRY_AGN         ;Loop back, try again
+   469 00:F992: 68           DONTCNT         PLA                     ;Else remove return address
+   470 00:F993: 68                           PLA                     ;and discard, then return
+   471 00:F994: 60           DOCONT          RTS                     ;Return
+   472                        ;
+   473                        ;**************************************************************************************************
+   474                        ;                                       Monitor command processors
+   475                        ;**************************************************************************************************
+   476                        ;
+   477                        ;[(] INIMACRO command: Initialize keystroke input buffer:
+   478                        ; initializes buffer head/tail pointers and resets buffer count to zero.
+   479                        ; input buffer appears empty so command macro starts at the head of the buffer.
+   480 00:F995: 64 F7        INIMACRO        STZ     ICNT            ;Zero Input buffer count
+   481 00:F997: 64 F9                        STZ     ITAIL           ;Zero Input buffer tail pointer
+   482 00:F999: 64 F8        MACINI          STZ     IHEAD           ;Zero Input buffer head pointer
+   483 00:F99B: 60           DONEFILL        RTS                     ;Return to caller
+   484                        ;
+   485                        ;[)] RUNMACRO command: Run monitor command macro. This will indicate that there
+   486                        ; are 128 keystrokes in the keystroke input buffer. The monitor will process these
+   487                        ; as if they were received from the terminal (typed-in by the user). Because the
+   488                        ; last keystroke stored in the keystroke buffer was ")", this will loop continuously.
+   489                        ; Use [BREAK] to exit macro.
+   490 00:F99C: A9 7F        RUNMACRO        LDA     #$7F            ;Set keystroke buffer tail pointer to $7F
+   491 00:F99E: 85 F9                        STA     ITAIL           ;Push tail pointer to end
+   492 00:F9A0: 1A                           INC     A               ;Increment to $80 for buffer count (full)
+   493 00:F9A1: 85 F7                        STA     ICNT            ;Make count show as full
+   494 00:F9A3: 80 F4                        BRA     MACINI          ;Finish up by branching
+   495                        ;
+   496                        ;[C] Compare one memory range to another and display any addresses which do not match
+   497                        ;[M] Move routine also starts here for parameter input, then branches to MOVER below
+   498                        ;[F] Fill routine uses this section as well for parameter input but requires a fill byte value
+  Mon May 13 2019 21:04                                                                                                    Page 9
+
+
+   499                        ; Uses source, target and length input parameters. errors in compare are shown in target space
+   500                        ;
+   501 00:F9A5: A9 05        FM_INPUT        LDA     #$05            ;Send "val: " to terminal
+   502 00:F9A7: 20 8E F8                     JSR     HEX2            ;Use short cut version for print and input
+   503 00:F9AA: AA                           TAX                     ;Xfer fill byte to X reg
+   504 00:F9AB: 20 79 F9                     JSR     CONTINUE        ;Handle continue prompt
+   505 00:F9AE: A5 E4        FILL_LP         LDA     LENL            ;Get length low byte
+   506 00:F9B0: 05 E5                        ORA     LENH            ;OR in length high byte
+   507 00:F9B2: F0 E7                        BEQ     DONEFILL        ;Exit if zero
+   508 00:F9B4: 8A                           TXA                     ;Get fill byte
+   509 00:F9B5: 92 E2                        STA     (TGTL)          ;Store in target location
+   510 00:F9B7: 20 63 F8                     JSR     UPD_TL          ;Update Target/Length pointers
+   511 00:F9BA: 80 F2                        BRA     FILL_LP         ;Loop back until done
+   512                        ;
+   513 00:F9BC: 85 EA        CPMVFL          STA     TEMP2           ;Save command character
+   514 00:F9BE: 20 57 FD                     JSR     CHROUT          ;Print command character (C/M/F)
+   515 00:F9C1: C9 46                        CMP     #$46            ;Check for F - fill memory
+   516 00:F9C3: D0 04                        BNE     PRGE_E          ;If not continue normal parameter input
+   517 00:F9C5: A9 03                        LDA     #$03            ;Get msg " addr:"
+   518 00:F9C7: 80 0B                        BRA     F_INPUT         ;Branch to handle parameter input
+   519 00:F9C9: A9 06        PRGE_E          LDA     #$06            ;Send " src:" to terminal
+   520 00:F9CB: 20 81 F8                     JSR     HEX4            ;Use short cut version for print and input
+   521 00:F9CE: 85 E0                        STA     SRCL            ;Else, store source address in variable SRCL,SRCH
+   522 00:F9D0: 84 E1                        STY     SRCH            ;Store high address
+   523 00:F9D2: A9 07                        LDA     #$07            ;Send " tgt:" to terminal
+   524 00:F9D4: 20 81 F8     F_INPUT         JSR     HEX4            ;Use short cut version for print and input
+   525 00:F9D7: 85 E2                        STA     TGTL            ;Else, store target address in variable TGTL,TGTH
+   526 00:F9D9: 84 E3                        STY     TGTH            ;Store high address
+   527 00:F9DB: A9 04                        LDA     #$04            ;Send " len:" to terminal
+   528 00:F9DD: 20 81 F8                     JSR     HEX4            ;Use short cut version for print and input
+   529 00:F9E0: 85 E4                        STA     LENL            ;ELSE, store length address in variable LENL,LENH
+   530 00:F9E2: 84 E5                        STY     LENH            ;Store high address
+   531                        ;All input parameters for Source, Target and Length entered
+   532 00:F9E4: A5 EA                        LDA     TEMP2           ;Get Command character
+   533 00:F9E6: C9 46                        CMP     #$46            ;Check for fill memory
+   534 00:F9E8: F0 BB                        BEQ     FM_INPUT        ;Handle the remaining input
+   535 00:F9EA: C9 4D                        CMP     #$4D            ;Check for Move
+   536 00:F9EC: F0 21                        BEQ     MOVER           ;Branch if yes
+   537                        ;
+   538 00:F9EE: A5 E4        COMPLP          LDA     LENL            ;Get low byte of length
+   539 00:F9F0: 05 E5                        ORA     LENH            ;OR in High byte of length
+   540 00:F9F2: F0 69                        BEQ     QUITMV          ;If zero, nothing to write
+   541 00:F9F4: B2 E0                        LDA     (SRCL)          ;Else load source
+   542 00:F9F6: D2 E2                        CMP     (TGTL)          ;Compare to source
+   543 00:F9F8: F0 10                        BEQ     CMP_OK          ;If compare is good, continue
+   544 00:F9FA: 20 1B F9                     JSR     SPC2            ;Send 2 spaces
+   545 00:F9FD: 20 23 F9                     JSR     DOLLAR          ;Print $ sign
+   546 00:FA00: A5 E3                        LDA     TGTH            ;Get high byte of address
+   547 00:FA02: A4 E2                        LDY     TGTL            ;Get Low byte of address
+   548 00:FA04: 20 71 F9                     JSR     PRWORD          ;Print word
+   549 00:FA07: 20 1E F9                     JSR     SPC             ;Add 1 space for formatting
+   550 00:FA0A: 20 5D F8     CMP_OK          JSR     UPD_STL         ;Update pointers
+   551 00:FA0D: 80 DF                        BRA     COMPLP          ;Loop back until done
+   552                        ;
+   553                        ;Parameters for move memory entered and validated.
+   554                        ; now make decision on which direction to do the actual move.
+   555                        ; if overlapping, move from end to start, else from start to end.
+   556 00:FA0F: 20 79 F9     MOVER           JSR     CONTINUE        ;Prompt to continue move
+   557 00:FA12: 38                           SEC                     ;Set carry flag for subtract
+   558 00:FA13: A5 E2                        LDA     TGTL            ;Get target lo byte
+   559 00:FA15: E5 E0                        SBC     SRCL            ;Subtract source lo byte
+   560 00:FA17: AA                           TAX                     ;Move to X reg temporarily
+   561 00:FA18: A5 E3                        LDA     TGTH            ;Get target hi byte
+  Mon May 13 2019 21:04                                                                                                    Page 10
+
+
+   562 00:FA1A: E5 E1                        SBC     SRCH            ;Subtract source hi byte
+   563 00:FA1C: A8                           TAY                     ;Move to Y reg temporarily
+   564 00:FA1D: 8A                           TXA                     ;Xfer lo byte difference to A reg
+   565 00:FA1E: C5 E4                        CMP     LENL            ;Compare to lo byte length
+   566 00:FA20: 98                           TYA                     ;Xfer hi byte difference to A reg
+   567 00:FA21: E5 E5                        SBC     LENH            ;Subtract length lo byte
+   568 00:FA23: 90 0F                        BCC     RIGHT           ;If carry is clear, overwrite condition exists
+   569                        ;Move memory block first byte to last byte, no overwrite condition, do the move
+   570 00:FA25: A5 E4        MVNO_LP         LDA     LENL            ;Get length low byte
+   571 00:FA27: 05 E5                        ORA     LENH            ;OR in length high byte
+   572 00:FA29: F0 32                        BEQ     QUITMV          ;Exit if zero bytes to move
+   573 00:FA2B: B2 E0                        LDA     (SRCL)          ;Load source data
+   574 00:FA2D: 92 E2                        STA     (TGTL)          ;Store as target data
+   575 00:FA2F: 20 5D F8                     JSR     UPD_STL         ;Update Source/Target/Length variables
+   576 00:FA32: 80 F1                        BRA     MVNO_LP         ;Branch back until length is zero
+   577                        ;
+   578                        ;Move memory block last byte to first byte
+   579                        ; avoids overwrite in source/target overlap
+   580 00:FA34: A6 E5        RIGHT           LDX     LENH            ;Get the length hi byte count
+   581 00:FA36: 18                           CLC                     ;Clear carry flag for add
+   582 00:FA37: 8A                           TXA                     ;Xfer High page to A reg
+   583 00:FA38: 65 E1                        ADC     SRCH            ;Add in source hi byte
+   584 00:FA3A: 85 E1                        STA     SRCH            ;Store in source hi byte
+   585 00:FA3C: 18                           CLC                     ;Clear carry for add
+   586 00:FA3D: 8A                           TXA                     ;Xfer High page to A reg 
+   587 00:FA3E: 65 E3                        ADC     TGTH            ;Add to target hi byte
+   588 00:FA40: 85 E3                        STA     TGTH            ;Store to target hi byte
+   589 00:FA42: E8                           INX                     ;Increment high page value for use below in loop
+   590 00:FA43: A4 E4                        LDY     LENL            ;Get length lo byte
+   591 00:FA45: F0 0E                        BEQ     MVPG            ;If zero no partial page to move
+   592 00:FA47: 88                           DEY                     ;Else, decrement page byte index
+   593 00:FA48: F0 07                        BEQ     MVPAG           ;If zero, no pages to move
+   594 00:FA4A: B1 E0        MVPRT           LDA     (SRCL),Y        ;Load source data
+   595 00:FA4C: 91 E2                        STA     (TGTL),Y        ;Store to target data
+   596 00:FA4E: 88                           DEY                     ;Decrement index
+   597 00:FA4F: D0 F9                        BNE     MVPRT           ;Branch back until partial page moved
+   598 00:FA51: B1 E0        MVPAG           LDA     (SRCL),Y        ;Load source data
+   599 00:FA53: 91 E2                        STA     (TGTL),Y        ;Store to target data
+   600 00:FA55: 88           MVPG            DEY                     ;Decrement page count
+   601 00:FA56: C6 E1                        DEC     SRCH            ;Decrement source hi page
+   602 00:FA58: C6 E3                        DEC     TGTH            ;Decrement target hi page
+   603 00:FA5A: CA                           DEX                     ;Decrement page count
+   604 00:FA5B: D0 ED                        BNE     MVPRT           ;Loop back until all pages moved
+   605 00:FA5D: 60           QUITMV          RTS                     ;Return to caller
+   606                        ;
+   607                        ;[D] HEX/TEXT DUMP command:
+   608                        ; Display in HEX followed by TEXT the contents of 256 consecutive memory addresses
+   609 00:FA5E: F7 EB        MDUMP           SMB7    CMDFLAG         ;Set Command flag
+   610 00:FA60: 20 79 F8                     JSR     SETUP           ;Request HEX address input from terminal
+   611 00:FA63: E0 00                        CPX     #$00            ;Check for new address entered
+   612 00:FA65: D0 08                        BNE     LINED           ;Branch if new address entered
+   613 00:FA67: A5 DC                        LDA     TEMPL           ;Else, point to next consecutive memory page
+   614 00:FA69: 85 DA                        STA     INDEXL          ;address saved during last memory dump
+   615 00:FA6B: A5 DD                        LDA     TEMPH           ;xfer high byte of address
+   616 00:FA6D: 85 DB                        STA     INDEXH          ;save in pointer
+   617 00:FA6F: 20 B1 FA     LINED           JSR     DMPGR           ;Send address offsets to terminal 
+   618 00:FA72: 20 43 F9                     JSR     GLINE           ;Send horizontal line to terminal
+   619 00:FA75: 20 36 F9                     JSR     CROUT           ;Send CR,LF to terminal
+   620 00:FA78: A2 10                        LDX     #$10            ;Set line count for 16 rows
+   621 00:FA7A: 20 18 F9     DLINE           JSR     SPC4            ;Send 4 Spaces to terminal
+   622 00:FA7D: 20 6A F9                     JSR     PRINDEX         ;Print INDEX value
+   623 00:FA80: 20 1B F9                     JSR     SPC2            ;Send 2 Spaces to terminal
+   624 00:FA83: A0 00                        LDY     #$00            ;Initialize line byte counter
+  Mon May 13 2019 21:04                                                                                                    Page 11
+
+
+   625 00:FA85: B1 DA        GETBYT          LDA     (INDEXL),Y      ;Read indexed byte
+   626 00:FA87: 20 5B F9                     JSR     PRBYTE          ;Display byte as a HEX value
+   627 00:FA8A: 20 1E F9                     JSR     SPC             ;Send a Space to terminal
+   628 00:FA8D: C8                           INY                     ;Increment index
+   629 00:FA8E: C0 10                        CPY     #$10            ;Check for all 16
+   630 00:FA90: D0 F3                        BNE     GETBYT          ;loop back until 16 bytes have been displayed
+   631 00:FA92: 20 1E F9                     JSR     SPC             ;Send a space
+   632 00:FA95: B2 DA        GETBYT2         LDA     (INDEXL)        ;Read indexed byte
+   633 00:FA97: 20 4E F9                     JSR     PRASC           ;Print ASCII character
+   634 00:FA9A: 20 72 F8                     JSR     INCINDEX        ;Increment index
+   635 00:FA9D: 88                           DEY                     ;Decrement count (from 16)
+   636 00:FA9E: D0 F5                        BNE     GETBYT2         ;loop back until 16 bytes have been displayed
+   637 00:FAA0: 20 36 F9                     JSR     CROUT           ;else, send CR,LF to terminal
+   638 00:FAA3: A5 DA                        LDA     INDEXL          ;Get current index low
+   639 00:FAA5: 85 DC                        STA     TEMPL           ;Save to temp1 low
+   640 00:FAA7: A5 DB                        LDA     INDEXH          ;Get current index high
+   641 00:FAA9: 85 DD                        STA     TEMPH           ;Save to temp1 high
+   642 00:FAAB: CA                           DEX                     ;Decrement line count
+   643 00:FAAC: D0 CC                        BNE     DLINE           ;Branch back until all 16 done
+   644 00:FAAE: 20 43 F9                     JSR     GLINE           ;Send horizontal line to terminal
+   645                        ;DMPGR subroutine: Send address offsets to terminal
+   646 00:FAB1: A9 02        DMPGR           LDA     #$02            ;Get msg for "addr:" to terminal
+   647 00:FAB3: 20 0B FC                     JSR     PROMPT          ;Send to terminal
+   648 00:FAB6: 20 1B F9                     JSR     SPC2            ;Add two additional spaces
+   649 00:FAB9: A2 00                        LDX     #$00            ;Zero index count
+   650 00:FABB: 8A           MDLOOP          TXA                     ;Send "00" - "0F", separated by 1 Space, to terminal
+   651 00:FABC: 20 5B F9                     JSR     PRBYTE          ;Print byte value
+   652 00:FABF: 20 1E F9                     JSR     SPC             ;Add a space
+   653 00:FAC2: E8                           INX                     ;Increment the count
+   654 00:FAC3: E0 10                        CPX     #$10            ;Check for 16
+   655 00:FAC5: D0 F4                        BNE     MDLOOP          ;Loop back until done
+   656                        ;Print the ASCII text header "0123456789ABCDEF"
+   657 00:FAC7: 20 1E F9                     JSR     SPC             ;Send a space
+   658 00:FACA: A2 00                        LDX     #$00            ;Zero X reg for "0"
+   659 00:FACC: 8A           MTLOOP          TXA                     ;Xfer to A reg
+   660 00:FACD: 20 48 F8                     JSR     BIN2ASC         ;Convert Byte to two ASCII digits
+   661 00:FAD0: 98                           TYA                     ;Xfer the low nibble character to A reg
+   662 00:FAD1: 20 57 FD                     JSR     CHROUT          ;Send least significant HEX to terminal
+   663 00:FAD4: E8                           INX                     ;Increment to next HEX character
+   664 00:FAD5: E0 10                        CPX     #$10            ;Reach $10 yet?
+   665 00:FAD7: D0 F3                        BNE     MTLOOP          :branch back till done
+   666 00:FAD9: 4C 36 F9                     JMP     CROUT           ;Do a CR/LF and return
+   667                        ;
+   668                        ;[G] GO command: Begin executing program code at a specified address
+   669                        ; Prompts the user for a start address, places it in COMLO/COMHI
+   670                        ; If no address entered, uses default address at COMLO/COMHI
+   671                        ; Loads the A,X,Y registers from presets and does a JSR to the routine
+   672                        ; Upon return, registers are saved back to presets for display later
+   673                        ; Also saves the stack pointer and status register upon return
+   674                        ; Stack pointer is not changed due to constant IRQ service routines
+   675 00:FADC: F7 EB        GO              SMB7    CMDFLAG         ;Set Command flag
+   676 00:FADE: 20 79 F8                     JSR     SETUP           ;Get HEX address (Areg/Yreg contains 16-bit value)
+   677 00:FAE1: E0 00                        CPX     #$00            ;Check if an address is entered
+   678 00:FAE3: F0 04                        BEQ     EXEC_GO         ;If not, just setup registers and execute
+   679 00:FAE5: 85 D8                        STA     COMLO           ;Save entered address to pointer low byte
+   680 00:FAE7: 84 D9                        STY     COMHI           ;Save entered address to pointer hi byte
+   681                        ;Preload all 65C02 MPU registers from monitor's preset/result variables
+   682 00:FAE9: A5 F2        EXEC_GO         LDA     PREG            ;Load processot status register preset
+   683 00:FAEB: 48                           PHA                     ;Push it to the stack
+   684 00:FAEC: A5 F6                        LDA     AREG            ;Load A-Reg preset
+   685 00:FAEE: A6 F5                        LDX     XREG            ;Load X-Reg preset
+   686 00:FAF0: A4 F4                        LDY     YREG            ;Load Y-Reg preset
+   687 00:FAF2: 28                           PLP                     ;Pull the processor status register
+  Mon May 13 2019 21:04                                                                                                    Page 12
+
+
+   688                        ;Call user program code as a subroutine
+   689 00:FAF3: 20 05 FB                     JSR     DOCOM           ;Execute code at specified address
+   690                        ;Store all 65C02 MPU registers to monitor's preset/result variables: store results
+   691 00:FAF6: 08                           PHP                     ;Save the processor status register to the stack
+   692 00:FAF7: 85 F6                        STA     AREG            ;Store A-Reg result
+   693 00:FAF9: 86 F5                        STX     XREG            ;Store X-Reg result
+   694 00:FAFB: 84 F4                        STY     YREG            ;Store Y-Reg result
+   695 00:FAFD: 68                           PLA                     ;Get the processor status register
+   696 00:FAFE: 85 F2                        STA     PREG            ;Store the result
+   697 00:FB00: BA                           TSX                     ;Xfer stack pointer to X-reg
+   698 00:FB01: 86 F3                        STX     SREG            ;Store the result
+   699 00:FB03: D8                           CLD                     ;Clear BCD mode in case of sloppy user code ;-)
+   700 00:FB04: 60           TXT_EXT         RTS                     ;Return to caller
+   701 00:FB05: 6C D8 00     DOCOM           JMP     (COMLO)         ;Execute the command
+   702                        ;
+   703                        ;[T] LOCATE TEXT STRING command: search memory for an entered text string.
+   704                        ; Memory range scanned is $0400 through $FFFF (specified in SENGINE subroutine).
+   705                        ; SRCHTXT subroutine: request 1 - 16 character text string from terminal, followed by Return.
+   706                        ; [ESCAPE] aborts, [BACKSPACE] erases last keystroke. String will be stored in SRCHBUFF.
+   707 00:FB08: A9 08        SRCHTXT         LDA     #$08            ;Get msg " find text:"
+   708 00:FB0A: 20 0B FC                     JSR     PROMPT          ;Send to terminal
+   709 00:FB0D: A2 00                        LDX     #$00            ;Initialize index/byte counter
+   710 00:FB0F: 20 74 FD     STLOOP          JSR     CHRIN           ;Get input from terminal
+   711 00:FB12: C9 0D                        CMP     #$0D            ;Check for C/R
+   712 00:FB14: F0 3B                        BEQ     SRCHRDY         ;Branch to search engine
+   713 00:FB16: C9 1B                        CMP     #$1B            ;Check for ESC
+   714 00:FB18: F0 EA                        BEQ     TXT_EXT         ;Exit to borrowed RTS
+   715 00:FB1A: C9 08                        CMP     #$08            ;Check for B/S
+   716 00:FB1C: D0 09                        BNE     STBRA           ;If not, store character into buffer
+   717 00:FB1E: 8A                           TXA                     ;Xfer count to A reg
+   718 00:FB1F: F0 EE                        BEQ     STLOOP          ;Branch to input if zero
+   719 00:FB21: 20 28 F9                     JSR     BSOUT           ;Else, send B/S to terminal
+   720 00:FB24: CA                           DEX                     ;Decrement index/byte counter
+   721 00:FB25: 80 E8                        BRA     STLOOP          ;Branch back and continue
+   722 00:FB27: 9D 30 03     STBRA           STA     SRCHBUFF,X      ;Store character in buffer location
+   723 00:FB2A: 20 57 FD                     JSR     CHROUT          ;Send character to terminal
+   724 00:FB2D: E8                           INX                     ;Increment counter
+   725 00:FB2E: E0 10                        CPX     #$10            ;Check count for 16
+   726 00:FB30: D0 DD                        BNE     STLOOP          ;Loop back for another character
+   727 00:FB32: 80 1D                        BRA     SRCHRDY         ;Branch to search engine
+   728                        ;
+   729                        ;[H] LOCATE BYTE STRING command: search memory for an entered byte string.
+   730                        ; Memory range scanned is $0400 through $FFFF (specified in SENGINE subroutine).
+   731                        ; SRCHBYT subroutine: request 0 - 16 byte string from terminal, each byte followed by Return.
+   732                        ; [ESCAPE] aborts. HEX data will be stored in SRCHBUFF.
+   733 00:FB34: F7 EB        SRCHBYT         SMB7    CMDFLAG         ;Set Command flag
+   734 00:FB36: A9 09                        LDA     #$09            ;Get msg " find bin:"
+   735 00:FB38: 20 0B FC                     JSR     PROMPT          ;Send to terminal
+   736 00:FB3B: A2 00                        LDX     #$00            ;Initialize index
+   737 00:FB3D: DA           SBLOOP          PHX                     ;Save index on stack
+   738 00:FB3E: 20 91 F8                     JSR     HEXIN2          ;Request HEX byte
+   739 00:FB41: 20 1E F9                     JSR     SPC             ;Send space to terminal
+   740 00:FB44: FA                           PLX                     ;Restore index from stack
+   741 00:FB45: A4 E6                        LDY     BUFIDX          ;Get # of characters entered 
+   742 00:FB47: F0 08                        BEQ     SRCHRDY         ;Branch if no characters
+   743 00:FB49: 9D 30 03                     STA     SRCHBUFF,X      ;Else, store in buffer
+   744 00:FB4C: E8                           INX                     ;Increment index
+   745 00:FB4D: E0 10                        CPX     #$10            ;Check for 16 (max)
+   746 00:FB4F: D0 EC                        BNE     SBLOOP          ;Loop back until done/full
+   747 00:FB51: 86 E8        SRCHRDY         STX     INDEX           ;Save input character count
+   748 00:FB53: E0 00                        CPX     #$00            ;Check buffer count
+   749 00:FB55: F0 AD                        BEQ     TXT_EXT         ;Exit if no bytes in buffer
+   750 00:FB57: A9 0C                        LDA     #$0C            ;Else, get msg "Searching.."
+  Mon May 13 2019 21:04                                                                                                    Page 13
+
+
+   751 00:FB59: 20 0B FC                     JSR     PROMPT          ;Send to terminal
+   752                        ;
+   753                        ;SENGINE subroutine: Scan memory range $0400 through $FFFF for exact match to string
+   754                        ; contained in buffer SRCHBUFF (1 to 16 bytes/characters). Display address of first
+   755                        ; byte/character of each match found until the end of memory is reached.
+   756                        ; This is used by monitor text/byte string search commands
+   757 00:FB5C: A9 04        SENGINE         LDA     #$04            ;Init address to $0400: skip $0000 through $03FF
+   758 00:FB5E: 85 DB                        STA     INDEXH          ;Store high byte
+   759 00:FB60: 64 DA                        STZ     INDEXL          ;Zero low byte
+   760 00:FB62: A2 00        SENGBR2         LDX     #$00            ;Initialize buffer index
+   761 00:FB64: B2 DA        SENGBR3         LDA     (INDEXL)        ;Read current memory location
+   762 00:FB66: DD 30 03                     CMP     SRCHBUFF,X      ;Compare to search buffer
+   763 00:FB69: F0 05                        BEQ     SENGBR1         ;Branch for a match
+   764 00:FB6B: 20 A3 FB                     JSR     SINCPTR         ;Else, increment address pointer, test for end of memory
+   765 00:FB6E: 80 F2                        BRA     SENGBR2         ;Loop back to continue
+   766 00:FB70: 20 A3 FB     SENGBR1         JSR     SINCPTR         ;Increment address pointer, test for end of memory
+   767 00:FB73: E8                           INX                     ;Increment buffer index
+   768 00:FB74: E4 E8                        CPX     INDEX           ;Compare buffer index to address index
+   769 00:FB76: D0 EC                        BNE     SENGBR3         ;Loop back until done
+   770 00:FB78: 38                           SEC                     ;Subtract buffer index from memory addr pointer
+   771 00:FB79: A5 DA                        LDA     INDEXL          ;Get current address for match lo byte
+   772 00:FB7B: E5 E8                        SBC     INDEX           ;Subtract from buffer index
+   773 00:FB7D: 85 DA                        STA     INDEXL          ;Save it back to lo address pointer
+   774 00:FB7F: A5 DB                        LDA     INDEXH          ;Get current address for match hi byte
+   775 00:FB81: E9 00                        SBC     #$00            ;Subtract carry flag
+   776 00:FB83: 85 DB                        STA     INDEXH          ;Save it back to hi address pointer
+   777 00:FB85: A9 0B                        LDA     #$0B            ;Get msg "found"
+   778 00:FB87: 20 0B FC                     JSR     PROMPT          ;Send to terminal
+   779 00:FB8A: A9 3A                        LDA     #':'            ;Get Ascii colon
+   780 00:FB8C: 20 57 FD                     JSR     CHROUT          ;Send to console
+   781 00:FB8F: 20 6A F9                     JSR     PRINDEX         ;Print Index address
+   782 00:FB92: A9 0D                        LDA     #$0D            ;Get msg "(n)ext? "
+   783 00:FB94: 20 0B FC                     JSR     PROMPT          ;Send to terminal
+   784 00:FB97: 20 09 F9                     JSR     RDCHAR          ;Get input from terminal
+   785 00:FB9A: C9 4E                        CMP     #$4E            ;Check for "(n)ext"
+   786 00:FB9C: D0 37                        BNE     NCAREG          ;Exit if not requesting next
+   787 00:FB9E: 20 A3 FB                     JSR     SINCPTR         ;Increment address pointer, test for end of memory
+   788 00:FBA1: 80 BF                        BRA     SENGBR2         ;Branch back and continue till done
+   789                        ;
+   790                        ;Increment memory address pointer. If pointer high byte = 00 (end of searchable ROM memory)
+   791                        ; send "not found" to terminal then return to monitor 
+   792 00:FBA3: 20 72 F8     SINCPTR         JSR     INCINDEX        ;Increment Index pointer
+   793 00:FBA6: A5 DB                        LDA     INDEXH          ;Check for wrap to $0000
+   794 00:FBA8: D0 2B                        BNE     NCAREG          ;If not, return
+   795 00:FBAA: 68                           PLA                     ;Else, Pull return address from stack
+   796 00:FBAB: 68                           PLA                     ;and exit with msg
+   797 00:FBAC: A9 0A                        LDA     #$0A            ;Get msg "not found"
+   798 00:FBAE: 80 5B                        BRA     PROMPT          ;Send msg to terminal and exit
+   799                        ;
+   800                        ;[P] Processor Status command: Display then change PS preset/result
+   801 00:FBB0: A9 0E        PRG             LDA     #$0E            ;Get MSG # for Processor Status register
+   802 00:FBB2: 80 0E                        BRA     REG_UPT         ;Finish register update
+   803                        ;
+   804                        ;[S] Stack Pointer command: Display then change SP preset/result
+   805 00:FBB4: A9 0F        SRG             LDA     #$0F            ;Get MSG # for Stack register
+   806 00:FBB6: 80 0A                        BRA     REG_UPT         ;Finish Register update
+   807                        ;
+   808                        ;[Y] Y-Register command: Display then change Y-reg preset/result
+   809 00:FBB8: A9 10        YRG             LDA     #$10            ;Get MSG # for Y Reg
+   810 00:FBBA: 80 06                        BRA     REG_UPT         ;Finish register update
+   811                        ;
+   812                        ;[X] X-Register command: Display then change X-reg preset/result
+   813 00:FBBC: A9 11        XRG             LDA     #$11            ;Get MSG # for X Reg
+  Mon May 13 2019 21:04                                                                                                    Page 14
+
+
+   814 00:FBBE: 80 02                        BRA     REG_UPT         ;Finish register update
+   815                        ;
+   816                        ;[A] A-Register command: Display then change A-reg preset/result
+   817 00:FBC0: A9 12        ARG             LDA     #$12            ;Get MSG # for A reg
+   818                        ;
+   819 00:FBC2: 48           REG_UPT         PHA                     ;Save MSG # to stack
+   820 00:FBC3: AA                           TAX                     ;Xfer to X reg
+   821 00:FBC4: 20 0B FC                     JSR     PROMPT          ;Print Register message
+   822 00:FBC7: B5 E4                        LDA     PREG-$0E,X      ;Read Register (A,X,Y,S,P) preset/result
+   823 00:FBC9: 20 5B F9                     JSR     PRBYTE          ;Display HEX value of register
+   824 00:FBCC: 20 1E F9                     JSR     SPC             ;Send a Space to terminal
+   825 00:FBCF: 20 91 F8                     JSR     HEXIN2          ;Get up to 2 HEX characters
+   826 00:FBD2: FA                           PLX                     ;Get MSG # from stack
+   827 00:FBD3: 95 E4                        STA     PREG-$0E,X      ;Write register (A,X,Y,S,P) preset/result
+   828 00:FBD5: 60           NCAREG          RTS                     ;Return to caller
+   829                        ;
+   830                        ;[R] REGISTER command: Display contents of all preset/result memory locations
+   831 00:FBD6: 20 57 FD     PRSTAT          JSR     CHROUT          ;Send "R" to terminal
+   832 00:FBD9: A9 13        PRSTAT1         LDA     #$13            ;Get Header msg
+   833 00:FBDB: 20 0B FC                     JSR     PROMPT          ;Send to terminal
+   834 00:FBDE: A5 F1                        LDA     PCH             ;Get PC high byte
+   835 00:FBE0: A4 F0                        LDY     PCL             ;Get PC low byte
+   836 00:FBE2: 20 71 F9                     JSR     PRWORD          ;Print 16-bit word
+   837 00:FBE5: 20 1E F9                     JSR     SPC             ;Send 1 space
+   838                        ;
+   839 00:FBE8: A2 04                        LDX     #$04            ;Set for count of 4
+   840 00:FBEA: B5 F2        REGPLOOP        LDA     PREG,X          ;Start with A reg variable
+   841 00:FBEC: 20 5B F9                     JSR     PRBYTE          ;Print it
+   842 00:FBEF: 20 1E F9                     JSR     SPC             ;Send 1 space
+   843 00:FBF2: CA                           DEX                     ;Decrement count
+   844 00:FBF3: D0 F5                        BNE     REGPLOOP        ;Loop back till all 4 are sent
+   845                        ;
+   846 00:FBF5: A5 F2                        LDA     PREG            ;Get Status register preset
+   847 00:FBF7: A2 08                        LDX     #$08            ;Get the index count for 8 bits
+   848 00:FBF9: A0 30        SREG_LP         LDY     #$30            ;Get Ascii "zero"
+   849 00:FBFB: 0A                           ASL     A               ;Shift bit into carry
+   850 00:FBFC: 48                           PHA                     ;Save Current status
+   851 00:FBFD: 90 01                        BCC     SRB_ZERO        ;If clear, print a zero
+   852 00:FBFF: C8                           INY                     ;Else increment Y reg to Ascii "one"
+   853 00:FC00: 98           SRB_ZERO        TYA                     ;Transfer Ascii character to A reg
+   854 00:FC01: 20 57 FD                     JSR     CHROUT          ;Send to console
+   855 00:FC04: 68                           PLA                     ;Restore current status
+   856 00:FC05: CA                           DEX                     ;Decrement bit count
+   857 00:FC06: D0 F1                        BNE     SREG_LP         ;Branch back until all bits are printed
+   858 00:FC08: 4C 36 F9                     JMP     CROUT           ;Send CR/LF and return
+   859                        ;
+   860                        ;PROMPT routine: Send indexed text string to terminal. Index is A reg
+   861                        ; string buffer address is stored in variable PROMPTL, PROMPTH
+   862 00:FC0B: 0A           PROMPT          ASL     A               ;Multiply by two for msg table index
+   863 00:FC0C: A8                           TAY                     ;Xfer to index
+   864 00:FC0D: B9 29 FD                     LDA     MSG_TABLE,Y     ;Get low byte address
+   865 00:FC10: 85 DE                        STA     PROMPTL         ;Store in Buffer pointer
+   866 00:FC12: B9 2A FD                     LDA     MSG_TABLE+1,Y   ;Get high byte address
+   867 00:FC15: 85 DF                        STA     PROMPTH         ;Store in Buffer pointer
+   868                        ;
+   869 00:FC17: B2 DE        PROMPT2         LDA     (PROMPTL)       ;Get string data
+   870 00:FC19: F0 BA                        BEQ     NCAREG          ;If null character, exit (borrowed RTS)
+   871 00:FC1B: 20 57 FD                     JSR     CHROUT          ;Send character to terminal
+   872 00:FC1E: E6 DE                        INC     PROMPTL         ;Increment low byte index
+   873 00:FC20: D0 F5                        BNE     PROMPT2         ;Loop back for next character
+   874 00:FC22: E6 DF                        INC     PROMPTH         ;Increment high byte index
+   875 00:FC24: 80 F1                        BRA     PROMPT2         ;Loop back and continue printing
+   876                        ;RESET routine: resets Micromon/BIOS - calls COLD Start
+  Mon May 13 2019 21:04                                                                                                    Page 15
+
+
+   877 00:FC26: A9 16        RESET           LDA     #$16            ;Get msg "Reset"
+   878 00:FC28: 20 0B FC                     JSR     PROMPT          ;Print message
+   879 00:FC2B: 20 7D F9                     JSR     CONTINUE2       ;Prompt Y/N?
+   880 00:FC2E: 4C 48 FF                     JMP     COLDSTRT        ;Restart Micromon
+   881                        ;
+   882                        ;**************************************************************************************************
+   883                        ;                                       START OF MONITOR DATA
+   884                        ;**************************************************************************************************
+   885                        ;Monitor command & jump table
+   886                        ; There are two parts to the monitor command and jump table;
+   887                        ; first is the list of commands, which are one byte each. Alpha command characters are upper case
+   888                        ; second is the 16-bit address table that correspond to the routines for each command character
+   889                        ;
+   890 00:FC31: 12           MONCMD          .DB     $12             ;[CNTRL-R] Reset
+   891 00:FC32: 28                           .DB     $28             ;( Init Macro
+   892 00:FC33: 29                           .DB     $29             ;) Run Macro
+   893 00:FC34: 41                           .DB     $41             ;A Display/Edit A register
+   894 00:FC35: 43                           .DB     $43             ;C Compare memory block
+   895 00:FC36: 44                           .DB     $44             ;D Display Memory contents in HEX/TEXT
+   896 00:FC37: 46                           .DB     $46             ;F Fill memory block
+   897 00:FC38: 47                           .DB     $47             ;G Go execute at <addr>
+   898 00:FC39: 48                           .DB     $48             ;H Hex byte string search
+   899 00:FC3A: 4D                           .DB     $4D             ;M Move memory block
+   900 00:FC3B: 50                           .DB     $50             ;P Display/Edit CPU status reg
+   901 00:FC3C: 52                           .DB     $52             ;R Display Registers
+   902 00:FC3D: 53                           .DB     $53             ;S Display/Edit stack pointer
+   903 00:FC3E: 54                           .DB     $54             ;T Text character string search
+   904 00:FC3F: 58                           .DB     $58             ;X Display/Edit X register
+   905 00:FC40: 59                           .DB     $59             ;Y Display/Edit Y register
+   906                        ;
+   907 00:FC41: 26 FC        MONTAB          .DW     RESET           ;[CNTL-R] $12 Reset
+   908 00:FC43: 95 F9                        .DW     INIMACRO        ;( $28 Clear keystroke input buffer, reset buffer pointer
+   909 00:FC45: 9C F9                        .DW     RUNMACRO        ;) $29 Run keystroke macro from start of keystroke buffer
+   910 00:FC47: C0 FB                        .DW     ARG             ;A $41 Examine/change ACCUMULATOR preset/result
+   911 00:FC49: BC F9                        .DW     CPMVFL          ;C $43 Compare memory command
+   912 00:FC4B: 5E FA                        .DW     MDUMP           ;D $44 HEX/TEXT dump from specified memory address
+   913 00:FC4D: BC F9                        .DW     CPMVFL          ;F $46 Fill a specified memory range with a specified value
+   914 00:FC4F: DC FA                        .DW     GO              ;G $47 Begin program code execution at a specified address
+   915 00:FC51: 34 FB                        .DW     SRCHBYT         ;H $48 Search memory for a specified byte string
+   916 00:FC53: BC F9                        .DW     CPMVFL          ;M $4D Copy memory range to a specified target address
+   917 00:FC55: B0 FB                        .DW     PRG             ;P $50 Examine/change PROC STATUS REGISTER preset/result
+   918 00:FC57: D6 FB                        .DW     PRSTAT          ;R $52 Display all preset/result contents
+   919 00:FC59: B4 FB                        .DW     SRG             ;S $53 Examine/change STACK POINTER preset/result
+   920 00:FC5B: 08 FB                        .DW     SRCHTXT         ;T $54 Search memory for a specified text string
+   921 00:FC5D: BC FB                        .DW     XRG             ;X $58 Examine/change X-REGISTER preset/result
+   922 00:FC5F: B8 FB                        .DW     YRG             ;Y $59 Examine/change Y-REGISTER preset/result
+   923                        ;
+   924                        ;**************************************************************************************************
+   925                        ;               C02Monitor message strings used with PROMPT routine, terminated with $00
+   926                        ;
+   927 00:FC61: 20 63 6F 6E  MSG_00          .DB     " cont?"
+       00:FC65: 74 3F 
+   928 00:FC67: 28 79 2F 6E  MSG_01          .DB     "(y/n)"
+       00:FC6B: 29 
+   929 00:FC6C: 00                           .DB     $00
+   930 00:FC6D: 0D 0A        MSG_02          .DB     $0D,$0A
+   931 00:FC6F: 20 20 20                     .DB     "   "
+   932 00:FC72: 20 61 64 64  MSG_03          .DB     " addr:"
+       00:FC76: 72 3A 
+   933 00:FC78: 00                           .DB     $00
+   934 00:FC79: 20 6C 65 6E  MSG_04          .DB     " len:"
+       00:FC7D: 3A 
+   935 00:FC7E: 00                           .DB     $00
+  Mon May 13 2019 21:04                                                                                                    Page 16
+
+
+   936 00:FC7F: 20 76 61 6C  MSG_05          .DB     " val:"
+       00:FC83: 3A 
+   937 00:FC84: 00                           .DB     $00
+   938 00:FC85: 20 73 72 63  MSG_06          .DB     " src:"
+       00:FC89: 3A 
+   939 00:FC8A: 00                           .DB     $00
+   940 00:FC8B: 20 74 67 74  MSG_07          .DB     " tgt:"
+       00:FC8F: 3A 
+   941 00:FC90: 00                           .DB     $00
+   942 00:FC91: 20 66 69 6E  MSG_08          .DB     " find txt:"
+       00:FC95: 64 20 74 78 
+       00:FC99: 74 3A 
+   943 00:FC9B: 00                           .DB     $00
+   944 00:FC9C: 20 66 69 6E  MSG_09          .DB     " find bin:"
+       00:FCA0: 64 20 62 69 
+       00:FCA4: 6E 3A 
+   945 00:FCA6: 00                           .DB     $00
+   946 00:FCA7: 6E 6F 74 20  MSG_0A          .DB     "not "
+   947 00:FCAB: 66 6F 75 6E  MSG_0B          .DB     "found"
+       00:FCAF: 64 
+   948 00:FCB0: 00                           .DB     $00
+   949 00:FCB1: 0D 0A        MSG_0C          .DB     $0D,$0A
+   950 00:FCB3: 73 65 61 72                  .DB     "search- "
+       00:FCB7: 63 68 2D 20 
+   951 00:FCBB: 00                           .DB     $00
+   952 00:FCBC: 0D 0A        MSG_0D          .DB     $0D,$0A
+   953 00:FCBE: 28 6E 29 65                  .DB     "(n)ext? "
+       00:FCC2: 78 74 3F 20 
+   954 00:FCC6: 00                           .DB     $00
+   955 00:FCC7: 53 50 3A 24  MSG_0E          .DB     "SP:$"
+   956 00:FCCB: 00                           .DB     $00
+   957 00:FCCC: 53 52 3A 24  MSG_0F          .DB     "SR:$"
+   958 00:FCD0: 00                           .DB     $00
+   959 00:FCD1: 59 52 3A 24  MSG_10          .DB     "YR:$"
+   960 00:FCD5: 00                           .DB     $00
+   961 00:FCD6: 58 52 3A 24  MSG_11          .DB     "XR:$"
+   962 00:FCDA: 00                           .DB     $00
+   963 00:FCDB: 41 43 3A 24  MSG_12          .DB     "AC:$"
+   964 00:FCDF: 00                           .DB     $00
+   965 00:FCE0: 0D 0A        MSG_13          .DB     $0D,$0A
+   966 00:FCE2: 20 20 20 50                  .DB     "   PC  AC XR YR SP NV-BDIZC",$0D,$0A
+       00:FCE6: 43 20 20 41 
+       00:FCEA: 43 20 58 52 
+       00:FCEE: 20 59 52 20 
+       00:FCF2: 53 50 20 4E 
+       00:FCF6: 56 2D 42 44 
+       00:FCFA: 49 5A 43 0D 
+       00:FCFE: 0A 
+   967 00:FCFF: 3B 20                        .DB     "; "
+   968 00:FD01: 00                           .DB     $00
+   969 00:FD02: 4D 69 63 72  MSG_14          .DB     "Micromon V1.2"
+       00:FD06: 6F 6D 6F 6E 
+       00:FD0A: 20 56 31 2E 
+       00:FD0E: 32 
+   970 00:FD0F: 0D 0A                        .DB     $0D,$0A
+   971 00:FD11: 4B 2E 45 2E                  .DB     "K.E. Maier"
+       00:FD15: 20 4D 61 69 
+       00:FD19: 65 72 
+   972 00:FD1B: 07                           .DB     $07
+   973 00:FD1C: 00                           .DB     $00
+   974 00:FD1D: 0D 0A        MSG_15          .DB     $0D,$0A
+   975 00:FD1F: 3B 2D                        .DB     ";-"
+   976 00:FD21: 00                           .DB     $00
+  Mon May 13 2019 21:04                                                                                                    Page 17
+
+
+   977 00:FD22: 52 45 53 45  MSG_16          .DB     "RESET "
+       00:FD26: 54 20 
+   978 00:FD28: 00                           .DB     $00
+   979                        ;
+   980                        MSG_TABLE       ;Message table: contains address words of each message
+   981 00:FD29: 61 FC                        .DW     MSG_00
+   982 00:FD2B: 67 FC                        .DW     MSG_01
+   983 00:FD2D: 6D FC                        .DW     MSG_02
+   984 00:FD2F: 72 FC                        .DW     MSG_03
+   985 00:FD31: 79 FC                        .DW     MSG_04
+   986 00:FD33: 7F FC                        .DW     MSG_05
+   987 00:FD35: 85 FC                        .DW     MSG_06
+   988 00:FD37: 8B FC                        .DW     MSG_07
+   989 00:FD39: 91 FC                        .DW     MSG_08
+   990 00:FD3B: 9C FC                        .DW     MSG_09
+   991 00:FD3D: A7 FC                        .DW     MSG_0A
+   992 00:FD3F: AB FC                        .DW     MSG_0B
+   993 00:FD41: B1 FC                        .DW     MSG_0C
+   994 00:FD43: BC FC                        .DW     MSG_0D
+   995 00:FD45: C7 FC                        .DW     MSG_0E
+   996 00:FD47: CC FC                        .DW     MSG_0F
+   997 00:FD49: D1 FC                        .DW     MSG_10
+   998 00:FD4B: D6 FC                        .DW     MSG_11
+   999 00:FD4D: DB FC                        .DW     MSG_12
+  1000 00:FD4F: E0 FC                        .DW     MSG_13
+  1001 00:FD51: 02 FD                        .DW     MSG_14
+  1002 00:FD53: 1D FD                        .DW     MSG_15
+  1003 00:FD55: 22 FD                        .DW     MSG_16
+  1004                        ;
+  1005                        ;**************************************************************************************************
+  1006                        ;END OF MONITOR DATA
+  1007                        ;**************************************************************************************************
+  1008                        ;START OF BIOS CODE
+  1009                        ;**************************************************************************************************
+  1010                        ;C02BIOS version used here is 1.2L (6551 only)
+  1011                        ;
+  1012                        ;Contains the base BIOS routines in top 1KB of EEPROM
+  1013                        ; - Page $FD <256 bytes for 6551 BIOS
+  1014                        ; - Page $FE reserved for HW (any decoded mix required for needed hardware devices)
+  1015                        ; - Page $FF JMP table, CPU startup, 40 bytes Soft Vectors and HW Config data
+  1016                        ; - does I/O init and handles NMI/BRK/IRQ pre-/post-processing routines.
+  1017                        ; - sends BIOS message string to console
+  1018                        ;**************************************************************************************************
+  1019                        ; The following 8 functions are provided by BIOS and available via the JMP
+  1020                        ; Table as the last 8 entries from $FF30 - $FF45 as:
+  1021                        ; $FF30 BEEP (send audible beep to console)
+  1022                        ; $FF33 CHRIN_NW (character input from console, no waiting)
+  1023                        ; $FF36 CHRIN (character input from console)
+  1024                        ; $FF39 CHROUT (character output to console)
+  1025                        ; $FF3C INITCFG (initialize soft config values at $0300 from ROM)
+  1026                        ; $FF3F INITCON (initialize 65C51 console 19.2K, 8-N-1 RTS/CTS)
+  1027                        ; $FF42 MONWARM (warm start Monitor - jumps to page $03)
+  1028                        ; $FF45 MONCOLD (cold start Monitor - jumps to page $03)
+  1029                        ;**************************************************************************************************
+  1030                        ; Character In and Out routines for Console I/O buffer
+  1031                        ;**************************************************************************************************
+  1032                        ;
+  1033                        ;CHROUT subroutine: takes the character in the ACCUMULATOR and places it in the xmit buffer
+  1034                        ; and checks to see if XMIT interrupt is enabled (page $00 flag), if not it enables the chip
+  1035                        ; and sets the flag to show it's on. The character sent in the A reg is preserved on exit
+  1036                        ; transmit is IRQ driven / buffered with a fixed size of 128 bytes
+  1037                        ;
+  1038                        ; - 8/10/2014 - modified this routine to always set the Xmit interrupt active with each
+  Mon May 13 2019 21:04                                                                                                    Page 18
+
+
+  1039                        ; character placed into the output buffer. There appears to be a highly intermittant bug in both
+  1040                        ; the 6551 and 65C51 where the Xmit interrupt turns itself off, the code itself is not doing it.
+  1041                        ; The I/O and service routines now appear to work in a stable manner on all 6551 and 65C51.
+  1042                        ;
+  1043 00:FD57: 5A           CHROUT          PHY                     ;save Y reg
+  1044 00:FD58: A4 FA        OUTCH           LDY     OCNT            ;get character output count in buffer
+  1045 00:FD5A: 30 FC                        BMI     OUTCH           ;check against limit, loop back if full
+  1046 00:FD5C: A4 FC                        LDY     OTAIL           ;Get index to next spot
+  1047 00:FD5E: 99 80 02                     STA     OBUF,Y          ;and place in buffer
+  1048 00:FD61: E6 FC                        INC     OTAIL           ;Increment Tail pointer
+  1049 00:FD63: 77 FC                        RMB7    OTAIL           ;Strip off bit 7, 128 bytes only
+  1050 00:FD65: E6 FA                        INC     OCNT            ;Increment character count
+  1051 00:FD67: A0 05                        LDY     #$05            ;Get mask for xmit on
+  1052 00:FD69: 8C 22 FE                     STY     SIOCOM          ;Turn on xmit irq
+  1053 00:FD6C: 7A           OUTC2           PLY                     ;Restore Y reg
+  1054 00:FD6D: 60                           RTS                     ;Return
+  1055                        ;
+  1056                        ;CHRIN No Waiting subroutine: Check for a character, if none exists, set carry and exit.
+  1057                        ; else get character to A reg and return
+  1058 00:FD6E: 18           CHRIN_NW        CLC                     ;Clear carry for no character
+  1059 00:FD6F: A5 F7                        LDA     ICNT            ;Get character count
+  1060 00:FD71: D0 05                        BNE     GET_CH          ;Get the character and return
+  1061 00:FD73: 60                           RTS                     ;and return to caller
+  1062                        ;CHRIN subroutine: Wait for a keystroke from input buffer, return with keystroke in A Reg
+  1063                        ; receive is IRQ driven and buffered with a fixed size of 128 bytes
+  1064 00:FD74: A5 F7        CHRIN           LDA     ICNT            ;Get character count
+  1065 00:FD76: F0 FC                        BEQ     CHRIN           ;If zero (no character, loop back)
+  1066 00:FD78: 5A           GET_CH          PHY                     ;Save Y reg
+  1067 00:FD79: A4 F8                        LDY     IHEAD           ;Get the buffer head pointer
+  1068 00:FD7B: B9 00 02                     LDA     IBUF,Y          ;Get the character from the buffer
+  1069 00:FD7E: E6 F8                        INC     IHEAD           ;Increment head pointer
+  1070 00:FD80: 77 F8                        RMB7    IHEAD           ;Strip off bit 7, 128 bytes only
+  1071 00:FD82: C6 F7                        DEC     ICNT            ;Decrement the buffer count
+  1072 00:FD84: 7A                           PLY                     ;Restore Y Reg
+  1073 00:FD85: 38                           SEC                     ;Set Carry flag for character available
+  1074 00:FD86: 60                           RTS                     ;Return to caller with character in A reg
+  1075                        ;
+  1076                        ;**************************************************************************************************
+  1077                        ;                                       BRK/IRQ Interrupt service routine
+  1078                        ;**************************************************************************************************
+  1079                        ;
+  1080                        ;The pre-process routine located in page $FF soft-vectors to here:
+  1081                        ; The following routines handle BRK and IRQ.
+  1082                        ; The BRK handler saves CPU details for register display
+  1083                        ; An ASCII null character ($00) is also handled here (send break)
+  1084                        ;
+  1085                        ;6551 handler
+  1086                        ; The 6551 IRQ routine handles both transmit and receive via IRQ
+  1087                        ; - each has it's own 128 circular buffer
+  1088                        ; - Xmit IRQ is controlled by the handler and the CHROUT routine
+  1089                        ;
+  1090 00:FD87: 58           BREAKEY         CLI                     ;Enable IRQ (BRK sets interrupt flag)
+  1091 00:FD88: 7A           BRKINSTR0       PLY                     ;Restore Y reg
+  1092 00:FD89: FA                           PLX                     ;Restore X Reg
+  1093 00:FD8A: 68                           PLA                     ;Restore A Reg
+  1094 00:FD8B: 85 F6                        STA     AREG            ;Save A Reg
+  1095 00:FD8D: 86 F5                        STX     XREG            ;Save X Reg
+  1096 00:FD8F: 84 F4                        STY     YREG            ;Save Y Reg
+  1097 00:FD91: 68                           PLA                     ;Get Processor Status
+  1098 00:FD92: 85 F2                        STA     PREG            ;Save in PROCESSOR STATUS preset/result
+  1099 00:FD94: BA                           TSX                     ;Xfrer STACK pointer to X reg
+  1100 00:FD95: 86 F3                        STX     SREG            ;Save STACK pointer
+  1101 00:FD97: FA                           PLX                     ;Pull Low RETURN address from STACK then save it
+  Mon May 13 2019 21:04                                                                                                    Page 19
+
+
+  1102 00:FD98: 86 F0                        STX     PCL             ;Store program counter Low byte
+  1103 00:FD9A: 7A                           PLY                     ;Pull High RETURN address from STACK then save it
+  1104 00:FD9B: 84 F1                        STY     PCH             ;Store program counter High byte
+  1105 00:FD9D: 4F F2 03                     BBR4    PREG,DO_NULL    ;Check for BRK bit set
+  1106                        ;
+  1107                        ; The following subroutine is contained in the base Monitor code
+  1108                        ; This call does a register display. Other code can be added if required
+  1109                        ;
+  1110 00:FDA0: 20 D9 FB                     JSR     PRSTAT1         ;Display CPU status
+  1111 00:FDA3: A9 00        DO_NULL         LDA     #$00            ;Clear all PROCESSOR STATUS REGISTER bits
+  1112 00:FDA5: 48                           PHA
+  1113 00:FDA6: 28                           PLP
+  1114 00:FDA7: 64 F9                        STZ     ITAIL           ;Zero out input buffer / reset pointers
+  1115 00:FDA9: 64 F8                        STZ     IHEAD
+  1116 00:FDAB: 64 F7                        STZ     ICNT
+  1117 00:FDAD: 6C 0E 03     WARMVEC         JMP     (WRMMNVEC0)     ;Done BRK service process, re-enter monitor
+  1118                        ;Full duplex IRQ handler
+  1119                        ;
+  1120 00:FDB0: AD 21 FE     INTERUPT0       LDA     SIOSTAT         ;Get status register, xfer irq bit to n flag
+  1121 00:FDB3: 10 0C                        BPL     REGEXT          ;if bit7 clear no 6551 irq, exit, else
+  1122 00:FDB5: 89 08        ASYNC           BIT     #%00001000      ;check receive bit
+  1123 00:FDB7: D0 0F                        BNE     RCVCHR          ;get received character
+  1124 00:FDB9: 89 10                        BIT     #%00010000      ;check xmit bit
+  1125 00:FDBB: D0 26                        BNE     XMTCHR          ;send xmit character
+  1126                        ;no bits on means CTS went high
+  1127 00:FDBD: 09 10                        ORA     #%00010000      ;add CTS high mask to current status
+  1128 00:FDBF: 85 FD        IRQEXT          STA     STTVAL          ;update status value
+  1129 00:FDC1: 6C 0A 03     REGEXT          JMP     (IRQRTVEC0)     ;handle next irq or return
+  1130                        ;
+  1131 00:FDC4: A9 0C        BUFFUL          LDA     #%00001100      ;buffer overflow flag
+  1132 00:FDC6: 80 F7                        BRA     IRQEXT          ;branch to exit
+  1133                        ;
+  1134 00:FDC8: AD 20 FE     RCVCHR          LDA     SIODAT          ;get character from 6551
+  1135 00:FDCB: F0 BA                        BEQ     BREAKEY         ;If null character, handle BRK routine
+  1136                        ;
+  1137 00:FDCD: A4 F7        RCV0            LDY     ICNT            ;get buffer counter
+  1138 00:FDCF: 30 F3                        BMI     BUFFUL          ;check against limit, branch if full
+  1139 00:FDD1: A4 F9                        LDY     ITAIL           ;room in buffer
+  1140 00:FDD3: 99 00 02                     STA     IBUF,Y          ;store into buffer
+  1141 00:FDD6: E6 F9                        INC     ITAIL           ;Increment tail pointer
+  1142 00:FDD8: 77 F9                        RMB7    ITAIL           ;Strip off bit 7, 128 bytes only
+  1143 00:FDDA: E6 F7                        INC     ICNT            ;increment character count
+  1144 00:FDDC: AD 21 FE                     LDA     SIOSTAT         ;get 6551 status reg
+  1145 00:FDDF: 29 10                        AND     #%00010000      ;check for xmit
+  1146 00:FDE1: F0 DE                        BEQ     REGEXT          ;exit
+  1147                        ;
+  1148 00:FDE3: A5 FA        XMTCHR          LDA     OCNT            ;any characters to xmit?
+  1149 00:FDE5: F0 10                        BEQ     NODATA          ;no, turn off xmit
+  1150 00:FDE7: A4 FB        OUTDAT          LDY     OHEAD           ;get pointer to buffer
+  1151 00:FDE9: B9 80 02                     LDA     OBUF,Y          ;get the next character
+  1152 00:FDEC: 8D 20 FE                     STA     SIODAT          ;send the data
+  1153 00:FDEF: E6 FB                        INC     OHEAD           ;Increment head pointer
+  1154 00:FDF1: 77 FB                        RMB7    OHEAD           ;Strip off bit 7, 128 bytes only
+  1155 00:FDF3: C6 FA                        DEC     OCNT            ;Decrement counter
+  1156 00:FDF5: D0 CA                        BNE     REGEXT          ;If not zero, exit and continue normal stuff
+  1157 00:FDF7: A0 09        NODATA          LDY     #$09            ;get mask for xmit off / rcv on
+  1158 00:FDF9: 8C 22 FE                     STY     SIOCOM          ;turn off xmit irq bits
+  1159 00:FDFC: 80 C3                        BRA     REGEXT          ;exit
+  1160                        ;
+  1161                        ;**************************************************************************************************
+  1162                        ;                                       END OF BIOS CODE
+  1163                        ;**************************************************************************************************
+  1164                                        .ORG    $FE00           ;Reserved for I/O page - do NOT put code here
+  Mon May 13 2019 21:04                                                                                                    Page 20
+
+
+  1165                        ;**************************************************************************************************
+  1166                        ;
+  1167                        ;START OF TOP PAGE - DO NOT MOVE FROM THIS ADDRESS!!
+  1168                                        .ORG    $FF00           ;JMP Table, HW Vectors, Cold Init and Vector handlers
+  1169                        ;JUMP Table starts here:
+  1170                        ; - BIOS calls are from the top down - total of 8
+  1171                        ; - Monitor calls are from the bottom up - total of 16
+  1172                        ; - Reserved calls are in the shrinking middle
+  1173                        ;
+  1174 00:FF00: 4C C4 F8                     JMP     RDLINE
+  1175 00:FF03: 4C 09 F9                     JMP     RDCHAR
+  1176 00:FF06: 4C 91 F8                     JMP     HEXIN2
+  1177 00:FF09: 4C 84 F8                     JMP     HEXIN4
+  1178 00:FF0C: 4C 48 F8                     JMP     BIN2ASC
+  1179 00:FF0F: 4C 2E F8                     JMP     ASC2BIN
+  1180 00:FF12: 4C 23 F9                     JMP     DOLLAR
+  1181 00:FF15: 4C 5B F9                     JMP     PRBYTE
+  1182 00:FF18: 4C 71 F9                     JMP     PRWORD
+  1183 00:FF1B: 4C 4E F9                     JMP     PRASC
+  1184 00:FF1E: 4C 0B FC                     JMP     PROMPT
+  1185 00:FF21: 4C 17 FC                     JMP     PROMPT2
+  1186 00:FF24: 4C 79 F9                     JMP     CONTINUE
+  1187 00:FF27: 4C 36 F9                     JMP     CROUT
+  1188 00:FF2A: 4C 1E F9                     JMP     SPC
+  1189 00:FF2D: 4C 28 F9                     JMP     BSOUT
+  1190                        ;
+  1191 00:FF30: 4C 13 F9                     JMP     BEEP
+  1192 00:FF33: 4C 6E FD                     JMP     CHRIN_NW
+  1193 00:FF36: 4C 74 FD                     JMP     CHRIN
+  1194 00:FF39: 4C 57 FD                     JMP     CHROUT
+  1195 00:FF3C: 4C 64 FF                     JMP     INIT_SOFT
+  1196 00:FF3F: 4C 72 FF                     JMP     INIT_6551
+  1197 00:FF42: 6C 0E 03     WMBV            JMP     (WRMMNVEC0)
+  1198 00:FF45: 6C 0C 03     CDBV            JMP     (CLDMNVEC0)
+  1199                        ;
+  1200 00:FF48: D8           COLDSTRT        CLD                     ;Clear decimal mode in case of software call
+  1201 00:FF49: 78                           SEI                     ;Disable Interrupt for same reason as above
+  1202 00:FF4A: A2 00                        LDX     #$00            ;Index for length of page
+  1203 00:FF4C: 74 00        PAGE0_LP        STZ     $00,X           ;Zero out Page Zero
+  1204 00:FF4E: CA                           DEX                     ;Decrement index
+  1205 00:FF4F: D0 FB                        BNE     PAGE0_LP        ;Loop back till done
+  1206 00:FF51: CA                           DEX                     ;LDX #$FF ;-)
+  1207 00:FF52: 9A                           TXS                     ;Set Stack Pointer
+  1208 00:FF53: 20 64 FF                     JSR     INIT_SOFT       ;Init default Vectors/HW Config to $0300
+  1209 00:FF56: 20 72 FF                     JSR     INIT_6551       ;Init I/O - Console
+  1210                        ;
+  1211                        ;Send BIOS init msg to console
+  1212                        ; - note: X reg is zero on return from INIT_6551
+  1213 00:FF59: BD E5 FF     BMSG_LP         LDA     BIOS_MSG,X      ;Get BIOS init msg
+  1214 00:FF5C: F0 E7                        BEQ     CDBV            ;If zero, msg done, goto cold start monitor
+  1215 00:FF5E: 20 57 FD                     JSR     CHROUT          ;Send to console
+  1216 00:FF61: E8                           INX                     ;Increment Index
+  1217 00:FF62: 80 F5                        BRA     BMSG_LP         ;Loop back until done
+  1218                        ;
+  1219 00:FF64: 78           INIT_SOFT       SEI                     ;Disable Interrupts
+  1220 00:FF65: A2 28                        LDX     #$28            ;Set count for 40 bytes
+  1221 00:FF67: BD BC FF     DATA_XFLP       LDA     VEC_TABLE-1,X   ;Get ROM table data
+  1222 00:FF6A: 9D FF 02                     STA     SOFTVEC-1,X     ;Store in Soft table location
+  1223 00:FF6D: CA                           DEX                     ;Decrement count
+  1224 00:FF6E: D0 F7                        BNE     DATA_XFLP       ;Loop back till done
+  1225 00:FF70: 58                           CLI                     ;Re-enable interupts
+  1226 00:FF71: 60                           RTS                     ;Return to caller
+  1227                        ;
+  Mon May 13 2019 21:04                                                                                                    Page 21
+
+
+  1228                        ;Init the 65C51
+  1229 00:FF72: 78           INIT_6551       SEI                     ;Disable Interrupts
+  1230 00:FF73: 9C 21 FE                     STZ     SIOSTAT         ;write to status reg, reset 6551
+  1231 00:FF76: 64 FD                        STZ     STTVAL          ;zero status pointer
+  1232 00:FF78: A2 02                        LDX     #$02            ;Get count of 2
+  1233 00:FF7A: BD 17 03     INIT_6551L      LDA     LOAD_6551-1,X   ;Get Current config parameters for 6551
+  1234 00:FF7D: 9D 21 FE                     STA     SIOBase+1,X     ;Write to the 6551
+  1235 00:FF80: CA                           DEX                     ;Decrement count
+  1236 00:FF81: D0 F7                        BNE     INIT_6551L      ;Loop back until done
+  1237 00:FF83: 58                           CLI                     ;Re-enable Interrupts
+  1238 00:FF84: 60           RET             RTS                     ;Return to caller
+  1239                        ;
+  1240                        ;This is the ROM start for the BRK/IRQ handler
+  1241 00:FF85: 48           IRQ_VECTOR      PHA                     ;Save A Reg
+  1242 00:FF86: DA                           PHX                     ;Save X Reg
+  1243 00:FF87: 5A                           PHY                     ;Save Y Reg
+  1244 00:FF88: BA                           TSX                     ;Get Stack pointer
+  1245 00:FF89: BD 04 01                     LDA     $0100+4,X       ;Get Status Register
+  1246 00:FF8C: 29 10                        AND     #$10            ;Mask for BRK bit set
+  1247 00:FF8E: D0 03                        BNE     DO_BRK          ;If set, handle BRK
+  1248 00:FF90: 6C 04 03                     JMP     (IRQVEC0)       ;Jump to Soft vectored IRQ Handler
+  1249 00:FF93: 6C 02 03     DO_BRK          JMP     (BRKVEC0)       ;Jump to Soft vectored BRK Handler
+  1250                        ;
+  1251                        ;This is the standard return for the IRQ/BRK handler routines
+  1252 00:FF96: 7A           IRQ_EXIT0       PLY                     ;Restore Y Reg
+  1253 00:FF97: FA                           PLX                     ;Restore X Reg
+  1254 00:FF98: 68                           PLA                     ;Restore A Reg
+  1255 00:FF99: 40           NMIHNDLR0       RTI                     ;Return from IRQ/BRK routine
+  1256                        ;
+  1257                        ;**************************************************************************************************
+  1258                        ;                                       START OF PANIC ROUTINE
+  1259                        ;**************************************************************************************************
+  1260                        ; The Panic routine is for debug of system problems, i.e., a crash
+  1261                        ; The basic idea is to have an NMI trigger button which is manually operated
+  1262                        ; when the system crashes or malfunctions, press the NMI (panic) button
+  1263                        ; The NMI vectored routine will perform the following tasks:
+  1264                        ; Save all CPU registers in page $00
+  1265                        ; Zero I/O buffer pointers
+  1266                        ; Call the ROM routines to init the vectors and config data (page $03)
+  1267                        ; Call ROM routines to init the 6551 console
+  1268                        ; Restart the Monitor via warm start vector
+  1269                        ; No memory is cleared except the required pointers to restore the system
+  1270                        ; - suggest invoking the Register command afterwards to get the details saved.
+  1271                        ;
+  1272 00:FF9A: 78           NMI_VECTOR      SEI                     ;Disable interrupts
+  1273 00:FF9B: 85 F6                        STA     AREG            ;Save A Reg
+  1274 00:FF9D: 86 F5                        STX     XREG            ;Save X Reg
+  1275 00:FF9F: 84 F4                        STY     YREG            ;Save Y Reg
+  1276 00:FFA1: 68                           PLA                     ;Get Processor Status
+  1277 00:FFA2: 85 F2                        STA     PREG            ;Save in PROCESSOR STATUS preset/result
+  1278 00:FFA4: BA                           TSX                     ;Get Stack pointer
+  1279 00:FFA5: 86 F3                        STX     SREG            ;Save STACK POINTER
+  1280 00:FFA7: 68                           PLA                     ;Pull RETURN address from STACK
+  1281 00:FFA8: 85 F0                        STA     PCL             ;Store Low byte
+  1282 00:FFAA: 68                           PLA                     ;Pull high byte
+  1283 00:FFAB: 85 F1                        STA     PCH             ;Store High byte
+  1284 00:FFAD: A2 06                        LDX     #$06            ;Get count of 6
+  1285 00:FFAF: 74 F6        PAN_LP1         STZ     ICNT-1,X        ;Zero out console I/O pointers
+  1286 00:FFB1: CA                           DEX                     ;Decrement index
+  1287 00:FFB2: D0 FB                        BNE     PAN_LP1         ;Branch back till done
+  1288 00:FFB4: 20 64 FF                     JSR     INIT_SOFT       ;Xfer default Vectors/HW Config to $0300
+  1289 00:FFB7: 20 72 FF                     JSR     INIT_6551       ;Init I/O - Console
+  1290 00:FFBA: 6C 06 03                     JMP     (NMIRTVEC0)     ;Jump to NMI Return Vector
+  Mon May 13 2019 21:04                                                                                                    Page 22
+
+
+  1291                        ;
+  1292                        ;**************************************************************************************************
+  1293                        ;START OF BIOS DEFAULT VECTOR DATA AND HARDWARE CONFIGURATION DATA
+  1294                        ;
+  1295                        ;The default location for the NMI/BRK/IRQ Vector data is at location $0300
+  1296                        ; details of the layout are listed at the top of the source file
+  1297                        ; there are 8 main vectors and 4 vector inserts
+  1298                        ;
+  1299                        ;The default location for the hardware configuration data is at location $0320
+  1300                        ; it is mostly a freeform table which gets copied from ROM to page $03
+  1301                        ; the default size for the config table is 16 bytes, 14 bytes are freeform
+  1302                        ;Vector table data for default ROM handlers
+  1303                        ;
+  1304 00:FFBD: 9A FF        VEC_TABLE       .DW     NMI_VECTOR      ;NMI Location in ROM
+  1305 00:FFBF: 88 FD                        .DW     BRKINSTR0       ;BRK Location in ROM
+  1306 00:FFC1: B0 FD                        .DW     INTERUPT0       ;IRQ Location in ROM
+  1307 00:FFC3: 99 FF                        .DW     NMIHNDLR0       ;NMI return handler in ROM
+  1308 00:FFC5: 96 FF                        .DW     IRQ_EXIT0       ;BRK return handler in ROM
+  1309 00:FFC7: 96 FF                        .DW     IRQ_EXIT0       ;IRQ return handler in ROM
+  1310 00:FFC9: 00 F8                        .DW     MONITOR         ;Monitor Cold start
+  1311 00:FFCB: 05 F8                        .DW     NMON            ;Monitor Warm start
+  1312                        ;
+  1313                        ;Vector Inserts (total of 4)
+  1314                        ; as NMI/BRK/IRQ and the Monitor are vectored, all can be extended
+  1315                        ; by using these reserved vectors.
+  1316 00:FFCD: FF FF                        .DW     $FFFF           ;Insert 0 Location
+  1317 00:FFCF: FF FF                        .DW     $FFFF           ;Insert 1 Location
+  1318 00:FFD1: FF FF                        .DW     $FFFF           ;Insert 2 Location
+  1319 00:FFD3: FF FF                        .DW     $FFFF           ;Insert 3 Location
+  1320                        ;
+  1321                        CFG_TABLE       ;Configuration table for hardware devices
+  1322                        ;
+  1323 00:FFD5: 09           CFG_6551        .DB     $09             ;Default 65C51 Cmd reg, Rcv IRQ enabled
+  1324 00:FFD6: 1F                           .DB     $1F             ;Default 65C51 Ctl reg, (19.2K, 8-N-1)
+  1325                        ;
+  1326                        ;Reserved for additional I/O devices (14 bytes total)
+  1327 00:FFD7: FF FF FF FF                  .DB     $FF,$FF,$FF,$FF,$FF,$FF
+       00:FFDB: FF FF 
+  1328 00:FFDD: FF FF FF FF                  .DB     $FF,$FF,$FF,$FF,$FF,$FF,$FF,$FF
+       00:FFE1: FF FF FF FF 
+  1329                        ;
+  1330                        ;END OF BIOS VECTOR DATA AND HARDWARE DEFAULT CONFIGURATION DATA
+  1331                        ;**************************************************************************************************
+  1332                        ;BIOS init message - sent before jumping to the monitor coldstart vector
+  1333 00:FFE5: 0D 0A        BIOS_MSG        .DB     $0D,$0A         ;BIOS startup message
+  1334 00:FFE7: 36 35 43 30                  .DB     "65C02 "
+       00:FFEB: 32 20 
+  1335 00:FFED: 42 49 4F 53                  .DB     "BIOS V1.2L"
+       00:FFF1: 20 56 31 2E 
+       00:FFF5: 32 4C 
+  1336 00:FFF7: 0D 0A                        .DB     $0D,$0A         ;Add CR/LF
+  1337 00:FFF9: 00                           .DB     #$00            ;Terminate string
+  1338                        ;
+  1339                                        .ORG    $FFFA           ;65C02 Hardware Vectors
+  1340 00:FFFA: 00 03                        .DW     NMIVEC0         ;NMI
+  1341 00:FFFC: 48 FF                        .DW     COLDSTRT        ;RESET
+  1342 00:FFFE: 85 FF                        .DW     IRQ_VECTOR      ;IRQ
+  1343                        ;**************************************************************************************************
+  1344                                        .END
+
+
+      Lines assembled: 1344
+      Errors: 0
+  Mon May 13 2019 21:04                                                                                                    Page 23
+
+

@@ -1,0 +1,957 @@
+  Tue Dec  5 2017  6:27                                                                                                    Page 1
+
+
+                                               ***************************************
+                                               **      WDC 65C02 Macro Assembler    **
+                                               **                                   **
+                                               **     Version 3.49.1- Feb  6 2006    **
+                                               ***************************************
+
+     1                        ;***************************************************************************************************
+     2                        ;*  C02BIOS 2.0 (c)2013-2017 by Kevin E. Maier    *     New Hardware design with the following:    *
+     3                        ;* - BIOS in pages $F8-$FF, less I/O in page $FE  *  - W65C02 with clock rate up to 6.0 MHz        *
+     4                        ;* - Full duplex interrupt-driven/buffered I/O    *  - AS6C66256 32KB Static RAM                   *
+     5                        ;* - Extendable BIOS structure with soft vectors  *  - AT28H256 32KB EEPROM for ROM                *
+     6                        ;* - Soft config parameters for I/O devices       *  - ATF22V10CQZ Single Glue Logic               *
+     7                        ;* - Monitor cold/warm start soft vectored        *  - NXP SCC2691 UART for console/timer          *
+     8                        ;* - Fully relocatable code (sans page $FF)       *  - Hardware map is flexible via Glue logic     *
+     9                        ;* - Precision timer services w/10ms accuracy     *  - 5 I/O selects @ 32-bytes wide               *
+    10                        ;* - RTC based Jiffy Clock, Sec, Min, Hour, Days  *  - 4 I/O selects available on expansion bus    *
+    11                        ;* - Accurate delays from 10ms to ~497 days       *  - 1 I/O select used by SCC2691                *
+    12                        ;*                                                *   Note default HW system memory map as:        *
+    13                        ;*  Uses ~2KB EEPROM - JMP table page at $FF00    *         RAM - $0000 - $7FFF                    *
+    14                        ;*    Uses <one page for I/O: default at $FE00    *         ROM - $8000 - $FDFF                    *
+    15                        ;*        Default assembly start at $F800:        *         I/O - $FE00 - $FE9F (5 in total)       *
+    16                        ;*                   12/03/17                     *         ROM - $FEA0 - $FFFF                    *
+    17                        ;***************************************************************************************************
+    18                        	PL	66	;Page Length
+    19                        	PW	132	;Page Width (# of char/line)
+    20                        	CHIP	W65C02S	;Enable WDC 65C02 instructions
+    21                        ;******************************************************************************
+    22                        ;	Page Zero definitions $00 to $AF reserved for user routines
+    23             000000B0   PGZERO_ST	.EQU	$B0	;Start of Page Zero usage
+    24                        ;16-bit Monitor variables required for BIOS:
+    25             000000C0   INDEXL		.EQU	PGZERO_ST+16	;Index for address - multiple routines
+    26             000000C1   INDEXH		.EQU	PGZERO_ST+17
+    27                        ;
+    28                        ;	BIOS variables, pointers, flags located at top of Page Zero.
+    29             000000E0   BIOS_PG0	.EQU	PGZERO_ST+48	;Start of BIOS page zero use ($E0-$FF)
+    30                        ;	- BRK handler routine
+    31             000000E0   PCL				.EQU	BIOS_PG0+00	;Program Counter Low index
+    32             000000E1   PCH				.EQU	BIOS_PG0+01	;Program Counter High index
+    33             000000E2   PREG			.EQU	BIOS_PG0+02	;Temp Status reg
+    34             000000E3   SREG			.EQU	BIOS_PG0+03	;Temp Stack ptr
+    35             000000E4   YREG			.EQU	BIOS_PG0+04	;Temp Y reg
+    36             000000E5   XREG			.EQU	BIOS_PG0+05	;Temp X reg
+    37             000000E6   AREG			.EQU	BIOS_PG0+06	;Temp A reg
+    38                        ;
+    39                        ;	- 2691 IRQ handler pointers and status
+    40             000000E7   ICNT			.EQU	BIOS_PG0+07	;Input buffer count
+    41             000000E8   IHEAD			.EQU	BIOS_PG0+08	;Input buffer head pointer
+    42             000000E9   ITAIL			.EQU	BIOS_PG0+09	;Input buffer tail pointer
+    43             000000EA   OCNT			.EQU	BIOS_PG0+10	;Output buffer count
+    44             000000EB   OHEAD			.EQU	BIOS_PG0+11	;Output buffer head pointer
+    45             000000EC   OTAIL			.EQU	BIOS_PG0+12	;Output buffer tail pointer
+    46             000000ED   UART_IRT	.EQU	BIOS_PG0+13	;2691 Interrupt Status byte
+    47             000000EE   UART_SRT	.EQU	BIOS_PG0+14	;2691 Status Register byte
+    48                        ;
+    49                        ;	- Real-Time Clock variables
+    50             000000EF   TICKS			.EQU	BIOS_PG0+15	;# timer countdowns for 1 second (100)
+    51             000000F0   SECS			.EQU	BIOS_PG0+16	;Seconds: 0-59
+    52             000000F1   MINS			.EQU	BIOS_PG0+17	;Minutes: 0-59
+    53             000000F2   HOURS			.EQU	BIOS_PG0+18	;Hours: 0-23
+    54             000000F3   DAYSL			.EQU	BIOS_PG0+19	;Days: Low-Order byte 0-65535
+    55             000000F4   DAYSH			.EQU	BIOS_PG0+20	;Days: High-Order byte >179 Years ;-)
+    56                        ;
+    57                        ;	- Delay Timer variables
+  Tue Dec  5 2017  6:27                                                                                                    Page 2
+
+
+    58             000000F5   MSDELAY		.EQU	BIOS_PG0+21	;Timer delay countdown byte (255 > 0)
+    59             000000F6   MATCH			.EQU	BIOS_PG0+22	;Delay Match flag, $FF is set, $00 is cleared
+    60             000000F7   SETIM			.EQU	BIOS_PG0+23	;Set timeout for delay routines - BIOS use only
+    61             000000F8   DELLO			.EQU	BIOS_PG0+24	;Delay value BIOS use only
+    62             000000F9   DELHI			.EQU	BIOS_PG0+25	;Delay value BIOS use only
+    63             000000FA   XDL				.EQU	BIOS_PG0+26	;XL Delay count
+    64                        ;
+    65                        ;Spare BIOS bytes for future use
+    66             000000FB   SPARE_B0	.EQU	BIOS_PG0+27	;Spare BIOS page zero byte
+    67             000000FC   SPARE_B1	.EQU	BIOS_PG0+28	;Spare BIOS page zero byte
+    68             000000FD   SPARE_B2	.EQU	BIOS_PG0+29	;Spare BIOS page zero byte
+    69             000000FE   SPARE_B3	.EQU	BIOS_PG0+30	;Spare BIOS page zero byte
+    70             000000FF   SPARE_B4	.EQU	BIOS_PG0+31	;Spare BIOS page zero byte
+    71                        ;
+    72                        ;Default for RTC tick count - number of IRQs for 1 second
+    73             00000064   DF_TICKS	.EQU	#100	;counter/timer is 10 milliseconds (100 x 10ms = 1 second)
+    74                        ;******************************************************************************
+    75             00000200   IBUF			.EQU	$0200	;Console Input Buffer - 128 bytes
+    76             00000280   OBUF			.EQU	$0280	;Console Output Buffer - 128 bytes
+    77                        ;******************************************************************************
+    78             00000300   SOFTVEC		.EQU	$0300	;Start of soft vectors
+    79                        ;The Interrupt structure is vector based. During startup, Page $03 is loaded from ROM
+    80                        ; The soft vectors are structured to allow inserting additional routines either before
+    81                        ; or after the core routines. This allows flexibility and changing of routine priority
+    82                        ;
+    83                        ;The main set of vectors occupy the first 16 bytes of Page $03. The ROM handler for
+    84                        ; NMI, BRK and IRQ jump to the first 3 vectors. The following 3 vectors are loaded with
+    85                        ; returns to the ROM handler for each. The following 2 vectors are the cold and warm
+    86                        ; entry points for the Monitor. After the basic initialization, the monitor is entered
+    87                        ;
+    88                        ;The following vector set allows inserts, pre or post for NMI/BRK/IRQ. There a total of 8 inserts
+    89                        ; which occupy 16 bytes. They can be used as required. Currently, all of these are available.
+    90                        ;
+    91             00000300   NMIVEC0		.EQU	SOFTVEC+00	;NMI Vector Entry 0
+    92             00000302   BRKVEC0		.EQU	SOFTVEC+02	;BRK Vector Entry 0
+    93             00000304   IRQVEC0		.EQU	SOFTVEC+04	;IRQ Vector Entry 0
+    94                        ;
+    95             00000306   NMIRTVEC0	.EQU	SOFTVEC+06	;NMI Vector Return 0
+    96             00000308   BRKRTVEC0	.EQU	SOFTVEC+08	;BRK Vector Return 0
+    97             0000030A   IRQRTVEC0	.EQU	SOFTVEC+10	;IRQ Vector Return 0
+    98                        ;
+    99             0000030C   CLDMNVEC0	.EQU	SOFTVEC+12	;Monitor Cold Entry Vector 0
+   100             0000030E   WRMMNVEC0	.EQU	SOFTVEC+14	;Monitor Warm Entry Vector 0
+   101                        ;
+   102             00000310   VECINSRT0	.EQU	SOFTVEC+16	;1st Vector Insert
+   103             00000312   VECINSRT1	.EQU	SOFTVEC+18	;2nd Vector Insert
+   104             00000314   VECINSRT2	.EQU	SOFTVEC+20	;3rd Vector Insert
+   105             00000316   VECINSRT3	.EQU	SOFTVEC+22	;4th Vector Insert
+   106             00000318   VECINSRT4	.EQU	SOFTVEC+24	;5th Vector Insert
+   107             0000031A   VECINSRT5	.EQU	SOFTVEC+26	;6th Vector Insert
+   108             0000031C   VECINSRT6	.EQU	SOFTVEC+28	;7th Vector Insert
+   109             0000031E   VECINSRT7	.EQU	SOFTVEC+30	;8th Vector Insert
+   110                        ;
+   111                        ;******************************************************************************
+   112             00000320   SOFTCFG		.EQU SOFTVEC+32	;Start of hardware config parameters
+   113                        ;Soft Config values below are loaded from ROM and are the default I/O setup configuration data that
+   114                        ; the INIT_x routines use. As a result, you can write a routine to change the I/O configuration data
+   115                        ; and use the standard ROM routines to initialize the I/O without restarting or changing ROM. A Reset
+   116                        ; (HW or coded) will reinitialize the I/O with the ROM default I/O configuration.
+   117                        ;There are a total of 32 Bytes configuration data reserved starting at $0320
+   118             00000320   LOAD_2691	.EQU	SOFTCFG+00	;SCC2691 SOFT config data start
+   119                        ;******************************************************************************
+   120             0000FE00   IOPAGE		.EQU	$FE00	;I/O Page Base Start Address
+  Tue Dec  5 2017  6:27                                                                                                    Page 3
+
+
+   121                        ;******************************************************************************
+   122             0000FE80   SCC2691_BASE	.EQU	IOPAGE+$80	;Beginning of Console UART address
+   123                        ;
+   124             0000FE80   UART_MODEREG	.EQU	SCC2691_BASE+$00 	;MR1/MR2 same address, sequential read/write
+   125             0000FE81   UART_STATUS		.EQU	SCC2691_BASE+$01	;UART Status Register (READ)
+   126             0000FE81   UART_CLKSEL		.EQU	SCC2691_BASE+$01	;UART Clock Select Register (WRITE)
+   127             0000FE82   UART_BRGTST		.EQU	SCC2691_BASE+$02	;UART BRG Test register (READ)
+   128             0000FE82   UART_COMMAND	.EQU	SCC2691_BASE+$02	;UART Command Register (WRITE)
+   129             0000FE83   UART_RECEIVE	.EQU	SCC2691_BASE+$03	;UART Receive Register (READ)
+   130             0000FE83   UART_TRANSMIT	.EQU	SCC2691_BASE+$03	;UART Transmit Register (WRITE)
+   131             0000FE84   UART_CLKTEST	.EQU	SCC2691_BASE+$04	;X1/X16 Test Register (READ)
+   132             0000FE84   UART_AUXCR		.EQU	SCC2691_BASE+$04	;Aux Command Register (WRITE)
+   133             0000FE85   UART_ISR			.EQU	SCC2691_BASE+$05	;Interrupt Status Register (READ)
+   134             0000FE85   UART_IMR			.EQU	SCC2691_BASE+$05	;Interrupt Mask Register (WRITE)
+   135             0000FE86   UART_CNTU			.EQU	SCC2691_BASE+$06	;Counter/Timer Upper Register (READ)
+   136             0000FE86   UART_CNTUP		.EQU	SCC2691_BASE+$06	;Counter/Timer Upper Preset Register (WRITE)
+   137             0000FE87   UART_CNTL			.EQU	SCC2691_BASE+$07	;Counte/Timerr Lower Register (READ)
+   138             0000FE87   UART_CNTLP		.EQU	SCC2691_BASE+$07	;Counter/Timer Lower Preset Register (WRITE)
+   139                        ;
+   140                        ;******************************************************************************
+   141                        ;	Monitor JUMP table: 32 JUMP calls are available. Calls 02-10 are currently Reserved.
+   142             0000E000   M_MONITOR		.EQU	$E000	;Call 00
+   143             0000E003   M_WRM_MON		.EQU	$E003	;Call 01
+   144                        ;
+   145             0000E021   M_PRSTAT1		.EQU	$E021	;Call 11
+   146             0000E024   M_DIS_LINE	.EQU	$E024	;Call 12
+   147             0000E027   M_INCINDEX	.EQU	$E027	;Call 13
+   148             0000E02A   M_DECINDEX	.EQU	$E02A	;Call 14
+   149             0000E02D   M_RDLINE		.EQU	$E02D	;Call 15
+   150             0000E030   M_RDCHAR		.EQU	$E030	;Call 16
+   151             0000E033   M_HEXIN2		.EQU	$E033	;Call 17
+   152             0000E036   M_HEXIN4		.EQU	$E036	;Call 18
+   153             0000E039   M_HEX2ASC		.EQU	$E039	;Call 19
+   154             0000E03C   M_BIN2ASC		.EQU	$E03C	;Call 20
+   155             0000E03F   M_ASC2BIN		.EQU	$E03F	;Call 21
+   156             0000E042   M_BEEP			.EQU	$E042	;Call 22
+   157             0000E045   M_DOLLAR		.EQU	$E045	;Call 23
+   158             0000E048   M_CROUT			.EQU	$E048	;Call 24
+   159             0000E04B   M_SPC				.EQU	$E04B	;Call 25
+   160             0000E04E   M_PRBYTE		.EQU	$E04E	;Call 26
+   161             0000E051   M_PRWORD		.EQU	$E051	;Call 27
+   162             0000E054   M_PRASC			.EQU	$E054	;Call 28
+   163             0000E057   M_PROMPT		.EQU	$E057	;Call 29
+   164             0000E05A   M_PROMPTR		.EQU	$E05A	;Call 30
+   165             0000E05D   M_CONTINUE	.EQU	$E05D	;Call 31
+   166                        ;
+   167                        ;******************************************************************************
+   168                        			.ORG	$F800	;2KB reserved for BIOS, I/O device selects (160 bytes)
+   169                        ;******************************************************************************
+   170                        ;START OF BIOS CODE
+   171                        ;******************************************************************************
+   172                        ;C02BIOS version used here is 2.0 initial release
+   173                        ; Contains the base BIOS routines in top 2KB of EEPROM
+   174                        ; - $F800 - $F9FF 512 bytes for BIOS SCC2691, NMI Panic routine
+   175                        ; - $FA00 - $FDFF reserved for BIOS expansion (1KB)
+   176                        ; - $FE00 - $FE7F reserved for HW (4-I/O devices, 32 bytes wide)
+   177                        ; - $FE80 - $FE9F SCC2691 UART (32 bytes wide, only 8 bytes used)
+   178                        ;	- $FEA0 - $FEFF used for Vector and Hardware configuration data
+   179                        ; - $FF00 - BIOS JMP table, CPU startup, NMI/BRK/IRQ pre-post routines, BIOS msg.
+   180                        ; - Input/Feedback from "BDD" - modified CHR-I/O routines - saves 12 bytes
+   181                        ;******************************************************************************
+   182                        ;	The following 32 functions are provided by BIOS via the JMP Table
+   183                        ;	$FF00	- $FF33 are Reserved for future expansion
+  Tue Dec  5 2017  6:27                                                                                                    Page 4
+
+
+   184                        ;
+   185                        ;	$FF36 CHRIN_NW		;(character input from console, no waiting, clear carry if none)
+   186                        ;	$FF39 CHRIN				;(character input from console)
+   187                        ;	$FF3C CHROUT			;(character output to console)
+   188                        ;	$FF3F SET_DLY			;(set delay value for milliseconds and 16-bit counter)
+   189                        ;	$FF42 EXE_MSDLY		;(execute millisecond delay 1-256 * 10 milliseconds)
+   190                        ;	$FF45 EXE_LGDLY		;(execute long delay; millisecond delay * 16-bit count)
+   191                        ;	$FF48 EXE_XLDLY		;(execute extra long delay; 8-bit count * long delay)
+   192                        ;	$FF4B INIT_VEC		;(initialize soft vectors at $0300 from ROM)
+   193                        ;	$FF4E INIT_CFG		;(initialize soft config values at $0320 from ROM)
+   194                        ;	$FF51 INIT_2691		;(initialize SCC2691 console 38.4K, 8-N-1 RTS/CTS)
+   195                        ;	$FF54 RESET_2691	;(reset SCC2691) - called before INIT_2691
+   196                        ;	$FF57 MONWARM			;(Monitor warm start - jumps to page $03)
+   197                        ;	$FF5A MONCOLD			;(Monitor cold start - jumps to page $03)
+   198                        ; $FF5D	COLDSTRT		;(System cold start - RESET vector for 65C02)
+   199                        ;******************************************************************************
+   200                        ; Character In and Out routines for Console I/O buffer
+   201                        ;******************************************************************************
+   202                        ;Character Input routines
+   203                        ;CHRIN_NW uses CHRIN, returns if a character is not available from the buffer with carry flag clear
+   204                        ; else returns with character in A reg and carry flag set. CHRIN waits for a character to be in the
+   205                        ; buffer, then returns with carry flag set. Receive is IRQ driven/buffered with a size of 128 bytes
+   206 00:F800: 18           CHRIN_NW	CLC	:Clear Carry flag for no character
+   207 00:F801: A5 E7        					LDA	ICNT	;Get character count
+   208 00:F803: D0 05        					BNE	GET_CH	;Branch if buffer is not empty
+   209 00:F805: 60           					RTS	;and return to caller
+   210                        ;
+   211 00:F806: A5 E7        CHRIN			LDA	ICNT	;Get character count
+   212 00:F808: F0 FC        					BEQ	CHRIN	;If zero (no character, loop back)
+   213                        ;
+   214 00:F80A: 5A           GET_CH		PHY	;Save Y reg
+   215 00:F80B: A4 E8        					LDY	IHEAD	;Get the buffer head pointer
+   216 00:F80D: B9 00 02     					LDA	IBUF,Y	;Get the character from the buffer
+   217                        ;
+   218 00:F810: E6 E8        					INC	IHEAD	;Increment head pointer
+   219 00:F812: 77 E8        					RMB7	IHEAD	;Strip off bit 7, 128 bytes only
+   220                        ;
+   221 00:F814: C6 E7        					DEC	ICNT	;Decrement the buffer count
+   222 00:F816: 7A           					PLY	;Restore Y Reg
+   223 00:F817: 38           					SEC	;Set Carry flag for character available
+   224 00:F818: 60           					RTS	;Return to caller with character in A reg
+   225                        ;
+   226                        ;Character Output routine: puts the character in the A reg into the xmit buffer, character in
+   227                        ; A Reg is preserved on exit. Transmit is IRQ driven/buffered with a size of 128 bytes.
+   228 00:F819: 5A           CHROUT		PHY	;save Y reg
+   229 00:F81A: A4 EA        OUTCH			LDY	OCNT	;get character output count in buffer
+   230 00:F81C: 30 FC        					BMI	OUTCH	;check against limit, loop back if full
+   231                        ;
+   232 00:F81E: A4 EC        					LDY	OTAIL	;Get the buffer tail pointer
+   233 00:F820: 99 80 02     					STA	OBUF,Y	;Place character in the buffer
+   234                        ;
+   235 00:F823: E6 EC        					INC	OTAIL	;Increment Tail pointer
+   236 00:F825: 77 EC        					RMB7	OTAIL	;Strip off bit 7, 128 bytes only
+   237 00:F827: E6 EA        					INC	OCNT	;Increment character count
+   238                        ;
+   239 00:F829: A0 04        					LDY	#%00000100	;Get mask for xmit on
+   240 00:F82B: 8C 82 FE     					STY	UART_COMMAND	;Turn on xmt
+   241                        ;
+   242 00:F82E: 7A           					PLY	;Restore Y reg
+   243 00:F82F: 60           					RTS	;Return	to caller
+   244                        ;
+   245                        ;******************************************************************************
+   246                        ;Delay Routines: SET_DLY sets up the MSDELAY value and can also set the Long Delay variable
+  Tue Dec  5 2017  6:27                                                                                                    Page 5
+
+
+   247                        ; On entry, A reg = millisecond count, X reg = High multipler, Y reg = Low multipler
+   248                        ;	these values are used by the EXE_MSDLY and EXE_LGDLY routines. Minimum delay is 10ms Jiffy Clock
+   249                        ;	values for MSDELAY are $00-$FF ($00 = 256 times)
+   250                        ;	values for Long Delay are $0000-$FFFF (0-65535 times MSDELAY)
+   251                        ;	longest delay is 65,535*256*10ms = 16,776,960 * 0.01 = 167,769.60 seconds
+   252 00:F830: 85 F7        SET_DLY		STA	SETIM	;Save Millisecond count
+   253 00:F832: 84 F8        					STY	DELLO	;Save Low multipler
+   254 00:F834: 86 F9        					STX	DELHI	;Save High Multipler
+   255 00:F836: 60           					RTS	;Return to caller
+   256                        ;
+   257                        ;EXE MSDELAY routine is the core delay routine.	It sets the MSDELAY count value from the
+   258                        ; SETIM variable, enables the MATCH flag, then waits for the MATCH flag to clear.
+   259 00:F837: 48           EXE_MSDLY	PHA	;Save A Reg
+   260 00:F838: F7 F6        					SMB7	MATCH	;Set MATCH flag bit
+   261 00:F83A: A5 F7        					LDA	SETIM	;Get delay seed value
+   262 00:F83C: 85 F5        					STA	MSDELAY	;Set MS delay value
+   263                        ;
+   264 00:F83E: FF F6 FD     MATCH_LP	BBS7	MATCH,MATCH_LP	;Test MATCH flag, loop until cleared
+   265 00:F841: 68           					PLA	;Restore A Reg
+   266 00:F842: 60           					RTS	;Return to caller
+   267                        ;
+   268                        ;EXE LONG Delay routine is the 16-bit multiplier for the MS DELAY routine
+   269                        ;	It loads the 16-bit count from DELLO/DELHI, then loops the MSDELAY
+   270                        ;	routine until the 16-bit count is decremented to zero
+   271 00:F843: DA           EXE_LGDLY	PHX	;Save X Reg
+   272 00:F844: 5A           					PHY	;Save Y Reg
+   273 00:F845: A6 F9        					LDX	DELHI	;Get high byte count
+   274 00:F847: E8           					INX	;Increment by one (checks for $00 vs $FF)
+   275 00:F848: A4 F8        					LDY	DELLO	;Get low byte count
+   276 00:F84A: F0 06        					BEQ	SKP_DLL	;If zero, skip to high count
+   277 00:F84C: 20 37 F8     DO_DLL		JSR	EXE_MSDLY	;Call millisecond delay
+   278 00:F84F: 88           					DEY	;Decrement low count
+   279 00:F850: D0 FA        					BNE	DO_DLL	;Branch back until done
+   280                        ;
+   281 00:F852: CA           SKP_DLL		DEX	;Decrement high byte index
+   282 00:F853: D0 F7        					BNE	DO_DLL	;Loop back to DLL (will run 256 times)
+   283 00:F855: 7A           					PLY	;Restore Y Reg
+   284 00:F856: FA           					PLX	;Restore X Reg
+   285 00:F857: 60           					RTS	;Return to caller
+   286                        ;
+   287                        ;EXE EXTRA LONG Delay routine uses XDL variable as an 8-bit count	and calls the EXE LONG Delay routine
+   288                        ; XDL times. On entry, XDL contains the number of interations This can increase the delay by 256 times
+   289                        ; the above value of 167,769.60 seconds
+   290 00:F858: 20 43 F8     EXE_XLDLY	JSR	EXE_LGDLY	;Call the Long Delay routine
+   291 00:F85B: C6 FA        					DEC	XDL	;Decrement count
+   292 00:F85D: D0 F9        					BNE	EXE_XLDLY	;Loop back until XDL times out
+   293 00:F85F: 60           					RTS	;Done, return to caller
+   294                        ;
+   295                        ;******************************************************************************
+   296                        ;START OF PANIC ROUTINE
+   297                        ;The Panic routine is for debug of system problems, i.e., a crash. The design requires a
+   298                        ; debounced NMI trigger button which is manually operated when the system crashes or malfunctions,
+   299                        ; user presses the NMI (panic) button. The NMI vectored routine will perform the following tasks:
+   300                        ; 1- Save registers in page $00 locations
+   301                        ; 2- Copy pages $00, $01, $02 and $03 to locations $0400-$07FF
+   302                        ; 3- Zero all I/O buffer pointers
+   303                        ; 4- Call the ROM routines to init the vectors and config data (page $03)
+   304                        ; 5- Call ROM routines to reset/init the Console UART (SCC2691)
+   305                        ; 6- Restart the Monitor via warm start vector
+   306                        ; No memory is cleared except the required pointers to restore the system
+   307                        ;
+   308                        ;Note: it's possible to lockup the SCC2691 so that the Reset/Init routines can not recover it.
+   309                        ; The problem is one of two possibilities: 1- The BRG Test mode has been toggled via a read of the
+  Tue Dec  5 2017  6:27                                                                                                    Page 6
+
+
+   310                        ; BRG Test Register. 2- The X1/X16 Test mode has been toggled via a read of the X1/X16 Test Register
+   311                        ;
+   312                        ;The first scenario can be avoided if the baud rate is setup for 19.2K or 38.4K as the test mode uses
+   313                        ; the same baud rate as normal mode. Note that this does not lock up the UART in any way, but simply
+   314                        ; changes the baud rate per the BRG Test mode table. A second read to the BRG Test mode register will
+   315                        ; change the baud rate back to normal. As a default, the baud rate is set for 38.4K.
+   316                        ;
+   317                        ;The second scenario is more difficult to workaround. There's no telling if a read was done to the
+   318                        ; X1/X16 test mode register. There are only two options to correct this; 1- a second read of the
+   319                        ; X1/X16 Test Register, or 2- a hardware Reset applied to the UART. In the interest of being able to
+   320                        ; use the NMI Panic routine, the code does a read of the X1/X16 Test Mode register. If hitting the
+   321                        ; Panic button does restore the UART, hitting it a second time might, unless the vector has changed!
+   322                        ;
+   323                        ;NOTE: The X1/X16 Test mode is toggled via the INIT_2691 routine below! This is the result of a bug
+   324                        ; in the W65C02 as explained in the Init section below. This is noted here for awareness only.
+   325                        ; Please read the text below preceding the initialization routines for more detail.*
+   326                        NMI_VECTOR	;This is the ROM start for NMI Panic handler
+   327 00:F860: 85 E6        					STA	AREG	;Save A Reg
+   328 00:F862: 86 E5        					STX	XREG	;Save X Reg
+   329 00:F864: 84 E4        					STY	YREG	;Save Y Reg
+   330 00:F866: 68           					PLA	;Get Processor Status 
+   331 00:F867: 85 E2        					STA	PREG	;Save in PROCESSOR STATUS preset/result
+   332 00:F869: BA           					TSX	;Get Stack pointer
+   333 00:F86A: 86 E3        					STX	SREG	;Save STACK POINTER
+   334 00:F86C: 68           					PLA	;Pull RETURN address from STACK
+   335 00:F86D: 85 E0        					STA	PCL	;Store Low byte
+   336 00:F86F: 68           					PLA	;Pull high byte
+   337 00:F870: 85 E1        					STA	PCH	;Store High byte
+   338                        ;
+   339 00:F872: 9C 85 FE     					STZ	UART_IMR	;Disable ALL interrupts from UART
+   340 00:F875: AD 81 FE     					LDA	UART_STATUS	;Get UART status register
+   341 00:F878: 85 EE        					STA	UART_SRT	;Save it in Page 0
+   342 00:F87A: AD 85 FE     					LDA	UART_ISR	;Get UART Interrupt status register
+   343 00:F87D: 85 ED        					STA	UART_IRT	;Save it in Page 0
+   344 00:F87F: AD 84 FE     					LDA	UART_CLKTEST	;Toggle the X1/X16 Test mode*
+   345                        ;
+   346 00:F882: A0 00        					LDY	#$00	;Zero Y reg
+   347 00:F884: A2 04        					LDX	#$04	;Set index to 4 pages
+   348 00:F886: 86 03        					STX	$03	;Set to high order
+   349 00:F888: 64 02        					STZ	$02	;Zero remaining pointers
+   350 00:F88A: 64 01        					STZ	$01 ;for target
+   351 00:F88C: 64 00        					STZ	$00 ;and source
+   352                        ;
+   353 00:F88E: B1 00        PLP0			LDA	($00),Y	;get byte
+   354 00:F890: 91 02        					STA	($02),Y	;store byte
+   355 00:F892: 88           					DEY	;Decrement index
+   356 00:F893: D0 F9        					BNE	PLP0	;Loop back till done
+   357                        ;
+   358 00:F895: E6 01        					INC	$01	;Increment source page address
+   359 00:F897: E6 03        					INC	$03	;Increment destination page address
+   360 00:F899: CA           					DEX	;Decrement page count
+   361 00:F89A: D0 F2        					BNE	PLP0	;Branch back for next page
+   362                        ;
+   363 00:F89C: A2 08        					LDX	#$08	;Get count of
+   364 00:F89E: 74 E6        PAN_LP1		STZ	ICNT-1,X	;Clear console I/O pointers/Status
+   365 00:F8A0: CA           					DEX	;Decrement index
+   366 00:F8A1: D0 FB        					BNE	PAN_LP1	;Branch back till done
+   367                        ;
+   368 00:F8A3: 20 9E F9     					JSR	INIT_PG03	;Xfer default Vectors/HW Config to $0300
+   369 00:F8A6: 20 B6 F9     					JSR	INIT_IO	;Reset and Init the UART for Console
+   370 00:F8A9: 6C 06 03     					JMP	(NMIRTVEC0)	;Jump to Monitor Warm Start Vector
+   371                        ;
+   372                        ;******************************************************************************
+  Tue Dec  5 2017  6:27                                                                                                    Page 7
+
+
+   373                        ;BRK/IRQ Interrupt service routine
+   374                        ;The pre-process routine located in page $FF soft-vectors to here:
+   375                        ;	The following routines handle BRK and IRQ functions
+   376                        ;	The BRK handler saves CPU details for register display
+   377                        ;	- A Monitor can provide a disassembly of the last executed instruction
+   378                        ;	- A Received Break is also handled here (ExtraPutty)
+   379                        ;
+   380                        ; SCC2691 handler
+   381                        ;	The 2691 IRQ routine handles transmit, receive, timer and Break interrupts
+   382                        ;	- Transmit and receive each have a 128 byte circular FIFO buffer in memory
+   383                        ;	- Xmit IRQ is controlled by the handler and the CHROUT routine
+   384                        ; The 2691 Timer resolution is 10ms and used as a Jiffy Clock RTC and delays
+   385 00:F8AC: AD 81 FE     UART_BRK	LDA	UART_STATUS	;Get UART Status register
+   386 00:F8AF: 30 0D        					BMI	BREAKEY	;If bit 7 set, received Break was detected
+   387 00:F8B1: A2 05        					LDX	#UART_RDATAE-UART_RDATA	;Get index count
+   388 00:F8B3: BD DF FE     UART_RST1	LDA	UART_RDATA-1,X	;Get Reset commands
+   389 00:F8B6: 8D 82 FE     					STA	UART_COMMAND	;Send to UART CR
+   390 00:F8B9: CA           					DEX	;Decrement the command list
+   391 00:F8BA: D0 F7        					BNE	UART_RST1	;Loop back until all are sent
+   392 00:F8BC: 80 62        					BRA	REGEXT0	;Exit
+   393                        ;
+   394 00:F8BE: A9 40        BREAKEY		LDA	#%01000000	;Get Reset Received Break command
+   395 00:F8C0: 8D 82 FE     					STA	UART_COMMAND	;Send to UART to reset
+   396 00:F8C3: A9 50        					LDA	#%01010000	;Get Reset Break Interrupt command
+   397 00:F8C5: 8D 82 FE     					STA	UART_COMMAND	;Send to UART to reset
+   398 00:F8C8: 58           					CLI	;Enable IRQ
+   399                        ;
+   400 00:F8C9: 7A           BRKINSTR0	PLY	;Restore Y reg
+   401 00:F8CA: FA           					PLX	;Restore X Reg
+   402 00:F8CB: 68           					PLA	;Restore A Reg
+   403 00:F8CC: 85 E6        					STA	AREG	;Save A Reg
+   404 00:F8CE: 86 E5        					STX	XREG	;Save X Reg
+   405 00:F8D0: 84 E4        					STY	YREG	;Save Y Reg
+   406 00:F8D2: 68           					PLA	;Get Processor Status
+   407 00:F8D3: 85 E2        					STA	PREG	;Save in PROCESSOR STATUS preset/result
+   408 00:F8D5: BA           					TSX	;Xfrer STACK pointer to X reg
+   409 00:F8D6: 86 E3        					STX	SREG	;Save STACK pointer
+   410                        ;
+   411 00:F8D8: FA           					PLX	;Pull Low RETURN address from STACK then save it
+   412 00:F8D9: 86 E0        					STX	PCL	;Store program counter Low byte
+   413 00:F8DB: 86 C0        					STX	INDEXL	;Seed Indexl for DIS_LINE
+   414 00:F8DD: 7A           					PLY	;Pull High RETURN address from STACK then save it
+   415 00:F8DE: 84 E1        					STY	PCH	;Store program counter High byte
+   416 00:F8E0: 84 C1        					STY	INDEXH	;Seed Indexh for DIS_LINE
+   417 00:F8E2: 4F E2 0C     					BBR4	PREG,DO_NULL	;Check for BRK bit set
+   418                        ;
+   419                        ; The following three subroutines are contained in the base Monitor code These calls
+   420                        ; do a register display and disassembles the line of code that caused the BRK to occur.
+   421 00:F8E5: 20 21 E0     					JSR	M_PRSTAT1	;Display CPU status
+   422 00:F8E8: 20 2A E0     					JSR	M_DECINDEX	;Decrement Index to BRK ID Byte
+   423 00:F8EB: 20 2A E0     					JSR	M_DECINDEX	;Decrement Index to BRK instruction
+   424 00:F8EE: 20 24 E0     					JSR	M_DIS_LINE	;Disassemble BRK instruction
+   425                        ;
+   426 00:F8F1: A9 00        DO_NULL		LDA	#$00	;Clear all PROCESSOR STATUS REGISTER bits
+   427 00:F8F3: 48           					PHA	;Push it to Stack
+   428 00:F8F4: 28           					PLP	;Pull it Processor Status
+   429 00:F8F5: 64 E9        					STZ	ITAIL	;Zero out input buffer pointers
+   430 00:F8F7: 64 E8        					STZ	IHEAD	;
+   431 00:F8F9: 64 E7        					STZ	ICNT	;
+   432 00:F8FB: 6C 08 03     					JMP	(BRKRTVEC0)	;Done BRK service process, re-enter monitor
+   433                        ;
+   434                        ;******************************************************************************;
+   435                        ;BIOS routines to handle interrupt-driven I/O for the SCC2691
+  Tue Dec  5 2017  6:27                                                                                                    Page 8
+
+
+   436                        ;NOTE: MPI Pin is used for RTS, which is automatically handled in the chip. As a result,
+   437                        ; the upper 2 bits of the ISR are not used in the handler. The Lower 5 bits are used, but
+   438                        ; the lower two are used to determine when to disable transmit after the buffer is empty.
+   439                        ;The UART_ISR bits are defined as follows:
+   440                        ;	7-	MPI Pin change 0=No, 1=Yes
+   441                        ;	6-	MPI Pin current state 0=Low, 1=High
+   442                        ;	5-	Unused (always active 1)
+   443                        ;	4-	Counter Ready 0=No, 1=Yes
+   444                        ;	3-	Delta Break 0=No, 1=Yes
+   445                        ;	2-	RxRDY/Full 0=No, 1=Yes
+   446                        ;	1-	TxEMT 0=No, 1=Yes
+   447                        ;	0-	TXRDY 0=No, 1=Yes
+   448                        ;
+   449                        ;******************************************************************************;
+   450                        ; Buffer Full moved here to allow "BRA REGEXT0" at end of RTC handler
+   451 00:F8FE: A9 0C        BUFFUL		LDA #%00001100 ;Get buffer overflow flag
+   452 00:F900: 80 17        					BRA IRQEXT0 ;Branch to exit
+   453                        ;Start of 2691 code - interrupt handler starts here!
+   454 00:F902: AD 85 FE     INTERUPT0	LDA	UART_ISR	;Get the UART Interrupt Status Register
+   455 00:F905: C9 20        					CMP	#%00100000	;Check for no active IRQ source
+   456 00:F907: F0 17        					BEQ	REGEXT0	;If no bits are set, exit handler
+   457                        ;
+   458 00:F909: 89 08        					BIT	#%00001000	;Test for Delta Break
+   459 00:F90B: D0 9F        					BNE	UART_BRK	;If yes, Reset the UART receiver
+   460 00:F90D: 89 04        					BIT	#%00000100	;Test for RHR having a character
+   461 00:F90F: D0 12        					BNE	UART_RCV	;If yes, put the character in the buffer
+   462 00:F911: 89 01        					BIT	#%00000001	;Test for THR ready to receive a character
+   463 00:F913: D0 27        					BNE	UART_XMT	;If yes, get character from buffer
+   464 00:F915: 89 10        					BIT	#%00010000	;Test for Counter ready (RTC)
+   465 00:F917: D0 49        					BNE	UART_RTC	;If yes, go increment RTC variables
+   466                        ;
+   467 00:F919: 85 ED        IRQEXT0		STA	UART_IRT	;Else, save the 2691 IRS for later use
+   468 00:F91B: AD 81 FE     					LDA	UART_STATUS	;Get 2691 Status Register
+   469 00:F91E: 85 EE        					STA	UART_SRT	;Save 2691 Status Register for later use
+   470 00:F920: 6C 0A 03     REGEXT0		JMP	(IRQRTVEC0)	;Return to ROM IRQ handler
+   471                        ;
+   472 00:F923: A4 E7        UART_RCV	LDY ICNT	;Get buffer counter
+   473 00:F925: 30 D7        					BMI	BUFFUL	;Check against limit, branch if full
+   474 00:F927: AD 83 FE     					LDA UART_RECEIVE	;Else, get character from 2691
+   475                        ;
+   476 00:F92A: A4 E9        					LDY ITAIL ;Get the tail pointer to buffer
+   477 00:F92C: 99 00 02     					STA IBUF,Y ;Store into buffer
+   478 00:F92F: E6 E9        					INC	ITAIL	;Increment tail pointer
+   479 00:F931: 77 E9        					RMB7	ITAIL	;Strip off bit 7, 128 bytes only
+   480 00:F933: E6 E7        					INC ICNT ;increment character count
+   481                        ;	
+   482 00:F935: AD 81 FE     					LDA UART_STATUS ;Get 2691 status reg
+   483 00:F938: 89 02        					BIT #%00000010 ;Check for xmit active
+   484 00:F93A: F0 E4        					BEQ REGEXT0	;Exit if not
+   485                        ;
+   486 00:F93C: A5 EA        UART_XMT	LDA OCNT ;Any characters to xmit?
+   487 00:F93E: F0 10        					BEQ NODATA ;No, turn off xmit
+   488                        ;
+   489 00:F940: A4 EB        OUTDAT		LDY OHEAD ;Get the head pointer to buffer
+   490 00:F942: B9 80 02     					LDA OBUF,Y ;Get the next character
+   491 00:F945: 8D 83 FE     					STA UART_TRANSMIT ;Send the character to 2691
+   492                        ;
+   493 00:F948: E6 EB        					INC	OHEAD	;Increment head pointer
+   494 00:F94A: 77 EB        					RMB7	OHEAD	;Strip off bit 7, 128 bytes only
+   495 00:F94C: C6 EA        					DEC OCNT ;Decrement counter
+   496 00:F94E: D0 D0        					BNE	REGEXT0	;If not zero, exit and continue normal stuff
+   497                        ;
+   498                        ;No more buffer data to send, check 2691 status and disable transmit if it's finished
+  Tue Dec  5 2017  6:27                                                                                                    Page 9
+
+
+   499 00:F950: AD 81 FE     NODATA		LDA	UART_STATUS	;Get status register
+   500 00:F953: 89 08        					BIT	#%00001000	;Check for THR empty
+   501 00:F955: D0 C9        					BNE	REGEXT0	;Exit if character still loaded
+   502 00:F957: 89 04        					BIT	#%00000100	;Check for TxRDY active
+   503 00:F959: F0 C5        					BEQ	REGEXT0	;Exit if not active, another character in THR
+   504 00:F95B: A0 08        					LDY	#%00001000	;Else, get mask for xmit off
+   505 00:F95D: 8C 82 FE     					STY UART_COMMAND ;Turn off xmit
+   506 00:F960: 80 BE        					BRA REGEXT0 ;Exit IRQ handler
+   507                        ;
+   508                        ;NOTE: Stop timer cmd resets the interrupt flag, counter continues to generate interrupts.
+   509 00:F962: A9 90        UART_RTC	LDA	#%10010000	;Get Command mask for stop timer
+   510 00:F964: 8D 82 FE     					STA	UART_COMMAND	;Send command to 2691
+   511                        ;
+   512                        ; Check the MATCH flag to see if a Delay is active. If yes, decrement the MSDELAY
+   513                        ; variable once each pass until it is zero, then clear the MATCH flag
+   514 00:F967: 7F F6 06     					BBR7	MATCH,SKIP_DLY	;Skip Delay if flag clear
+   515 00:F96A: C6 F5        					DEC	MSDELAY	;Decrement Millisecond delay variable
+   516 00:F96C: D0 02        					BNE	SKIP_DLY	;If not zero, skip
+   517 00:F96E: 77 F6        					RMB7	MATCH	;Else clear MATCH flag
+   518                        ;
+   519 00:F970: C6 EF        SKIP_DLY	DEC	TICKS	;Decrement RTC tick count
+   520 00:F972: D0 AC        					BNE	REGEXT0	;Exit if not zero
+   521 00:F974: A9 64        					LDA	#DF_TICKS ;Get default tick count
+   522 00:F976: 85 EF        					STA	TICKS	;Reset Tick count
+   523                        ;
+   524 00:F978: E6 F0        					INC	SECS	;Increment seconds
+   525 00:F97A: A5 F0        					LDA	SECS	;Load it to A reg
+   526 00:F97C: C9 3C        					CMP	#60	;Check for 60 seconds
+   527 00:F97E: 90 A0        					BCC	REGEXT0	;If not, exit
+   528 00:F980: 64 F0        					STZ	SECS	;Else, reset seconds, inc Minutes
+   529                        ;
+   530 00:F982: E6 F1        					INC	MINS	;Increment Minutes
+   531 00:F984: A5 F1        					LDA	MINS	;Load it to A reg
+   532 00:F986: C9 3C        					CMP	#60	;Check for 60 minutes
+   533 00:F988: 90 96        					BCC	REGEXT0	;If not, exit
+   534 00:F98A: 64 F1        					STZ	MINS	;Else, reset Minutes, inc Hours
+   535                        ;
+   536 00:F98C: E6 F2        					INC	HOURS	;Increment Hours
+   537 00:F98E: A5 F2        					LDA	HOURS	;Load it to A reg
+   538 00:F990: C9 18        					CMP	#24	;Check for 24 hours
+   539 00:F992: 90 8C        					BCC	REGEXT0	;If not, exit
+   540 00:F994: 64 F2        					STZ	HOURS	;Else, reset hours, inc Days
+   541                        ;
+   542 00:F996: E6 F3        					INC	DAYSL	;Increment low-order Days
+   543 00:F998: D0 86        					BNE	REGEXT0	;If not zero, exit
+   544 00:F99A: E6 F4        					INC	DAYSH	;Else increment high-order Days
+   545 00:F99C: 80 82        					BRA	REGEXT0	;Then exit IRQ handler
+   546                        ;
+   547                        ;*********************************************************************
+   548 00:F99E: 20 A5 F9     INIT_PG03	JSR	INIT_VEC	;Init the Vectors first
+   549 00:F9A1: A0 40        INIT_CFG	LDY	#$40	;Get offset to data
+   550 00:F9A3: 80 02        					BRA	DATA_XFER	;Go move the data to page $03
+   551 00:F9A5: A0 20        INIT_VEC	LDY	#$20	;Get offset to data
+   552                        ;
+   553 00:F9A7: 78           DATA_XFER	SEI	;Disable Interrupts, can be called via JMP table
+   554 00:F9A8: A2 20        					LDX	#$20	;Set count for 32 bytes
+   555 00:F9AA: B9 9F FE     DATA_XFLP	LDA	VEC_TABLE-1,Y	;Get ROM table data
+   556 00:F9AD: 99 FF 02     					STA	SOFTVEC-1,Y	;Store in Soft table location
+   557 00:F9B0: 88           					DEY	;Decrement index
+   558 00:F9B1: CA           					DEX	;Decrement count
+   559 00:F9B2: D0 F6        					BNE	DATA_XFLP	;Loop back till done
+   560 00:F9B4: 58           					CLI	;re-enable interupts
+   561 00:F9B5: 60           					RTS	;Return to caller
+  Tue Dec  5 2017  6:27                                                                                                    Page 10
+
+
+   562                        ;
+   563                        ;Initializing the SCC2691 UART as the Console
+   564                        ;An undocumented bug in the W65C02 processor requires a different approach for programming the
+   565                        ; SCC2691 for proper setup/operation. The SCC2691 uses two Mode Registers which are accessed at
+   566                        ; the same register in sequence. There is a command that Resets the Mode Register pointer (to MR1)
+   567                        ; that is issued first. Then MR1 is loaded followed by MR2. The problem with the W65C02 is a false
+   568                        ; read of the register when using indexed addressing (i.e., STA UART_REGISTER,X). This results in
+   569                        ; the mode register pointer being moved to the second register, so the write to MR1 never happens.
+   570                        ; While the indexed list works fine for all other register functions/commands, the loading of the
+   571                        ; Mode Registers needs to be handled separately.
+   572                        ;
+   573                        ;NOTE: the W65C02 will function properly "if" a page boundary is crossed as part of the STA
+   574                        ; (i.e., STA $FDFF,X) where the value of the X register is high enough to cross the page boundary.
+   575                        ; Programming in this manner would be confusing and require modification if the base I/O address
+   576                        ; is changed for a different hardware I/O map.
+   577                        ;
+   578                        ;The same bug in the W65C02 also creates a false read when sending any command to the Command
+   579                        ; Register (assumed indexed addresseing), as the read function of that hardware register is the
+   580                        ; BRG Test register. This can result in a different baud rate being selected, depending on the
+   581                        ; baud rate tables listed in the Datasheet. When using either 19.2K or 38.4K baud rate, the tables
+   582                        ; are the same for both normal and BRG Test mode, so the UART will operate normally. Changing to a
+   583                        ; different baud rate via the BRG Test register requires additional coding to use any of the
+   584                        ; extended baud rates.
+   585                        ;
+   586                        ;There are two basic routines to setup the 2691 UART
+   587                        ;
+   588                        ;The first routine is a basic RESET of the UART.
+   589                        ; It issues the following sequence of commands:
+   590                        ; 1- Send a Power On command to the ACR
+   591                        ; 2- Reset Break Change Interrupt
+   592                        ; 3- Reset Receiver
+   593                        ; 4- Reset Transmitter
+   594                        ; 5- Reset All errors
+   595                        ;
+   596                        ;The second routine initializes tha 2691 UART for operation. It uses two tables of data; one for the
+   597                        ; register offset and the other for the register data. The table for register offsets is maintained in
+   598                        ; ROM. The table for register data is copied to page $03, making it soft data. If needed, operating
+   599                        ; parameters can be altered and the UART re-initialized.
+   600                        ;
+   601 00:F9B6: 20 C0 F9     INIT_IO		JSR	RESET_2691	;Power-Up Reset of SCC2691 UART
+   602 00:F9B9: A9 64        					LDA	#DF_TICKS	;Get divider for jiffy clock for 1-second
+   603 00:F9BB: 85 EF        					STA	TICKS	;Preload TICK count
+   604 00:F9BD: 4C D1 F9     					JMP	INIT_2691	;Initialize the SCC2691 UART, return
+   605                        ;
+   606                        RESET_2691	;This routine does a basic Reset of the SCC2691
+   607 00:F9C0: A9 08        					LDA	#%00001000	;Get Power On mask
+   608 00:F9C2: 8D 84 FE     					STA	UART_AUXCR	;Send to 2691 (ensure it's on)
+   609                        ;
+   610 00:F9C5: A2 04        					LDX	#UART_RDATAE-UART_RDATA1	;Get the Init byte count
+   611 00:F9C7: BD E0 FE     UART_RES1	LDA	UART_RDATA1-1,X	;Get Reset commands
+   612 00:F9CA: 8D 82 FE     					STA	UART_COMMAND	;Send to UART CR
+   613 00:F9CD: CA           					DEX	;Decrement the command list
+   614 00:F9CE: D0 F7        					BNE	UART_RES1	;Loop back until all are sent
+   615 00:F9D0: 60           					RTS	;Return to caller
+   616                        ;
+   617                        INIT_2691	;This routine sets the initial operating mode of the UART
+   618 00:F9D1: 78           					SEI	;Disable interrupts
+   619 00:F9D2: A2 0D        					LDX	#INIT_DATAE-INIT_DATA	;Get the Init byte count
+   620 00:F9D4: BD 1F 03     2691_INT	LDA	LOAD_2691-1,X	;Get Data for 2691 register
+   621 00:F9D7: BC E4 FE     					LDY	INIT_OFFSET-1,X	;Get Offset for 2691 register
+   622 00:F9DA: 99 80 FE     					STA	SCC2691_BASE,Y	;Store to selected register
+   623 00:F9DD: CA           					DEX	;Decrement count
+   624 00:F9DE: D0 F4        					BNE	2691_INT	;Loop back until all registers are loaded
+  Tue Dec  5 2017  6:27                                                                                                    Page 11
+
+
+   625                        ;
+   626 00:F9E0: AD CD FE     					LDA	MR1_DAT	;Get Mode Register 1 Data
+   627 00:F9E3: 8D 80 FE     					STA	UART_MODEREG	;Send to 2691
+   628 00:F9E6: AD CE FE     					LDA	MR2_DAT	;Get Mode Register 2 Data
+   629 00:F9E9: 8D 80 FE     					STA	UART_MODEREG	;Send to 2691
+   630 00:F9EC: 58           					CLI	;Enable interrupts
+   631 00:F9ED: 60           					RTS	;Return to caller
+   632                        ;
+   633                        ;END OF BIOS CODE for Pages $F8 through $FD
+   634                        ;******************************************************************************
+   635                        			.ORG	$FE00	;Reserved for I/O page - do NOT put code here
+   636                        ; There are 5- I/O Selects, each 32-bytes wide.
+   637                        ; I/O-0 = $FE00-$FE1F	;Available on BUS expansion connector
+   638                        ; I/O-0 = $FE20-$FE3F	;Available on BUS expansion connector
+   639                        ; I/O-0 = $FE40-$FE5F	;Available on BUS expansion connector
+   640                        ; I/O-0 = $FE60-$FE7F	;Available on BUS expansion connector
+   641                        ; I/O-0 = $FE80-$FE9F ;SCC2691 UART resides here
+   642                        ;******************************************************************************
+   643                        			.ORG	$FEA0	;Reserved space for vector and I/O initalization data
+   644                        ;START OF BIOS DEFAULT VECTOR DATA AND HARDWARE CONFIGURATION DATA
+   645                        ;
+   646                        ;There are 96 bytes of ROM space remaining on page $FE from $FEA0 - $FEFF
+   647                        ; 64 bytes of this are copied to page $03 and used for soft vectors and hardware soft configuration.
+   648                        ; 32 bytes are for vectors and 32 bytes are for hardware the last 32 bytes are only held in ROM and
+   649                        ; are used for hardware configuration that should not be changed.
+   650                        ;
+   651                        ;The default location for the NMI/BRK/IRQ Vector data is at $0300. Layout definition is listed at the
+   652                        ; top of the source file. There are 8 main vectors and 8 vector inserts, all are free for base config.
+   653                        ;
+   654                        ;The default location for the hardware configuration data is at $0320. It is mostly a freeform table
+   655                        ; which gets copied from ROM to page $03. The default size for the hardware config table is 32 bytes.
+   656                        ;
+   657                        VEC_TABLE	;Vector table data for default ROM handlers
+   658                        ;Vector set 0
+   659 00:FEA0: 60 F8        			.DW	NMI_VECTOR	;NMI Location in ROM
+   660 00:FEA2: C9 F8        			.DW	BRKINSTR0	;BRK Location in ROM
+   661 00:FEA4: 02 F9        			.DW	INTERUPT0	;IRQ Location in ROM
+   662                        ;
+   663 00:FEA6: 03 E0        			.DW	M_WRM_MON	;NMI return handler in ROM
+   664 00:FEA8: 03 E0        			.DW	M_WRM_MON	;BRK return handler in ROM
+   665 00:FEAA: 90 FF        			.DW	IRQ_EXIT0	;IRQ return handler in ROM
+   666                        ;
+   667 00:FEAC: 00 E0        			.DW	M_MONITOR	;Monitor Cold start
+   668 00:FEAE: 03 E0        			.DW	M_WRM_MON	;Monitor Warm start
+   669                        ;
+   670                        ;Vector Inserts (total of 8)
+   671                        ; these can be used as required, all are free for now, as NMI/BRK/IRQ and the Monitor are vectored,
+   672                        ; all can be extended by using these reserved vectors.
+   673 00:FEB0: FF FF        			.DW	$FFFF	;Insert 0 Location
+   674 00:FEB2: FF FF        			.DW	$FFFF	;Insert 1 Location
+   675 00:FEB4: FF FF        			.DW	$FFFF	;Insert 2 Location
+   676 00:FEB6: FF FF        			.DW	$FFFF	;Insert 3 Location
+   677 00:FEB8: FF FF        			.DW	$FFFF	;Insert 4 Location
+   678 00:FEBA: FF FF        			.DW	$FFFF	;Insert 5 Location
+   679 00:FEBC: FF FF        			.DW	$FFFF	;Insert 6 Location
+   680 00:FEBE: FF FF        			.DW	$FFFF	;Insert 7 Location
+   681                        ;
+   682                        ;Configuration Data - The following tables contains the default data used for:
+   683                        ;	- Reset of the SCC2691 (RESET_2691 routine)
+   684                        ;	- Init of the SCC2691 (INIT_2691 routine)
+   685                        ;	- Basic details for register definitions are below, consult SCC2691 DataSheet
+   686                        ; and Application Note AN405 for details and specific operating conditions.
+   687                        ;
+  Tue Dec  5 2017  6:27                                                                                                    Page 12
+
+
+   688                        ; Mode Register 1 definition ($93)
+   689                        ;	Bit7		;RxRTS Control - 1 = Yes
+   690                        ;	Bit6		;RX-Int Select - 0 = RxRDY
+   691                        ;	Bit5		;Error Mode - 0 = Character
+   692                        ;	Bit4/3	;Parity Mode - 10 = No Parity
+   693                        ;	Bit2		;Parity Type - 0 = Even (doesn't matter)
+   694                        ;	Bit1/0	;Bits Per Character - 11 = 8
+   695                        ;
+   696                        ;	Mode Register 2 Definition ($17)
+   697                        ;	Bit7/6	;Channel Mode	- 00 = Normal
+   698                        ;	Bit5		;TxRTS Control - 0 = Yes
+   699                        ;	Bit4		;CTS Enable - 1 = Yes
+   700                        ;	Bit3-0	;Stop Bits - 0111 = 1 Stop Bit
+   701                        ;
+   702                        ;	Baud Rate Clock Definition ($CC)
+   703                        ;	Upper 4 bits = Receive Baud Rate
+   704                        ;	Lower 4 bits = Transmit Baud Rate
+   705                        ;	for 38.4K setting is %11001100
+   706                        ;	Also set ACR Bit7 = 0 for standard rates
+   707                        ;
+   708                        ;	Command Register Definition
+   709                        ;	Bit7-4	;Special commands
+   710                        ;	Bit3		;Disable Transmit
+   711                        ;	Bit2		;Enable Transmit
+   712                        ;	Bit1		;Disable Receive
+   713                        ;	Bit0		;Enable Receive
+   714                        ;
+   715                        ;	Aux Control Register Definition ($68)
+   716                        ;	Bit7		;BRG Set Select - 0 = Default
+   717                        ;	Bit654	;Counter/Timer operating mode 110 = Counter mode from XTAL
+   718                        ;	Bit3		;Power Down mode 1 = Off (normal)
+   719                        ;	Bit210	;MPO Pin Function 000 = RTSN (active low state)
+   720                        ;
+   721                        ;	Interrupt Mask Register Definition ($1D)
+   722                        ;	Bit7	;MPI Pin Change Interrupt 1 = On
+   723                        ;	Bit6	;MPI Level Interrupt 1 = On
+   724                        ;	Bit5	;Not used (shows as active on read)
+   725                        ;	Bit4	;Counter Ready Interrupt 1 = On
+   726                        ;	Bit3	;Delta Break Interrupt 1 = On
+   727                        ;	Bit2	;RxRDY Interrupt 1 = On
+   728                        ;	Bit1	;TxEMT Interrupt 1 = On
+   729                        ;	Bit0	;TxRDY Interrupt 1 = On
+   730                        ;
+   731                        CFG_TABLE	;Configuration table for hardware devices
+   732                        ;Data commands are sent in reverse order from list. This list is the default initialization for
+   733                        ; the UART as configured for use as a Console connected to ExtraPutty. The data here is copied
+   734                        ; to page $03 and is used to configure the UART during boot up. The soft data can be changed
+   735                        ; and the the core INIT_2691 can be called to reconfigure the UART. NOTE: the Register offset
+   736                        ; data is not kept in soft config memory as the initialization sequence should not be changed!
+   737                        INIT_DATA		;Start of UART Initialization Data
+   738 00:FEC0: 10           			.DB	%00010000	;Reset Mode Register pointer
+   739 00:FEC1: A0           			.DB	%10100000	;Enable RTS (Receiver)
+   740 00:FEC2: 09           			.DB	%00001001	;Enable Receiver/Disable Transmitter
+   741 00:FEC3: 1D           			.DB	%00011101	;Interrupt Mask Register setup
+   742 00:FEC4: 68           			.DB	%01101000	;Aux Register setup for Counter/Timer
+   743 00:FEC5: 48           			.DB	%01001000	;Counter/Timer Upper Preset
+   744 00:FEC6: 00           			.DB	%00000000	;Counter/Timer Lower Preset
+   745 00:FEC7: CC           			.DB	%11001100	;Baud Rate clock for Rcv/Xmt
+   746 00:FEC8: 90           			.DB	%10010000	;Disable Counter/Timer
+   747 00:FEC9: 0A           			.DB	%00001010	;Disable Receiver/Transmitter
+   748 00:FECA: B0           			.DB	%10110000	;Disable RTS (Receiver)
+   749 00:FECB: 00           			.DB	%00000000	;Interrupt Mask Register setup
+   750 00:FECC: 08           			.DB	%00001000	;Aux Register setup for Power On
+  Tue Dec  5 2017  6:27                                                                                                    Page 13
+
+
+   751                        INIT_DATAE	;End of UART Initialization Data
+   752                        ;
+   753                        ;Mode Register Data is defined separately. Using a loop routine to send this data to the
+   754                        ; UART does not work properly. See the description of the problem using Indexed addressing
+   755                        ; to load the UART registers above. This data is also kept in soft config memory in page $03.
+   756 00:FECD: 93           MR1_DAT	.DB	%10010011	;Mode Register 1 Data
+   757 00:FECE: 17           MR2_DAT	.DB	%00010111	;Mode Register 2 data
+   758                        ;
+   759                        ;Reserved for additional I/O devices
+   760 00:FECF: FF FF FF FF  			.DB	$FF,$FF,$FF,$FF,$FF,$FF,$FF,$FF,$FF,$FF,$FF,$FF,$FF,$FF,$FF,$FF,$FF
+       00:FED3: FF FF FF FF 
+       00:FED7: FF FF FF FF 
+       00:FEDB: FF FF FF FF 
+       00:FEDF: FF 
+   761                        ;
+   762                        ;Reset UART Data is listed here. The sequence and commands do not require changes for any reason.
+   763                        ; These are maintained in ROM only. A total of 32 bytes is available for hard configuration data.
+   764                        ;These are the register offsets and Reset data for the UART
+   765                        UART_RDATA	;UART Reset Data for Received Break (ExtraPutty Break)
+   766 00:FEE0: 01           			.DB	%00000001	;Enable Receiver
+   767                        UART_RDATA1	;Smaller list for entry level Reset (RESET_2691)
+   768 00:FEE1: 40           			.DB	%01000000	;Reset All Errors
+   769 00:FEE2: 30           			.DB	%00110000	;Reset Transmitter
+   770 00:FEE3: 20           			.DB	%00100000	;Reset Receiver
+   771 00:FEE4: 50           			.DB	%01010000	;Reset Break Change Interrupt
+   772                        UART_RDATAE	;End of UART Reset Data 
+   773                        ;
+   774                        INIT_OFFSET	;Start of UART Initialization Register Offsets
+   775 00:FEE5: 02           			.DB	$02	;Command Register
+   776 00:FEE6: 02           			.DB	$02	;Command Register
+   777 00:FEE7: 02           			.DB	$02	;Command Register
+   778 00:FEE8: 05           			.DB	$05	;Interrupt Mask Register
+   779 00:FEE9: 04           			.DB	$04	;Aux Command Register
+   780 00:FEEA: 06           			.DB	$06	;Counter Preset Upper
+   781 00:FEEB: 07           			.DB	$07	;Counter Preset Lower
+   782 00:FEEC: 01           			.DB	$01	;Baud Clock Register
+   783 00:FEED: 02           			.DB	$02	;Command Register
+   784 00:FEEE: 02           			.DB	$02	;Command Register
+   785 00:FEEF: 02           			.DB	$02	;Command Register
+   786 00:FEF0: 05           			.DB	$05	;Interrupt Mask Register
+   787 00:FEF1: 04           			.DB	$04	;Aux Command Register
+   788                        INIT_OFFSETE	;End of UART Initialization Register Offsets
+   789                        ;
+   790                        ;Reserved for additional I/O devices
+   791 00:FEF2: FF FF FF FF  			.DB	$FF,$FF,$FF,$FF,$FF,$FF,$FF,$FF,$FF,$FF,$FF,$FF,$FF,$FF
+       00:FEF6: FF FF FF FF 
+       00:FEFA: FF FF FF FF 
+       00:FEFE: FF FF 
+   792                        ;
+   793                        ;END OF BIOS VECTOR DATA AND HARDWARE DEFAULT CONFIGURATION DATA
+   794                        ;******************************************************************************
+   795                        ;START OF TOP PAGE - DO NOT MOVE FROM THIS ADDRESS!! JUMP Table starts here.
+   796                        				.ORG	$FF00	;BIOS JMP Table, Cold Init and Vector handlers
+   797                        ;	- BIOS calls are listed below - total of 32, Reserved calls are for future hardware support
+   798                        ; - "B_" JUMP Tables entries are for BIOS routines, provides isolation between Monitor and BIOS
+   799                        ;
+   800 00:FF00: 4C 94 FF     B_Reserve00		JMP	RESERVE	;Call 00
+   801 00:FF03: 4C 94 FF     B_Reserve01		JMP	RESERVE	;Call 01
+   802 00:FF06: 4C 94 FF     B_Reserve02		JMP	RESERVE	;Call 02
+   803 00:FF09: 4C 94 FF     B_Reserve03		JMP	RESERVE	;Call 03
+   804 00:FF0C: 4C 94 FF     B_Reserve04		JMP	RESERVE	;Call 04
+   805 00:FF0F: 4C 94 FF     B_Reserve05		JMP	RESERVE	;Call 05
+   806 00:FF12: 4C 94 FF     B_Reserve06		JMP	RESERVE	;Call 06
+  Tue Dec  5 2017  6:27                                                                                                    Page 14
+
+
+   807 00:FF15: 4C 94 FF     B_Reserve07		JMP	RESERVE	;Call 07
+   808 00:FF18: 4C 94 FF     B_Reserve08		JMP	RESERVE	;Call 08
+   809 00:FF1B: 4C 94 FF     B_Reserve09		JMP	RESERVE	;Call 09
+   810 00:FF1E: 4C 94 FF     B_Reserve10		JMP	RESERVE	;Call 10
+   811 00:FF21: 4C 94 FF     B_Reserve11		JMP	RESERVE	;Call 11
+   812 00:FF24: 4C 94 FF     B_Reserve12		JMP	RESERVE	;Call 12
+   813 00:FF27: 4C 94 FF     B_Reserve13		JMP	RESERVE	;Call 13
+   814 00:FF2A: 4C 94 FF     B_Reserve14		JMP	RESERVE	;Call 14
+   815 00:FF2D: 4C 94 FF     B_Reserve15		JMP	RESERVE	;Call 15
+   816 00:FF30: 4C 94 FF     B_Reserve16		JMP	RESERVE	;Call 16
+   817 00:FF33: 4C 94 FF     B_Reserve17		JMP	RESERVE	;Call 17
+   818                        ;
+   819 00:FF36: 4C 00 F8     B_CHRIN_NW		JMP	CHRIN_NW		;Call 18
+   820 00:FF39: 4C 06 F8     B_CHRIN				JMP	CHRIN				;Call 19
+   821 00:FF3C: 4C 19 F8     B_CHROUT			JMP	CHROUT			;Call 20
+   822                        ;
+   823 00:FF3F: 4C 30 F8     B_SET_DLY			JMP	SET_DLY			;Call 21
+   824 00:FF42: 4C 37 F8     B_EXE_MSDLY		JMP	EXE_MSDLY		;Call 22
+   825 00:FF45: 4C 43 F8     B_EXE_LGDLY		JMP	EXE_LGDLY		;Call 23
+   826 00:FF48: 4C 58 F8     B_EXE_XLDLY		JMP	EXE_XLDLY		;Call 24
+   827                        ;
+   828 00:FF4B: 4C A5 F9     B_INIT_VEC		JMP	INIT_VEC		;Call 25
+   829 00:FF4E: 4C A1 F9     B_INIT_CFG		JMP	INIT_CFG		;Call 26
+   830 00:FF51: 4C D1 F9     B_INIT_2691		JMP	INIT_2691		;Call 27
+   831 00:FF54: 4C C0 F9     B_RESET_2691	JMP	RESET_2691	;Call 28
+   832                        ;
+   833 00:FF57: 6C 0E 03     B_WRMMNVEC0		JMP	(WRMMNVEC0)	;Call 29
+   834 00:FF5A: 6C 0C 03     B_CLDMNVEC0		JMP	(CLDMNVEC0)	;Call 30
+   835 00:FF5D: 4C 60 FF     B_COLDSTRT		JMP	COLDSTRT		;Call 31
+   836                        ;
+   837 00:FF60: 78           COLDSTRT	SEI	;Disable Interrupts (safety)
+   838 00:FF61: D8           					CLD	;Clear decimal mode (safety)
+   839 00:FF62: A2 00        					LDX	#$00	;Index for length of page
+   840 00:FF64: 74 00        PAGE0_LP	STZ	$00,X	;Zero out Page Zero
+   841 00:FF66: CA           					DEX	;Decrement index
+   842 00:FF67: D0 FB        					BNE	PAGE0_LP	;Loop back till done
+   843 00:FF69: CA           					DEX	;LDX #$FF ;-)
+   844 00:FF6A: 9A           					TXS	;Set Stack Pointer
+   845                        ;
+   846 00:FF6B: 20 9E F9     					JSR	INIT_PG03	;Xfer default Vectors/HW Config to $0300
+   847 00:FF6E: 20 B6 F9     					JSR	INIT_IO	;Init I/O - UART (Console/Timer)
+   848                        ;
+   849                        ; Send BIOS init msg to console	- note: X reg is zero on return from INIT_IO
+   850 00:FF71: BD E0 FF     BMSG_LP		LDA	BIOS_MSG,X	;Get BIOS init msg
+   851 00:FF74: F0 E4        					BEQ	B_CLDMNVEC0	;If zero, msg done, goto cold start monitor
+   852 00:FF76: 20 19 F8     					JSR	CHROUT	;Send to console
+   853 00:FF79: E8           					INX	;Increment Index
+   854 00:FF7A: 80 F5        					BRA	BMSG_LP	;Loop back until done
+   855                        ;
+   856                        IRQ_VECTOR	;This is the ROM start for the BRK/IRQ handler
+   857 00:FF7C: 48           					PHA	;Save A Reg
+   858 00:FF7D: DA           					PHX	;Save X Reg
+   859 00:FF7E: 5A           					PHY	;Save Y Reg
+   860 00:FF7F: BA           					TSX	;Get Stack pointer
+   861 00:FF80: BD 04 01     					LDA	$0100+4,X	;Get Status Register
+   862 00:FF83: 29 10        					AND	#$10	;Mask for BRK bit set
+   863 00:FF85: D0 03        					BNE	DO_BRK	;If set, handle BRK
+   864 00:FF87: 6C 04 03     					JMP	(IRQVEC0)	;Jump to Soft vectored IRQ Handler
+   865 00:FF8A: 6C 02 03     DO_BRK		JMP	(BRKVEC0)	;Jump to Soft vectored BRK Handler
+   866 00:FF8D: 6C 00 03     NMI_ROM		JMP	(NMIVEC0)	;Jump to NMI soft vectored NMI handler routine
+   867                        ;
+   868                        IRQ_EXIT0	;This is the standard return for the IRQ/BRK handler routines
+   869 00:FF90: 7A           					PLY	;Restore Y Reg
+  Tue Dec  5 2017  6:27                                                                                                    Page 15
+
+
+   870 00:FF91: FA           					PLX	;Restore X Reg
+   871 00:FF92: 68           					PLA	;Restore A Reg
+   872 00:FF93: 40           					RTI	;Return from IRQ/BRK routine
+   873 00:FF94: 60           RESERVE		RTS	;Reserve call RTS
+   874                        ;
+   875                        ; This BIOS version does not rely on CPU clock frequency for any timings. Timings are based on the
+   876                        ; SCC2691 UART Timer/Counter which has a fixed frequency of 3.6864MHz and a Jiffy clock set at 10ms.
+   877                        ; NOTE: The SCC2691 UART can run with a CPU clock frequency up to 6MHz! Edit clock rate as needed.
+   878                        ;
+   879                        			.ORG	$FFE0	;Hard code the BIOS message to the top of memory
+   880                        ;BIOS init message - sent before jumping to the monitor coldstart vector
+   881 00:FFE0: 0D 0A        BIOS_MSG	.DB	$0D,$0A
+   882 00:FFE2: 42 49 4F 53  					.DB	"BIOS 2.0"	;Initial Release
+       00:FFE6: 20 32 2E 30 
+   883 00:FFEA: 0D 0A        					.DB	$0D,$0A
+   884 00:FFEC: 57 36 35 43  					.DB	"W65C02 @ 6MHz"	;Assumed CPU clock frequency
+       00:FFF0: 30 32 20 40 
+       00:FFF4: 20 36 4D 48 
+       00:FFF8: 7A 
+   885 00:FFF9: 00           					.DB	$00	;Terminate string
+   886                        ;
+   887                        			.ORG	$FFFA	;65C02 Vectors:
+   888 00:FFFA: 8D FF        					.DW	NMI_ROM	;NMI
+   889 00:FFFC: 60 FF        					.DW	COLDSTRT	;RESET
+   890 00:FFFE: 7C FF        					.DW	IRQ_VECTOR	;IRQ
+   891                        					.END
+
+
+      Lines assembled: 891
+      Errors: 0

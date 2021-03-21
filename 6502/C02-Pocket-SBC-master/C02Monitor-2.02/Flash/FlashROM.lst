@@ -1,0 +1,356 @@
+  Wed Jan 23 2019  8:01                                                                                                    Page 1
+
+
+                                               ***************************************
+                                               **      WDC 65C02 Macro Assembler    **
+                                               **                                   **
+                                               **     Version 3.49.1- Feb  6 2006    **
+                                               ***************************************
+
+     1                        ;***************************************************************************************************
+     2                        ;*                                                                                                 *
+     3                        ;*             Flash Utility for updating the Monitor Code on the C02 Pocket SBC V1.01             *
+     4                        ;*                                                                                                 *
+     5                        ;*               Utility requires the new image is loaded into RAM located at $1000                *
+     6                        ;*                                                                                                 *
+     7                        ;*              This utility defaults to the new Monitor image size of 6KB only                    *
+     8                        ;*              The image is written to EEPROM starting at address $E000                           *
+     9                        ;*                                                                                                 *
+    10                        ;*      NOTE: A system coldstart is performed once the image has been written to EEPROM            *
+    11                        ;*            Utility uses BIOS routines to interact with User - I/O to console routines           *
+    12                        ;*                                                                                                 *
+    13                        ;***************************************************************************************************
+    14                        ;
+    15                                .INCLUDE        C02Header.asm   ;Include the Header for all equates, routines, etc.
+    16                        ;
+    17                        ;***************************************************************************************************
+    18                        ;
+    19                        M_FLASH         ;Monitor Flash Utility start at $0800
+    20                        ;
+    21 00:0800: A9 00                        LDA     #$00            ;Get Flash Utility intro message
+    22 00:0802: 20 9C 08                     JSR     PROMPT          ;Send to console
+    23                        ;
+    24 00:0805: A9 18                        LDA     #$18            ;Get upper value for 6KB ($1800)
+    25 00:0807: 85 CD                        STA     LENH            ;Store in Length high byte
+    26 00:0809: 64 CC                        STZ     LENL            ;Zero Length low byte
+    27                        ;
+    28 00:080B: A9 E0                        LDA     #$E0            ;Get ROM start address high byte
+    29 00:080D: 85 CB                        STA     TGTH            ;Store in Target high byte
+    30 00:080F: 64 CA                        STZ     TGTL            ;Zero Target low byte
+    31                        ;
+    32 00:0811: A9 10                        LDA     #$10            ;Get RAM start address MS location
+    33 00:0813: 85 C9                        STA     SRCH            ;Store in Source high byte
+    34 00:0815: 64 C8                        STZ     SRCL            ;Zero Source low byte
+    35                        ;
+    36 00:0817: A9 01                        LDA     #$01            ;Get Confirm message
+    37 00:0819: 20 9C 08                     JSR     PROMPT          ;Send to console
+    38 00:081C: 20 82 08                     JSR     CONTINUE        ;Prompt User to continue (y/n)?
+    39                        ;
+    40 00:081F: A9 02                        LDA     #$02            ;Get Writing EEPROM message
+    41 00:0821: 20 9C 08                     JSR     PROMPT          ;Send to console
+    42 00:0824: A5 EA        OC_LOOP         LDA     OCNT            ;Check output buffer count
+    43 00:0826: D0 FC                        BNE     OC_LOOP         ;Loop back until buffer sent
+    44                        ;
+    45                        ;Xfer byte write code to RAM for execution
+    46 00:0828: A2 15                        LDX     #BYTE_WRE-BYTE_WRS+1 ;Get length of byte write code
+    47 00:082A: BD B6 08     BYTE_XFER       LDA     BYTE_WRS-1,X    ;Get code
+    48 00:082D: 95 8F                        STA     BURN_BYTE-1,X   ;Write code to RAM
+    49 00:082F: CA                           DEX                     ;Decrement index
+    50 00:0830: D0 F8                        BNE     BYTE_XFER       ;Loop back until done
+    51                        ;
+    52                        ;Wait for 1/2 second for RAM/ROM access to settle
+    53 00:0832: A9 32                        LDA     #$32            ;Set milliseconds to 50(*10 ms)
+    54 00:0834: A2 00                        LDX     #$00            ;Zero out
+    55 00:0836: A0 00                        LDY     #$00            ;Zero out
+    56 00:0838: 20 3F FF                     JSR     B_SET_DLY       ;Set Delay parameters
+    57 00:083B: 20 42 FF                     JSR     B_EXE_MSDLY     ;Call delay for 1/2 second
+  Wed Jan 23 2019  8:01                                                                                                    Page 2
+
+
+    58                        ;
+    59 00:083E: A5 CC        COMPLP          LDA     LENL            ;Get low byte of length
+    60 00:0840: 05 CD                        ORA     LENH            ;OR in High byte of length
+    61 00:0842: F0 15                        BEQ     QUITMV          ;If zero, nothing to compare/write
+    62 00:0844: 20 90 00                     JSR     BURN_BYTE       ;Else Burn a byte to EEPROM
+    63 00:0847: B2 C8                        LDA     (SRCL)          ;Else load source
+    64 00:0849: D2 CA                        CMP     (TGTL)          ;Compare to target
+    65 00:084B: F0 07                        BEQ     CMP_OK          ;If compare is good, continue
+    66                        ;
+    67                        ; Image write failed - just send a message and coldstart SBC
+    68 00:084D: A9 04                        LDA     #$04            ;Get Write failed message
+    69 00:084F: 20 9C 08                     JSR     PROMPT          ;Send to console
+    70 00:0852: 80 0A                        BRA     COLD_START      ;Show for 5 seconds and coldstart
+    71                        ;
+    72 00:0854: 20 6D 08     CMP_OK          JSR     UPD_STL         ;Update pointers
+    73 00:0857: 80 E5                        BRA     COMPLP          ;Loop back until done
+    74                        ;
+    75 00:0859: A9 03        QUITMV          LDA     #$03            ;Get write complet message
+    76 00:085B: 20 9C 08                     JSR     PROMPT          ;Send to console
+    77                        ;
+    78                        ;Wait for 5 seconds before doing a Coldstart of the SBC
+    79 00:085E: A9 01        COLD_START      LDA     #$01            ;Set milliseconds to 1(*10 ms)
+    80 00:0860: A2 01                        LDX     #$01            ;Set 16-bit High multipler
+    81 00:0862: A0 F4                        LDY     #$F4            ;to 500 decimal
+    82 00:0864: 20 3F FF                     JSR     B_SET_DLY       ;Set Delay parameters
+    83 00:0867: 20 45 FF                     JSR     B_EXE_LGDLY     ;Call long delay for 5 seconds
+    84                        ;
+    85 00:086A: 4C 5D FF                     JMP     B_COLDSTRT      ;Coldstart SBC
+    86                        ;
+    87                        ;Routines to update pointers for memory operations. UPD_STL subroutine: Increments Source
+    88                        ; and Target pointers. UPD_TL subroutine: Increments Target pointers only, then drops into
+    89                        ; decrement Length pointer. Used by multiple Memory operation commands.
+    90 00:086D: E6 C8        UPD_STL         INC     SRCL            ;Increment source low byte
+    91 00:086F: D0 02                        BNE     UPD_TL          ;Check for rollover
+    92 00:0871: E6 C9                        INC     SRCH            ;Increment source high byte
+    93 00:0873: E6 CA        UPD_TL          INC     TGTL            ;Increment target low byte
+    94 00:0875: D0 02                        BNE     DECLEN          ;Check for rollover
+    95 00:0877: E6 CB                        INC     TGTH            ;Increment target high byte
+    96                        ;
+    97                        ;DECLEN subroutine: decrement 16-bit variable LENL/LENH
+    98 00:0879: A5 CC        DECLEN          LDA     LENL            ;Get length low byte
+    99 00:087B: D0 02                        BNE     SKP_LENH        ;Test for LENL = zero
+   100 00:087D: C6 CD                        DEC     LENH            ;Else decrement length high byte
+   101 00:087F: C6 CC        SKP_LENH        DEC     LENL            ;Decrement length low byte
+   102 00:0881: 60                           RTS                     ;Return to caller
+   103                        ;
+   104                        ;Continue routine: called by commands to confirm execution, when No is confirmed, return address
+   105                        ;is removed from stack and the exit goes back to the Monitor input loop.
+   106                        ;Short version prompts for (Y/N) only.
+   107 00:0882: A9 05        CONTINUE        LDA     #$05            ;Get msg "cont? (Y/N)" to terminal
+   108 00:0884: 20 9C 08     SH_CONT         JSR     PROMPT          ;Send to terminal
+   109 00:0887: 20 CC 08     TRY_AGN         JSR     RDCHAR          ;Get keystroke from terminal
+   110 00:088A: C9 59                        CMP     #$59            ;"Y" key?
+   111 00:088C: F0 0D                        BEQ     DOCONT          ;if yes, continue/exit
+   112 00:088E: C9 4E                        CMP     #$4E            ;if "N", quit/exit
+   113 00:0890: F0 07                        BEQ     DONTCNT         ;Return if not ESC
+   114 00:0892: A9 07                        LDA     #$07            ;Get Beep code
+   115 00:0894: 20 3C FF                     JSR     B_CHROUT        ;Send to console
+   116 00:0897: 80 EE                        BRA     TRY_AGN         ;Loop back, try again
+   117 00:0899: 68           DONTCNT         PLA                     ;Else remove return address
+   118 00:089A: 68                           PLA                     ;discard it,
+   119 00:089B: 60           DOCONT          RTS                     ;Return
+   120                        ;
+  Wed Jan 23 2019  8:01                                                                                                    Page 3
+
+
+   121                        ;PROMPT routine: Send indexed text string to terminal. Index is contained in A reg.
+   122                        ; String buffer address is stored in variable PROMPTL/PROMPTH. (placing here saves some space).
+   123 00:089C: 0A           PROMPT          ASL     A               ;Multiply by two for msg table index
+   124 00:089D: A8                           TAY                     ;Xfer to index
+   125 00:089E: B9 02 0B                     LDA     MSG_TABLE,Y     ;Get low byte address
+   126 00:08A1: 85 C6                        STA     PROMPTL         ;Store in Buffer pointer
+   127 00:08A3: B9 03 0B                     LDA     MSG_TABLE+1,Y   ;Get high byte address
+   128 00:08A6: 85 C7                        STA     PROMPTH         ;Store in Buffer pointer
+   129                        ;
+   130 00:08A8: B2 C6        PROMPT2         LDA     (PROMPTL)       ;Get string data
+   131 00:08AA: F0 EF                        BEQ     DOCONT          ;If null character, exit (borrowed RTS)
+   132 00:08AC: 20 3C FF                     JSR     B_CHROUT        ;Send character to terminal
+   133 00:08AF: E6 C6                        INC     PROMPTL         ;Increment low byte index
+   134 00:08B1: D0 F5                        BNE     PROMPT2         ;Loop back for next character
+   135 00:08B3: E6 C7                        INC     PROMPTH         ;Increment high byte index
+   136 00:08B5: 80 F1                        BRA     PROMPT2         ;Loop back and continue printing
+   137                        ;
+   138 00:08B7: 78           BYTE_WRS        SEI                     ;Disable interrupts
+   139 00:08B8: B2 C8                        LDA     (SRCL)          ;Get source byte
+   140 00:08BA: 92 CA                        STA     (TGTL)          ;Write to target byte
+   141 00:08BC: B2 CA                        LDA     (TGTL)          ;Read target byte (EEPROM)
+   142 00:08BE: 29 40                        AND     #%01000000      ;Mask off bit 6 - toggle bit
+   143 00:08C0: 85 D4        BYTE_WLP        STA     TEMP3           ;Store in Temp location
+   144 00:08C2: B2 CA                        LDA     (TGTL)          ;Read target byte again (EEPROM)
+   145 00:08C4: 29 40                        AND     #%01000000      ;Mask off bit 6 - toggle bit
+   146 00:08C6: C5 D4                        CMP     TEMP3           ;Compare to last read (toggles if write mode)
+   147 00:08C8: D0 F6                        BNE     BYTE_WLP        ;Branch back if not done
+   148 00:08CA: 58                           CLI                     ;Re-enable interrupts
+   149 00:08CB: 60           BYTE_WRE        RTS                     ;Return to caller
+   150                        ;
+   151                        ;RDCHAR subroutine: Waits for a keystroke to be entered.
+   152                        ; if keystroke is a lower-case alphabetical, convert it to upper-case
+   153 00:08CC: 20 39 FF     RDCHAR          JSR     B_CHRIN         ;Request keystroke input from terminal
+   154 00:08CF: C9 61                        CMP     #$61            ;Check for lower case value range
+   155 00:08D1: 90 02                        BCC     AOK             ;Branch if < $61, control code/upper-case/numeric
+   156 00:08D3: E9 20                        SBC     #$20            ;Subtract $20 to convert to upper case
+   157 00:08D5: 60           AOK             RTS                     ;Character received, return to caller
+   158                        ;
+   159                        ;Messages used
+   160                        ;
+   161 00:08D6: 0D 0A        MSG_00  .DB     $0D,$0A
+   162 00:08D8: 43 30 32 20          .DB     "C02 Flash Utility Version 1.00"
+       00:08DC: 46 6C 61 73 
+       00:08E0: 68 20 55 74 
+       00:08E4: 69 6C 69 74 
+       00:08E8: 79 20 56 65 
+       00:08EC: 72 73 69 6F 
+       00:08F0: 6E 20 31 2E 
+       00:08F4: 30 30 
+   163 00:08F6: 0D 0A                .DB     $0D,$0A
+   164 00:08F8: 54 68 69 73          .DB     "This will update the C02Monitor code image"
+       00:08FC: 20 77 69 6C 
+       00:0900: 6C 20 75 70 
+       00:0904: 64 61 74 65 
+       00:0908: 20 74 68 65 
+       00:090C: 20 43 30 32 
+       00:0910: 4D 6F 6E 69 
+       00:0914: 74 6F 72 20 
+       00:0918: 63 6F 64 65 
+       00:091C: 20 69 6D 61 
+       00:0920: 67 65 
+   165 00:0922: 0D 0A                .DB     $0D,$0A
+   166 00:0924: 4D 61 6B 65          .DB     "Make sure you have loaded the new image to $1000 before continuing"
+  Wed Jan 23 2019  8:01                                                                                                    Page 4
+
+
+       00:0928: 20 73 75 72 
+       00:092C: 65 20 79 6F 
+       00:0930: 75 20 68 61 
+       00:0934: 76 65 20 6C 
+       00:0938: 6F 61 64 65 
+       00:093C: 64 20 74 68 
+       00:0940: 65 20 6E 65 
+       00:0944: 77 20 69 6D 
+       00:0948: 61 67 65 20 
+       00:094C: 74 6F 20 24 
+       00:0950: 31 30 30 30 
+       00:0954: 20 62 65 66 
+       00:0958: 6F 72 65 20 
+       00:095C: 63 6F 6E 74 
+       00:0960: 69 6E 75 69 
+       00:0964: 6E 67 
+   167 00:0966: 0D 0A                .DB     $0D,$0A
+   168 00:0968: 54 68 69 73          .DB     "This utility will overwrite the 6KB Monitor space from $E000 to $F7FF"
+       00:096C: 20 75 74 69 
+       00:0970: 6C 69 74 79 
+       00:0974: 20 77 69 6C 
+       00:0978: 6C 20 6F 76 
+       00:097C: 65 72 77 72 
+       00:0980: 69 74 65 20 
+       00:0984: 74 68 65 20 
+       00:0988: 36 4B 42 20 
+       00:098C: 4D 6F 6E 69 
+       00:0990: 74 6F 72 20 
+       00:0994: 73 70 61 63 
+       00:0998: 65 20 66 72 
+       00:099C: 6F 6D 20 24 
+       00:09A0: 45 30 30 30 
+       00:09A4: 20 74 6F 20 
+       00:09A8: 24 46 37 46 
+       00:09AC: 46 
+   169 00:09AD: 0D 0A                .DB     $0D,$0A
+   170 00:09AF: 00                   .DB     $00
+   171                        ;
+   172 00:09B0: 4D 61 6B 65  MSG_01  .DB     "Make sure you know what you are doing!"
+       00:09B4: 20 73 75 72 
+       00:09B8: 65 20 79 6F 
+       00:09BC: 75 20 6B 6E 
+       00:09C0: 6F 77 20 77 
+       00:09C4: 68 61 74 20 
+       00:09C8: 79 6F 75 20 
+       00:09CC: 61 72 65 20 
+       00:09D0: 64 6F 69 6E 
+       00:09D4: 67 21 
+   173 00:09D6: 0D 0A                .DB     $0D,$0A
+   174 00:09D8: 54 68 65 20          .DB     "The C02 Pocket SBC will Coldstart when completed!"
+       00:09DC: 43 30 32 20 
+       00:09E0: 50 6F 63 6B 
+       00:09E4: 65 74 20 53 
+       00:09E8: 42 43 20 77 
+       00:09EC: 69 6C 6C 20 
+       00:09F0: 43 6F 6C 64 
+       00:09F4: 73 74 61 72 
+       00:09F8: 74 20 77 68 
+       00:09FC: 65 6E 20 63 
+       00:0A00: 6F 6D 70 6C 
+       00:0A04: 65 74 65 64 
+       00:0A08: 21 
+   175 00:0A09: 0D 0A                .DB     $0D,$0A
+  Wed Jan 23 2019  8:01                                                                                                    Page 5
+
+
+   176 00:0A0B: 00                   .DB     $00
+   177                        ;
+   178 00:0A0C: 0D 0A        MSG_02  .DB     $0D,$0A
+   179 00:0A0E: 57 72 69 74          .DB     "Writing image to EEPROM...."
+       00:0A12: 69 6E 67 20 
+       00:0A16: 69 6D 61 67 
+       00:0A1A: 65 20 74 6F 
+       00:0A1E: 20 45 45 50 
+       00:0A22: 52 4F 4D 2E 
+       00:0A26: 2E 2E 2E 
+   180 00:0A29: 00                   .DB     $00
+   181                        ;
+   182 00:0A2A: 0D 0A        MSG_03  .DB     $0D,$0A
+   183 00:0A2C: 49 6D 61 67          .DB     "Image update completed! Will restart SBC in 5 seconds."
+       00:0A30: 65 20 75 70 
+       00:0A34: 64 61 74 65 
+       00:0A38: 20 63 6F 6D 
+       00:0A3C: 70 6C 65 74 
+       00:0A40: 65 64 21 20 
+       00:0A44: 57 69 6C 6C 
+       00:0A48: 20 72 65 73 
+       00:0A4C: 74 61 72 74 
+       00:0A50: 20 53 42 43 
+       00:0A54: 20 69 6E 20 
+       00:0A58: 35 20 73 65 
+       00:0A5C: 63 6F 6E 64 
+       00:0A60: 73 2E 
+   184 00:0A62: 00                   .DB     $00
+   185                        ;
+   186 00:0A63: 0D 0A 0A     MSG_04  .DB     $0D,$0A,$0A
+   187 00:0A66: 45 72 72 6F          .DB     "Error updating Monitor image!"
+       00:0A6A: 72 20 75 70 
+       00:0A6E: 64 61 74 69 
+       00:0A72: 6E 67 20 4D 
+       00:0A76: 6F 6E 69 74 
+       00:0A7A: 6F 72 20 69 
+       00:0A7E: 6D 61 67 65 
+       00:0A82: 21 
+   188 00:0A83: 0D 0A                .DB     $0D,$0A
+   189 00:0A85: 50 6F 73 73          .DB     "Possible Write Protect Jumper or hardware error!"
+       00:0A89: 69 62 6C 65 
+       00:0A8D: 20 57 72 69 
+       00:0A91: 74 65 20 50 
+       00:0A95: 72 6F 74 65 
+       00:0A99: 63 74 20 4A 
+       00:0A9D: 75 6D 70 65 
+       00:0AA1: 72 20 6F 72 
+       00:0AA5: 20 68 61 72 
+       00:0AA9: 64 77 61 72 
+       00:0AAD: 65 20 65 72 
+       00:0AB1: 72 6F 72 21 
+   190 00:0AB5: 0D 0A                .DB     $0D,$0A
+   191 00:0AB7: 54 68 65 20          .DB     "The C02 Pocket SBC will Coldstart now."
+       00:0ABB: 43 30 32 20 
+       00:0ABF: 50 6F 63 6B 
+       00:0AC3: 65 74 20 53 
+       00:0AC7: 42 43 20 77 
+       00:0ACB: 69 6C 6C 20 
+       00:0ACF: 43 6F 6C 64 
+       00:0AD3: 73 74 61 72 
+       00:0AD7: 74 20 6E 6F 
+       00:0ADB: 77 2E 
+   192 00:0ADD: 0D 0A                .DB     $0D,$0A
+  Wed Jan 23 2019  8:01                                                                                                    Page 6
+
+
+   193 00:0ADF: 00                   .DB     $00
+   194                        ;
+   195 00:0AE0: 57 6F 75 6C  MSG_05  .DB     "Would you like to continue? "
+       00:0AE4: 64 20 79 6F 
+       00:0AE8: 75 20 6C 69 
+       00:0AEC: 6B 65 20 74 
+       00:0AF0: 6F 20 63 6F 
+       00:0AF4: 6E 74 69 6E 
+       00:0AF8: 75 65 3F 20 
+   196 00:0AFC: 28 79 2F 6E          .DB     "(y/n)"
+       00:0B00: 29 
+   197 00:0B01: 00                   .DB     $00
+   198                        ;
+   199                        MSG_TABLE       ;Message table: contains message addresses sent via the PROMPT routine
+   200 00:0B02: D6 08 B0 09          .DW     MSG_00, MSG_01, MSG_02, MSG_03, MSG_04, MSG_05
+       00:0B06: 0C 0A 2A 0A 
+       00:0B0A: 63 0A E0 0A 
+   201                        ;
+   202                                .END    ;End of User program
+
+
+      Lines assembled: 513
+      Errors: 0
