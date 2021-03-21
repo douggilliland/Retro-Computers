@@ -1,0 +1,587 @@
+/*
+The functions below form a rather experimental library for use with
+Small C to allow programs to be run under AMSDOS.
+
+ The colour names assigned to the numbers below are my own choice.
+ They do NOT all correspond with the names given in the CPC464 manual.
+*/
+#define BLACK 0
+#define NAVY 1
+#define BLUE 2
+#define BROWN 3
+#define PURPLE 4
+#define RED 6
+#define GREEN 9
+#define RAF 10
+#define MUD 12
+#define GREY 13
+#define ORANGE 15
+#define PINK 16
+#define LEAF 18
+#define SEA 19
+#define SKY 20
+#define LIME 21
+#define YELLOW 24
+#define BUFF 25
+#define WHITE 26
+#asm
+; Define TRUE and FALSE for general use
+TRUE EQU 1
+FALSE EQU 0
+ ;
+;
+ LD SP,0B000H
+; Set up random number seed
+ LD A,R
+ LD (ccRSEED),A
+ LD A,R
+ LD (ccRSEED+1),A
+ CALL main
+ CALL getchar ; Hold till key is pressed
+ JP 0
+ccRSEED: DEFS 2 ;Seed for rand(n) function
+;
+; Original runtime section
+; Based on runtime routines by R.Cain in DDJ no.48
+;
+; Fetch a single byte from (HL) and sign extend into HL
+ccgchar: LD A,(HL)
+; Put A into HL and sign extend through H
+ccsxt: LD L,A
+ RLCA
+ SBC A,A
+ LD H,A
+ RET
+;Fetch a 16 bit integer from (HL) to HL
+ccgint: LD A,(HL)
+ INC HL
+ LD H,(HL)
+ LD L,A
+ RET
+;Move a single byte from HL to (DE)
+ccpchar: LD A,L
+ LD (DE),A
+ RET
+; Move a 16 bit integer in HL to (DE)
+ccpint: LD A,L
+ LD (DE),A
+ INC DE
+ LD A,H
+ LD (DE),A
+ RET
+; Inclusive or HL and DE to HL
+ccor: LD A,L
+ OR E
+ LD L,A
+ LD A,H
+ OR D
+ LD H,A
+ RET
+; Exclusive or HL and DE into HL
+ccxor: LD A,L
+ XOR E
+ LD L,A
+ LD A,H
+ XOR D
+ LD H,A
+ RET
+; And HL and DE into HL
+ccand: LD A,L
+ AND E
+ LD L,A
+ LD A,H
+ AND D
+ LD H,A
+ RET
+; Compare routines. HL tested against DE
+; HL set to 1 if condition true or 0 if false.
+;
+;HL=DE?
+cceq: CALL cccmp
+ RET Z
+ DEC HL
+ RET
+;HL!=DE?
+ccne: CALL cccmp
+ RET NZ
+ DEC HL
+ RET
+;DE>HL? (signed)
+ccgt: EX DE,HL
+ JP cclt
+; DE<=HL? (signed)
+ccle: CALL cccmp
+ RET Z
+ RET C
+ DEC HL
+ RET
+; DE>=HL? (signed)
+ccge: CALL cccmp
+ RET NC
+ DEC HL
+ RET
+; DE<HL? (signed)
+cclt: CALL cccmp
+ RET C
+ DEC HL
+ RET
+; Signed compare of DE and HL
+; Carry set if DE<HL
+; Zero set if equal
+cccmp: LD A,E
+ SUB L
+ LD E,A
+ LD A,D
+ SBC A,H
+ LD HL,1
+ JP M,cccmp1
+ OR E
+ RET
+cccmp1: OR E
+ SCF
+ RET
+; DE>=HL? (unsigned)
+ccuge: CALL ccucmp
+ RET NC
+ DEC HL
+ RET
+; DE<HL? (unsigned)
+ccult: CALL ccucmp
+ RET C
+ DEC HL
+ RET
+; DE>HL? (unsigned)
+ccugt: EX DE,HL
+ JP ccult
+; DE<=HL? (unsigned)
+ccule: CALL ccucmp
+ RET Z
+ RET C
+ DEC HL
+ RET
+; Unsigned compare. C set if DE<HL
+; Z set if DE=HL
+ccucmp: LD A,D
+ CP H
+ JP NZ,ccucmp1
+ LD A,E
+ CP L
+ccucmp1: LD HL,1
+ RET
+; Shift DE right arithmetically by no. in HL and ret. in HL
+ccasr: EX DE,HL
+ccasr1: LD A,H
+ RLA
+ LD A,H
+ RRA
+ LD H,A
+ LD A,L
+ RRA
+ LD L,A
+ DEC E
+ JP NZ,ccasr1
+ RET
+; Shift DE left arithmetically by no. in HL and ret. in HL
+ccasl: EX DE,HL
+ccasl1: ADD HL,HL
+ DEC E
+ JP NZ,ccasl1
+ RET
+; Subtract HL from DE and return in HL
+ccsub: LD A,E
+ SUB L
+ LD L,A
+ LD A,D
+ SBC A,H
+ LD H,A
+ RET
+; Form 2's complement of HL
+ccneg: CALL cccom
+ INC HL
+ RET
+; Form 1's complement of HL
+cccom: LD A,H
+ CPL
+ LD H,A
+ LD A,L
+ CPL
+ LD L,A
+ RET
+; Multiply DE by HL and return in HL (signed multiply)
+ccmult: LD B,H
+ LD C,L
+ LD HL,0
+ccmult1: LD A,C
+ RRCA
+ JP NC,ccmult2
+ ADD HL,DE
+ccmult2: XOR A
+ LD A,B
+ RRA
+ LD B,A
+ LD A,C
+ RRA
+ LD C,A
+ OR B
+ RET Z
+ XOR A
+ LD A,E
+ RLA 
+ LD E,A
+ LD A,D
+ RLA
+ LD D,A
+ OR E
+ RET Z
+ JP ccmult1
+; Divide DE by HL. Return quotient in HL and remainder in DE
+; (signed divide)
+ccdiv: LD B,H
+ LD C,L
+ LD A,D
+ XOR B
+ PUSH AF
+ LD A,D
+ OR A
+ CALL M,ccdeneg
+ LD A,B
+ OR A
+ CALL M,ccbcneg
+ LD A,16
+ PUSH AF
+ EX DE,HL
+ LD DE,0
+ccdiv1: ADD HL,HL
+ CALL ccrdel
+ JP Z,ccdiv2
+ CALL cccbcde
+ JP M,ccdiv2
+ LD A,L
+ OR 1
+ LD L,A
+ LD A,E
+ SUB C
+ LD E,A
+ LD A,D
+ SBC A,B
+ LD D,A
+ccdiv2: POP AF
+ DEC A
+ JP Z,ccdiv3
+ PUSH AF
+ JP ccdiv1
+ccdiv3: POP AF
+ RET P
+ CALL ccdeneg
+ EX DE,HL
+ CALL ccdeneg
+ EX DE,HL
+ RET
+; Negate integer in DE
+ccdeneg: LD A,D
+ CPL
+ LD D,A
+ LD A,E
+ CPL
+ LD E,A
+ INC DE
+ RET
+; Negate integer in BC
+ccbcneg: LD A,B
+ CPL
+ LD B,A
+ LD A,C
+ CPL
+ LD C,A
+ INC BC
+ RET
+; Rotate DE left by 1 bit
+ccrdel: LD A,E
+ RLA
+ LD E,A
+ LD A,D
+ RLA
+ LD D,A
+ OR E
+ RET
+; Compare BC to DE
+cccbcde: LD A,E
+ SUB C
+ LD A,D
+ SBC A,B
+ RET
+;
+;
+; I/P a byte from a port 
+; Function format: getp(n) where n is a port number
+getp: POP DE ;Strip off return address
+ POP BC ;Get port number into BC
+ PUSH BC
+ PUSH DE
+ IN A,(C) ;Get input value into A
+ JP ccsxt ;Sign extend into HL and return
+;
+; O/P byte to port n 
+; Function format: putp('A',n); or putp(value,n);
+putp: POP DE ;Save return address
+ POP BC ; Port no into BC
+ POP HL ;Value for O/P
+ OUT (C),L
+ PUSH HL ;Restore stack
+ PUSH BC
+ PUSH DE
+ RET
+;
+;
+;   From Mike Bernson
+;	USED BY SWITCH TO SEARCH TABLE
+;	CALLING FORMAT FROM COMPILER
+;	DE-POINTER TO TABLE
+;	HL-WHERE TO GO IF VALUE NOT IN TABLE
+;	BC- NUMBER OF ENTRY IN TABLE
+;
+ccswtch:
+	EX (SP),HL
+	EX DE,HL
+ccswch1:
+	LD A,E
+	CP (HL)
+	INC HL
+	JP NZ,ccswch2
+	LD A,D
+	CP (HL)
+	JP NZ,ccswch2
+	INC HL
+	LD E,(HL)
+	INC HL
+	LD D,(HL)
+	EX DE,HL
+	POP BC
+	JP (HL)
+ccswch2:
+	INC HL
+	INC HL
+	INC HL
+	DEC B 
+	JP NZ,ccswch1
+	EX (SP),HL
+	POP BC
+	JP (HL)
+; Elementary I/O
+;
+; getchar() - Wait for key. No echo.
+getchar: 
+ CALL 0BB06H
+ JP ccsxt
+; 
+; cgetchar() - as above but with cursor
+cgetchar: CALL curon
+ CALL 0BB06H
+ PUSH AF
+ CALL curoff
+ POP AF
+ JP ccsxt
+;
+; putchar(c)
+putchar: LD A,L
+; General A to text VDU. Control codes obeyed
+ccatov: JP 0BB5AH
+;
+; Output string to VDU. Supports \n
+puts: LD A,(HL)
+ OR A
+ RET Z
+ CP '\'
+ INC HL
+ JR NZ,ccputs1
+ LD A,(HL)
+ CP 'n'
+ JR NZ,ccputs1
+ LD A,0AH
+ CALL ccatov
+ LD A,0DH
+ INC HL
+ccputs1: CALL ccatov
+ JR puts
+#endasm
+
+gets(ptr)
+char *ptr;
+{
+char ch;
+int ncol;
+ncol=1;
+while(1)
+ {ch=getchar();
+  switch(ch)
+   { case 0x0d: *ptr=0;crlf();return;
+     case '\b': if(ncol==1)break;
+              else{ncol--;ptr--;putchar(ch);break;}
+     default: if(ncol<40){ncol++;*ptr++=ch;putchar(ch);}
+   }
+ }
+}
+
+crlf()
+{putchar(0x0d);putchar(0x0a);}
+
+
+/* rand(n) returns an integer value between 0 and n 
+   If n is 0 the value will lie within +/- 32k
+   Based on suggestions in Hamming's book on
+   Numerical Methods for Scientists and Engineers 
+   A seed is multiplied by a large number causing an overflow.
+*/
+rand(n)
+int n;
+{int *iptr,n1;
+ iptr=ccRSEED;
+ n1=*iptr;
+ n1=n1*2051; /* Multiply by 8N+3 */
+ if(n>=0)n++;else n--;
+ *iptr=n1/2; /* Avoid being trapped with even numbers */
+ if(n==1) return n1;
+ if(n1<0)n1=-n1;
+ return (n1%n);
+}
+#asm
+; Graphical routines
+;
+;
+; Clear screen to ink_no 0: cls()
+cls: JP 0BC14H
+;
+; Clear graphics window: gcls()
+gcls: JP 0BBDBH
+;
+; Clear current text window: tcls()
+tcls: JP 0BB6CH
+;
+; Select a text stream: stream(no)
+stream: LD A,L
+ JP 0BBB4H
+;
+; Set up text window: window(row1,row2,col1,col2)
+window: POP BC
+ POP HL
+ LD H,L
+ POP DE
+ LD L,E
+ POP DE
+ LD A,E
+ POP DE
+ LD D,L
+ LD L,A
+ PUSH HL ;Junk
+ PUSH HL
+ PUSH HL
+ PUSH HL
+ PUSH BC ; Ret address
+ JP 0BB66H
+;
+; Plot a point: plot(x,y)
+plot: POP BC
+ POP HL
+ POP DE
+ PUSH DE
+ PUSH HL
+ PUSH BC
+ JP 0BBEAH
+;
+; Continue a line to a point: go_on(x,y)
+go_on: POP BC
+ POP HL ;y
+ POP DE ;x
+ PUSH DE
+ PUSH HL
+ PUSH BC
+ JP 0BBF6H
+;
+; Set border to single colour: border(colour)
+border: LD B,L ; Assumes single colour
+ LD C,L
+ JP 0BC38H
+;
+; Set ink number to a single colour: ink(ink_no,colour)
+ink: POP DE
+ POP BC
+ POP HL
+ PUSH HL
+ PUSH BC
+ PUSH DE
+ LD A,L
+ LD B,C ; Single colour
+ JP 0BC32H
+;
+; Set ink number to two alternating colours: twink(ink_no,col1,col2)
+twink: POP DE
+ POP BC ;col2
+ POP HL ;col1
+ LD B,L
+ POP HL
+ LD A,L ;ink_no
+ PUSH HL
+ PUSH HL ;junk
+ PUSH BC
+ PUSH DE
+ JP 0BC32H
+;
+; Set mode: mode(mode_no)
+mode: LD A,L
+ JP 0BC0EH
+;
+; Set text paper: paper(ink_no)
+paper: LD A,L
+ JP 0BB96H ;Text paper
+;
+; Set graphics background: gpaper(ink_no)
+gpaper: LD A,L
+ JP 0BBE4H ;Graphics background
+;
+; Choose pen for text and graphics: pen(pen_no)
+pen: PUSH HL
+ LD A,L
+ CALL 0BB90H
+ POP HL
+ LD A,L
+ JP 0BBDEH
+;
+; Cursor on: curon()
+curon: JP 0BB8AH
+;
+; Cursor off: curoff()
+curoff: JP 0BB8DH
+;
+; Locate text cursor: locate(row,col)
+locate: POP BC
+ POP DE
+ POP HL
+ PUSH HL
+ PUSH DE
+ PUSH BC
+ LD H,E
+ JP 0BB75H
+;
+; Set transparent text mode: transp()
+transp: LD A,1
+ JP 0BB9FH
+;
+; Set opaque text mode: opaque()
+opaque: XOR A
+ JP 0BB9FH
+#endasm
+
+/* Join points with a line. Any number of points.
+   join(x1,y1,x2,y2, .....xn,yn,npoints)   npoints=no of pairs of x,y vals
+*/
+join(npoints)
+int npoints;
+{
+int *iptr,nvals;
+iptr=&npoints;
+nvals=2*npoints;
+while(nvals--)iptr++; /* Find 1st argument */
+plot(*iptr--,*iptr--);npoints--;
+while(npoints--)go_on(*iptr--,*iptr--);
+}
+ZZZZZZZZZZZZZZZZZZZZZZZ

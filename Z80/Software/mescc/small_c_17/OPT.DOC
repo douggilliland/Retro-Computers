@@ -1,0 +1,397 @@
+
+
+
+
+
+
+
+          OPT: A Three Pass Optimiser for Small C
+
+
+          Opt is a simple optimiser which improves the execution speed of the 
+          assembler output of the Z80 Small C compiler.  It normally gives a net 
+          reduction in the size of the assembled program.
+
+          To call the optimiser use a command of the form:
+
+              opt filename
+
+          Opt assumes that the file has the extension .ZSM and produces its output 
+          in FILENAME.OPT.  Note that after optimisation FILENAME.ZSM contains the 
+          output of the second optimiser pass, not the original assembly language 
+          code.
+
+          Using the optimiser on a variety of programs such as itself, the Z80 
+          Small C compiler and a number of utilities has been found to give an 
+          improvement in run time of 15-20%.  The resulting programs are also 
+          slightly smaller.
+
+          The following optimisations are applied.  The left-hand column gives the 
+          original code, the optimised code is on the right.
+
+
+          1.1) Negative constant
+
+
+                  LD HL,<number>                  LD HL,0-<number>
+                  CALL ccneg
+
+
+              This avoids a particular stupidity of the Small C compiler, which 
+              loads the absolute value of a negative constant and then negates it 
+              rather than using the assembler to do the negating.  Saves 3 bytes.
+
+
+
+          1.2) Double constant
+
+
+                  LD HL,<number>                  LD HL,2*<number>
+                  ADD HL,HL
+
+
+              A further stupidity of the assembler is that it calculates constant 
+              array offsets at run-time rather than at compile time.  Here we use 
+              the assembler to do the sum for us.  Saves 1 byte.
+
+
+
+
+
+
+
+
+
+
+                                           -  1  -
+
+
+
+
+
+
+
+          1.3) Push and pop around LD HL
+
+
+                  PUSH HL                         EX DE,HL
+                  LD HL,<anything>                LD HL,<anything>
+                  POP DE
+
+
+              The compiler tends to load everything through the HL register pair 
+              and get things into DE as an afterthought.  The above example is 
+              better accomplished by exchanging the DE and HL registers.  The 
+              previous contents of DE are lost in both the above fragments.  Saves 
+              1 byte.
+
+
+
+          1.4) Zero subscript
+
+
+                  EX DE,HL                        LD D,H
+                  LD HL,<0 or 2*0>                LD E,L
+                  ADD HL,DE
+
+
+              The above construct is frequently used to find the address of the 
+              first element of an array.  There is no reason to suppose that the 
+              new contents of DE (the base address of the array) will ever be 
+              used, but I put them there anyway, just in case.  Saves 3 bytes.
+
+
+
+          1.5) One subscript
+
+
+                  EX DE,HL                        LD D,H
+                  LD HL,1                         LD E,L
+                  ADD HL,DE                       INC HL
+
+
+              This construct is used to find the address of the second element of 
+              a character array (with a constant index 1).  It's quicker just to 
+              increment the base address.  Saves 2 bytes.
+
+
+
+          1.6) Two subscript
+
+
+                  EX DE,HL                        LD D,H
+                  LD HL,<2 or 2*1>                LD E,L
+                  ADD HL,DE                       INC HL
+                                                  INC HL
+
+
+              Constant subscripts of 2 are improved by the above substitution.  
+              Saves 1 byte.
+
+
+                                           -  2  -
+
+
+
+
+
+
+
+          1.7) Fetch integer from top of stack
+
+
+                  LD HL,0                         POP HL
+                  ADD HL,SP                       PUSH HL
+                  CALL ccgint
+
+
+              Local variables in Small C are kept on the stack and fetched by 
+              adding an offset to the stack pointer to get an address from which 
+              the value is fetched.  If the required variable is at the top of the 
+              stack it is quicker to pop it off.  Note that this is the fastest 
+              way of fetching an integer, so the most frequently used variable in 
+              a routine should be the last one to be defined.  Saves 5 bytes.
+
+
+
+          1.8) Fetch second top integer from stack
+
+
+                  LD HL,2                         POP BC
+                  ADD HL,SP                       POP HL
+                  CALL ccgint                     PUSH HL
+                                                  PUSH BC
+
+
+              This is similar to 1.7).  The BC register does not seem to be used 
+              for much in the Small C compiler, so it's safe to trample all over 
+              it.  Saves 3 bytes.
+
+
+
+          2.1) Double EX DE,HL
+
+
+                  EX DE,HL                        <nothing>
+                  EX DE,HL
+
+
+              Obvious, isn't it?  Save 2 bytes
+
+
+
+          2.2) DE <- HL followed by EX DE,HL
+
+
+                  LD D,H                          LD D,H
+                  LD E,L                          LD E,L
+                  EX DE,HL
+
+
+              If DE and HL contain the same thing there's no point in swapping 
+              them.  Saves 1 byte.
+
+
+
+
+
+                                           -  3  -
+
+
+
+
+
+
+
+          2.3) DE <- HL followed by LD HL
+
+
+                  LD D,H                          EX DE,HL
+                  LD E,L                          LD HL,<anything>
+                  LD HL,<anything>
+
+
+              Loading DE from HL and then overwriting HL is the same as swapping 
+              DE and HL and overwriting HL.  You still lose what used to be in DE.  
+              Saves 1 byte.
+
+
+
+          2.4) Expand ccpchar
+
+
+                  CALL ccpchar                    LD A,L
+                                                  LD (DE),A
+
+
+              The run-time routine to store a character from HL to the address 
+              pointed to by DE is only two bytes long - shorter than a CALL to it.  
+              Saves 1 byte.
+
+
+
+          2.5) Expand ccgint to DE
+
+
+                  CALL ccgint                     LD E,(HL)
+                  EX DE,HL                        INC HL
+                  LD HL,<anything>                LD D,(HL)
+                                                  LD HL,<anything>
+
+
+              The run-time routine ccgint fetches the integer pointed to by HL and 
+              puts it in HL.  If a call to ccgint if followed by a swap and load 
+              to HL it is equivalent to loading the integer pointed to by HL 
+              straight into DE.  Saves 1 byte.
+
+
+
+          2.6) Expand ccgint
+
+
+                  CALL ccgint                     LD A,(HL)
+                                                  INC HL
+                                                  LD H,(HL)
+                                                  LD L,A
+
+
+              The run-time routine ccgint on its own can be expanded to the above 
+              in-line code.  Uses 1 extra byte.
+
+
+
+
+                                           -  4  -
+
+
+
+
+
+
+
+          2.7) Expand ccpint
+
+
+                  CALL ccpint                     LD A,L
+                                                  LD (DE),A
+                                                  INC DE
+                                                  LD A,H
+                                                  LD (DE),A
+
+
+              The run-time routine ccpint stores the integer in HL at the address 
+              in DE.  This can be expanded to in-line code.  Uses 2 extra bytes.
+
+
+
+          2.8) Expand ccgchar to DE
+
+
+                  CALL ccgchar                    LD A,(HL)
+                  EX DE,HL                        LD E,A
+                  LD HL,<anything>                RLCA
+                                                  SBC A,A
+                                                  LD D,A
+                                                  LD HL,<anything>
+
+
+              The run-time routine ccgchar fetches and sign extends into HL a 
+              character from the address pointed to by HL.  If a call to ccgchar 
+              is follwed by a swap and load to HL it is equivalent to a load 
+              directly to DE.  Uses 1 extra byte.
+
+
+
+          2.9) Expand ccgchar
+
+
+                  CALL ccgchar                    LD A,(HL)
+                                                  LD L,A
+                                                  RLCA
+                                                  SBC A,A
+                                                  LD H,A
+
+
+              The run-time routine ccgchar on its own can be expanded to in-line 
+              code.  Uses 2 extra bytes.
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                           -  5  -
+
+
+
+
+
+
+
+          3.1) LD HL; EX: LD HL  ->  LD DE; LD HL
+
+
+                  LD HL,<thing>                   LD DE,<thing>
+                  EX DE,HL                        LD HL,<thing2>
+                  LD HL,<thing2>
+
+
+              This another case where the compiler loads things into DE through 
+              HL.  It's quicker to load directly into DE, unless <thing> is an 
+              explicit memory address.  Saves 1 byte.
+
+
+
+          3.2) JZ around unconditional jump
+
+
+                  JP Z,<where>                    JP NZ,<else>
+                  JP <else>                where:
+           where:
+
+
+              A conditional jump around an unconditional jump is the same as a 
+              jump to the destination of the unconditional jump, but with the 
+              condition reversed.  (The corresponding case for JNZ does not seem 
+              to occur in Small C output and is not tested for.)  Saves 3 bytes.
+
+
+
+          3.3) Store followed by load
+
+
+                  LD <x>,<y>                      LD <x>,<y>
+                  LD <y>,<x>
+
+
+              After storing <y> in <x> there is no need to load <y> from <x>.  The 
+              number of bytes saved depends on the particular LD instructions.  It 
+              is either one or three.  For accounting purposes the optimiser 
+              program assumes a saving of 2 bytes.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                           -  6  -
+                                                                                 

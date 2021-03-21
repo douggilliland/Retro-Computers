@@ -1,0 +1,451 @@
+/* Formatted I/O for Small-C plus various other I/O functions */
+
+/*
+     The printf,fprintf,sprintf,scanf,fscanf and sscanf function names are
+recognised by the compiler and it gives them an extra argument after the
+others which equals the number of actual arguments that occured in the 
+function call. This allows variable numbers of arguments.
+*/
+
+#asm
+ccnbuff: DEFS 10 ;Small I/P buffer for getdec and gethex
+#endasm
+
+/*
+getdec()        Inputs a decimal number. Uses ccnbuff as I/P buffer
+putdec(n)       Outputs a decimal number
+gethex()        Inputs a hex number. Uses ccnbuff as I/P buffer
+putbyte(ch)     Outputs an 8 bit number as 2 hex digits
+puthex(n)       Outputs a 16 bit number as 4 hex digits
+atoi(ptr)	Returns an integer pointed to by ptr
+hextoi(ptr)	Returns integer value of hex number pointed to by ptr
+printf(format,args...) %d,%x,%s,%c supported with optional fields
+sprintf(pointer,format,args...)		.. ditto ..
+fprintf(chan,format,args...)		.. ditto ..
+scanf(format,&args..) only %d and %x supported
+sscanf(pointer,format,&args...)  .. .. ..
+fscanf(chan,format,&args...)     .. .. ..
+fputs(pointer,chan) send string to file 
+sputs(source_pointer,dest_pointer) move string to new destination
+fputdec(number,chan)	send dec no. to file
+fputhex(number,chan)    send 4 digit hex no to file
+fgets(pointer,chan)     get string from file to buffer until 0,EOF or CR
+			Sets EOF flag used by eof() if EOF is encountered.
+*/
+
+/*
+I/P a signed decimal number
+*/
+getdec()
+{
+char *ptr;
+ptr=ccnbuff;
+putchar('?'); /* Prompt */
+gets(ptr);
+return atoi(ptr);
+}
+/*
+Get char. from buffer, check if numeric and return value or -1 
+*/
+ccnum(ptr)
+char *ptr;
+{char c;
+c=*ptr&127; /* Mask off top bit */
+if((c<'0')|(c>'9')) return -1;
+return c-'0';}
+
+/*
+Output a signed decimal number
+*/
+#asm
+putdec: XOR A
+ccpd1: LD (ccspflg),A
+ JP ccpdec
+fputdec: POP BC
+ POP HL
+ POP DE
+ PUSH HL
+ PUSH DE
+ PUSH BC ;Reshuffle args
+ LD A,1
+ JR ccpd1
+;
+; Similar stuff for hex
+puthex: XOR A
+ccphx1: LD (ccspflg),A
+ JP ccphex
+fputhex: POP BC
+ POP HL
+ POP DE
+ PUSH HL
+ PUSH DE
+ PUSH BC
+ LD A,1
+ JR ccphx1
+#endasm
+
+ccpdec(och,n)
+int och,n;
+{if(n<0){n=-n; ccpchr(och,'-');}
+ if((n/10)!=0)
+ ccpdec(och,n/10);
+ ccpchr(och,n%10+'0');
+}
+
+/*
+Input a hex number. Similar to getdec()
+*/
+gethex()
+{int digval,n;
+char *ptr;
+n=0;
+ptr=ccnbuff;
+putchar('$'); /* Prompt */
+gets(ptr);
+return hextoi(ptr);}
+
+/*
+Get char. from buffer. Check if hex. Return value or -1 
+*/
+cchex(ptr)
+char *ptr;
+{char c;
+c=*ptr&127;
+if((c>='0')&(c<='9')) return c-'0';
+if((c>='A')&(c<='F')) return c-55;
+if((c>='a')&(c<='f')) return c-87;
+return -1;}
+
+/*
+Output a byte in hex
+*/
+#asm
+putbyte: XOR A
+ LD (ccspflg),A
+ JP ccpbyte
+#endasm
+
+ccpbyte(och,byte)
+int och;
+char byte;
+{ char temp;
+  temp=(byte>>4)&15;
+  ccptnib(och,temp);
+  temp=byte&15;
+  ccptnib(och,temp);}
+
+/*
+Output nibble
+*/
+ccptnib(och,ch)
+int och;
+char ch;
+{ if(ch<10)ccpchr(och,ch+48);
+  else ccpchr(och,ch+55);}
+
+/*
+Output a 16 bit hex number
+*/
+ccphex(och,ptr)
+int och;
+char *ptr;
+{ char temp;
+  temp=ptr>>8;
+  ccpbyte(och,temp);
+  temp=ptr;
+  ccpbyte(och,temp);}
+
+/*
+Get a signed integer from a string in memory
+*/
+atoi(ptr)
+char *ptr;
+{int digval,sign,n;
+n=0;
+sign=1;
+while(*ptr==' ')ptr++;
+if(*ptr=='-'){sign=-1;ptr++;}
+while(*ptr)
+{digval=ccnum(ptr++);
+ if(digval==-1)break;
+ n=digval+n*10;}
+return n*sign;}
+
+/*
+Get hex value from string in memory
+*/
+hextoi(ptr)
+char *ptr;
+{int digval,n;
+ n=0;
+ while(*ptr==' ')ptr++;
+ while(*ptr)
+ {digval=cchex(ptr++);
+  if(digval==-1)break;
+  n=digval+n*16;}
+ return n;
+}
+
+/*
+Flag for scanf and printf function family and their supporting functions
+to mark the type of I/O:  Value =  0 for CON:,1 for file, 2 for memory 
+*/
+char ccspflg;
+
+#asm
+scanf: LD A,0
+ LD (ccspflg),A
+ JP ccscan 	
+fscanf: LD A,1
+ LD (ccspflg),A
+ JP ccscan
+sscanf: LD A,2
+ LD (ccspflg),A
+ JP ccscan
+#endasm
+/*
+Core routine for "scanf" function family
+*/ 
+ccscan(nargs)
+int nargs;
+{int *argptr,argno,argin,*iptr,iochan;
+ char *fptr,chvalue,*bptr,*mptr,ibuf[80];
+ argno=nargs;
+ argin=0;
+ argptr=&nargs;
+/* Search stack for actual args */
+ while(argno--)argptr++;
+ if(ccspflg)mptr=*argptr--; /*Extra arg for sscanf & fscanf*/
+ fptr=*argptr--;
+ switch(ccspflg)
+ {case 0:gets(ibuf);bptr=ibuf;break;
+  case 1:iochan=mptr;fgets(ibuf,iochan);bptr=ibuf;break;
+  case 2:bptr=mptr;
+ }
+ while(*fptr)
+	{iptr=*argptr;
+	 while(*fptr!='%')fptr++;fptr++;
+         while(*bptr==' ')bptr++;
+	 if((*bptr==0)|(*bptr==0x0d))break;
+	 switch(chvalue=*fptr++)
+	 {case 'd':
+	  while((ccnum(bptr)==-1)&(*bptr!='-'))
+		{if((*bptr==0x0d)|(*bptr==0))break;bptr++;}
+			*iptr=atoi(bptr);
+			if(*bptr=='-')bptr++;
+			argptr--;
+			argin++;
+			while(ccnum(bptr)!=-1)bptr++;
+			break;
+	  case 'x':
+	  while(cchex(bptr)==-1)
+		{if((*bptr==0x0d)|(*bptr==0))break;bptr++;}
+		if(*bptr=='0'){bptr++; /* Skip 0x leaders */
+		if((*bptr=='x')|(*bptr=='X'))bptr++;else bptr--;}	
+		*iptr=hextoi(bptr);
+			argptr--;
+			argin++;
+			while(cchex(bptr)!=-1)bptr++;
+			break;
+	 }
+     }
+return argin;
+}
+
+#asm
+printf: XOR A
+ LD (ccspflg),A
+ JP ccpf
+fprintf: LD A,1
+ LD (ccspflg),A
+ JP ccpf
+sprintf: LD A,2
+ LD (ccspflg),A
+ JP ccpf 
+#endasm
+
+/*
+Core routine for printf family
+Supports %d,%x,%c,%s with optional fields
+*/
+ccpf(nargs)
+int nargs;
+{int *argptr,ivalue,argno,field,xtrarg;
+ char *fptr,*sptr,chvalue;
+ argno=nargs;
+ argptr=&nargs;
+/* Find actual args */
+ while(argno--)argptr++;
+ xtrarg=0;
+ if(ccspflg==1)xtrarg= *argptr--;/*Extra arg for sprintf & fprintf*/
+ if(ccspflg==2)xtrarg=argptr--;
+ fptr=*argptr--;
+ while(*fptr)
+	{ switch(chvalue=*fptr++)
+	   {	case 92: switch(*fptr)
+			    {	case 'n' : ccpchr(xtrarg,0x0d);ccpchr(xtrarg,0x0a);break;
+				case 't' : ccpchr(xtrarg,'\t');break;
+				case 'f' : ccpchr(xtrarg,'\f');break;
+				case 'b' : ccpchr(xtrarg,'\b');break;
+				case '0' : ccpchr(xtrarg,0);break;
+				case 'r' : ccpchr(xtrarg,'\r');break;
+				default : ccpchr(xtrarg,*fptr);
+			    }fptr++;break;
+		case '%' : field=ccgetfw(&fptr);
+			if(*fptr=='d')
+			{fptr++;ivalue=*argptr--;ccfdec(xtrarg,ivalue,field);break;}
+			if(*fptr=='x')
+			{fptr++;ivalue=*argptr--;form0x(xtrarg,ivalue,field);break;}
+			if(*fptr=='c')
+			{fptr++;chvalue=*argptr--;formch(xtrarg,chvalue,field);break;}
+			if(*fptr=='s')
+			{fptr++;formstg(xtrarg,*argptr--,field);break;}
+		default:ccpchr(xtrarg,chvalue);
+	   }
+	}
+}
+/* Get a field width and update pointer to char after width */
+ccgetfw(ptbuff)
+int *ptbuff;/* Actually a pointer to a char pointer */
+{char *bptr;
+ int fval;
+ bptr=*ptbuff;
+ fval=0;
+ while(ccnum(bptr)!= -1){fval=fval*10+ccnum(bptr++);}
+ *ptbuff=bptr;
+ return fval;
+}
+
+/* Output decimal number in field of specified width*/
+ccfdec(och,n,fwidth)
+int och,n,fwidth;
+{char *ptr,sign;
+int i,n1;
+n1=n;
+if(fwidth<=0){ccpdec(och,n);return;}
+sign=' ';
+if(n<0){n=-n;sign='-';}
+while(fwidth>8){fwidth--;ccpchr(och,' ');}
+ptr=ccnbuff;
+i=fwidth;
+while(fwidth--)*ptr++=' ';
+*ptr-- =0;
+if(n==0){*ptr-- ='0';fwidth++;}
+while((i>=fwidth++)&(n>0)){if(ptr==ccnbuff){ccpdec(och,n1);return;}
+			     *ptr-- =n%10+'0';n=n/10;}
+*ptr=sign;
+ccputs(ccnbuff,och);
+}
+
+/* Output a 4 digit hex number preceded by '0x' */
+form0x(och,n,fwidth)
+int och,n,fwidth;
+{while(fwidth>6){fwidth--;ccpchr(och,' ');}
+ ccputs("0x",och);
+ ccphex(och,n);
+ }
+
+/*Output char in field (no check for control chars)*/
+formch(och,ch,fwidth)
+char ch;
+int och,fwidth;
+{ if(fwidth<=0)fwidth=1;
+  while(--fwidth)ccpchr(och,' ');
+  ccpchr(och,ch);
+}
+
+/*
+Output string in field. Backslash chars will mess up field calculation
+*/
+formstg(och,strptr,fwidth)
+char *strptr;
+int och,fwidth;
+{
+int len;
+char *chptr;
+chptr=strptr;
+len=0;
+while(*chptr++)len++;
+len=fwidth-len;
+if(len<0)len=0;
+while(len--)ccpchr(och,' ');
+ccputs(strptr,och);
+}
+
+/*
+O/P char to I/O depending on value of ccspflg
+och is 16 bit file channel or a pointer to a char pointer
+*/
+ccpchr(och,ch)
+int *och;
+char ch;
+{char *ptr;
+switch (ccspflg)
+{case 0: putchar(ch);return;
+ case 1: return putc(ch,och);
+ case 2: ptr=*och;*ptr= ch;*och= ++ptr;
+}
+}
+/*fputs(pointer,chan) No termination of string in file
+  but expects NULL at end of pointed string*/
+ 
+fputs(ptr,och)
+int och;
+char *ptr;
+{char ch;
+while(ch= *ptr++){if(ch==0x0d){putc(ch,och);ch=0x0a;}
+if(ch==92){ch=*ptr++;
+switch(ch)
+{case 'n': putc(0x0d,och);ch=0x0a;
+ case 't': ch='\t';
+ case 'r': ch='\r';
+ case 'f': ch='\f';
+ case '0': ch=0;
+}}
+putc(ch,och);}
+}
+
+/*
+Similar routine for sending string to memory
+sputs(source_ptr,target_ptr) NULLs on both strings
+*/
+sputs(ptr,tptr)
+char *ptr,*tptr;
+{while(*tptr++ = *ptr++);*tptr=0;
+}
+
+ccputs(ptr,och)
+char *ptr;
+int och;
+{
+ switch(ccspflg)
+ {case 0:puts(ptr);return;
+  case 1:fputs(ptr,och);return;
+  case 2:sputs(ptr,och);return;}
+}
+
+/* 
+   Not very like the UNIX version.
+   fgets(ptr,chan) gets string from file until NULL, EOF or CR 
+   Next byte also read in and assumed to be LF if CR
+   Returns last character in string, (CR,NULL or EOF).
+   Marks EOF flag in FILE2.LIB if EOF encountered.
+*/
+fgets(ptr,och)
+char *ptr;
+int och;
+{char ch;
+if(eof()){*ptr=0;return 0x1a;}
+while(ch=getc(och))
+  {if(ch==0x0d){getc(och);*ptr++ = ch;*ptr++ =0x0a;break;}
+   if(ch==0x1a)break;
+   *ptr++ = ch;  
+  }
+*ptr=0;
+if(ch==0x1a){ptr=ccFENDF;*ptr=1;} /* Mark EOF */
+return ch;
+}
+ler to other CPU's. It's
+   also quite a good introductory low priced text on C in general.
+ 
+"The C Programming 

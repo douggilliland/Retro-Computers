@@ -1,0 +1,234 @@
+#asm
+;
+;              CP/M CONSOLE I/O ROUTINES FOR SMALL-C
+;    These should be included with: '#include CONIO.LIB'
+;    They should be inserted after CRUN.LIB
+;
+;  Functions in CONIO.LIB:
+;
+; cpm(DE_value,C_value)   General BDOS entry
+; getchar()               Get char from console
+; putchar(char)           Send char to console
+; gets(buffer)            Get null terminated string into buffer
+; puts(buffer)            Output string to console
+; crlf()                  Output cr/lf
+; lston()                 Turn on LST:
+; lstoff()                Turn off LST:
+; getkbd()		  Get char from kbd without echo
+;
+;
+;  DEFINITIONS
+;
+CR EQU 0DH
+LF EQU 0AH
+BS EQU 08
+TAB EQU 09
+DEL EQU 7FH
+CZ EQU 1AH
+ESC EQU 1BH
+ccBDOS EQU 5
+;
+;
+;
+; Entry to CP/M routines
+; Function format: cpm(DE value,C value);
+;
+cpm: POP HL ;Save return
+ POP BC
+ POP DE ; Get DE or E value
+ PUSH DE ; Restore stack
+ PUSH BC
+ PUSH HL
+ CALL ccBDOS ; Call CP/M BDOS
+ JP ccsxt ;Sign extend A into HL and return
+;
+; Get a character from the console and return in HL
+; Function format:  getchar()
+;
+getchar: CALL ccVTOA ;GET INPUT CHAR INTO A
+ JP ccsxt ; Sign extend A to HL
+;
+; O/P a character to the console.
+; Function format:  putchar(c)
+;
+putchar: LD A,L ;c into A
+ CALL ccATOV ;O/P to CON: 
+ JP ccsxt
+;
+; Get string into buffer from console. String terminated by null
+;   Function format: gets(buffer)
+;
+gets: EX DE,HL ; Pointer to I/P buffer
+ CALL ccINLN ;Get I/P into buffer
+ EX DE,HL ;Exit with HL pointing to start of buffer
+ RET
+;
+;       O/P null terminated string to CON: 
+;       Function argument points to start.
+;       Function format:  puts(buffer)
+;
+puts: PUSH HL ;Save pointer for return
+ccPUTS1: LD A,(HL) ;O/P loop till null.
+ CP 0
+ JP Z,ccPUTS5
+ CP '\'
+ JP NZ,ccPUTS3
+ INC HL
+ LD A,(HL)
+ CP 'b'
+ JP NZ,ccPUTS2
+ LD A,BS
+ JP ccPUTS3
+ccPUTS2: CP 'n'
+ CALL Z,crlf
+ JP Z,ccPUTS4
+ CP 't'
+ JP NZ,ccPUTS3
+ LD A,TAB
+ccPUTS3: CALL ccATOV
+ccPUTS4: INC HL
+ JP ccPUTS1
+ccPUTS5: POP HL ;String done
+ RET
+;
+; Subroutine to o/p A to console
+; All regs saved
+; 
+ccATOV: PUSH AF
+ PUSH HL
+ PUSH DE
+ PUSH BC
+ LD C,2
+ LD E,A
+ PUSH DE
+ CALL ccBDOS
+ POP DE
+ LD A,(ccLSTFG)
+ CP 1
+ LD C,5
+ CALL Z,ccBDOS ;LST:
+ POP BC
+ POP DE
+ POP HL
+ POP AF
+ RET
+ccLSTFG: DEFB 0 ;Flag to show that LST: O/P is on
+;
+; O/P CRLF - Uses 'ccATOV'
+;
+crlf: PUSH AF
+ LD A,CR
+ CALL ccATOV
+ LD A,LF
+ CALL ccATOV
+ POP AF
+ RET
+;
+;  Functions to turn LST: on or off
+;  Function formats: lston() and lstoff()
+;
+lston: LD A,1 ;Mark flag and return
+ccLSTN1 LD (ccLSTFG),A
+ RET
+lstoff: XOR A
+ JP ccLSTN1
+;
+; Get char from VDU
+; Everything saved except AF
+; ^C gives warm start
+;
+ccVTOA: PUSH HL
+ PUSH DE
+ PUSH BC
+ LD C,1
+ CALL ccBDOS
+ccVTA1: POP BC
+ POP DE
+ POP HL
+ PUSH AF
+ CP 3 ;^C?
+ JP Z,0    ;WARM START WITH ^C
+ POP AF
+ RET
+;
+; Get keyboard char without echo. Not CP/M 1.4 
+;
+getkbd: LD C,6
+ LD E,0FFH
+ CALL ccBDOS
+ JP ccsxt
+;
+; Get input char without echo
+;
+ccCIN: PUSH HL
+ PUSH DE
+ PUSH BC
+ LD HL,(1)
+ LD DE,6
+ ADD HL,DE
+ LD DE,ccCIN1
+ PUSH DE
+ JP (HL)
+ccCIN1: JP ccVTA1
+;
+; Get input line into buffer
+; Enter with DE pointing to start of buffer.
+; Exit with DE pointing to start of line terminated by null.
+; 78 chars. maximum.
+; Uses: 'ccATOV','ccCIN','crlf'
+;
+ccINLN: PUSH HL
+ PUSH DE
+ PUSH BC
+ LD B,0 ; Zero char. counter
+ EX DE,HL   ;Point to I/P buffer
+ccINLN1: CALL ccCIN
+ CP CR
+ JP Z,ccINLN3
+ CP BS ; Handle BS or DEL
+ JP Z,ccINLN2
+ CP DEL
+ JP Z,ccINLN2
+ PUSH AF
+ LD A,4EH ;max allowed
+ CP B ;End of I/P buff?
+ JP Z,ccINLN4
+ POP AF
+ LD (HL),A
+ CALL ccATOV
+ INC HL
+ INC B
+ JP ccINLN1
+ccINLN2: XOR A
+ CP B ;Don't BS past start
+ JP Z,ccINLN1
+ LD A,BS
+ CALL ccATOV
+ DEC HL
+ DEC B
+ JP ccINLN1
+ccINLN3: CALL crlf   ;CR/LF
+ XOR A ;Mark end of input
+ LD (HL),A
+ POP BC ;Recover regs.
+ POP DE 
+ POP HL
+ RET
+ccINLN4: LD A,BS ;Handle overflow
+ CALL ccATOV  ;Del. prev. char.
+ POP AF
+ DEC HL
+ DEC B
+ CALL ccATOV
+ LD (HL),A
+ INC HL
+ INC B
+ JP ccINLN1
+;
+#endasm
+INLN4: LD A,BS ;Handle overflow
+ CALL ccATOV  ;Del. prev. char.
+ POP AF
+ DEC HL
+ DEC B
+ CALL ccATO

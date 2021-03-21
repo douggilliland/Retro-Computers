@@ -1,0 +1,344 @@
+#asm
+; Stand alone Small C library
+;
+TRUE EQU 1
+FALSE EQU 0
+	ORG 100H ;Set to suit requirements
+ccinit:	
+	LD SP,9000H :Set SP as required by system
+	JP main ;Go and do program
+;
+; ****** ESSENTIAL RUN-TIME ROUTINES *******
+;
+; Based on routines by R.Cain in DDJ no.48
+;
+; Fetch a single byte from (HL) and sign extend into HL
+ccgchar: LD A,(HL)
+; Put A into HL and sign extend through H
+ccsxt: LD L,A
+ RLCA
+ SBC A,A
+ LD H,A
+ RET
+;Fetch a 16 bit integer from (HL) to HL
+ccgint: LD A,(HL)
+ INC HL
+ LD H,(HL)
+ LD L,A
+ RET
+;Move a single byte from HL to (DE)
+ccpchar: LD A,L
+ LD (DE),A
+ RET
+; Move a 16 bit integer in HL to (DE)
+ccpint: LD A,L
+ LD (DE),A
+ INC DE
+ LD A,H
+ LD (DE),A
+ RET
+; Inclusive or HL and DE to HL
+ccor: LD A,L
+ OR E
+ LD L,A
+ LD A,H
+ OR D
+ LD H,A
+ RET
+; Exclusive or HL and DE into HL
+ccxor: LD A,L
+ XOR E
+ LD L,A
+ LD A,H
+ XOR D
+ LD H,A
+ RET
+; And HL and DE into HL
+ccand: LD A,L
+ AND E
+ LD L,A
+ LD A,H
+ AND D
+ LD H,A
+ RET
+; Compare routines. HL tested against DE
+; HL set to 1 if condition true or 0 if false.
+;
+;HL=DE?
+cceq: CALL cccmp
+ RET Z
+ DEC HL
+ RET
+;HL!=DE?
+ccne: CALL cccmp
+ RET NZ
+ DEC HL
+ RET
+;DE>HL? (signed)
+ccgt: EX DE,HL
+ JP cclt
+; DE<=HL? (signed)
+ccle: CALL cccmp
+ RET Z
+ RET C
+ DEC HL
+ RET
+; DE>=HL? (signed)
+ccge: CALL cccmp
+ RET NC
+ DEC HL
+ RET
+; DE<HL? (signed)
+cclt: CALL cccmp
+ RET C
+ DEC HL
+ RET
+; Signed compare of DE and HL
+; Carry set if DE<HL
+; Zero set if equal
+cccmp: LD A,E
+ SUB L
+ LD E,A
+ LD A,D
+ SBC A,H
+ LD HL,1
+ JP M,cccmp1
+ OR E
+ RET
+cccmp1: OR E
+ SCF
+ RET
+; DE>=HL? (unsigned)
+ccuge: CALL ccucmp
+ RET NC
+ DEC HL
+ RET
+; DE<HL? (unsigned)
+ccult: CALL ccucmp
+ RET C
+ DEC HL
+ RET
+; DE>HL? (unsigned)
+ccugt: EX DE,HL
+ JP ccult
+; DE<=HL? (unsigned)
+ccule: CALL ccucmp
+ RET Z
+ RET C
+ DEC HL
+ RET
+; Unsigned compare. C set if DE<HL
+; Z set if DE=HL
+ccucmp: LD A,D
+ CP H
+ JP NZ,ccucmp1
+ LD A,E
+ CP L
+ccucmp1: LD HL,1
+ RET
+; Shift DE right arithmetically by no. in HL and ret. in HL
+ccasr: EX DE,HL
+ccasr1: LD A,H
+ RLA
+ LD A,H
+ RRA
+ LD H,A
+ LD A,L
+ RRA
+ LD L,A
+ DEC E
+ JP NZ,ccasr1
+ RET
+; Shift DE left arithmetically by no. in HL and ret. in HL
+ccasl: EX DE,HL
+ccasl1: ADD HL,HL
+ DEC E
+ JP NZ,ccasl1
+ RET
+; Subtract HL from DE and return in HL
+ccsub: LD A,E
+ SUB L
+ LD L,A
+ LD A,D
+ SBC A,H
+ LD H,A
+ RET
+; Form 2's complement of HL
+ccneg: CALL cccom
+ INC HL
+ RET
+; Form 1's complement of HL
+cccom: LD A,H
+ CPL
+ LD H,A
+ LD A,L
+ CPL
+ LD L,A
+ RET
+; Multiply DE by HL and return in HL (signed multiply)
+ccmult: LD B,H
+ LD C,L
+ LD HL,0
+ccmult1: LD A,C
+ RRCA
+ JP NC,ccmult2
+ ADD HL,DE
+ccmult2: XOR A
+ LD A,B
+ RRA
+ LD B,A
+ LD A,C
+ RRA
+ LD C,A
+ OR B
+ RET Z
+ XOR A
+ LD A,E
+ RLA 
+ LD E,A
+ LD A,D
+ RLA
+ LD D,A
+ OR E
+ RET Z
+ JP ccmult1
+; Divide DE by HL. Return quotient in HL and remainder in DE
+; (signed divide)
+ccdiv: LD B,H
+ LD C,L
+ LD A,D
+ XOR B
+ PUSH AF
+ LD A,D
+ OR A
+ CALL M,ccdeneg
+ LD A,B
+ OR A
+ CALL M,ccbcneg
+ LD A,16
+ PUSH AF
+ EX DE,HL
+ LD DE,0
+ccdiv1: ADD HL,HL
+ CALL ccrdel
+ JP Z,ccdiv2
+ CALL cccbcde
+ JP M,ccdiv2
+ LD A,L
+ OR 1
+ LD L,A
+ LD A,E
+ SUB C
+ LD E,A
+ LD A,D
+ SBC A,B
+ LD D,A
+ccdiv2: POP AF
+ DEC A
+ JP Z,ccdiv3
+ PUSH AF
+ JP ccdiv1
+ccdiv3: POP AF
+ RET P
+ CALL ccdeneg
+ EX DE,HL
+ CALL ccdeneg
+ EX DE,HL
+ RET
+; Negate integer in DE
+ccdeneg: LD A,D
+ CPL
+ LD D,A
+ LD A,E
+ CPL
+ LD E,A
+ INC DE
+ RET
+; Negate integer in BC
+ccbcneg: LD A,B
+ CPL
+ LD B,A
+ LD A,C
+ CPL
+ LD C,A
+ INC BC
+ RET
+; Rotate DE left by 1 bit
+ccrdel: LD A,E
+ RLA
+ LD E,A
+ LD A,D
+ RLA
+ LD D,A
+ OR E
+ RET
+; Compare BC to DE
+cccbcde: LD A,E
+ SUB C
+ LD A,D
+ SBC A,B
+ RET
+;
+;********** END OF ESSENTIAL ROUTINES **********
+;
+; I/P a byte from a port  *** NEEDS A Z80 ***
+; Function format: getp(n) where n is a port number
+getp: POP DE ;Strip off return address
+ POP BC ;Get port number into C
+ PUSH BC
+ PUSH DE
+ IN A,(C) ;Get input value into A
+ JP ccsxt ;Sign extend into HL and return
+;
+; O/P byte to port n  *** NEEDS A Z80 ***
+; Function format: putp('A',n); or putp(value,n);
+putp: POP DE ;Save return address
+ POP BC ; Port no into C
+ POP HL ;Value for O/P
+ OUT (C),L
+ PUSH HL ;Restore stack
+ PUSH BC
+ PUSH DE
+ RET
+;
+;
+;   From Mike Bernson
+;	USED BY SWITCH TO SEARCH TABLE
+;	CALLING FORMAT FROM COMPILER
+;	DE-POINTER TO TABLE
+;	HL-WHERE TO GO IF VALUE NOT IN TABLE
+;	BC- NUMBER OF ENTRY IN TABLE
+;
+ccswtch:
+	EX (SP),HL
+	EX DE,HL
+ccswch1:
+	LD A,E
+	CP (HL)
+	INC HL
+	JP NZ,ccswch2
+	LD A,D
+	CP (HL)
+	JP NZ,ccswch2
+	INC HL
+	LD E,(HL)
+	INC HL
+	LD D,(HL)
+	EX DE,HL
+	POP BC
+	JP (HL)
+ccswch2:
+	INC HL
+	INC HL
+	INC HL
+	DEC B 
+	JP NZ,ccswch1
+	EX (SP),HL
+	POP BC
+	JP (HL)
+#endasm
+
+	LD A,E
+	CP (HL)
+	INC HL
+	JP NZ,c

@@ -1,0 +1,542 @@
+#asm
+;
+;  *** START OF ROUTINES INVOLVING FILES ***
+;    These routines rely on the presence of CRUN and CONIO libraries
+;
+;
+;  Functions in FILE.LIB :
+;
+;  putc(char,iochan)    Output char to file
+;  getc(iochan)         Get char from file
+;  fopen(filename,mode) Open file for "r" or "w"
+;  fclose(iochan)       Close file
+;  eof()                Check for attempt to read past end of file
+;  exit()               Close write file and exit to BDOS
+;
+ccFCBO EQU 5CH
+ccOUTBF EQU 80H
+;
+;  Put a byte into write buffer and empty to disk when full
+;  Function format: putc(char,iochannel)
+;
+putc: POP BC ;Return address
+ POP DE ;I/O channel
+ POP HL ;O/P byte in L
+ PUSH HL
+ PUSH DE
+ PUSH BC
+ LD A,(ccOFLG) ;File open?
+ CP 1
+ JP NZ,ccFCMSG ;File closed message
+ LD A,(ccCONFG) ;Is O/P to go to CON:?
+ CP 1 ;CON: marked as write file?
+ LD A,L ;Get a byte to A
+ JP NZ,ccWNB ;Send it to file
+ JP ccATOV ;Or to CON: and hence return
+;
+;  Get a byte from a read file.
+;  Function format:  getc(iochannel)
+;
+getc: LD A,(ccINFLG) ;File open?
+ CP 1
+ JP NZ,ccFCMSG ;File closed message
+ CALL ccGNB ;Get byte to A
+ JP ccsxt ;
+;
+;  Open a file for reading or writing
+;  Function format: fopen(filename,mode)  e.g. fopen("FRED.DAT","r")
+;  Returns channel no. 0 if not opened. O/P can be to CON:
+;
+fopen: POP BC ;Return address
+ POP DE ;Point to mode "r" or "w"
+ POP HL ;Point to file name
+ PUSH HL
+ PUSH DE
+ PUSH BC
+ LD A,(DE)
+ AND 5FH ;L/C to U/C
+ CP 'W'
+ JP Z,ccWOPN1 ;Go and open write file or CON:
+ CP 'R' 
+ JP Z,ccROPN1 ;Or open a read file
+ LD DE,ccFMERR ;Otherwise it's an error
+ CALL ccPMESS ;Print message
+ LD HL,0  ;Error indicated by channel no. 0
+ RET
+;
+; Open a write file which may be directed to CON:
+;
+ccWOPN1: LD A,(ccOFLG) ;Check if write channel is already in use
+ CP 0 ;0 if OK
+ JP NZ,ccFLINU ;Go and print error and return
+ LD A,20H ;Skip blanks
+ccWOPN2: CP (HL)
+ JP NZ,ccWOPN3
+ INC HL
+ JP ccWOPN2
+ccWOPN3: PUSH HL ;Save pointer to file name
+ LD DE,ccCONST ;Point to 'CON:' string
+ CALL ccCMPST ;Return Z if matched
+ JP Z,ccWOPN4
+ POP HL ;Try LST:
+ PUSH HL
+ LD DE,ccLSTST
+ CALL ccCMPST
+ JP NZ,ccWOPN5 ;It must be a file
+ LD A,1 ;To put in ccLSTFG
+ccWOPN4: POP DE ;Recover pointer
+ LD (ccLSTFG),A ;0 if CON: 1 if LST:
+ LD A,1 ;Mark file open
+ LD (ccOFLG),A
+ LD (ccCONFG),A ;Mark as CON:
+ JP ccsxt ;back with channel 1 in HL
+;  Set up genuine file
+ccWOPN5: POP HL ;Get pointer back
+ LD DE,ccFCBO ;Point to FCB for write file
+ CALL ccSFCB ;Set up FCB for opening  DE->FCB,HL=Filename
+ PUSH DE
+ LD DE,ccOUTBF
+ CALL ccSDMA ;Set DMA for O/P
+ POP DE
+ CALL ccDELFL ;Delete if needed
+ CALL ccCREFL ;Create file
+ JP Z,ccDIRFL ;Directory full error
+ XOR A ;Set O/P buffer pointer 
+ LD (ccOBP),A
+ INC A
+ LD (ccOFLG),A ;Mark o/p file open
+ JP ccsxt ; And return with Channel 1 in HL
+;
+; Compare two 4 byte strings pointed to by HL and DE
+;  return Z and A=0 if matched
+;
+ccCMPST: LD B,4
+ccCMPS1: LD A,(HL)
+ CALL ccCAPST ;Convert to U/C
+ EX DE,HL
+ CP (HL)
+ EX DE,HL
+ RET NZ ;Match failed
+ INC HL
+ INC DE
+ DEC B
+ JP NZ,ccCMPS1
+ XOR A ;Set Z and zero A
+ RET
+;
+; Open a read file for ccGNB routine
+;  Enter with HL->filename
+;
+ccROPN1: LD A,(ccINFLG) ;Check if i/p channel is in use
+ CP 0 ;0 if OK
+ JP NZ,ccFLINU ;Error message and return
+ LD DE,ccFCBI ;Point to FCB for read file
+ CALL ccSFCB ;Go and set FCB 
+ PUSH DE
+ LD DE,ccINBUF
+ CALL ccSDMA ;Set up DMA for I/P
+ POP DE
+ CALL ccOPNFL ;Return with Z set if not there
+ JP Z,ccNOFIL
+ LD A,1 ;Mark file as open
+ LD (ccINFLG),A
+ XOR A ;Set EOF flag to show that EOF has not yet been reached
+ LD (ccFENDF),A
+ LD A,80H
+ LD (ccIBP),A ;Force initial read when accessed
+ LD HL,2 ;Return with channel no. in HL
+ RET
+;
+; Close a file. Switch off and ccCONFG
+;   Function format: fclose(iochannel)
+;   if iochannel=0, ^Z is not added to
+;   end of write file if it is open.
+;
+fclose: LD A,L ;CHECK CHANNEL NO.
+ CP 2
+ JP Z,ccFCLS3 ;Read file
+ LD A,(ccCONFG) ;Is there one to close?
+ CP 1
+ JP Z,ccFCLS2 ;No. O/P was to CON:
+ XOR A
+ CP L ; Check if CZ is to be omitted iochannel=0
+ JP Z,ccFCLS1
+ LD A,CZ ;EOF to write file
+ CALL ccWNB
+ccFCLS1: LD L,1 ; reset to the write channel no.
+ LD DE,ccOUTBF
+ CALL ccSDMA
+ LD DE,ccFCBO
+ CALL ccDWRT ;Flush write buffer to disk
+ CALL ccCLSFL ;Close write file
+ccFCLS2: XOR A
+ LD (ccOFLG),A ;Mark O/P file closed
+ LD (ccCONFG),A
+ LD (ccLSTFG),A ;LST: off
+ RET
+ccFCLS3: XOR A ;Mark read file closed
+ LD (ccINFLG),A
+ RET
+;
+;  Test for EOF in a read file. 
+;  Function format: eof()  Returns 0 until an attempt is made to
+;   read a sector beyond the end of the file
+;
+eof: LD A,(ccFENDF)
+ JP ccsxt
+;
+;  Exit after closing write files
+;  Function format: exit()
+;
+exit: LD HL,1
+ PUSH HL ;Write channel
+ LD A,(ccOFLG)
+ OR A ;Z if write closed
+ CALL NZ,fclose
+ XOR A ; Reset ccINFLG
+ LD (ccINFLG),A
+ JP 0
+;
+; Set up FCB. Enter with DE->FCB , HL->File name, AF,DE preserved
+;
+ccSFCB: PUSH AF
+ PUSH HL
+ PUSH DE
+ CALL ccCFCB ;Pad out FCB with 20H and set NR and EXT to 0
+ POP DE ;FCB
+ POP HL ;Name
+ LD (ccFNST),HL
+ PUSH DE ;Still save FCB
+ccSFCB1: LD A,(HL) ;Skip blanks
+ CP 20H
+ INC HL
+ JP Z,ccSFCB1
+ LD A,(HL)
+ CP ':' ;Drive given?
+ DEC HL
+ JP NZ,ccSFCB2 ;Use default
+ LD A,(HL)
+ CALL ccCAPST
+ SUB '@'
+ LD (DE),A
+ INC HL
+ INC HL ;Point to name
+ JP ccSFCB3
+ccSFCB2: XOR A ;Use default drive
+ LD (DE),A
+ccSFCB3: INC DE
+ LD B,8
+ccSFCB4: LD A,(HL) ;Move filename to FCB
+ CALL ccCAPST ; -> U/C
+ CP '.'
+ JP Z,ccSFCB5
+ CP 0 ; End?
+ JP Z,ccSFCB7
+ LD (DE),A
+ INC HL
+ INC DE
+ DEC B
+ JP NZ,ccSFCB4 ;Keep looping until '.'
+ccSFCB5: LD A,(HL)
+ CP 0 ;End of string?
+ JP Z,ccSFCB7 ;Exit
+ CP 20H
+ JP Z,ccSFCB7
+ CP '.'
+ INC HL
+ JP NZ,ccSFCB5 ;Keep looping if name not done
+ LD B,3
+ POP DE ;Get FCB start
+ PUSH DE
+ PUSH HL ;Save pointer to type
+ LD HL,9
+ ADD HL,DE
+ EX DE,HL ;Point DE to type in FCB
+ POP HL
+ccSFCB6: LD A,(HL)
+ CALL ccCAPST
+ CP 0
+ JP Z,ccSFCB7
+ LD (DE),A
+ INC HL
+ INC DE
+ DEC B
+ JP NZ,ccSFCB6
+ccSFCB7: POP DE ;Exit. DE->FCB
+ POP AF
+ RET
+;
+; CLEAR OUT FCB WITH BLANKS & 0's IN NR & EX
+;
+ccCFCB: PUSH DE
+ POP HL
+ LD (HL),0 ;Set default drive
+ INC HL
+ LD A,20H
+ LD B,11
+ccCFCB1: LD (HL),A
+ INC HL
+ DEC B
+ JP NZ,ccCFCB1
+ XOR A
+ LD (HL),A ;EX
+ LD HL,20H ;Point to NR
+ ADD HL,DE
+ LD (HL),A
+ RET
+;
+; Set letters to U/C
+;
+ccCAPST: CP 61H ;'a'
+ RET C
+ CP 7BH ;'z'+1
+ RET NC
+ SUB 20H
+ RET
+;
+; Print out file name
+;
+ccPFILE: PUSH HL
+ CALL crlf
+ LD HL,(ccFNST)
+ PUSH HL
+ CALL puts
+ POP HL
+ POP HL
+ RET
+;
+ccDIRFL: CALL ccPFILE ; Print file name
+ LD DE,ccDFLM ;Print 'Directory full' message
+ccDFUL1: CALL ccPMESS
+ LD HL,0 ;Error indicator
+ RET
+;
+ccNOFIL: CALL ccPFILE
+ LD DE,ccNOFLM ;Print 'No such file' message
+ JP ccDFUL1
+;
+ccFCMSG: LD DE,ccFCERR ;Print 'File closed' message
+ CALL ccPMESS
+ LD A,0FFH ;Error code
+ JP ccsxt
+ccFLINU: CALL ccPFILE
+ LD DE,ccFIUM ;Print 'File Channel in use'
+ JP ccDFUL1
+; 
+ccCONST: DEFB 'CON:' ;CON: string for comparison in ccWOPN1
+ccLSTST: DEFB 'LST:' ;LST: string
+;
+; File Messages
+;
+ccNOFLM: DEFB ' No such file'
+ DEFW 0A0DH
+ DEFB '$'
+ccDFLM: DEFB ' Disk/Directory full'
+ DEFW 0A0DH
+ DEFB '$'
+ccFMERR: DEFB ' File Mode Error'
+ DEFW 0A0DH
+ DEFB '$'
+ccFIUM: DEFB ' Read or Write file channel in use'
+ DEFW 0A0DH
+ DEFB '$'
+ccFCERR: DEFW 0A0DH
+ DEFB 'File not open'
+ DEFW 0A0DH
+ DEFB '$' ;
+;
+;  FLAG BYTES
+;
+ccCONFG: DEFB 0 ;Flag to show that CON: is the O/P file
+ccFENDF: DEFB 0 ;Flag to show that EOF hasn't been reached during a read
+ccINFLG: DEFB 0 ;Flag to show that i/p channel is in use
+ccOFLG: DEFB 0  ;O/p channel in use (1 if in use)
+ccFNST: DEFS 2 ;Pointer to file name
+;
+;
+; ASSORTED DISK ROUTINES - MANY BASED ON THOSE IN CPMUG VOL 16.
+;
+; 'ccENTRY' is a general register saver for use with BDOS calls.
+;
+ccENTRY: PUSH HL
+ PUSH DE
+ PUSH BC
+ CALL ccBDOS
+ POP BC
+ POP DE
+ POP HL
+ RET
+;
+; ccDELFL - DELETE FILE. FCB POINTED BY DE
+; HL, DE, BC PRESERVED
+;
+ccDELFL: PUSH BC
+ LD C,19 ;DELETE
+ CALL ccENTRY
+ POP BC ;NO EXIT CONDS
+ RET
+;
+; ccPMESS - PRINTS OUT MESSAGE ->DE  UNTIL $
+; ALL REGS SAVED
+;
+ccPMESS: PUSH AF
+ PUSH BC
+ LD C,9
+ CALL ccENTRY
+ POP BC
+ POP AF
+ RET
+;
+; ccOPNFL  OPEN AN EXISTING FILE WHOSE FCB IS POINTED TO BY DE
+; FILE NAME AND DRIVE IN FCB ALREADY. EXIT WITH Z SET IF NO SUCH FILE.
+; HL, DE, BC PRESERVED
+;
+ccOPNFL: PUSH HL
+ PUSH BC
+ LD HL,12
+ ADD HL,DE
+ LD (HL),0 ;ZERO EXTENT
+ LD HL,32
+ ADD HL,DE
+ LD (HL),0 ;ZERO NR
+ LD C,15 ;OPEN
+ CALL ccENTRY
+ CP 0FFH ;Z IF NONE
+ POP BC
+ POP HL
+ RET
+;
+; ccCLSFL - CLOSE FILE WHOSE FCB IS POINTED TO BY DE
+; HL, DE, AND BC PRESERVED. RETURNS Z SET IF NOT PRESENT
+;
+ccCLSFL: PUSH BC
+ LD C,16 ;CLOSE
+ CALL ccENTRY
+ POP BC
+ CP 0FFH ; Z IF NOT PRESENT
+ RET
+;
+; ccCREFL - CREATE FILE WHOSE FCB IS POINTED TO BY DE
+; HL, DE, BC PRESERVED. Z SET IF NO DIR SPACE
+;
+ccCREFL: PUSH BC
+ LD C,22 ;MAKE FILE
+ CALL ccENTRY
+ CP 0FFH ;Z IF NO SPACE
+ POP BC
+ RET
+;
+; ccSDMA - SET DMA BUFFER TO ADDRESS IN DE
+; HL, DE, BC PRESERVED.
+;
+ccSDMA: PUSH BC
+ LD C,26 ;DMA SET
+ CALL ccENTRY
+ POP BC
+ RET
+;
+; ccDREAD - READ A FILE SECTOR. DE POINTS TO FCB
+; HL, DE, BC PRESERVED
+;
+ccDREAD: PUSH BC
+ LD C,20 ;READ SECTOR
+ CALL ccENTRY
+ CP 0 ;Z SET IF NORMAL
+ POP BC
+ RET
+;
+; ccDWRT - WRITE A FILE SECTOR. DE POINTS TO FCB
+; HL, DE, BC PRESERVED
+;
+ccDWRT: PUSH BC
+ LD C,21 ;WRITE SECTOR
+ CALL ccENTRY
+ CP 0 ;Z SET IF NORMAL
+ POP BC
+ RET
+;
+;
+; WRITE NEXT BYTE TO FILE VIA STANDARD BUFFER AT 80H WITH THE
+; STANDARD FCB.
+;
+ccWNB: PUSH HL
+ PUSH DE
+ PUSH AF
+ LD A,(ccOBP)
+ CP 80H
+ JP NZ,ccWNB0
+ LD DE,ccOUTBF
+ CALL ccSDMA ;SET FOR STANDARD O/P BUFF
+ LD DE,ccFCBO
+ CALL ccDWRT ;WRITE 1 SECTOR
+ JP Z,ccWNB00 ;OK
+ LD DE,ccWERR
+ CALL ccPMESS
+ JP 0H ;WARM START
+ccWERR: CALL ccPFILE
+ DEFB ' Write Error'
+ DEFW 0A0DH
+ DEFB '$'
+ccWNB00: XOR A ;ZERO COUNT IF NEW BUFF
+ccWNB0: LD E,A
+ LD D,0
+ INC A
+ LD (ccOBP),A
+ LD HL,ccOUTBF
+ ADD HL,DE
+ POP AF
+ LD (HL),A
+ POP DE
+ POP HL
+ RET
+;
+ccOBP: DEFS 1 ;O/P BUFFER COUNTER
+;ccOUTBF: DEFS 80H ;Currently set at CP/M default buffer
+;ccFCBO: DEFS 36 ;Currently set at 5CH
+;
+;  GET NEXT BYTE FROM I/P BUFFER ccINBUF AND REFILL WHEN EXHAUSTED
+;
+ccGNB: PUSH DE
+ LD A,(ccFENDF) ;EOF?
+ CP 0
+ JP NZ,ccGNB1
+ LD A,(ccIBP)
+ CP 80H ;Refill needed?
+ JP NZ,ccGNB0
+ PUSH HL
+ PUSH BC
+ LD DE,ccINBUF
+ CALL ccSDMA
+ LD DE,ccFCBI
+ CALL ccDREAD
+ POP BC
+ POP HL
+ JP NZ,ccGNB1 ;Past end of file
+ XOR A
+ccGNB0: LD E,A
+ LD D,0
+ INC A
+ LD (ccIBP),A
+ PUSH HL
+ LD HL,ccINBUF
+ ADD HL,DE
+ LD A,(HL)
+ POP HL
+ POP DE
+ RET
+ccGNB1: LD A,0FFH ;EOF keep sending -1
+ LD (ccFENDF),A
+ POP DE
+ RET
+;
+ccIBP: DEFS 1
+ccINBUF: DEFS 80H ;Input buffer if needed
+ccFCBI: DEFS 36 ;FCB if needed
+; END
+#endasm
+S 36 ;FCB if needed
+; END
+#endasm
+ndasm
+eded
+ccFCBI: DEFS
