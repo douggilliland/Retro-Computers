@@ -1,0 +1,236 @@
+Grant Searle's FPGA multicomputer CP/M version revisited.
+
+Please visit http://searle.hostei.com/grant/index.html for the original work. It is assumed you are familiar with the FPGA multicomputer detailed in those pages and built a working version thereof. 
+
+The project detailed here is an implementation which features:
+
+	- An FPGA implementation which includes MMU with 16 kbyte memory pages, This version supports 4 serial consoles, with console 4 pre-configured for use with an ESP 8266 module. The original "dumb" console was discontinued. A 50 Hz interrupt clock and an SDSC-SDHC card interface. It also includes a software controllable reset, paging the ROM back in. 
+	- A ROM monitor  which includes FORMAT, GETSYS, PUTSYS, Memory debug (DUMP and CHANGE) and provides for using these functions at or from arbitrary memory addresses.
+	- BIOS/BNKBIOS/XIOS for CPM-2, CPM-3, MPM-2, ZSDOS and ZPM3 that use 3 diskdrives A: B: and C: on which any of the available 8MB diskslices (called Volumes) can be mounted. A 2GB SD card can hold upto 253 of these volumes. All BIOS-es use paged memory for either system memory and/or a RAM-disk. All BIOSes have a time and date function
+	- OSes for CP/M 2.2, Dos+ 2.5, CP/M 3.1, MP/M 2.1, ZSDOS/ZCPR2 and ZPM3 from original sources. All OSes come with their original set of transient commands, with patches where applicable. The extra features, like time stamping password protection etc. are not enabled, to keep all volumes accessible from all OS-es. This can be modified at the users discretion.  Grant's Nascom ROM BASIC is  provided as a loadable image to be run from RAM (saving memory blocks in the FPGA)
+	- Tooling for mounting the diskdrives on te fly, ramdisk initialization, reset and startup where needed. Also Y2k compliant time and date functions are included.
+	- All sources are included, building instructions and tools to (re)build the binaries mostly on the target computer itself.
+
+Sources of the materials:
+
+- FPGA design for CP/M, BASIC:	Grant's homebuilt electronics 
+   <http://searle.hostei.com/grant/>
+
+- CP/M 2 & 3, MP/M: 		The Unofficial CP/M Web site, (Tim Olmstead)
+   <http://www.cpm.z80.de/>
+
+- Dos+ and tools:		CB Falconer's homepage:
+<http://web.archive.org/web/20080430103651/http://cbfalconer.home.att.net/index.htm>
+
+- ZSDOS, ZCPR & ZPM3		the Retrocomputing Archive. <http://www.retroarchive.org/>
+
+- Pasmo Z80 cross assembler (for Windows and Linux) <http://pasmo.speccy.org/>
+
+
+STARTUP:
+Switching the system on (pressing reset where necessary) provides the user the prompt "Press [SPACE] to activate console" on consoles 1 and 2. The console used will be the primary console until the next reboot. (MP/M uses no primary consoles). The computer now runs the ROM monitor. Here you can format volumes, read and write system tracks and boot from a volume. Volume numbers are entered as decimal values 1-253. Assigning non-existant volumes should be avoided. In all cases booting from a volume causes the system track from that volume to be read and executed, causing this volume to end up as Drive A: in the CP/M environment. When you type "reset" you enact a cold reset, returning you to the ROM monitor.
+
+
+MONITOR:
+Typing ? shows the command list:
+
+------------------------------------------------------------------------
+  Available Commands:
+
+  :ccxxxxiibbbbbb       Load Intel-Hex file record
+  Rxxxx         Run from address xxxx
+  Sddd          System boot
+  Iddd          Init: Format directory
+  Pddd[,xxxx]   PutSys: write system image[,loadaddress]
+                (No address: re-use last loadaddress)
+  Gddd[,xxxx]   GetSys: load system track
+
+  Dxxxx[,yyyy]  Dump memory from xxxx [,to yyyy]
+                D (no address) shows next block
+  Cxxxx         Change/show memory at xxxx
+                CR advances "," quits
+
+  ddd is a decimal volume number,                                               
+  xxxx, yyyy is a hexadecimal address.                                          
+  Leading zeros may be omitted.                                                 
+  ESC or ^C aborts.                                                             
+------------------------------------------------------------------------
+
+The B (Basic) command is missing. Running "ROM" basic is done by booting from a volume with a Basic image, installed on track 0.
+
+Commands S, P and G, have a similar layout, you need to give a valid Volume number (in decimal) and an optional load address. When no load addess is given the default (E000) is used.
+ - Command S loads an executable image from track 0 to the assigned memory location and starts execution. The image may be the OS (as in CP/M-2 or DOS+) a loader, as in CP/M-3 or MP/M, or a combination, as is the case with BASIC.
+ - Command G perfoms the same service, but stops when the image is loaded and returns to the monitor prompt. This command is useful to examine the image, or prepare it for loading onto a volume. 
+ - Command P works the opposite of command L, it writes the memory locations to track 0 of the chosen volume. Command L and P are often used together. Copy an image from volume x to volume y is Lx Py. Changing the BIOS from an image: Gd, upload the new BIOS (: command) Pd,yyyy. 
+ 
+In more detail:
+the Pddd,xxxx function copies the image from xxxx-FFFF to 8000- then writes xxxx in address BFFE-BFFF. Then 8000-BFFF (16 kByte) is copied on the system track of volume ddd. 
+Pddd by itself skips the first actions and just copies 8000-BFFF onto the system track of volume ddd. When there was no valid start address in the last two bytes this image will not boot correctly. Use a startaddress to be sure.
+
+The L and S commands work in reverse. The system track is copied to 8000-BFFF, the load address is read from the last two bytes (BFFE-BFFF) and the image is then copied to the correct location.
+
+ - Command I formats a volume. More precisely it writes an empty directory onto track 1. It will also write a first R/O directory entry indicating the volume. This aids the user in keeping track of them. "I" only writes on track 1. It does not affect system and data tracks.
+
+Command D and C are debugging commands. 
+ - D dumps memory contents starting at address xxxx and ends at yyyy. It writes lines of 16 bytes, starting at xxx0 and ends including yyyy. When no end address is given, 8 lines are written. A subsequent single D dumps another 8 lines starting at the last used address. D and C command share this feature. D starts where C left off.
+
+ - Command C shows you the contents of a single memory location and gives an option to change it. Entering a new value changes the contents, typing a return just advances to the next location. Entering a comma "," returns you to the monitor. Deleting the current line aborts.
+The D and C command act similar to the D and S commands in DDT and SID.
+
+Typing a ^C or ESC will immediately abort the current entry, as will deleting the whole line.
+
+
+CP/M 2.2:
+This OS is as was provided by Grant Searle. It uses a new BIOS, providing mountable volumes, a Ramdisk and a clock. All Grant's tools work as intended, in particular the original DOWNLOAD.COM.
+The start address for the initial download of "DOWNLOAD.COM" (backdoor startup) from the provided .HEX file has changed to FFFB.
+
+Dos+ 2.5:
+This is an unpatched implementation by  C.B. Falconer's Dos+ version 2.5. Please read the documentation to switch on the optional features.
+
+Because this OS treats console input differently (it checks for user breaks after each character it outputs) the original DOWNLOAD.COM no longer works. It was modified to use direct BIOS I/O to circumvent the above behaviour, but because after every file the command prompt is displayed some characters are still lost. This is circumvented by padding the input file with enough spaces to make up for the lost characters. This version of DOWNLOAD.COM also works under CP/M 2.2 and CP/M 3.
+
+a way to work around this is to just download all the files you want under CP/M 2.2 to the target disk mounted as B: or C:
+
+Dos+ implements a search path which is initialized by the command STARTUP.COM. 
+STARTUP.COM is automatically run when the sytem is first booted. STARTUP.COM can be any .COM command you like, as long as the name does not change. 
+Mounting drives is done with the MOUNT.COM tool.
+
+CP/M 3.1:
+CP/M-3 boots a loader from track 0, which in turn loads CMP3.SYS from the chosen volume. 
+The BIOS saves the CCP after it has been initially loaded from the bootvolume in the low addresses of memory frame 6 (0100-0D80), hence bank 2 starts at 1000h (1000-7FFF). Upon a warm start (^C) the CCP is retrieved from this memory frame and not loaded from disk. 
+Mounting drives is done with the MOUNT.COM tool.
+
+MP/M 2.1:
+MP/M also boots a loader, which in turn loads MPM.sys from the chosen volume. 
+The XIOS also supports mountable diskvolumes, however these can be asigned only during a cold boot. The mounting mechanism is similar to the CPM-2 version, but an easy vector to the mount table is not implemented. Although this is doable, changing volumes in a multi-user environment should be avoided.
+The BIOS supports 4 consoles. Using the GENSYS.COM tool this number can be changed. It is OK to connect less consoles than configured, but this will use system resources (memory and processor time).
+MP/M XIOS is currently a vanilla implementation straight from Digital's documentation. Future plans include adaptation of the (de)blocking routines, currently implemented in the CP/M 2 BIOS, and adding a 128kB (640kB) RAM drive
+
+ZSDOS 1.1 / ZCPR2:
+ZSDOS is a CP/M 2.2 variant, but it requires a modified BIOS. The changes include a modified time and date routine as well as increased bufferspace for the various ZCPR features. Also a "HighMemory" buffer for the time/date driver and timestamper routine is provided. (see sourcecode for details). The included LDTIM.COM routine loads the driver to the correct location.
+
+ZPM3 / ZCCP:
+ZPM3 is CP/M-3 variant, which uses the same BIOS code as CP/M-3. A rudimentary NAMES.NDR file was included to jump-start the "named directory" feature. A TCAP.Z3T for use with a DEC VT-100 terminal is also present. A working TCAP is needed for many of the ZPM3/ZCCP user programs. 
+
+MOUNT.COM
+typing mount // displays the help screen:
+------------------------------------------------
+ Version 3.11 (OS-aware)
+
+ format is:  MOUNT [[X:] nnn]
+
+ MOUNT         shows the mount table
+ MOUNT X:      shows the mount for drive X:
+ MOUNT X: nnn  mounts nnn on X: (A: excluded)
+
+ notes: - User will be warned on remounting the current drive.
+        - Entering leading zeros is not required.
+------------------------------------------------
+
+There is one mount.com binary, which can be used in all CP/M environments. Using it in MP/M will not work, but does no harm either. 
+There are 3 drives available. The volume mounted on drive A: is assigned at boot and cannot be changed. The available volumes (1-254) can be mounted on B: and C: using the mount tool. To maintain some consistency mount works the same under all CP/M versions provided. Changing a volume is simply done by typing the mount command using the new volume number.
+Because MP/M is a multi-user system volumes cannot be re-mounted on the fly. Upon boot the volumes for B: and C: drives are assigned by the user.
+
+Please discontinue using previous versions of MOUNT.COM, as these are not OS-aware and may cause system corruption. Mount without parameters may be safely used, but when the list does not show a reasonable mount table you are using an old version.
+
+RAMDISK
+The CP/M2 and CP/M3 variants support a ramdisk, either 384kB (in s 512k system) or 896 kB (using 1024 kB SRAM). This size is ajusted by the BIOS. The contents, once initialized with RDINIT.COM, persists as long as the board remains powered, with one caviat: MP/M uses this memory too, so booting MP/M overwrites part of the memory used for the ramdisk.
+MP/M does not (yet) support a ramdisk
+
+Technical details:
+
+FPGA configuration:
+The provided .vhd's provide:
+ A modified MMU, which uses 4 16 k segments instead of 16 4k segments;
+ SC-HC compatible SD card interface running at 25 MHz.
+ CPU clock running at 25 MHz
+ 50 Hz interrupt signal with acknowledge defined in the clocks section;
+ output port 39h which pages the ROM back in
+
+The default defines 4 consoles. These are the pin uses:
+PIN_101 -to rxd1
+PIN_103 -to txd1
+PIN_104 -to rts1
+PIN_45  -to cts1
+
+PIN_99  -to rxd2
+PIN_100 -to txd2
+PIN_96 - to rts2
+PIN_47  -to cts2
+
+PIN_57 -to rxd3
+PIN_58 -to txd3
+PIN_59 -to rts3
+PIN_60 -to cts3
+
+PIN_51 -to rxd4
+PIN_52 -to txd4
+PIN_53 -to rts4
+PIN_55 -to cts4
+
+cts is disabled by default. The reason is that then a console is not connected, the cts pin floats to "1" which interferes with the standard "active console detection" This can be prevented by adding pull-down resistors on consoles 1 and 2 (pin 45 and pin 47)
+
+BOOT:
+Booting calls a Pop-and-Run routine. On boot, address FFFE-FFFF holds the vector to this routine. Pop-and-Run will:
+- pop the last 2 items from stack, which will be used as boot volume number and IOBYTE
+or 
+- retrieve the same data from register B' and C'.
+- convert the IOBYTE to system data
+- write the mount table vector to address FFFE (Only CP/M-2 variants)
+- write the backdoor address to FFFC  (Only CP/M-2 and Dos+)
+- relocate the binary ( Only BASIC, CP/M-3 and MP/M loader)
+- jump to the relevant cold boot routine.
+
+BANKED MEMORY:
+The system supports upto 1024 KByte of SRAM in 512 KByte increments
+This SRAM is divided in 16 kByte frames. The system memory uses segments 0-3, in which frames 0-31 (or 0-63 for 1024 kByte systems) can be mapped.
+CP/M 3 uses 2 segments per bank (32 kBytes) and requires only 128 kBytes to run
+This OS will not natively use the extra memory for anything else but bufferspace.
+MP/M 2 uses 3 segments per bank (48 kBytes). It will run in 128 kBytes, but only 1 full 'extra' bank will be available. MP/M uses the extra memory as user TPA. Using more than 512 kByte is pointess, MP/M is limited to 7 extra banks. In CP/M 2 and CP/M 3 variants the extra SRAM (frame 9-31 or 9-63) is used as a ramdrive (M:)
+
+DOWNLOAD.COM
+the format of the file to be uploaded has changed somewhat
+the format used is:
+A:DOWNLOAD TEST.FIL
+ssU1
+:xxxxxxxx..xxxx>cccc
+where the ss are padding spaces (2 in total)
+
+All included packages use this format.
+
+Disk mounting:
+The BIOSes support mountable disk volumes. Volume mounting is achieved by modifying the mount table held in BIOS. 
+
+  in CP/M-2 variants:
+Address FFFE-FFFF holds the vector to the mounttable. The mounttable is a 3 byte structure holding the volume number for drive A:-C:. Volume FF (-1) indicates unmounted. Volume FE (254) is not used as it is reserved for the RAM disk. Volume 0 (first 8M diskspace) is reserved for future use as a FAT partition
+
+  in CP/M-3 variants:Mounting volumes is done by using BDOS call 50, pointing to BIOS function 30. D holds the volume, E the drive. The result is returned in A.
+A=new mount 		: mount succesful
+A=existing mount	: mount not successful
+A=-1 			: drive out of range. 
+when mount is called with D=-1; the existing mounted volume for E is returned.
+BIOS allows all volume numbers 0-254, it is the user's responsibility to avoid non existing ones.
+
+Volume FE (254) and Volume 0:
+Volume 254 is used to indicate the RAM drive and should not be used otherwise. Volume 0 is not used in the release. This means that the first 8MB in the memory card are free to use. The user can decide to write a partition table in this section, to utilize unused parts of the cf card.
+
+Card layout:
+sector  --------------------------------------------------------------
+0       the first 8 Mbytes unused: 	\	Put partition table here
+16384   8MB volume 1			 |	if desired.
+32768   8MB volume 2			 |
+49152   8MB volume 3 			 |
+        =	.			 |
+        =	.			 | 2 Gbyte maximum reserved memory
+1949696 end of 1 GB card, or		 |
+        =	.			 |
+        =	.			 |
+4161536 8MB volume 254 (RAMDISK)	 |
+4177920 8BM left unused (disk -1)	/
+4194304 unused space to be formatted as FAT partition
+------------------------------------------------------------
+
+You can also decide for -say- 126 volumes, using 1Gb with the FAT partition starting at sector 2097152, or just 120 volumes on a 1GB card.
+The volume numver (254) to indicate the RAM disk needs no physical space on the memory card.
+
+Future plans include creation of a FAT disk in the first 8MB, which may be accessed from inside CP/M using a transient tool.
