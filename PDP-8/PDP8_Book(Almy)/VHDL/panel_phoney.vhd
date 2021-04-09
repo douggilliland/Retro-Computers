@@ -51,9 +51,9 @@ entity Panel_Phoney is
 		btnr			: in std_logic;                     -- load AC button
 		btnCpuReset	: in std_logic;
 		reset			: out std_logic;
-		led			: out  STD_LOGIC_VECTOR (15 downto 0);
 		seg			: out  STD_LOGIC_VECTOR (7 downto 0);
-		an				: out  STD_LOGIC_VECTOR (7 downto 0)
+		an				: out  STD_LOGIC_VECTOR (7 downto 0);
+		led			: out  STD_LOGIC_VECTOR (15 downto 0)
 		);
 	end Panel_Phoney;
 

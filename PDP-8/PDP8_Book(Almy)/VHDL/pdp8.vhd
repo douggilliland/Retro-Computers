@@ -32,19 +32,20 @@ use IEEE.STD_LOGIC_1164.ALL;
 entity pdp8 is
 	Port (
 		clk			: in  STD_LOGIC;
-		sw				: in STD_LOGIC_VECTOR(15 downto 0);
-		btnc			: in std_logic;		-- display select button
-		btnu			: in std_logic;		-- step button
-		btnd			: in std_logic;		-- deposit button
-		btnl			: in std_logic;		-- load PC button
-		btnr			: in std_logic;		-- load AC button
+		--sw			: in STD_LOGIC_VECTOR(15 downto 0);
+		runSwitch	: in std_logic;		-- Run switch
 		btnCpuReset	: in std_logic;		-- reset button
+--		btnc			: in std_logic;		-- display select button
+--		btnu			: in std_logic;		-- step button
+--		btnr			: in std_logic;		-- load AC button
+--		btnd			: in std_logic;		-- deposit button
+		btnl			: in std_logic;		-- load PC button
 		-- Outs
-		seg			: out  STD_LOGIC_VECTOR (7 downto 0);
-		an				: out  STD_LOGIC_VECTOR (7 downto 0);
-		led			: out  STD_LOGIC_VECTOR (15 downto 0);
+		runLED		: out  STD_LOGIC;									-- led 15 is Running light
+--		selLEDs		: out  STD_LOGIC_VECTOR (3 downto 0);		-- 3 to 0 is display selection
 		RsRx			: in  STD_LOGIC;
-		RsTx			: out  STD_LOGIC);
+		RsTx			: out  STD_LOGIC
+		);
 end pdp8;
 
 architecture Behavioral of pdp8 is
@@ -98,33 +99,6 @@ architecture Behavioral of pdp8 is
 		an				: OUT std_logic_vector(7 downto 0)
 		);
 	END COMPONENT;
-	
---	COMPONENT Panel_Phoney
---	PORT(
---		clk			: IN std_logic;
---		dispout		: IN std_logic_vector(11 downto 0);
---		linkout		: IN std_logic;
---		halt			: IN std_logic;
---		swreg			: OUT std_logic_vector(11 downto 0);
---		dispsel		: OUT std_logic_vector(1 downto 0);
---		run			: OUT std_logic;
---		loadpc		: OUT std_logic;
---		loadac		: OUT std_logic;
---		step			: OUT std_logic;
---		deposit		: OUT std_logic;
---		sw				: in std_logic_vector(15 downto 0);
---		btnc			: in std_logic;
---		btnu			: in std_logic;
---		btnd			: in std_logic;
---		btnl			: in std_logic;
---		btnr			: in std_logic;
---		btnCpuReset : in std_logic;
---		reset			: out std_logic;
---		led			: OUT std_logic_vector(15 downto 0);
---		seg			: OUT std_logic_vector(7 downto 0);
---		an				: OUT std_logic_vector(7 downto 0)
---	);
---	END COMPONENT;
 
 	COMPONENT Memory
 	PORT(
@@ -203,6 +177,15 @@ signal loadpc		: std_logic;
 signal loadac		: std_logic; -- added
 signal step			: std_logic;
 signal deposit		: std_logic;
+signal led			: std_logic_vector(15 downto 0);
+signal sw			: std_logic_vector(15 downto 0);-- SW 15 is Run/Stop. 
+												 -- SW 12 loads link with load AC button (eventually)
+												 -- SW 11 to SW 0 is Switch Register
+signal btnr			: std_logic := '0';
+signal btnu			: std_logic := '0';
+signal btnc			: std_logic := '0';
+signal btnd			: std_logic := '0';
+
 -- CPU to Panel
 signal dispout		: std_logic_vector(11 downto 0);
 signal linkout		: std_logic;
@@ -236,11 +219,21 @@ signal write_data		: std_logic_vector (11 downto 0);
 signal read_data		: std_logic_vector (11 downto 0);
 signal write_enable	: std_logic;
 signal read_enable	: std_logic; -- added handshake signal to start read cycle
-signal mem_finished	: std_logic; -- added handshake signal 
+signal mem_finished	: std_logic; -- added handshake signal
+signal seg 				: std_logic_vector (7 downto 0); 
+signal an 				: std_logic_vector (7 downto 0); 
 
 -- System reset
 begin
 
+	-- Cut the fron panel connection down to bare minimum
+	-- hardcoded start address
+	runLED <= led(15);
+--	selLEDs <= led(3 downto 0);			-- Select LEDS
+	sw(11 downto 0) <= "000010000000"; 	-- 200 (start address)
+	sw(14 downto 12) <= "000";
+	sw(15) <= runSwitch;
+	
 	Inst_IOT_Distributor: IOT_Distributor PORT MAP(
 		ready_3		=> ready_3,
 		clear_3		=> clear_3,
