@@ -15,8 +15,9 @@
 -- Revision: 
 -- Revision 0.01 - File Created
 -- Additional Comments: 
---
+--		9600 baud UART
 ----------------------------------------------------------------------------------
+
 library IEEE;
 use IEEE.STD_LOGIC_1164.ALL;
 use IEEE.STD_LOGIC_UNSIGNED.ALL;
