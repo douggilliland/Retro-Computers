@@ -15,6 +15,8 @@
 -- Revision: 
 -- Revision 0.01 - File Created
 -- Additional Comments: Build for RETRO-EP4CE15, using EP4CE15 FPGA
+-- Tom Almy's book
+--		https://www.amazon.com/PDP-8-Class-Project-Resoling-Machine-ebook/dp/B07KY5RCJ7/
 --
 ----------------------------------------------------------------------------------
 library IEEE;
@@ -49,6 +51,7 @@ entity pdp8 is
 end pdp8;
 
 architecture Behavioral of pdp8 is
+
 	COMPONENT IOT_Distributor
 	PORT(
 		ready_3		: IN std_logic;
@@ -222,6 +225,10 @@ signal read_enable	: std_logic; -- added handshake signal to start read cycle
 signal mem_finished	: std_logic; -- added handshake signal
 signal seg 				: std_logic_vector (7 downto 0); 
 signal an 				: std_logic_vector (7 downto 0); 
+
+attribute syn_keep: boolean;
+attribute syn_keep of address: signal is true;
+attribute syn_keep of read_data: signal is true;
 
 -- System reset
 begin
