@@ -34,18 +34,18 @@ use IEEE.STD_LOGIC_UNSIGNED.ALL;
 
 entity Panel is
 	PORT(
-		clk : IN std_logic;
-		dispout : IN std_logic_vector(11 downto 0);
-		linkout : IN std_logic;
-		halt : IN std_logic;
-		swreg : OUT std_logic_vector(11 downto 0);
-		dispsel : OUT std_logic_vector(1 downto 0);
-		run : OUT std_logic;
-		loadpc : OUT std_logic;
-		loadac : OUT std_logic;
-		step : OUT std_logic;
-		deposit : OUT std_logic;
-		sw : in std_logic_vector(15 downto 0);   -- SW 15 is Run/Stop. 
+		clk		: IN std_logic;
+		dispout	: IN std_logic_vector(11 downto 0);
+		linkout	: IN std_logic;
+		halt		: IN std_logic;
+		swreg		: OUT std_logic_vector(11 downto 0);
+		dispsel	: OUT std_logic_vector(1 downto 0);
+		run		: OUT std_logic;
+		loadpc	: OUT std_logic;
+		loadac	: OUT std_logic;
+		step		: OUT std_logic;
+		deposit	: OUT std_logic;
+		sw			: in std_logic_vector(15 downto 0);   -- SW 15 is Run/Stop. 
 												 -- SW 12 loads link with load AC button (eventually)
 												 -- SW 11 to SW 0 is Switch Register
 		btnc : in std_logic;                     -- display select button

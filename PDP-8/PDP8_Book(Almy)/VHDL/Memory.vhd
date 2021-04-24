@@ -125,20 +125,20 @@ end process;
 ------------- Begin Cut here for INSTANTIATION Template ----- INST_TAG
 --your_instance_name : coreram
 --  PORT MAP (
---    clka => clk,
---    wea => wea,
---    addra => addr_buf,
---    dina => wdata_buf,
---    douta => rdata_buf
+--    clka 		=> clk,
+--    wea		=> wea,
+--    addra		=> addr_buf,
+--    dina		=> wdata_buf,
+--    douta		=> rdata_buf
 --  );
 
  mySRAM : InternalSRAM
 	PORT MAP
 	(
-		address	=> addr_buf,
 		clock		=> clk,	
-		data		=> wdata_buf,
 		wren		=> wea,
+		address	=> addr_buf,
+		data		=> wdata_buf,
 		q			=> rdata_buf
 	);
   

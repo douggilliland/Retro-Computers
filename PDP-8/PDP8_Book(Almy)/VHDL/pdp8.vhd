@@ -1,6 +1,6 @@
 ----------------------------------------------------------------------------------
--- Company: 
--- Engineer: Tom Almy
+-- Company: Land Boards LLC
+--	Original Author: Tom Almy
 -- 
 -- Create Date:    10:07:29 04/19/2014 
 -- Design Name: 
@@ -14,9 +14,11 @@
 --
 -- Revision: 
 -- Revision 0.01 - File Created
--- Additional Comments: Build for RETRO-EP4CE15, using EP4CE15 FPGA
 -- Tom Almy's book
 --		https://www.amazon.com/PDP-8-Class-Project-Resoling-Machine-ebook/dp/B07KY5RCJ7/
+--
+-- Additional Comments: Build for RETRO-EP4CE15, using EP4CE15 FPGA
+--		http://land-boards.com/blwiki/index.php?title=RETRO-EP4CE15
 --
 ----------------------------------------------------------------------------------
 library IEEE;
@@ -288,7 +290,7 @@ begin
 		an				=> an
 	);
 
-Inst_Memory: Memory PORT MAP(
+	Inst_Memory: Memory PORT MAP(
 		clk				=> clk,
 		reset				=> reset,
 		address			=> address,

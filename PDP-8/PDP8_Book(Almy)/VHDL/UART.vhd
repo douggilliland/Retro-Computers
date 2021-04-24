@@ -33,41 +33,46 @@ use IEEE.STD_LOGIC_ARITH.ALL;
 --use UNISIM.VComponents.all;
 
 entity UART is
-    Port ( clk : in  STD_LOGIC;
-           rx : in  STD_LOGIC;
-           tx : out  STD_LOGIC;
-           clear_3 : in  STD_LOGIC;
-           load_3 : in  STD_LOGIC;
-           dataout_3 : in  STD_LOGIC_VECTOR (7 downto 0);
-           ready_3 : out  STD_LOGIC;
-           clearacc_3 : out  STD_LOGIC;
-           datain_3 : out  STD_LOGIC_VECTOR (7 downto 0) := (others => '0');
-           clear_4 : in  STD_LOGIC;
-           load_4 : in  STD_LOGIC;
-           dataout_4 : in  STD_LOGIC_VECTOR (7 downto 0);
-           ready_4 : out  STD_LOGIC;
-           clearacc_4 : out  STD_LOGIC;
-           datain_4 : out  STD_LOGIC_VECTOR (7 downto 0));
+	Port ( 
+		clk : in  STD_LOGIC;
+		rx : in  STD_LOGIC;
+		tx : out  STD_LOGIC;
+		clear_3 : in  STD_LOGIC;
+		load_3 : in  STD_LOGIC;
+		dataout_3 : in  STD_LOGIC_VECTOR (7 downto 0);
+		ready_3 : out  STD_LOGIC;
+		clearacc_3 : out  STD_LOGIC;
+		datain_3 : out  STD_LOGIC_VECTOR (7 downto 0) := (others => '0');
+		clear_4 : in  STD_LOGIC;
+		load_4 : in  STD_LOGIC;
+		dataout_4 : in  STD_LOGIC_VECTOR (7 downto 0);
+		ready_4 : out  STD_LOGIC;
+		clearacc_4 : out  STD_LOGIC;
+		datain_4 : out  STD_LOGIC_VECTOR (7 downto 0)
+	);
 end UART;
 
+
 architecture Behavioral of UART is
-constant divisor : integer := 100000000/(9600*16);
-signal counter : integer range 0 to divisor-1 := 0;
-signal enable : std_logic;
+
+constant divisor		: integer := 50000000/(9600*16);
+signal counter			: integer range 0 to divisor-1 := 0;
+signal enable			: std_logic;
 -- receiver
-signal rxa, rxb : std_logic := '1';
-signal rxshifter : std_logic_vector (7 downto 0) := (others => '0');
-signal rx_ready_flag : std_logic := '0';
-signal rxcomplete : std_logic;
-signal rxcounter : std_logic_vector (7 downto 0) := (others => '0');
-signal rxshift : std_logic;
+signal rxa, rxb		: std_logic := '1';
+signal rxshifter		: std_logic_vector (7 downto 0) := (others => '0');
+signal rx_ready_flag	: std_logic := '0';
+signal rxcomplete 	: std_logic;
+signal rxcounter		: std_logic_vector (7 downto 0) := (others => '0');
+signal rxshift			: std_logic;
 -- transmitter
-signal txshifter : std_logic_vector (10 downto 0) := (others => '1');
+signal txshifter		: std_logic_vector (10 downto 0) := (others => '1');
 signal tx_ready_flag : std_logic := '0';
-signal txcomplete : std_logic;
-signal txcounter : std_logic_vector (7 downto 0) := (others => '0');
-signal txshift : std_logic;
-signal txstart : std_logic := '0';
+signal txcomplete		: std_logic;
+signal txcounter		: std_logic_vector (7 downto 0) := (others => '0');
+signal txshift			: std_logic;
+signal txstart			: std_logic := '0';
+
 begin
 
 process (clk) begin -- generate the slow "clock"
@@ -135,7 +140,7 @@ process (clk, enable) begin -- state machine for receiver
 end process;
 rxshift <= '1' when rxcounter(3 downto 0) = "1000" and enable = '1' else '0';
 rxcomplete <= '1' when enable = '1' and rxcounter = 16*9 + 7 -- just shy of shifting the stop bit
-			  else '0';
+	else '0';
 		
 -- unit 4 (TX, printer and PTP)
 clearacc_4 <= '0';
@@ -185,10 +190,10 @@ process (clk, enable) begin -- state machine for transmitter
 	    end if;
 	end if;
 end process;
-txshift <= '1' when txcounter(3 downto 0) = "0001" and enable = '1' else '0';
-txcomplete <= '1' when txcounter = 161 and enable = '1' else '0'; -- right on last shift
-
-
+txshift <= '1' when txcounter(3 downto 0) = "0001" and enable = '1'
+	else '0';
+txcomplete <= '1' when txcounter = 161 and enable = '1'
+	else '0'; -- right on last shift
 
 end Behavioral;
 

@@ -17,114 +17,109 @@
 -- Additional Comments: 
 --
 ----------------------------------------------------------------------------------
+
 library IEEE;
 use IEEE.STD_LOGIC_1164.ALL;
 use IEEE.STD_LOGIC_ARITH.ALL;
 use IEEE.STD_LOGIC_UNSIGNED.ALL;
 
-
 -- Uncomment the following library declaration if using
 -- arithmetic functions with Signed or Unsigned values
 --use IEEE.NUMERIC_STD.ALL;
 
--- Uncomment the following library declaration if instantiating
--- any Xilinx primitives in this code.
---library UNISIM;
---use UNISIM.VComponents.all;
-
 entity CPU is
-    Port ( clk : in  STD_LOGIC;
-			  reset : in STD_LOGIC;
-           address : out  STD_LOGIC_VECTOR (11 downto 0);
-           write_data : out  STD_LOGIC_VECTOR (11 downto 0);
-           read_data : in  STD_LOGIC_VECTOR (11 downto 0);
+    Port ( clk				: in  STD_LOGIC;
+			  reset			: in STD_LOGIC;
+           address		: out  STD_LOGIC_VECTOR (11 downto 0);
+           write_data	: out  STD_LOGIC_VECTOR (11 downto 0);
+           read_data		: in  STD_LOGIC_VECTOR (11 downto 0);
            write_enable : out  STD_LOGIC;
-           read_enable : out  STD_LOGIC;
+           read_enable	: out  STD_LOGIC;
            mem_finished : in  STD_LOGIC;
-           swreg : in  STD_LOGIC_VECTOR (11 downto 0);
-           dispsel : in  STD_LOGIC_VECTOR (1 downto 0);
-           run : in  STD_LOGIC;
-           loadpc : in  STD_LOGIC;
-			  loadac : in std_logic;
-           step : in  STD_LOGIC;
-           deposit : in  STD_LOGIC;
-           dispout : out  STD_LOGIC_VECTOR (11 downto 0);
-           linkout : out  STD_LOGIC;
-           halt : out  STD_LOGIC;
-           bit1_cp2 : out  STD_LOGIC;
-           bit2_cp3 : out  STD_LOGIC;
-           io_address : out  STD_LOGIC_VECTOR (2 downto 0);
-           dataout : out  STD_LOGIC_VECTOR (7 downto 0);
-           skip_flag : in  STD_LOGIC;
-           clearacc : in  STD_LOGIC;
-           datain : in  STD_LOGIC_VECTOR (7 downto 0));
+           swreg			: in  STD_LOGIC_VECTOR (11 downto 0);
+           dispsel		: in  STD_LOGIC_VECTOR (1 downto 0);
+           run				: in  STD_LOGIC;
+           loadpc			: in  STD_LOGIC;
+			  loadac			: in std_logic;
+           step			: in  STD_LOGIC;
+           deposit		: in  STD_LOGIC;
+           dispout		: out  STD_LOGIC_VECTOR (11 downto 0);
+           linkout		: out  STD_LOGIC;
+           halt			: out  STD_LOGIC;
+           bit1_cp2		: out  STD_LOGIC;
+           bit2_cp3		: out  STD_LOGIC;
+           io_address	: out  STD_LOGIC_VECTOR (2 downto 0);
+           dataout		: out  STD_LOGIC_VECTOR (7 downto 0);
+           skip_flag		: in  STD_LOGIC;
+           clearacc		: in  STD_LOGIC;
+           datain			: in  STD_LOGIC_VECTOR (7 downto 0));
 end CPU;
 
 architecture Behavioral of CPU is
 
 	COMPONENT CPU_StateMachine
 	PORT(
-		clk : IN std_logic;
-		reset : IN std_logic;
-		do_skip : IN std_logic;
-		skip_flag : IN std_logic;
-		clearacc : IN std_logic;
-		mem_finished : IN std_logic;
-		run : IN std_logic;
-		loadpc : IN std_logic;
-		loadac : IN std_logic;
-		deposit : IN std_logic;
-		step : IN std_logic;
-		i_reg : IN std_logic_vector(11 downto 0);
-		swchange : IN std_logic;
-		autoincrement : IN std_logic;
-		memallones : IN std_logic; 
-		difbit : IN std_logic;
-		halt : OUT std_logic;
-		bit1_cp2 : OUT std_logic;
-		bit2_cp3 : OUT std_logic;
-		read_enable : OUT std_logic;
-		write_enable : OUT std_logic;
-		en_load_ac_and : OUT std_logic;
-		en_load_ac_panel : OUT std_logic;
-		en_load_ac_or_io : OUT std_logic;
-		en_load_ac_mq : OUT std_logic;
-		en_load_ac_or_mq : OUT std_logic;
-		en_clear_ac : OUT std_logic;
-		en_load_opr1 : OUT std_logic;
-		en_load_ac_add : OUT std_logic;
-		en_load_pc_panel : OUT std_logic;
-		en_load_pc_ea : OUT std_logic;
-		en_inc_pc : OUT std_logic;
-		en_load_i : OUT std_logic;
-		en_load_ea_mem : OUT std_logic;
+		clk				: IN std_logic;
+		reset				: IN std_logic;
+		do_skip			: IN std_logic;
+		skip_flag		: IN std_logic;
+		clearacc			: IN std_logic;
+		mem_finished	: IN std_logic;
+		run				: IN std_logic;
+		loadpc			: IN std_logic;
+		loadac			: IN std_logic;
+		deposit			: IN std_logic;
+		step				: IN std_logic;
+		i_reg				: IN std_logic_vector(11 downto 0);
+		swchange			: IN std_logic;
+		autoincrement	: IN std_logic;
+		memallones		: IN std_logic; 
+		difbit			: IN std_logic;
+		halt				: OUT std_logic;
+		bit1_cp2			: OUT std_logic;
+		bit2_cp3			: OUT std_logic;
+		read_enable			: OUT std_logic;
+		write_enable		: OUT std_logic;
+		en_load_ac_and		: OUT std_logic;
+		en_load_ac_panel 	: OUT std_logic;
+		en_load_ac_or_io	: OUT std_logic;
+		en_load_ac_mq		: OUT std_logic;
+		en_load_ac_or_mq	: OUT std_logic;
+		en_clear_ac			: OUT std_logic;
+		en_load_opr1		: OUT std_logic;
+		en_load_ac_add		: OUT std_logic;
+		en_load_pc_panel	: OUT std_logic;
+		en_load_pc_ea		: OUT std_logic;
+		en_inc_pc			: OUT std_logic;
+		en_load_i			: OUT std_logic;
+		en_load_ea_mem		: OUT std_logic;
 		en_load_ea_memp1 : OUT std_logic;
-		en_load_ea : OUT std_logic;
-		en_addr_ea : OUT std_logic;
-		en_addr_pc : OUT std_logic;
-		en_addr_sw : OUT std_logic;
-		en_data_ac : OUT std_logic;
-		en_data_pcp1 : OUT std_logic;
-		en_data_sw : OUT std_logic;
-		en_load_mq_ac : OUT std_logic;
-		en_load_ac_or_swreg : OUT std_logic;
-		en_data_memp1 : OUT std_logic;
-		en_do_multiply : OUT std_logic;
-		en_shift_left : OUT std_logic;
-		en_do_divide : out std_logic;
-		en_clear_l : OUT std_logic;
+		en_load_ea				: OUT std_logic;
+		en_addr_ea				: OUT std_logic;
+		en_addr_pc				: OUT std_logic;
+		en_addr_sw				: OUT std_logic;
+		en_data_ac				: OUT std_logic;
+		en_data_pcp1			: OUT std_logic;
+		en_data_sw				: OUT std_logic;
+		en_load_mq_ac			: OUT std_logic;
+		en_load_ac_or_swreg	: OUT std_logic;
+		en_data_memp1			: OUT std_logic;
+		en_do_multiply			: OUT std_logic;
+		en_shift_left			: OUT std_logic;
+		en_do_divide			: out std_logic;
+		en_clear_l				: OUT std_logic;
 -- added for additional EAE support
-		en_dec_sc : OUT std_logic;
-		en_inc_sc : OUT std_logic;
-		en_load_sc_mem : OUT std_logic;
-		en_clear_sc : OUT std_logic;
-		sc0 : IN std_logic;
-		normalized : IN std_logic;
-		en_load_ac_sc : OUT std_logic;
-		en_load_sc_compl_mem :OUT std_logic;
-		en_left_shift_with_l : OUT std_logic;
-		en_right_shift : OUT std_logic;
-		en_load_l_ac11 : OUT std_logic;
+		en_dec_sc				: OUT std_logic;
+		en_inc_sc				: OUT std_logic;
+		en_load_sc_mem			: OUT std_logic;
+		en_clear_sc				: OUT std_logic;
+		sc0						: IN std_logic;
+		normalized				: IN std_logic;
+		en_load_ac_sc			: OUT std_logic;
+		en_load_sc_compl_mem	: OUT std_logic;
+		en_left_shift_with_l	: OUT std_logic;
+		en_right_shift			: OUT std_logic;
+		en_load_l_ac11			: OUT std_logic;
 -- Missed!
 		en_load_hidden : OUT std_logic
 		);
@@ -218,9 +213,9 @@ begin
 
 -- Remainder of front panel interface
 	linkout <= l_reg;
-	dispout <= pc_reg when dispsel = "00" else
-	           ac_reg when dispsel = "01" else
-				  hidden_reg when dispsel = "10" else
+	dispout <= pc_reg			when dispsel = "00" else
+	           ac_reg			when dispsel = "01" else
+				  hidden_reg	when dispsel = "10" else
 				  mq_reg;
 	
 	process (clk) begin -- hidden read data register
