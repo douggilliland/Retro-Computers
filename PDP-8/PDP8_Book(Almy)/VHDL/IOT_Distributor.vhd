@@ -16,7 +16,21 @@
 -- Revision 0.01 - File Created
 -- Additional Comments: 
 --
+-- From: http://homepage.divms.uiowa.edu/~jones/pdp8/man/tty.html
+-- The following table lists the most commonly used device codes for serial interfaces:
+--		                 |  input | output |
+--		                 |   xx   |   yy   |
+--		  ---------------|--------|--------|
+--		  Console TTY    |   03   |   04   |  < These are the ports used
+--		  Second TTY     |   40   |   41   |
+--		  Serial printer |   65   |   66   |
+--		  ---------------|--------|--------|
+--		  VT78 serial #1 |   30   |   31   |
+--		  VT78 serial #2 |   32   |   33   |
+--		  ---------------|--------|--------|
+--		  DECmate printer|   32   |   33   |
 ----------------------------------------------------------------------------------
+
 library IEEE;
 use IEEE.STD_LOGIC_1164.ALL;
 
@@ -30,28 +44,29 @@ use IEEE.STD_LOGIC_1164.ALL;
 --use UNISIM.VComponents.all;
 
 entity IOT_Distributor is
-    Port ( -- interface to device 3
-           ready_3 : in  STD_LOGIC;
-           clear_3 : out  STD_LOGIC;
-           clearacc_3 : in  STD_LOGIC;
-           dataout_3 : out  STD_LOGIC_VECTOR (7 downto 0);
-           datain_3 : in  STD_LOGIC_VECTOR (7 downto 0);
-           load_3 : out  STD_LOGIC;
-           -- interface to device 4
-           ready_4 : in  STD_LOGIC;
-           clear_4 : out  STD_LOGIC;
-           clearacc_4 : in  STD_LOGIC;
-           dataout_4 : out  STD_LOGIC_VECTOR (7 downto 0);
-           datain_4 : in  STD_LOGIC_VECTOR (7 downto 0);
-           load_4 : out  STD_LOGIC;          
-           -- interface to CPU
-           skip_flag : out  STD_LOGIC;
-           bit1_cp2 : in  STD_LOGIC;
-           clearacc : out  STD_LOGIC;
-           dataout : in  STD_LOGIC_VECTOR (7 downto 0);
-           datain : out  STD_LOGIC_VECTOR (7 downto 0);
-           bit2_cp3 : in  STD_LOGIC;
-           io_address : in  STD_LOGIC_VECTOR (2 downto 0));
+	Port ( -- interface to device 3 = Console TTY in
+		ready_3 : in  STD_LOGIC;
+		clear_3 : out  STD_LOGIC;
+		clearacc_3 : in  STD_LOGIC;
+		dataout_3 : out  STD_LOGIC_VECTOR (7 downto 0);
+		datain_3 : in  STD_LOGIC_VECTOR (7 downto 0);
+		load_3 : out  STD_LOGIC;
+		-- interface to device 4 = Comsole TTY out
+		ready_4 : in  STD_LOGIC;
+		clear_4 : out  STD_LOGIC;
+		clearacc_4 : in  STD_LOGIC;
+		dataout_4 : out  STD_LOGIC_VECTOR (7 downto 0);
+		datain_4 : in  STD_LOGIC_VECTOR (7 downto 0);
+		load_4 : out  STD_LOGIC;          
+		-- interface to CPU
+		skip_flag : out  STD_LOGIC;
+		bit1_cp2 : in  STD_LOGIC;
+		clearacc : out  STD_LOGIC;
+		dataout : in  STD_LOGIC_VECTOR (7 downto 0);
+		datain : out  STD_LOGIC_VECTOR (7 downto 0);
+		bit2_cp3 : in  STD_LOGIC;
+		io_address : in  STD_LOGIC_VECTOR (2 downto 0)
+	);
 end IOT_Distributor;
 
 architecture Behavioral of IOT_Distributor is

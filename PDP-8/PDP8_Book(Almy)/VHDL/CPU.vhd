@@ -59,41 +59,41 @@ architecture Behavioral of CPU is
 
 	COMPONENT CPU_StateMachine
 	PORT(
-		clk				: IN std_logic;
-		reset				: IN std_logic;
-		do_skip			: IN std_logic;
-		skip_flag		: IN std_logic;
-		clearacc			: IN std_logic;
-		mem_finished	: IN std_logic;
-		run				: IN std_logic;
-		loadpc			: IN std_logic;
-		loadac			: IN std_logic;
-		deposit			: IN std_logic;
-		step				: IN std_logic;
-		i_reg				: IN std_logic_vector(11 downto 0);
-		swchange			: IN std_logic;
-		autoincrement	: IN std_logic;
-		memallones		: IN std_logic; 
-		difbit			: IN std_logic;
-		halt				: OUT std_logic;
-		bit1_cp2			: OUT std_logic;
-		bit2_cp3			: OUT std_logic;
-		read_enable			: OUT std_logic;
-		write_enable		: OUT std_logic;
-		en_load_ac_and		: OUT std_logic;
-		en_load_ac_panel 	: OUT std_logic;
-		en_load_ac_or_io	: OUT std_logic;
-		en_load_ac_mq		: OUT std_logic;
-		en_load_ac_or_mq	: OUT std_logic;
-		en_clear_ac			: OUT std_logic;
-		en_load_opr1		: OUT std_logic;
-		en_load_ac_add		: OUT std_logic;
-		en_load_pc_panel	: OUT std_logic;
-		en_load_pc_ea		: OUT std_logic;
-		en_inc_pc			: OUT std_logic;
-		en_load_i			: OUT std_logic;
-		en_load_ea_mem		: OUT std_logic;
-		en_load_ea_memp1 : OUT std_logic;
+		clk						: IN std_logic;
+		reset						: IN std_logic;
+		do_skip					: IN std_logic;
+		skip_flag				: IN std_logic;
+		clearacc					: IN std_logic;
+		mem_finished			: IN std_logic;
+		run						: IN std_logic;
+		loadpc					: IN std_logic;
+		loadac					: IN std_logic;
+		deposit					: IN std_logic;
+		step						: IN std_logic;
+		i_reg						: IN std_logic_vector(11 downto 0);
+		swchange					: IN std_logic;
+		autoincrement			: IN std_logic;
+		memallones				: IN std_logic; 
+		difbit					: IN std_logic;
+		halt						: OUT std_logic;
+		bit1_cp2					: OUT std_logic;
+		bit2_cp3					: OUT std_logic;
+		read_enable				: OUT std_logic;
+		write_enable			: OUT std_logic;
+		en_load_ac_and			: OUT std_logic;
+		en_load_ac_panel 		: OUT std_logic;
+		en_load_ac_or_io		: OUT std_logic;
+		en_load_ac_mq			: OUT std_logic;
+		en_load_ac_or_mq		: OUT std_logic;
+		en_clear_ac				: OUT std_logic;
+		en_load_opr1			: OUT std_logic;
+		en_load_ac_add			: OUT std_logic;
+		en_load_pc_panel		: OUT std_logic;
+		en_load_pc_ea			: OUT std_logic;
+		en_inc_pc				: OUT std_logic;
+		en_load_i				: OUT std_logic;
+		en_load_ea_mem			: OUT std_logic;
+		en_load_ea_memp1		: OUT std_logic;
 		en_load_ea				: OUT std_logic;
 		en_addr_ea				: OUT std_logic;
 		en_addr_pc				: OUT std_logic;
@@ -126,89 +126,89 @@ architecture Behavioral of CPU is
 	END COMPONENT;
 
 	signal ac_reg, pc_reg, mq_reg, i_reg, ea_reg, hidden_reg: std_logic_vector (11 downto 0) := (others => '0');
-	signal l_reg : std_logic := '0';
-	signal ac1, ac2, ac3, ac4 : std_logic_vector (11 downto 0);
-	signal l1, l2, l3, l4 : std_logic;
-	signal aceqz : std_logic;
-	signal sum, sum2 : std_logic_vector (12 downto 0);
-	signal oldsw : std_logic_vector (11 downto 0) := (others => '0');
-	signal product : std_logic_vector (23 downto 0);
-	signal difference : std_logic_vector (12 downto 0);
+	signal l_reg 					: std_logic := '0';
+	signal ac1, ac2, ac3, ac4	: std_logic_vector (11 downto 0);
+	signal l1, l2, l3, l4		: std_logic;
+	signal aceqz					: std_logic;
+	signal sum, sum2				: std_logic_vector (12 downto 0);
+	signal oldsw					: std_logic_vector (11 downto 0) := (others => '0');
+	signal product					: std_logic_vector (23 downto 0);
+	signal difference				: std_logic_vector (12 downto 0);
 -- For the state machine interface
 	signal do_skip, en_load_ac_and, en_load_ac_panel, en_load_ac_or_io, en_load_ac_mq : std_logic;
 	signal en_load_ac_or_mq, en_clear_ac, en_load_opr1, en_load_ac_add, en_load_pc_panel : std_logic;
 	signal en_load_pc_ea, en_inc_pc, en_load_i, en_load_ea_mem, en_load_ea_memp1, en_load_ea : std_logic;
 	signal en_addr_ea, en_addr_pc, en_addr_sw, en_data_ac, en_data_pcp1, en_data_sw: std_logic;
 	signal en_load_mq_ac, en_load_ac_or_swreg, en_data_memp1, en_do_multiply, en_shift_left, en_do_divide, en_clear_l : std_logic;
-	signal swchange, en_load_hidden : std_logic;
-	signal autoincrement, memallones :std_logic;
+	signal swchange, en_load_hidden	: std_logic;
+	signal autoincrement, memallones	: std_logic;
 -- State machine interface, added EAE instructions
 	signal en_dec_sc, en_inc_sc, en_load_sc_mem, en_clear_sc, sc0, normalized : std_logic;
 	signal en_load_ac_sc, en_load_sc_compl_mem, en_left_shift_with_l, en_right_shift, en_load_l_ac11 : std_logic;
 	signal sc_reg : std_logic_vector (4 downto 0) := "00000";
 begin
 	Inst_CPU_StateMachine: CPU_StateMachine PORT MAP(
-		clk => clk,
-		reset => reset,
-		do_skip => do_skip,
-		skip_flag => skip_flag,
-		clearacc => clearacc,
-		mem_finished => mem_finished,
-		run => run,
-		loadpc => loadpc,
-		loadac => loadac,
-		deposit => deposit,
-		step => step,
-		i_reg => i_reg,
-		swchange => swchange,
-		autoincrement => autoincrement,
-		memallones => memallones,
-		halt => halt,
-		difbit => difference(12),
-		bit1_cp2 => bit1_cp2,
-		bit2_cp3 => bit2_cp3,
-		read_enable => read_enable,
-		write_enable => write_enable,
-		en_load_ac_and => en_load_ac_and,
-		en_load_ac_panel => en_load_ac_panel,
-		en_load_ac_or_io => en_load_ac_or_io,
-		en_load_ac_mq => en_load_ac_mq,
-		en_load_ac_or_mq => en_load_ac_or_mq,
-		en_clear_ac => en_clear_ac,
-		en_load_opr1 => en_load_opr1,
-		en_load_ac_add => en_load_ac_add,
-		en_load_pc_panel => en_load_pc_panel,
-		en_load_pc_ea => en_load_pc_ea,
-		en_inc_pc => en_inc_pc,
-		en_load_i => en_load_i,
-		en_load_ea_mem => en_load_ea_mem,
-		en_load_ea_memp1 => en_load_ea_memp1,
-		en_load_ea => en_load_ea,
-		en_addr_ea => en_addr_ea,
-		en_addr_pc => en_addr_pc,
-		en_addr_sw => en_addr_sw,
-		en_data_ac => en_data_ac,
-		en_data_pcp1 => en_data_pcp1,
-		en_data_sw => en_data_sw,
-		en_load_mq_ac => en_load_mq_ac,
-		en_load_ac_or_swreg => en_load_ac_or_swreg,
-		en_data_memp1 => en_data_memp1,
-		en_do_multiply => en_do_multiply,
-		en_shift_left => en_shift_left,
-		en_do_divide => en_do_divide,
-	   en_clear_l => en_clear_l,
-		en_dec_sc => en_dec_sc,
-		en_inc_sc => en_inc_sc,
-		en_load_sc_mem => en_load_sc_mem,
-		en_clear_sc => en_clear_sc,
-		sc0 => sc0,
-		normalized => normalized,
-		en_load_ac_sc => en_load_ac_sc,
-		en_load_sc_compl_mem => en_load_sc_compl_mem,
+		clk						=> clk,
+		reset						=> reset,
+		do_skip					=> do_skip,
+		skip_flag				=> skip_flag,
+		clearacc					=> clearacc,
+		mem_finished			=> mem_finished,
+		run						=> run,
+		loadpc					=> loadpc,
+		loadac					=> loadac,
+		deposit					=> deposit,
+		step						=> step,
+		i_reg						=> i_reg,
+		swchange					=> swchange,
+		autoincrement			=> autoincrement,
+		memallones				=> memallones,
+		halt						=> halt,
+		difbit 					=> difference(12),
+		bit1_cp2					=> bit1_cp2,
+		bit2_cp3					=> bit2_cp3,
+		read_enable				=> read_enable,
+		write_enable			=> write_enable,
+		en_load_ac_and			=> en_load_ac_and,
+		en_load_ac_panel		=> en_load_ac_panel,
+		en_load_ac_or_io		=> en_load_ac_or_io,
+		en_load_ac_mq			=> en_load_ac_mq,
+		en_load_ac_or_mq		=> en_load_ac_or_mq,
+		en_clear_ac				=> en_clear_ac,
+		en_load_opr1			=> en_load_opr1,
+		en_load_ac_add			=> en_load_ac_add,
+		en_load_pc_panel		=> en_load_pc_panel,
+		en_load_pc_ea			=> en_load_pc_ea,
+		en_inc_pc				=> en_inc_pc,
+		en_load_i				=> en_load_i,
+		en_load_ea_mem			=> en_load_ea_mem,
+		en_load_ea_memp1		=> en_load_ea_memp1,
+		en_load_ea				=> en_load_ea,
+		en_addr_ea				=> en_addr_ea,
+		en_addr_pc				=> en_addr_pc,
+		en_addr_sw				=> en_addr_sw,
+		en_data_ac				=> en_data_ac,
+		en_data_pcp1			=> en_data_pcp1,
+		en_data_sw				=> en_data_sw,
+		en_load_mq_ac			=> en_load_mq_ac,
+		en_load_ac_or_swreg	=> en_load_ac_or_swreg,
+		en_data_memp1			=> en_data_memp1,
+		en_do_multiply			=> en_do_multiply,
+		en_shift_left			=> en_shift_left,
+		en_do_divide			=> en_do_divide,
+	   en_clear_l				=> en_clear_l,
+		en_dec_sc				=> en_dec_sc,
+		en_inc_sc				=> en_inc_sc,
+		en_load_sc_mem			=> en_load_sc_mem,
+		en_clear_sc				=> en_clear_sc,
+		sc0 						=> sc0,
+		normalized				=> normalized,
+		en_load_ac_sc			=> en_load_ac_sc,
+		en_load_sc_compl_mem	=> en_load_sc_compl_mem,
 		en_left_shift_with_l => en_left_shift_with_l,
-		en_right_shift => en_right_shift,
-		en_load_l_ac11 => en_load_l_ac11,
-		en_load_hidden => en_load_hidden
+		en_right_shift			=> en_right_shift,
+		en_load_l_ac11			=> en_load_l_ac11,
+		en_load_hidden			=> en_load_hidden
 	);
 
 -- Remainder of front panel interface

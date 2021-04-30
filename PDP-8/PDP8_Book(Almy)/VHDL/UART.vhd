@@ -33,25 +33,25 @@ use IEEE.STD_LOGIC_ARITH.ALL;
 --use UNISIM.VComponents.all;
 
 entity UART is
-	Port ( 
-		clk : in  STD_LOGIC;
-		rx : in  STD_LOGIC;
-		tx : out  STD_LOGIC;
-		clear_3 : in  STD_LOGIC;
-		load_3 : in  STD_LOGIC;
-		dataout_3 : in  STD_LOGIC_VECTOR (7 downto 0);
-		ready_3 : out  STD_LOGIC;
-		clearacc_3 : out  STD_LOGIC;
-		datain_3 : out  STD_LOGIC_VECTOR (7 downto 0) := (others => '0');
-		clear_4 : in  STD_LOGIC;
-		load_4 : in  STD_LOGIC;
-		dataout_4 : in  STD_LOGIC_VECTOR (7 downto 0);
-		ready_4 : out  STD_LOGIC;
-		clearacc_4 : out  STD_LOGIC;
-		datain_4 : out  STD_LOGIC_VECTOR (7 downto 0)
+	Port 
+	( 
+		clk			: in  STD_LOGIC;
+		rx				: in  STD_LOGIC;
+		tx				: out  STD_LOGIC;
+		clear_3		: in  STD_LOGIC;
+		load_3		: in  STD_LOGIC;
+		dataout_3	: in  STD_LOGIC_VECTOR (7 downto 0);
+		ready_3		: out  STD_LOGIC;
+		clearacc_3	: out  STD_LOGIC;
+		datain_3		: out  STD_LOGIC_VECTOR (7 downto 0) := (others => '0');
+		clear_4		: in  STD_LOGIC;
+		load_4		: in  STD_LOGIC;
+		dataout_4	: in  STD_LOGIC_VECTOR (7 downto 0);
+		ready_4		: out  STD_LOGIC;
+		clearacc_4	: out  STD_LOGIC;
+		datain_4		: out  STD_LOGIC_VECTOR (7 downto 0)
 	);
 end UART;
-
 
 architecture Behavioral of UART is
 
@@ -72,6 +72,7 @@ signal txcomplete		: std_logic;
 signal txcounter		: std_logic_vector (7 downto 0) := (others => '0');
 signal txshift			: std_logic;
 signal txstart			: std_logic := '0';
+
 
 begin
 

@@ -30,55 +30,56 @@ use IEEE.STD_LOGIC_1164.ALL;
 --use UNISIM.VComponents.all;
 
 entity CPU_StateMachine is
-    Port ( clk : in  STD_LOGIC;
-			  reset : in STD_LOGIC;
-           do_skip : in  STD_LOGIC;
-           skip_flag : in  STD_LOGIC;
-           clearacc : in  STD_LOGIC;
-           mem_finished : in  STD_LOGIC;
-           run : in  STD_LOGIC;
-           loadpc : in  STD_LOGIC;
-           loadac : in  STD_LOGIC;
-           deposit : in  STD_LOGIC;
-           step : in  STD_LOGIC;
-           i_reg : in  STD_LOGIC_VECTOR (11 downto 0);
-           swchange : in  STD_LOGIC;
-           autoincrement : in  STD_LOGIC;
-           memallones : in  STD_LOGIC;
-           halt : out  STD_LOGIC;
-			  difbit : in STD_LOGIC;
-           bit1_cp2 : out  STD_LOGIC;
-           bit2_cp3 : out  STD_LOGIC;
-           read_enable : out  STD_LOGIC;
-           write_enable : out  STD_LOGIC;
-           en_load_ac_and : out  STD_LOGIC;
-           en_load_ac_panel : out  STD_LOGIC;
-           en_load_ac_or_io : out  STD_LOGIC;
-           en_load_ac_mq : out  STD_LOGIC;
-           en_load_ac_or_mq : out  STD_LOGIC;
-           en_clear_ac : out  STD_LOGIC;
-           en_load_opr1 : out  STD_LOGIC;
-           en_load_ac_add : out  STD_LOGIC;
-           en_load_pc_panel : out  STD_LOGIC;
-           en_load_pc_ea : out  STD_LOGIC;
-           en_inc_pc : out  STD_LOGIC;
-           en_load_i : out  STD_LOGIC;
-           en_load_ea_mem : out  STD_LOGIC;
-           en_load_ea_memp1 : out  STD_LOGIC;
-           en_load_ea : out  STD_LOGIC;
-           en_addr_ea : out  STD_LOGIC;
-           en_addr_pc : out  STD_LOGIC;
-           en_addr_sw : out  STD_LOGIC;
-           en_data_ac : out  STD_LOGIC;
-           en_data_pcp1 : out  STD_LOGIC;
-           en_data_sw : out  STD_LOGIC;
-           en_load_mq_ac : out  STD_LOGIC;
-           en_load_ac_or_swreg : out  STD_LOGIC;
-           en_data_memp1 : out  STD_LOGIC;
-			  en_do_multiply : out STD_LOGIC;
-			  en_shift_left : OUT std_logic;
-		     en_do_divide : out std_logic;
-		     en_clear_l : OUT std_logic;
+	Port (
+		clk : in  STD_LOGIC;
+		reset : in STD_LOGIC;
+		do_skip : in  STD_LOGIC;
+		skip_flag : in  STD_LOGIC;
+		clearacc : in  STD_LOGIC;
+		mem_finished : in  STD_LOGIC;
+		run : in  STD_LOGIC;
+		loadpc : in  STD_LOGIC;
+		loadac : in  STD_LOGIC;
+		deposit : in  STD_LOGIC;
+		step : in  STD_LOGIC;
+		i_reg : in  STD_LOGIC_VECTOR (11 downto 0);
+		swchange : in  STD_LOGIC;
+		autoincrement : in  STD_LOGIC;
+		memallones : in  STD_LOGIC;
+		halt : out  STD_LOGIC;
+		difbit : in STD_LOGIC;
+		bit1_cp2 : out  STD_LOGIC;
+		bit2_cp3 : out  STD_LOGIC;
+		read_enable : out  STD_LOGIC;
+		write_enable : out  STD_LOGIC;
+		en_load_ac_and : out  STD_LOGIC;
+		en_load_ac_panel : out  STD_LOGIC;
+		en_load_ac_or_io : out  STD_LOGIC;
+		en_load_ac_mq : out  STD_LOGIC;
+		en_load_ac_or_mq : out  STD_LOGIC;
+		en_clear_ac : out  STD_LOGIC;
+		en_load_opr1 : out  STD_LOGIC;
+		en_load_ac_add : out  STD_LOGIC;
+		en_load_pc_panel : out  STD_LOGIC;
+		en_load_pc_ea : out  STD_LOGIC;
+		en_inc_pc : out  STD_LOGIC;
+		en_load_i : out  STD_LOGIC;
+		en_load_ea_mem : out  STD_LOGIC;
+		en_load_ea_memp1 : out  STD_LOGIC;
+		en_load_ea : out  STD_LOGIC;
+		en_addr_ea : out  STD_LOGIC;
+		en_addr_pc : out  STD_LOGIC;
+		en_addr_sw : out  STD_LOGIC;
+		en_data_ac : out  STD_LOGIC;
+		en_data_pcp1 : out  STD_LOGIC;
+		en_data_sw : out  STD_LOGIC;
+		en_load_mq_ac : out  STD_LOGIC;
+		en_load_ac_or_swreg : out  STD_LOGIC;
+		en_data_memp1 : out  STD_LOGIC;
+		en_do_multiply : out STD_LOGIC;
+		en_shift_left : OUT std_logic;
+		en_do_divide : out std_logic;
+		en_clear_l : OUT std_logic;
 -- added for additional EAE support
 		en_dec_sc : OUT std_logic;
 		en_inc_sc : OUT std_logic;
@@ -93,7 +94,7 @@ entity CPU_StateMachine is
 		en_load_l_ac11 : OUT std_logic;
 -- Missing!
 		en_load_hidden : OUT std_logic
-			  );
+	);
 end CPU_StateMachine;
 
 architecture Behavioral of CPU_StateMachine is
@@ -106,6 +107,7 @@ architecture Behavioral of CPU_StateMachine is
 	signal next_state : STATE_TYPE;
 	signal counter : integer range 0 to 12 := 0;
 	signal en_counter, cnt11 : std_logic;
+
 begin
 -- Counter for divide
 	process (clk) begin
@@ -137,7 +139,7 @@ begin
 		bit2_cp3 <= '0';
 		read_enable <= '0';
 		write_enable <= '0';
-      en_load_ac_and <= '0';
+		en_load_ac_and <= '0';
 		en_load_ac_panel <= '0';
 		en_load_ac_or_io <= '0';
 		en_load_ac_mq <= '0';
@@ -146,13 +148,13 @@ begin
 		en_load_opr1 <= '0';
 		en_load_ac_add <= '0';
 		en_load_pc_panel <= '0';
-	   en_load_pc_ea <= '0';
+		en_load_pc_ea <= '0';
 		en_inc_pc <= '0';
 		en_load_i <= '0';
 		en_load_ea_mem <= '0';
 		en_load_ea_memp1 <= '0';
 		en_load_ea <= '0';
-	   en_addr_ea <= '0';
+		en_addr_ea <= '0';
 		en_addr_pc <= '0';
 		en_addr_sw <= '0';
 		en_data_ac <= '0';

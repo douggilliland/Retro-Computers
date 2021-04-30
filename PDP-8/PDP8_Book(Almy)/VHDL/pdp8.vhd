@@ -9,7 +9,7 @@
 -- Target Devices: 
 -- Tool versions: 
 -- Description: PDP-8 Project not using external memory. 
--- TODO: ROM file
+-- Implemented Firmware as loadable SRAM file
 -- Dependencies: 
 --
 -- Revision: 
@@ -230,7 +230,13 @@ signal an 				: std_logic_vector (7 downto 0);
 
 attribute syn_keep: boolean;
 attribute syn_keep of address: signal is true;
+attribute syn_keep of datain: signal is true;
+attribute syn_keep of write_enable: signal is true;
+attribute syn_keep of dataout: signal is true;
+attribute syn_keep of write_data: signal is true;
 attribute syn_keep of read_data: signal is true;
+attribute syn_keep of datain_3: signal is true;
+attribute syn_keep of dataout_4: signal is true;
 
 -- System reset
 begin
