@@ -42,8 +42,8 @@ entity pdp8 is
 --		btnc			: in std_logic;		-- display select button
 --		btnu			: in std_logic;		-- step button
 --		btnr			: in std_logic;		-- load AC button
---		btnd			: in std_logic;		-- deposit button
-		btnl			: in std_logic;		-- load PC button
+--		btnd			: in std_logic;		-- deposit button--
+--		btnl			: in std_logic;		-- load PC button
 		-- Outs
 		runLED		: out  STD_LOGIC;									-- led 15 is Running light
 --		selLEDs		: out  STD_LOGIC_VECTOR (3 downto 0);		-- 3 to 0 is display selection
@@ -84,13 +84,6 @@ architecture Behavioral of pdp8 is
 		dispout		: IN std_logic_vector(11 downto 0);
 		linkout		: IN std_logic;
 		halt			: IN std_logic;
-		swreg			: OUT std_logic_vector(11 downto 0);
-		dispsel		: OUT std_logic_vector(1 downto 0);
-		run			: OUT std_logic;
-		loadpc		: OUT std_logic;
-		loadac		: OUT std_logic;
-		step			: OUT std_logic;
-		deposit		: OUT std_logic;
 		sw				: in std_logic_vector(15 downto 0);
 		btnc			: in std_logic;
 		btnu			: in std_logic;
@@ -98,6 +91,14 @@ architecture Behavioral of pdp8 is
 		btnl			: in std_logic;
 		btnr			: in std_logic;
 		btnCpuReset : in std_logic;
+		-- 
+		swreg			: OUT std_logic_vector(11 downto 0);
+		dispsel		: OUT std_logic_vector(1 downto 0);
+		run			: OUT std_logic;
+		loadpc		: OUT std_logic;
+		loadac		: OUT std_logic;
+		step			: OUT std_logic;
+		deposit		: OUT std_logic;
 		reset			: out std_logic;
 		led			: OUT std_logic_vector(15 downto 0);
 		seg			: OUT std_logic_vector(7 downto 0);
@@ -170,26 +171,26 @@ architecture Behavioral of pdp8 is
 
 -- Systemwide
 signal reset : std_logic;
--- Memory Interface
---signal RamCLK, RamADVn, RamCEn, RamCRE, RamOEn, RamWEn, RamLBn, RamUBn, RamWait : STD_LOGIC;
---signal MemDB : STD_LOGIC_VECTOR (15 downto 0);
---signal MemAdr: STD_LOGIC_VECTOR (22 downto 0);
+
+-- Fake out inputs from front panel
+signal sw			: std_logic_vector(15 downto 0) := "1000000010000000";	-- SW 15 is Run/Stop. 
+																	-- SW 12 loads link with load AC button (eventually)
+																	-- SW 11 to SW 0 is Switch Register
+signal btnc			: std_logic := '0';					-- display select button
+signal btnu			: std_logic := '0';					-- step button
+signal btnr			: std_logic := '0';					-- load AC button
+signal btnd			: std_logic := '0';					-- deposit button
+signal btnl			: std_logic := '0';					-- load PC button
+		
 -- Panel to CPU
 signal swreg		: std_logic_vector (11 downto 0);
 signal dispsel		: std_logic_vector (1 downto 0);
-signal run			: std_logic;
-signal loadpc		: std_logic;
-signal loadac		: std_logic; -- added
-signal step			: std_logic;
-signal deposit		: std_logic;
+signal run			: std_logic := '1';
+signal loadpc		: std_logic := '0';
+signal loadac		: std_logic := '0'; -- added
+signal step			: std_logic := '0';
+signal deposit		: std_logic := '0';
 signal led			: std_logic_vector(15 downto 0);
-signal sw			: std_logic_vector(15 downto 0);-- SW 15 is Run/Stop. 
-												 -- SW 12 loads link with load AC button (eventually)
-												 -- SW 11 to SW 0 is Switch Register
-signal btnr			: std_logic := '0';
-signal btnu			: std_logic := '0';
-signal btnc			: std_logic := '0';
-signal btnd			: std_logic := '0';
 
 -- CPU to Panel
 signal dispout		: std_logic_vector(11 downto 0);
@@ -229,21 +230,24 @@ signal seg 				: std_logic_vector (7 downto 0);
 signal an 				: std_logic_vector (7 downto 0); 
 
 attribute syn_keep: boolean;
-attribute syn_keep of address: signal is true;
-attribute syn_keep of datain: signal is true;
-attribute syn_keep of write_enable: signal is true;
-attribute syn_keep of dataout: signal is true;
-attribute syn_keep of write_data: signal is true;
-attribute syn_keep of read_data: signal is true;
-attribute syn_keep of datain_3: signal is true;
-attribute syn_keep of dataout_4: signal is true;
+attribute syn_keep of address			: signal is true;
+attribute syn_keep of datain			: signal is true;
+attribute syn_keep of dataout			: signal is true;
+attribute syn_keep of write_data		: signal is true;
+attribute syn_keep of read_data		: signal is true;
+attribute syn_keep of datain_3		: signal is true;
+attribute syn_keep of dataout_4		: signal is true;
+attribute syn_keep of write_enable	: signal is true;
+attribute syn_keep of read_enable	: signal is true;
+attribute syn_keep of mem_finished	: signal is true;
+attribute syn_keep of run				: signal is true;
 
 -- System reset
 begin
 
 	-- Cut the fron panel connection down to bare minimum
 	-- hardcoded start address
-	runLED <= led(15);
+	runLED <= not led(15);
 --	selLEDs <= led(3 downto 0);			-- Select LEDS
 	sw(11 downto 0) <= "000010000000"; 	-- 200 (start address)
 	sw(14 downto 12) <= "000";
@@ -276,13 +280,6 @@ begin
 		dispout		=> dispout,
 		linkout		=> linkout,
 		halt			=> halt,
-		swreg			=> swreg,
-		dispsel		=> dispsel,
-		run			=> run,
-		loadpc		=> loadpc,
-		loadac		=> loadac,
-		step			=> step,
-		deposit		=> deposit,
 		sw 			=> sw,
 		btnc			=> btnc,
 		btnu			=> btnu,
@@ -290,6 +287,14 @@ begin
 		btnl			=> btnl,
 		btnr			=> btnr,
 		btnCpuReset => btnCpuReset,
+		--
+		swreg			=> swreg,
+		dispsel		=> dispsel,
+		run			=> run,
+		loadpc		=> loadpc,
+		loadac		=> loadac,
+		step			=> step,
+		deposit		=> deposit,
 		reset			=> reset,
 		led			=> led,
 		seg			=> seg,

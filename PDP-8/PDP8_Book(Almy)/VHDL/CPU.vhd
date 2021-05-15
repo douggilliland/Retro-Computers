@@ -28,31 +28,33 @@ use IEEE.STD_LOGIC_UNSIGNED.ALL;
 --use IEEE.NUMERIC_STD.ALL;
 
 entity CPU is
-    Port ( clk				: in  STD_LOGIC;
-			  reset			: in STD_LOGIC;
-           address		: out  STD_LOGIC_VECTOR (11 downto 0);
-           write_data	: out  STD_LOGIC_VECTOR (11 downto 0);
-           read_data		: in  STD_LOGIC_VECTOR (11 downto 0);
-           write_enable : out  STD_LOGIC;
-           read_enable	: out  STD_LOGIC;
-           mem_finished : in  STD_LOGIC;
-           swreg			: in  STD_LOGIC_VECTOR (11 downto 0);
-           dispsel		: in  STD_LOGIC_VECTOR (1 downto 0);
-           run				: in  STD_LOGIC;
-           loadpc			: in  STD_LOGIC;
-			  loadac			: in std_logic;
-           step			: in  STD_LOGIC;
-           deposit		: in  STD_LOGIC;
-           dispout		: out  STD_LOGIC_VECTOR (11 downto 0);
-           linkout		: out  STD_LOGIC;
-           halt			: out  STD_LOGIC;
-           bit1_cp2		: out  STD_LOGIC;
-           bit2_cp3		: out  STD_LOGIC;
-           io_address	: out  STD_LOGIC_VECTOR (2 downto 0);
-           dataout		: out  STD_LOGIC_VECTOR (7 downto 0);
-           skip_flag		: in  STD_LOGIC;
-           clearacc		: in  STD_LOGIC;
-           datain			: in  STD_LOGIC_VECTOR (7 downto 0));
+	Port ( 
+		clk				: in  STD_LOGIC;
+		reset				: in STD_LOGIC;
+		address			: out  STD_LOGIC_VECTOR (11 downto 0);
+		write_data		: out  STD_LOGIC_VECTOR (11 downto 0);
+		read_data		: in  STD_LOGIC_VECTOR (11 downto 0);
+		write_enable	: out  STD_LOGIC;
+		read_enable		: out  STD_LOGIC;
+		mem_finished	: in  STD_LOGIC;
+		swreg				: in  STD_LOGIC_VECTOR (11 downto 0);
+		dispsel			: in  STD_LOGIC_VECTOR (1 downto 0);
+		run				: in  STD_LOGIC;
+		loadpc			: in  STD_LOGIC;
+		loadac			: in std_logic;
+		step				: in  STD_LOGIC;
+		deposit			: in  STD_LOGIC;
+		dispout			: out  STD_LOGIC_VECTOR (11 downto 0);
+		linkout			: out  STD_LOGIC;
+		halt				: out  STD_LOGIC;
+		bit1_cp2			: out  STD_LOGIC;
+		bit2_cp3			: out  STD_LOGIC;
+		io_address		: out  STD_LOGIC_VECTOR (2 downto 0);
+		dataout			: out  STD_LOGIC_VECTOR (7 downto 0);
+		skip_flag		: in  STD_LOGIC;
+		clearacc			: in  STD_LOGIC;
+		datain			: in  STD_LOGIC_VECTOR (7 downto 0)
+);
 end CPU;
 
 architecture Behavioral of CPU is

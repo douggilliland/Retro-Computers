@@ -34,105 +34,104 @@ use IEEE.STD_LOGIC_UNSIGNED.ALL;
 
 entity Panel is
 	PORT(
-		clk		: IN std_logic;
-		dispout	: IN std_logic_vector(11 downto 0);
-		linkout	: IN std_logic;
-		halt		: IN std_logic;
-		swreg		: OUT std_logic_vector(11 downto 0);
-		dispsel	: OUT std_logic_vector(1 downto 0);
-		run		: OUT std_logic;
-		loadpc	: OUT std_logic;
-		loadac	: OUT std_logic;
-		step		: OUT std_logic;
-		deposit	: OUT std_logic;
-		sw			: in std_logic_vector(15 downto 0);   -- SW 15 is Run/Stop. 
-												 -- SW 12 loads link with load AC button (eventually)
-												 -- SW 11 to SW 0 is Switch Register
-		btnc : in std_logic;                     -- display select button
-		btnu : in std_logic;                     -- step button
-		btnd : in std_logic;                     -- deposit button
-		btnl : in std_logic;                     -- load PC button
-		btnr : in std_logic;                     -- load AC button
-		btnCpuReset : in std_logic;				  -- master reset
-		reset : out std_logic;
-		led : OUT std_logic_vector(15 downto 0); -- led 15 is Running light, 3 to 0 is selection
-		seg : OUT std_logic_vector(7 downto 0);  -- four now we just use 4 of 8 digits.
-		an : OUT std_logic_vector(7 downto 0)
+		clk			: IN std_logic;
+		sw				: in std_logic_vector(15 downto 0);  	-- SW 15 is Run/Stop. 
+																			-- SW 12 loads link with load AC button (eventually)
+																			-- SW 11 to SW 0 is Switch Register
+		dispout		: IN std_logic_vector(11 downto 0);
+		linkout		: IN std_logic;
+		halt			: IN std_logic;
+		btnc 			: in std_logic;	-- display select button
+		btnu			: in std_logic;	-- step button
+		btnd			: in std_logic;	-- deposit button
+		btnl			: in std_logic;	-- load PC button
+		btnr			: in std_logic;	-- load AC button
+		btnCpuReset : in std_logic;	-- master reset
+		-- 
+		swreg			: OUT std_logic_vector(11 downto 0);
+		dispsel		: OUT std_logic_vector(1 downto 0);
+		run			: OUT std_logic;
+		loadpc		: OUT std_logic;
+		loadac		: OUT std_logic;
+		step			: OUT std_logic;
+		deposit		: OUT std_logic;
+		reset			: out std_logic;
+		led			: OUT std_logic_vector(15 downto 0); -- led 15 is Running light, 3 to 0 is selection
+		seg			: OUT std_logic_vector(7 downto 0);  -- four now we just use 4 of 8 digits.
+		an				: OUT std_logic_vector(7 downto 0)
 		);
 end Panel;
 
 architecture Behavioral of Panel is
-signal cath_drive : std_logic_vector (2 downto 0);
-signal dig_counter : std_logic_vector (19 downto 0) := (others => '0');
-signal digit_mux : std_logic_vector (1 downto 0);
-signal sw1 : std_logic_vector (11 downto 0);
+signal cath_drive				: std_logic_vector (2 downto 0);
+signal dig_counter			: std_logic_vector (19 downto 0) := (others => '0');
+signal digit_mux				: std_logic_vector (1 downto 0);
+signal dispstep 				: std_logic := '0';
+signal dispselcnt				: std_logic_vector (1 downto 0) := "00";
+signal lac1, lac2, lac		: std_logic := '0';
+signal prereset, resetout	: std_logic := '0';
+signal sw1 						: std_logic_vector (11 downto 0);
 signal rs1, rs, ss1, ss2, ss, lpc1, lpc2, lpc, dep1, dep2, dep, ds2, ds1, ds : std_logic := '0';
-signal lac1, lac2, lac : std_logic := '0';
 signal rsdb, ssdb, lpcdb, depdb, lacdb, dsdb : std_logic := '0';
-signal dispstep  : std_logic := '0';
-signal dispselcnt : std_logic_vector (1 downto 0) := "00";
 type RUNSTOPSTATE is (RSSTOPPED, RSRUN, RSSTOPPING);
 signal rs_state : RUNSTOPSTATE := RSSTOPPED;
-signal prereset, resetout : std_logic := '0';
+
 begin
 	led (14 downto 4) <= (others => '0');
 	an (7 downto 4) <= (others => '1');
 
--- Synchronizing
-
-reset <= resetout;	
-
+	-- Synchronizing
+	reset <= resetout;	
 
 	process (clk) begin
 		if rising_edge(clk) then
 			prereset <= not btnCpuReset;
 			resetout <= prereset; -- Make this non-inverted
-			rs1 <= sw(15);
-			rs <= rs1;
-			ss1 <= btnu;
-			ss <= ss1;
-			lpc1 <= btnl;
-			lpc <= lpc1;
-			dep1 <= btnd;
-			dep <= dep1;
-			ds1 <= btnc;
-			ds <= ds1;
-			lac1 <= btnr;
-			lac <= lac1;
-			sw1 <= sw(11 downto 0); -- switches for switch register
-			swreg <= sw1;
+			rs1		<= sw(15);
+			rs			<= rs1;
+			ss1		<= btnu;
+			ss			<= ss1;
+			lpc1		<= btnl;
+			lpc		<= lpc1;
+			dep1		<= btnd;
+			dep		<= dep1;
+			ds1		<= btnc;
+			ds			<= ds1;
+			lac1		<= btnr;
+			lac		<= lac1;
+			sw1		<= sw(11 downto 0); -- switches for switch register
+			swreg		<= sw1;
 		end if;
 	end process;
 	
 	
 -- Debounce for pushbuttons and run/stop switch	 NEEDED
-	
 	process (clk) begin
 		if rising_edge(clk) then
 			if dig_counter(17 downto 0) = 0 then
-				rsdb <= rs;
-				ssdb <= ss;
-				lpcdb <= lpc;
+				rsdb	<= rs;
+				ssdb	<= ss;
+				lpcdb	<= lpc;
 				depdb <= dep;
 				lacdb <= lac;
-				dsdb <= ds;
+				dsdb	<= ds;
 			end if;
 		end if;
 	end process;
 	
--- One shots for step, loadpc, and deposit switches.
+-- Edge detect/one-shots for step, loadpc, and deposit switches.
 	process (clk) begin
 		if rising_edge(clk) then
-		ss2 <= ssdb;
-		step <= ssdb and not ss2;
-		lpc2 <= lpcdb;
-		loadpc <= lpcdb and not lpc2;
-		dep2 <= depdb;
-		deposit <= depdb and not dep2;
-		ds2 <= dsdb;
-		dispstep <= dsdb and not ds2;
-		lac2 <= lacdb;
-		loadac <= lacdb and not lac2;
+			ss2		<= ssdb;
+			step		<= ssdb and not ss2;
+			lpc2		<= lpcdb;
+			loadpc	<= lpcdb and not lpc2;
+			dep2		<= depdb;
+			deposit	<= depdb and not dep2;
+			ds2		<= dsdb;
+			dispstep <= dsdb and not ds2;
+			lac2		<= lacdb;
+			loadac	<= lacdb and not lac2;
 	   end if;
 	end process;
 -- Display selection
@@ -152,12 +151,14 @@ reset <= resetout;
 	process (clk) begin
 		if rising_edge(clk) then
 			case rs_state is
-				when RSSTOPPED => if rsdb = '1' then rs_state <= RSRUN; end if;
-				when RSRUN => if rsdb = '0' then rs_state <= RSSTOPPED;
-							     elsif halt = '1' then rs_state <= RSSTOPPING; -- cannot stop until switch moved
-								  end if;
-				when RSSTOPPING => if rsdb = '0' then rs_state <= RSSTOPPED; end if;
-				when others => rs_state <= RSSTOPPED;
+				when RSSTOPPED => 	if rsdb = '1'		then	rs_state <= RSRUN;
+											end if;
+				when RSRUN => 			if rsdb = '0'		then	rs_state <= RSSTOPPED;
+											elsif halt = '1'	then	rs_state <= RSSTOPPING; -- cannot stop until switch moved
+											end if;
+				when RSSTOPPING =>	if rsdb = '0' 		then	rs_state <= RSSTOPPED;
+											end if;
+				when others => 										rs_state <= RSSTOPPED;
 			end case;
 		end if;
 	end process;
