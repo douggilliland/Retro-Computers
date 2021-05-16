@@ -7,9 +7,9 @@
 -- Design Name: 	PDP8
 -- Module Name:   pdp8 - Behavioral 
 -- Project Name: 
--- Target Devices: 
--- Tool versions: 
--- Description: PDP-8 Project using internal memory. 
+-- Target Devices: Altera/Intel EP4CE15
+-- Tool versions: Quartus II
+-- Description: PDP-8 Project using 4 K words of internal memory. 
 -- Implemented Firmware as loadable SRAM file
 -- Dependencies: 
 --
