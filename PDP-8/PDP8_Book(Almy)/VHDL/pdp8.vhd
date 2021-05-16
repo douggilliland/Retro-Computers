@@ -19,6 +19,9 @@
 --
 -- Additional Comments: Build for RETRO-EP4CE15, using EP4CE15 FPGA
 --		http://land-boards.com/blwiki/index.php?title=RETRO-EP4CE15
+--		Rus sieve, echo demos.
+-- Uses bin2mif.py utility to convert the DEC bin file to Altera MIF file
+--		
 --
 ----------------------------------------------------------------------------------
 library IEEE;
