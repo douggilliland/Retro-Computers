@@ -183,6 +183,7 @@ architecture Behavioral of pdp8 is
 	);
 	END COMPONENT;
 	
+	-- Display is copied from Multicomp project
 	COMPONENT SBCTextDisplayRGB
 	port (
 		n_reset		: in std_logic;
