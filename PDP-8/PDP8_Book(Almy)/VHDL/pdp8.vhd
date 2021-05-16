@@ -1,14 +1,15 @@
 ----------------------------------------------------------------------------------
 -- Company: Land Boards LLC
 --	Original Author: Tom Almy
+-- Edits: Doug Gilliland
 -- 
--- Create Date:    10:07:29 04/19/2014 
--- Design Name: 
--- Module Name:    pdp8 - Behavioral 
+-- Create Date:   2021-05-16
+-- Design Name: 	PDP8
+-- Module Name:   pdp8 - Behavioral 
 -- Project Name: 
 -- Target Devices: 
 -- Tool versions: 
--- Description: PDP-8 Project not using external memory. 
+-- Description: PDP-8 Project using internal memory. 
 -- Implemented Firmware as loadable SRAM file
 -- Dependencies: 
 --
@@ -21,7 +22,8 @@
 --		http://land-boards.com/blwiki/index.php?title=RETRO-EP4CE15
 --		Rus sieve, echo demos.
 -- Uses bin2mif.py utility to convert the DEC bin file to Altera MIF file
---		
+--	Software at:	https://github.com/douggilliland/Linux-68k/tree/master/pdp8
+-- VHDL at: 		https://github.com/douggilliland/Retro-Computers/tree/master/PDP-8/PDP8_Book(Almy)
 --
 ----------------------------------------------------------------------------------
 library IEEE;
