@@ -7,9 +7,9 @@
 -- Design Name: 	PDP8
 -- Module Name:   pdp8 - Behavioral 
 -- Project Name: 
--- Target Devices: Altera/Intel EP4CE15
--- Tool versions: Quartus II
--- Description: PDP-8 Project using 4 K words of internal memory. 
+-- Target Devices: Altera/Intel EP2C5
+-- Tool versions: Quartus II Version 13.1 SP1
+-- Description: PDP-8 Project using 4 K words of internal memory
 -- Implemented Firmware as loadable SRAM file
 -- Dependencies: 
 --
@@ -18,9 +18,9 @@
 -- Tom Almy's book
 --		https://www.amazon.com/PDP-8-Class-Project-Resoling-Machine-ebook/dp/B07KY5RCJ7/
 --
--- Additional Comments: Build for RETRO-EP4CE15, using EP4CE15 FPGA
---		http://land-boards.com/blwiki/index.php?title=RETRO-EP4CE15
---		Rus sieve, echo demos.
+-- Additional Comments: Build for EP2C5-DB, using EP2C5-DB FPGA
+--		http://land-boards.com/blwiki/index.php?title=EP2C5-DB
+--		Runs sieve, echo demos
 -- Uses bin2mif.py utility to convert the DEC bin file to Altera MIF file
 --	Software at:	https://github.com/douggilliland/Linux-68k/tree/master/pdp8
 -- VHDL at: 		https://github.com/douggilliland/Retro-Computers/tree/master/PDP-8/PDP8_Book(Almy)
@@ -55,12 +55,30 @@ entity pdp8 is
 		RsRx			: in  STD_LOGIC;
 		RsTx			: out  STD_LOGIC;
 		
+		-- LED pins on the EP2 card
+		LED_D2		: out  STD_LOGIC := '1';
+		LED_D4		: out  STD_LOGIC := '1';
+		LED_D5		: out  STD_LOGIC := '1';
+		
+		-- Not using SRAM but pinning it out and pulling to levels that make SRAM inactive
+		n_sRamWE		: out  STD_LOGIC := '1';
+		n_sRamCS		: out  STD_LOGIC := '1';
+		n_sRamOE		: out  STD_LOGIC := '1';
+		sramAddress	: out  STD_LOGIC_VECTOR (16 downto 0) := "00000000000000000";
+		
+		-- Not using SD card pulling to levels that make SD card inactive
+		sdSCLK		: out  STD_LOGIC := '0';
+		sdMOSI		: out  STD_LOGIC := '0';
+		sdCS			: out  STD_LOGIC := '1';
+		
+		-- Video out XGA
 		o_vid_hSync	: out  STD_LOGIC;
 		o_vid_vSync	: out  STD_LOGIC;
 		o_vid_red	: out  STD_LOGIC_VECTOR (1 downto 0);
 		o_vid_grn	: out  STD_LOGIC_VECTOR (1 downto 0);
 		o_vid_blu	: out  STD_LOGIC_VECTOR (1 downto 0);
 		
+		-- PS/2 keyboard
 		io_ps2Clk	: inout std_logic;
 		io_ps2Data	: inout std_logic
 		);
@@ -302,7 +320,7 @@ begin
 
 	-- Cut the fron panel connection down to bare minimum
 	-- hardcoded start address
-	runLED <= not led(15);
+	runLED <= led(15);
 --	selLEDs <= led(3 downto 0);			-- Select LEDS
 	sw(11 downto 0) <= "000010000000"; 	-- 200 (start address)
 	sw(14 downto 12) <= "000";
