@@ -1,8 +1,8 @@
 --!
---! DE0-Nano PDP-8 Processor
+--! RETRO-EP4CE15 PDP-8 Processor
 --!
 --! \brief
---!      PDP-8 implementation for the DE0-Nano board
+--!      PDP-8 implementation for the RETRO-EP4CE15 board
 --!
 --! \details
 --!
@@ -124,8 +124,24 @@ ENTITY pdp8_top IS
 	 swD11 : IN STD_LOGIC;
 	 sdCD: IN STD_LOGIC;
 	 swCLEAR : IN STD_LOGIC;
-	 swWP : IN STD_LOGIC
+	 swWP : IN STD_LOGIC;
+	 
+		-- Not using the External SRAM but making sure that it's not active
+		sramData		: inout std_logic_vector(7 downto 0) := "ZZZZZZZZ";
+		sramAddress	: out std_logic_vector(19 downto 0) := x"00000";
+		n_sRamWE		: out std_logic :='1';
+		n_sRamCS		: out std_logic :='1';
+		n_sRamOE		: out std_logic :='1';
 
+		-- Not using the SD RAM but making sure that it's not active
+		n_sdRamCas	: out std_logic := '1';		-- CAS on schematic
+		n_sdRamRas	: out std_logic := '1';		-- RAS
+		n_sdRamWe	: out std_logic := '1';		-- SDWE
+		n_sdRamCe	: out std_logic := '1';		-- SD_NCS0
+		sdRamClk		: out std_logic := '1';		-- SDCLK0
+		sdRamClkEn	: out std_logic := '1';		-- SDCKE0
+		sdRamAddr	: out std_logic_vector(14 downto 0) := "000"&x"000";
+		sdRamData	: in std_logic_vector(15 downto 0)
     );
 END pdp8_top;
 
