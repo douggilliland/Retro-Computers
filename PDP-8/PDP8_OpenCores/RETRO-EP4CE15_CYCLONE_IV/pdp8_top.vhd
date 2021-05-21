@@ -12,6 +12,7 @@
 --! \author
 --!    Joe Manojlovich - joe.manojlovich (at) gmail (dot) com
 --!
+--!	Doug Gilliland - adapted to EP4CE15 card
 --------------------------------------------------------------------
 --
 --  Copyright (C) 2012 Joe Manojlovich
