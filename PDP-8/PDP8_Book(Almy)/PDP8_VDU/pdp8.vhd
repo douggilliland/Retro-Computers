@@ -41,7 +41,24 @@ use IEEE.STD_LOGIC_1164.ALL;
 entity pdp8 is
 	Port (
 		clk			: in  STD_LOGIC;
-		--sw			: in STD_LOGIC_VECTOR(15 downto 0);
+		
+		pbDISP		: in  STD_LOGIC;
+		pbSTEP		: in  STD_LOGIC;
+		pbLDPC		: in  STD_LOGIC;
+		pbDEP			: in  STD_LOGIC;
+		pbLDA			: in  STD_LOGIC;
+		pbRES			: in  STD_LOGIC;
+		pbPB1			: in  STD_LOGIC;
+
+		dispPCLED	: out  STD_LOGIC;
+		dispMADRLED	: out  STD_LOGIC;
+		dispMDLED	: out  STD_LOGIC;
+		dispACLED	: out  STD_LOGIC;
+		dispLINKLED	: out  STD_LOGIC;
+		dispRUNLED	: out  STD_LOGIC;
+		
+		swIN			: in STD_LOGIC_VECTOR(11 downto 0);
+		ledsOUT		: out STD_LOGIC_VECTOR(11 downto 0);
 		runSwitch	: in std_logic;		-- Run switch
 		btnCpuReset	: in std_logic;		-- reset button
 --		btnc			: in std_logic;		-- display select button
@@ -49,6 +66,7 @@ entity pdp8 is
 --		btnr			: in std_logic;		-- load AC button
 --		btnd			: in std_logic;		-- deposit button--
 --		btnl			: in std_logic;		-- load PC button
+
 		-- Outs
 		runLED		: out  STD_LOGIC;									-- led 15 is Running light
 --		selLEDs		: out  STD_LOGIC_VECTOR (3 downto 0);		-- 3 to 0 is display selection
@@ -283,6 +301,9 @@ architecture Behavioral of pdp8 is
 	signal w_funKeys			: std_logic_vector(12 downto 0);
 
 	signal w_VDUDataOut		: std_logic_vector(7 downto 0);
+	
+	signal swLed				: std_logic_vector(11 downto 0);
+	signal LBPBLed				: std_logic_vector(5 downto 0);
 
 --attribute syn_keep: boolean;
 --attribute syn_keep of address			: signal is true;
@@ -299,6 +320,33 @@ architecture Behavioral of pdp8 is
 
 -- System reset
 begin
+
+	swLed <= swIN;
+	ledsOUT <= 	swLed;
+	
+		
+--	pbDISP		: in  STD_LOGIC;
+--	pbSTEP		: in  STD_LOGIC;
+--	pbLDPC		: in  STD_LOGIC;
+--	pbDEP			: in  STD_LOGIC;
+--	pbLDA			: in  STD_LOGIC;
+--	pbRES			: in  STD_LOGIC;
+--	pbPB1			: in  STD_LOGIC;
+--
+--	dispPCLED	: out  STD_LOGIC;
+--	dispMADRLED	: out  STD_LOGIC;
+--	dispMDLED	: out  STD_LOGIC;
+--	dispACLED	: out  STD_LOGIC;
+--	dispLINKLED	: out  STD_LOGIC;
+--	dispRUNLED	: out  STD_LOGIC;
+	
+	LBPBLed <= pbDISP&pbSTEP&pbLDPC&pbDEP&pbLDA&pbRES;
+	dispMADRLED		<= not LBPBLed(4);
+	dispPCLED		<= not LBPBLed(5);
+	dispMDLED		<= not LBPBLed(3);
+	dispACLED		<= not LBPBLed(2);
+	dispLINKLED		<= not LBPBLed(1);
+	dispRUNLED		<= not LBPBLed(0);
 
 	-- Cut the fron panel connection down to bare minimum
 	-- hardcoded start address
