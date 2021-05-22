@@ -41,26 +41,40 @@ use IEEE.STD_LOGIC_1164.ALL;
 entity pdp8 is
 	Port (
 		clk			: in  STD_LOGIC;
-		sw			 	: in STD_LOGIC_VECTOR(12 downto 0);
+		sw			 	: in STD_LOGIC_VECTOR(11 downto 0);
+		
+		--
 		runSwitch	: in std_logic;		-- Run switch
+		lnkSwitch	: in std_logic;		-- Link switch
 		btnCpuReset	: in std_logic;		-- reset button
-		btnc			: in std_logic;		-- display select button
-		btnu			: in std_logic;		-- step button
-		btnr			: in std_logic;		-- load AC button
-		btnd			: in std_logic;		-- deposit button--
-		btnl			: in std_logic;		-- load PC button
+		dispPB		: in std_logic;		-- display select button (btnc)
+		stepPB		: in std_logic;		-- step button (btnu)
+		ldACPB		: in std_logic;		-- load AC button (btnr)
+		depPB			: in std_logic;		-- deposit button (btnd)
+		ldPCPB		: in std_logic;		-- load PC button (btnl)
+		
 		-- Outs
 		runLED		: out  STD_LOGIC;									-- led 15 is Running light
-		selLEDs		: out  STD_LOGIC_VECTOR (3 downto 0);		-- 3 to 0 is display selection
+		-- selLEDs		: out  STD_LOGIC_VECTOR (3 downto 0);		-- 3 to 0 is display selection
+		dispPCLED	: out  STD_LOGIC;
+		dispMALED	: out  STD_LOGIC;
+		dispMDLED	: out  STD_LOGIC;
+		dispACLED	: out  STD_LOGIC;
+		dispLEDs		: out  STD_LOGIC_VECTOR (11 downto 0);
+		linkLED		: out  STD_LOGIC := '0';
+		
+		-- Serial
 		RsRx			: in  STD_LOGIC;
 		RsTx			: out  STD_LOGIC;
 		
+		-- XGA
 		o_vid_hSync	: out  STD_LOGIC;
 		o_vid_vSync	: out  STD_LOGIC;
 		o_vid_red	: out  STD_LOGIC_VECTOR (1 downto 0);
 		o_vid_grn	: out  STD_LOGIC_VECTOR (1 downto 0);
 		o_vid_blu	: out  STD_LOGIC_VECTOR (1 downto 0);
 		
+		-- PA/2 Kbd
 		io_ps2Clk	: inout std_logic;
 		io_ps2Data	: inout std_logic
 		);
@@ -220,6 +234,7 @@ architecture Behavioral of pdp8 is
 	signal reset : std_logic;
 
 	-- Fake out inputs from front panel
+--	signal swX					: std_logic_vector(15 downto 0);
 	signal swX			: std_logic_vector(15 downto 0);	-- SW 15 is Run/Stop. 
 																		-- SW 12 loads link with load AC button (eventually)
 																		-- SW 11 to SW 0 is Switch Register
@@ -237,10 +252,11 @@ architecture Behavioral of pdp8 is
 	signal loadac		: std_logic := '0'; -- added
 	signal step			: std_logic := '0';
 	signal deposit		: std_logic := '0';
-	signal led			: std_logic_vector(15 downto 0);
+	-- signal led			: std_logic_vector(15 downto 0);
 
 	-- CPU to Panel
 	signal dispout		: std_logic_vector(11 downto 0);
+	-- signal dispLEDs	: std_logic_vector(11 downto 0);
 	signal linkout		: std_logic;
 	signal halt			: std_logic;
 	-- CPU to IOT_Distributor
@@ -283,6 +299,7 @@ architecture Behavioral of pdp8 is
 	signal w_funKeys			: std_logic_vector(12 downto 0);
 
 	signal w_VDUDataOut		: std_logic_vector(7 downto 0);
+	signal led					: std_logic_vector(15 downto 0);
 
 --attribute syn_keep: boolean;
 --attribute syn_keep of address			: signal is true;
@@ -302,10 +319,19 @@ begin
 
 	-- Cut the fron panel connection down to bare minimum
 	-- hardcoded start address
-	runLED <= not led(15);
---	selLEDs <= led(3 downto 0);			-- Select LEDS
+	runLED <= led(15);
 --	sw(11 downto 0) <= "000010000000"; 	-- 200 (start address)
-	swX <= runSwitch&"00"&sw;
+	swX <= runSwitch&"00"&lnkSwitch&sw;
+--	selLEDs <= led(1)&led(2)&led(3)&led(0);			-- Select LEDS
+--	dispout <= pc_reg			when dispsel = "00" else
+--	           ac_reg			when dispsel = "01" else
+--				  hidden_reg	when dispsel = "10" else
+--				  mq_reg;
+	dispPCLED <= led(3);
+	dispACLED <= led(2);
+	dispMALED <= led(1);
+	dispMDLED <= led(0);
+	dispLEDs <= dispout;
 	
 	Inst_IOT_Distributor: IOT_Distributor PORT MAP(
 		ready_3		=> ready_3,
@@ -335,11 +361,11 @@ begin
 		linkout		=> linkout,
 		halt			=> halt,
 		sw 			=> swX,
-		btnc			=> btnc,
-		btnu			=> btnu,
-		btnd			=> btnd,
-		btnl			=> btnl,
-		btnr			=> btnr,
+		btnc			=> dispPB,
+		btnu			=> stepPB,
+		btnd			=> depPB,
+		btnl			=> ldPCPB,
+		btnr			=> ldACPB,
 		btnCpuReset => btnCpuReset,
 		--
 		swreg			=> swreg,
