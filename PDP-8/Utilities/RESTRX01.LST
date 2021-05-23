@@ -1,0 +1,383 @@
+    1             / RX01 RESTORE
+    2             / This program will receive a RX01 image and write it to the disk.  The
+    3             / entire disk it written, with a  reread check when done writing.
+    4             / See dump for the format of the serial data.
+    5             / To run start at 0200.
+    6             /    SR9-11 shoulb be srive number
+    7             / Should halt at label GDHLT with AC = 0 if it worked.
+    8             / At normal exit hitting cont will restart the program
+    9             
+   10       6751          LCD=6751        / Load the command reg with AC
+   11       6752          XDR=6752        / Load or read the transfer register
+   12       6753          STR=6753        / Skip on transfer request flag
+   13       6754          SER=6754        / Skip on error flag
+   14       6755          SDN=6755        / Skip on done flag
+   15       6756          INTR=6756       / AC = 0 interrupt off, 1 = on
+   16       6757          INIT=6757       / Initialize RX8/RX01
+   17             
+   18       0030          INAD=030                / Address of serial input, 30 for console
+   19       6030          KCF2=6000 INAD
+   20       6031          KSF2=6001 INAD
+   21       6032          KCC2=6002 INAD
+   22       6034          KRS2=6004 INAD
+   23       6035          KIE2=6005 INAD
+   24       6036          KRB2=6006 INAD
+   25             
+   26       0040          OUTAD=040               / Address of serial output, 40 for console
+   27       6040          TFL2=6000 OUTAD
+   28       6041          TSF2=6001 OUTAD
+   29       6042          TCF2=6002 OUTAD
+   30       6044          TPC2=6004 OUTAD
+   31       6045          TSK2=6005 OUTAD
+   32       6046          TLS2=6006 OUTAD
+   33             
+   34       0010          *10
+   35 00010 7777  WRTLOC, 7777            / Address to write data to disk, auto inc
+   36 00011 7777  BUFLOC, 7777            / Address to store next word received
+   37             
+   38       0020          *20
+   39 00020 0000  DRIVE,  0               / Drive # * 2
+   40 00021 0060  DRVMSK, 60              / Mask for drive bits
+   41 00022 0000  DONEFG, 0               / Set to one when fe end of data flag rx
+   42 00023 0104  WRCMD,  104             / 8 bit write
+   43 00024 0100  FILCMD, 100             / 8 bit fill buffer
+   44 00025 0106  RDCMD,106               / 8 bit read
+   45 00026 0102  EMPCMD, 102             / 8 bit empty buffer
+   46 00027 0116  RDERR,  116             / 8 bit read error
+   47 00030 0000  TRACK,  0
+   48 00031 0000  SECT,   0
+   49 00032 0000  SCNT,   0
+   50 00033 0000  NUMSEC, 0               / Number of sectors received but not written
+   51 00034 0037  K37,    37
+   52 00035 0377  K377,   377
+   53 00036 7777  KN1,    7777
+   54 00037 7746  M32,    -32
+   55 00040 7663  M115,   -115
+
+
+
+      CHKSUM, 0                                                           Page 1
+
+
+   56 00041 0000  CHKSUM, 0
+   57 00042 0000  TEMP,   0
+   58 00043 0000  STATE,  0               / Where in serial data we are 0 = Need ff sector head,
+   59                                     /  -1 = byte1, ... -3 = byte 3
+   60 00044 0000  BUFCNT, 0               / Count of words received in sector
+   61 00045 0000  ISRAC,  0
+   62 00046 0000  ISRFLG, 0
+   63 00047 1000  RISR,   ISR
+   64                     DECIMAL
+   65 00050 7576  NBLKSZ, -130            / 128 words + track and sector number
+   66                     OCTAL
+   67 00051 0400  WRITEF, WRITE
+   68 00052 0600  FREREAD,REREAD
+   69 00053 0200  STARTF, START
+   70             
+   71       0001          *1
+   72 00001 5447          JMP I RISR      / Interrupt handler
+   73             
+   74       0200          *200
+   75 00200 6201  START,  CDF 0           / Init all our variables
+   76 00201 6007          CAF
+   77 00202 7704          CLA CLL OSR     / Init variables changed during run
+   78 00203 7006          RTL
+   79 00204 7006          RTL
+   80 00205 0021          AND DRVMSK
+   81 00206 3020          DCA DRIVE
+   82 00207 3022          DCA DONEFG
+   83 00210 3041          DCA CHKSUM
+   84 00211 3043          DCA STATE
+   85 00212 7040          CMA
+   86 00213 3010          DCA WRTLOC
+   87 00214 7040          CMA
+   88 00215 3011          DCA BUFLOC
+   89 00216 3033          DCA NUMSEC
+   90 00217 1037          TAD M32
+   91 00220 3032          DCA SCNT
+   92 00221 6001          ION             / Turn on serial interrupt handler
+   93 00222 7301          CLA CLL IAC     / Set bit 11 to enable interrupts
+   94 00223 6035          KIE2
+   95 00224 6036          KRB2
+   96             /       RPE             / Testing, use PTR with emulator
+   97             /       RFC
+   98 00225 7300  RECAL,  CLA CLL
+   99 00226 6757          INIT
+  100 00227 6755          SDN            / Done?
+  101 00230 5227          JMP .-1
+  102 00231 5451          JMP I WRITEF
+  103             
+  104                     PAGE
+  105 00400 7300  WRITE,  CLA CLL
+
+
+
+      CHKSUM, 0                                                           Page 2
+
+
+  106 00401 6002          IOF             / Turn off interrupts so we can safely update
+  107 00402 7200          CLA             / # of sectors in buffer
+  108 00403 1033          TAD NUMSEC
+  109 00404 7450          SNA
+  110 00405 5211          JMP NODAT
+  111 00406 1036          TAD KN1
+  112 00407 3033          DCA NUMSEC
+  113 00410 7001          IAC
+  114 00411 6001  NODAT,  ION
+  115 00412 7440          SZA
+  116 00413 5221          JMP WRSEC
+  117 00414 7040          CMA
+  118 00415 1022          TAD DONEFG      / All data rx
+  119 00416 7440          SZA
+  120 00417 5200          JMP WRITE       / no
+  121 00420 5314          JMP DONE        / yes
+  122             
+  123 00421 7300  WRSEC,  CLA CLL         / We have one waiting, write it
+  124 00422 6211          CDF 10
+  125 00423 1410          TAD I WRTLOC
+  126 00424 3030          DCA TRACK
+  127 00425 1410          TAD I WRTLOC
+  128 00426 6201          CDF 0
+  129 00427 3031          DCA SECT
+  130 00430 1024          TAD FILCMD
+  131 00431 6751          LCD             / Do fill buffer command
+  132 00432 6211          CDF 10
+  133 00433 6753  LOOP,   STR
+  134 00434 7410          SKP
+  135 00435 5253          JMP FILL
+  136 00436 6755          SDN             / All Done?
+  137 00437 5233          JMP LOOP        / No
+  138 00440 6754          SER             / Any errors
+  139 00441 5257          JMP WRTIT       / No
+  140             
+  141 00442 6752          XDR             / Yes, leave error in AC and halt
+  142 00443 7402          HLT             
+  143 00444 7200          CLA
+  144 00445 1027          TAD RDERR
+  145 00446 6751          LCD
+  146 00447 6755          SDN
+  147 00450 5247          JMP .-1
+  148 00451 6752          XDR
+  149 00452 7402          HLT             
+  150             
+  151 00453 1410  FILL,   TAD I WRTLOC
+  152 00454 6752          XDR
+  153 00455 7200          CLA
+  154 00456 5233          JMP LOOP
+  155             
+
+
+
+      CHKSUM, 0                                                           Page 3
+
+
+  156 00457 7300  WRTIT,  CLA CLL
+  157 00460 1023          TAD WRCMD
+  158 00461 1020          TAD DRIVE
+  159 00462 6751          LCD
+  160 00463 6753          STR
+  161 00464 5263          JMP .-1
+  162 00465 1031          TAD SECT
+  163 00466 6752          XDR
+  164 00467 6753          STR
+  165 00470 5267          JMP .-1
+  166 00471 7200          CLA
+  167 00472 1030          TAD TRACK
+  168 00473 6752          XDR
+  169             
+  170 00474 6755          SDN             / Done?
+  171 00475 5274          JMP .-1
+  172 00476 7200          CLA
+  173 00477 6754          SER             / Any errors
+  174 00500 5312          JMP NEXT        / No
+  175             
+  176 00501 6752          XDR             / Yes, leave error in AC and halt
+  177 00502 7402          HLT
+  178 00503 7200          CLA
+  179 00504 1027          TAD RDERR
+  180 00505 6751          LCD
+  181 00506 6755          SDN
+  182 00507 5306          JMP .-1
+  183 00510 6752          XDR
+  184 00511 7402          HLT
+  185             
+  186 00512 7300  NEXT,   CLA CLL
+  187 00513 5200          JMP WRITE
+  188             
+  189 00514 7300  DONE,   CLA CLL         / Done, wait for one more byte
+  190 00515 1010          TAD WRTLOC
+  191 00516 7001          IAC
+  192 00517 7041          CIA
+  193 00520 1011          TAD BUFLOC      / Not the best way to handle it, should use
+  194 00521 7440          SZA
+  195 00522 5314          JMP DONE
+  196 00523 1041          TAD CHKSUM
+  197 00524 0035          AND K377
+  198 00525 7440          SZA
+  199 00526 7402          HLT             / Stop if checksum wrong
+  200 00527 5452          JMP I FREREAD
+  201             
+  202                     PAGE
+  203 00600 7201  REREAD, CLA IAC         / Reread disk to check for errors
+  204 00601 3031          DCA SECT
+  205 00602 3030          DCA TRACK
+
+
+
+      CHKSUM, 0                                                           Page 4
+
+
+  206 00603 3041          DCA CHKSUM
+  207             
+  208 00604 7300  RDCHK,  CLA CLL         / Standard read from manual
+  209 00605 1030          TAD TRACK
+  210 00606 1031          TAD SECT
+  211 00607 1035          TAD K377
+  212 00610 1041          TAD CHKSUM
+  213 00611 3041          DCA CHKSUM
+  214 00612 1025          TAD RDCMD
+  215 00613 1020          TAD DRIVE
+  216 00614 6751          LCD
+  217 00615 6753          STR
+  218 00616 5215          JMP .-1
+  219 00617 1031          TAD SECT
+  220 00620 6752          XDR
+  221 00621 6753          STR
+  222 00622 5221          JMP .-1
+  223 00623 7200          CLA
+  224 00624 1030          TAD TRACK
+  225 00625 6752          XDR
+  226             
+  227 00626 6755          SDN            / Done?
+  228 00627 5226          JMP .-1
+  229 00630 7200          CLA
+  230 00631 6754          SER            / Any errors
+  231 00632 7410          SKP
+  232 00633 5312          JMP ERROR
+  233 00634 7300          CLA CLL
+  234 00635 1026          TAD EMPCMD
+  235 00636 6751          LCD
+  236 00637 6753  ELOOP,  STR
+  237 00640 7410          SKP
+  238 00641 5247          JMP EMPTY
+  239 00642 6755          SDN
+  240 00643 5237          JMP ELOOP
+  241 00644 6754          SER
+  242 00645 5253          JMP GOOD
+  243 00646 7402          HLT
+  244 00647 6752  EMPTY,  XDR
+  245 00650 1041          TAD CHKSUM
+  246 00651 3041          DCA CHKSUM
+  247 00652 5237          JMP ELOOP
+  248             
+  249 00653 7305  GOOD,   CLA CLL IAC RAL / LOAD 2
+  250 00654 2032          ISZ SCNT
+  251 00655 7410          SKP
+  252 00656 5270          JMP NXTTRK
+  253 00657 1031          TAD SECT
+  254 00660 3031          DCA SECT
+  255 00661 1031          TAD SECT
+
+
+
+      CHKSUM, 0                                                           Page 5
+
+
+  256 00662 1037          TAD M32
+  257 00663 7550          SPA SNA
+  258 00664 5204          JMP RDCHK
+  259 00665 7001          IAC
+  260 00666 3031          DCA SECT
+  261 00667 5204          JMP RDCHK
+  262 00670 7201  NXTTRK, CLA IAC
+  263 00671 3031          DCA SECT
+  264 00672 1037          TAD M32
+  265 00673 3032          DCA SCNT
+  266 00674 2030          ISZ TRACK
+  267 00675 1030          TAD TRACK
+  268 00676 1040          TAD M115
+  269 00677 7440          SZA
+  270 00700 5204          JMP RDCHK
+  271 00701 7240          CLA CMA
+  272 00702 1035          TAD K377        / fe at end before checksum
+  273 00703 1041          TAD CHKSUM
+  274 00704 6211          CDF 10
+  275 00705 1410          TAD I WRTLOC    / received checksum
+  276 00706 6201          CDF 0
+  277 00707 0035          AND K377
+  278 00710 7402  GDHLT,  HLT
+  279 00711 5453          JMP I STARTF
+  280             
+  281 00712 6752  ERROR,  XDR            / Yes, leave error in AC and halt
+  282 00713 7402          HLT
+  283 00714 7200          CLA
+  284 00715 1027          TAD RDERR
+  285 00716 6751          LCD
+  286 00717 6755          SDN
+  287 00720 5317          JMP .-1
+  288 00721 6752          XDR
+  289 00722 7402          HLT
+  290             
+  291             
+  292                     PAGE
+  293             ISR,
+  294 01000 3045          DCA ISRAC       / Save AC
+  295 01001 6004          GTF
+  296 01002 3046          DCA ISRFLG      / And flags
+  297 01003 6211          CDF 10          / Buffer in field 1
+  298 01004 6031          KSF2            / Have character waiting
+  299             /       RSF             / Testing, use PTR with emulator
+  300 01005 5233          JMP IRET        / No, not our interrupt
+  301 01006 7200          CLA
+  302 01007 6036          KRB2            / Get character
+  303             /       RRB RFC         / PTR
+  304 01010 3042          DCA TEMP
+  305 01011 1041          TAD CHKSUM
+
+
+
+      CHKSUM, 0                                                           Page 6
+
+
+  306 01012 1042          TAD TEMP
+  307 01013 3041          DCA CHKSUM
+  308 01014 1043          TAD STATE       / Find out where in sequence we are
+  309 01015 7450          SNA
+  310 01016 5241          JMP SBLK        / Start of block
+  311 01017 7200          CLA             / data byte
+  312 01020 1042          TAD TEMP
+  313 01021 3411          DCA I BUFLOC
+  314 01022 2044          ISZ BUFCNT
+  315 01023 5233          JMP IRET
+  316 01024 3043          DCA STATE       / End of sector, set to 0 to check header byte
+  317 01025 2033          ISZ NUMSEC      / Inc number of sectors buffered
+  318 01026 1034          TAD K37
+  319 01027 7041          CIA
+  320 01030 1033          TAD NUMSEC
+  321 01031 7450          SNA
+  322 01032 7402          HLT             / To many buffered, halt.  Must of had to many
+  323                                     / retries in a row
+  324 01033 7200  IRET,   CLA
+  325 01034 1046          TAD ISRFLG
+  326 01035 6005          RTF
+  327 01036 7200          CLA
+  328 01037 1045          TAD ISRAC
+  329 01040 5400          JMP I 0
+  330 01041 1035  SBLK,   TAD K377
+  331 01042 7041          CIA
+  332 01043 1042          TAD TEMP        / Is is a ff?
+  333 01044 7450          SNA
+  334 01045 5252          JMP FLAGOK      / Yes
+  335 01046 7001          IAC             / Is it a fe?
+  336 01047 7440          SZA
+  337 01050 7402          HLT             / No, halt
+  338 01051 2022          ISZ DONEFG      / All data received
+  339 01052 7240  FLAGOK, STA             / -1 for byte 1
+  340 01053 3043          DCA STATE
+  341 01054 1050          TAD NBLKSZ      / And setup to look for blocksize words
+  342 01055 3044          DCA BUFCNT
+  343 01056 5233          JMP IRET
+  344             
+  345                     $
+
+      No detected errors

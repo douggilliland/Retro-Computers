@@ -1,0 +1,362 @@
+/ RX01 DUMP
+/ This program will send a RX01 image out the console port.
+/ The format of the data sent is 0xff (0377) if no errors, or 0xfd
+/ if error followed by 1 byte track, 1 byte sector, then 128 word
+/ of data for each sector.  After the last sector a 0xfe (0376) is sent
+/ with a one byte -checksum of all bytes sent.
+/ The data is read in 8 bit mode so all data on the disk is dumped.
+/ To run start at 0200.
+/    SR 10-11 should be drive #
+/ Should halt at HLT at label GDHLT with number of recoverable errors
+/ At normal exit hitting cont will restart the program
+/
+/ If unrecoverable errors occur the program will halt, hit continue to 
+/ send bad sector and continue.
+/ The PC program will print out the bad location
+/
+/ Program uses field 0 & 1.  1 is transmit buffer
+
+	LCD=6751	/ Load the command reg with AC
+	XDR=6752	/ Load or read the transfer register
+	STR=6753	/ Skip on transfer request flag
+	SER=6754	/ Skip on error flag
+	SDN=6755	/ Skip on done flag
+	INTR=6756	/ AC = 0 interrupt off, 1 = on
+	INIT=6757	/ Initialize RX8/RX01
+
+	INAD=030		/ Address of serial input, 30 for console
+	KCF2=6000 INAD
+	KSF2=6001 INAD
+	KCC2=6002 INAD
+	KRS2=6004 INAD
+        KIE2=6005 INAD
+	KRB2=6006 INAD
+
+	OUTAD=040		/ Address of serial output, 40 for console
+	TFL2=6000 OUTAD
+	TSF2=6001 OUTAD
+	TCF2=6002 OUTAD
+	TPC2=6004 OUTAD
+	TSK2=6005 OUTAD
+	TLS2=6006 OUTAD
+
+	*10
+BUFGET,	0
+BUFPUT,	0
+        *20
+ERRCNT, 7760            / Stop when err count = 0, init at startup
+DRIVE,  0               / Drive # * 20
+DRVMSK, 60		/ Mask for drive bits
+INTLV,	2		/ Interleave factor for read, 13 (15 octal) wont work
+ERRCN2,	0		/ Total # of errors
+RDCMD,106		/ 8 bit read
+EMPCMD,	102		/ 8 bit empty buffer
+RDERR,	116		/ 8 bit read error
+M32,	-32
+M115,	-115
+K0037,	37
+TRACK,  0
+SECT,	0
+SCNT,	0
+LTRACK,	0
+LSECT,	0
+CURBUF, 1000            / Address to read data into
+LSTBUF, 1000            / Address to send data from
+BUFORG, 1000            / First buffer address
+BUFSZ,  400
+LOC,    0
+LOC2,   0
+TEMP,   0
+MASK1,  17
+MASK2,  360
+FF,     377
+FE,     376
+FD,	375
+CHKSUM, 0
+IDLEFG,	0
+        DECIMAL
+BLKSZ,  -128
+        OCTAL
+ISRAC,  0
+ISRFLG, 0
+LEN,    0
+READST,	377
+PUNF,   PUN
+SENDF,  SEND
+READF,	READ
+FINCTRK,INCTRK
+RISR,   ISR
+
+        *1
+        JMP I RISR      / Interrupt handler
+
+        *1000
+        1234
+        4321
+
+        *200
+START,	CAF
+        CLA CLL OSR	/ Init variables changed during run
+	RTL
+	RTL
+	AND DRVMSK
+	DCA DRIVE
+        DCA TRACK
+	DCA BUFGET
+	DCA BUFPUT
+	IAC
+	DCA SECT
+	IAC
+	DCA IDLEFG
+        DCA CHKSUM
+        TAD MASK1
+        CMA
+        DCA ERRCNT
+	DCA ERRCN2
+	TAD M32
+	DCA SCNT
+        ION             / Turn on serial interrupt handler
+	CLA CLL IAC	/ Set bit 11 to enable interrupts
+	KIE2
+/	RPE             / Testing, use PTP with emulator
+	JMS RECAL
+
+DUMP,   JMS I READF	/ Start read operation
+DMPLP,  JMS CHKRD	/ Wait until done and check for errors
+	CLA
+	TAD TRACK
+	DCA LTRACK
+	TAD SECT
+	DCA LSECT
+        JMS I FINCTRK	/ Set read loc to next sector
+        SZA
+        JMP LAST        / Last, send checksum
+        CLA
+        TAD CURBUF
+        DCA LSTBUF      / Save buffer data read into for dumping
+        TAD CURBUF      / And setup to read into next buffer
+        TAD BUFSZ
+        AND BUFSZ
+        TAD BUFORG
+        DCA CURBUF
+        JMS I READF     / Start the read
+        JMS I SENDF     / Send the last buffer
+        JMP DMPLP       / And check read started etc
+
+RECAL,  0
+	INIT
+        SDN            / Done?
+        JMP .-1
+	JMP I RECAL
+        		/JMP DUMP
+BADSTA, HLT
+
+LAST,   CLA             / Send FE and -checksum of all words
+        TAD CURBUF
+        DCA LSTBUF
+        JMS I SENDF
+        CLA CLL
+        TAD FE
+        JMS I PUNF
+        CLA CLL
+        TAD CHKSUM
+        CIA
+        JMS I PUNF
+WAITEM,	CLA
+	TAD BUFGET
+	CIA
+	TAD BUFPUT
+	SZA		/ No character waiting to send
+	JMP WAITEM
+        TAD ERRCN2      / Leave AC with # of errors
+GDHLT,	HLT		/ Normal halt
+	JMP START
+
+CHKRD,  0
+	CLA CLL
+	TAD FF		/ Set good read flag
+	DCA READST
+        SDN            / Done?
+        JMP .-1
+	CLA
+        SER            / Any errors
+	SKP
+        JMP ERROR
+        CLA CLL     
+        TAD CURBUF
+        DCA LOC2
+	TAD EMPCMD
+	LCD
+ELOOP,	STR
+	SKP
+	JMP EMPTY
+	SDN	
+	JMP ELOOP
+	SER
+	JMP GOOD
+/	JMP ERROR	
+	HLT
+GOOD,	TAD MASK1	/ Reset error counter on good read
+        CMA
+        DCA ERRCNT
+	JMP I CHKRD
+EMPTY,	XDR
+	DCA I LOC2
+	ISZ LOC2
+	JMP ELOOP
+		
+        JMP I CHKRD	/ Not executed????
+
+ERROR,  ISZ ERRCN2	/ Inc total # of errors
+	ISZ ERRCNT      / To many errors?
+	JMP RETRY
+        XDR            / Yes, leave error in AC and halt
+        HLT             / ********* Remove halt to go past errors
+	CLA
+	TAD RDERR
+	LCD
+	SDN
+	JMP .-1
+	XDR	
+	HLT		/ ****** to here
+	JMS RECAL
+	CLA CLL
+	TAD FD		/ Set bad read flag
+	DCA READST
+        TAD MASK1
+        CMA
+        DCA ERRCNT
+        JMP I CHKRD
+RETRY,  
+	JMS RECAL       / No, recal drive and try again
+	JMP DUMP	/
+
+
+        PAGE
+INCTRK, 0               / Increment track and exbit value for next sector
+        CLA CLL         / AC non zero on return if done
+	ISZ SCNT
+	SKP
+	JMP INC2
+	TAD SECT
+	TAD INTLV
+	DCA SECT
+	TAD SECT
+	TAD M32
+        SPA SNA
+        JMP RETINC
+	DCA SECT
+	CMA
+	TAD SECT
+	SNA
+	ISZ SECT
+RETINC,	CLA
+	JMP I INCTRK
+INC2,	CLA IAC
+	DCA SECT
+	TAD M32
+	DCA SCNT
+	ISZ TRACK
+	TAD TRACK
+        TAD M115
+        SZA
+	JMP RETINC
+	CLA IAC
+        JMP I INCTRK
+
+READ,   0
+        CLA CLL 	/ Standard read from manual
+	TAD RDCMD
+	TAD DRIVE
+	LCD
+	STR
+	JMP .-1
+	TAD SECT
+	XDR
+	STR
+	JMP .-1
+	CLA
+	TAD TRACK
+	XDR
+        JMP I READ
+
+SEND,   0              
+        CLA CLL         
+        TAD LSTBUF
+        DCA LOC
+        TAD BLKSZ
+        DCA LEN
+        CLA CLL
+        TAD READST
+        JMS PUN
+	TAD LTRACK
+	JMS PUN
+	TAD LSECT
+	JMS PUN	
+OUT,    CLA CLL
+        TAD I LOC
+        JMS PUN
+        ISZ LOC
+        ISZ LEN
+        JMP OUT
+        JMP I SEND
+
+PUN,    0
+	DCA TEMP
+PUNLP,	TAD BUFPUT	/ Room for another character?
+	IAC
+	CIA
+	TAD BUFGET
+	SNA
+	JMP PUNLP	/ No, try again
+	CLA
+	TAD TEMP
+	CDF 10
+	DCA I BUFPUT
+	TAD TEMP
+	AND FF
+	TAD CHKSUM
+	DCA CHKSUM
+	IOF
+	TAD IDLEFG
+	SNA
+	JMP PUNOK
+	CLA
+	DCA IDLEFG
+	TAD I BUFGET
+	TLS2            / Send character
+/	PLS		/ PTP
+PUNOK,	ION
+	CLA
+	CDF 0
+        JMP I PUN
+
+        PAGE
+ISR,	DCA ISRAC       / Save AC
+        GTF
+        DCA ISRFLG      / And flags
+        CDF 10          / Buffer in field 1
+	TSF2            / Ready to send
+/	PSF		/ PTP
+        JMP IRET        / No, not our interrupt
+	TAD BUFGET
+	CIA
+	TAD BUFPUT
+	SNA		/ No character waiting to send
+	JMP IEMPTY
+        CLA
+	TAD I BUFGET
+	TLS2            / Send character
+/	PLS		/ PTP
+IRET,   CLA
+        TAD ISRFLG
+        RTF
+        CLA
+        TAD ISRAC
+        JMP I 0
+IEMPTY,	CLA IAC
+	DCA IDLEFG
+	TCF2		/ Clear interrupt
+/	PCF		/ PTP
+	JMP IRET
+        $

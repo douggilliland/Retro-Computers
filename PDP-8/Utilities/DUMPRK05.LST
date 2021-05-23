@@ -1,0 +1,324 @@
+    1             / RK05 DUMP Program
+    2             / This program will send a RK05 image out the console port.
+    3             / The format of the data sent is 0xff (0377) or 0xfd if read error
+    4             / followed by 256 word  of data for each sector.  
+    5             / After the last sector a 0xfe (0376) is sent
+    6             / with a two byte checksum, low 8 bits first then upper 4.
+    7             / The words in a sector are sent as three bytes for each 2 words.
+    8             /   1 = low 8 bits first word
+    9             /   2 = upper 4 bits first and lower 4 bits second
+   10             /   3 = upper 8 bits second word
+   11             / To run start at 0200.
+   12             /    The SR should have the drive # is 9-11
+   13             / Should halt at label finish with number of recoverable errors in AC
+   14             / At normal exit hitting cont will restart the program
+   15             / The current location being read will be displayed in the AC
+   16             / while running.  It is (cylinder * 16 + sector) / 2
+   17             
+   18             / If a unrecoverable error occurs the program will halt with the error in
+   19             / the AC.  Hit continue to dump more or comment out hlt, search for *****.
+   20             / The PC program will print out the bad location if an error occurs
+   21             
+   22       6741          DSKP=6741
+   23       6742          DCLR=6742
+   24       6743          DLAG=6743
+   25       6744          DLCA=6744
+   26       6745          DRST=6745
+   27       6746          DLDC=6746
+   28             
+   29       0030          INAD=030                / Address of serial input, 30 for console
+   30       6030          KCF2=6000 INAD
+   31       6031          KSF2=6001 INAD
+   32       6032          KCC2=6002 INAD
+   33       6034          KRS2=6004 INAD
+   34       6035          KIE2=6005 INAD
+   35       6036          KRB2=6006 INAD
+   36             
+   37       0040          OUTAD=040               / Address of serial output, 40 for console
+   38       6040          TFL2=6000 OUTAD
+   39       6041          TSF2=6001 OUTAD
+   40       6042          TCF2=6002 OUTAD
+   41       6044          TPC2=6004 OUTAD
+   42       6045          TSK2=6005 OUTAD
+   43       6046          TLS2=6006 OUTAD
+   44             
+   45       0020          *20
+   46 00020 7760  ERRCNT, 7760            / Stop when err count = 0, init at startup
+   47 00021 0000  DRIVE,  0               / Drive # * 2
+   48 00022 0000  ERRCN2, 0               / Total # of errors
+   49 00023 0200  RETCNT, 200             / Max retries
+   50 00024 0200  K0200,  0200
+   51 00025 4000  K4000,  4000
+   52 00026 0000  FLD,    0
+   53 00027 0000  TRACK,  0
+   54 00030 0000  EXBIT,  0
+   55 00031 1000  CURBUF, 1000            / Address to read data into
+
+
+
+      LSTBUF, 1000            / Address to send data from                 Page 1
+
+
+   56 00032 1000  LSTBUF, 1000            / Address to send data from
+   57 00033 1000  BUFORG, 1000            / First buffer address
+   58 00034 0400  BUFSZ,  400
+   59 00035 4537  MAXTRK, 4537
+   60 00036 0000  REDDAT, 0000
+   61 00037 0000  LOC,    0
+   62 00040 0000  TEMP,   0
+   63 00041 0017  MASK1,  17
+   64 00042 0360  MASK2,  360
+   65 00043 0377  FF,     377
+   66 00044 0376  FE,     376
+   67 00045 0375  FD,     375
+   68 00046 0000  CHKSUM, 0
+   69                     DECIMAL
+   70 00047 7600  BLKSZ,  -128
+   71                     OCTAL
+   72 00050 0000  LEN,    0
+   73 00051 0377  READST, 377
+   74 00052 0467  PUNF,   PUN
+   75 00053 0415  SENDF,  SEND
+   76 00054 0400  READF,  READ
+   77             
+   78       1000          *1000
+   79 01000 1234          1234
+   80 01001 4321          4321
+   81             
+   82       0200          *200
+   83 00200 6007  START,  CAF
+   84 00201 7704          CLA CLL OSR     / Init variables changed during run
+   85 00202 7004          RAL
+   86 00203 3021          DCA DRIVE
+   87 00204 3027          DCA TRACK
+   88 00205 3030          DCA EXBIT
+   89 00206 3046          DCA CHKSUM
+   90 00207 1023          TAD RETCNT
+   91 00210 7040          CMA
+   92 00211 3020          DCA ERRCNT
+   93 00212 3022          DCA ERRCN2
+   94 00213 4234          JMS RECAL
+   95             
+   96 00214 4454  DUMP,   JMS I READF     / Start read operation
+   97 00215 4311  DMPLP,  JMS CHKRD       / Wait until done and check for errors
+   98 00216 4354          JMS INCTRK      / Set read loc to next sector
+   99 00217 7440          SZA
+  100 00220 5261          JMP LAST        / Last, send checksum
+  101 00221 7200          CLA
+  102 00222 1031          TAD CURBUF
+  103 00223 3032          DCA LSTBUF      / Save buffer data read into for dumping
+  104 00224 1031          TAD CURBUF      / And setup to read into next buffer
+  105 00225 1034          TAD BUFSZ
+
+
+
+      LSTBUF, 1000            / Address to send data from                 Page 2
+
+
+  106 00226 0034          AND BUFSZ
+  107 00227 1033          TAD BUFORG
+  108 00230 3031          DCA CURBUF
+  109 00231 4454          JMS I READF     / Start the read
+  110 00232 4453          JMS I SENDF     / Send the last buffer
+  111 00233 5215          JMP DMPLP       / And check read started etc
+  112             
+  113 00234 0000  RECAL,  0
+  114 00235 7301          CLA CLL IAC     / Recal drive, clear errors and set to cyl 0
+  115 00236 6742          DCLR            / From manual
+  116 00237 1021          TAD DRIVE
+  117 00240 6746          DLDC
+  118 00241 7326          CLA CLL CML RTL
+  119 00242 6742          DCLR
+  120 00243 6741          DSKP
+  121 00244 5243          JMP .-1
+  122 00245 1024          TAD K0200
+  123 00246 1021          TAD DRIVE
+  124 00247 6746          DLDC
+  125 00250 6741          DSKP
+  126 00251 5250          JMP .-1
+  127 00252 6745          DRST
+  128 00253 7041          CIA
+  129 00254 1025          TAD K4000
+  130 00255 7640          SZA CLA
+  131 00256 5260          JMP BADSTA
+  132 00257 5634          JMP I RECAL
+  133                                     /JMP DUMP
+  134 00260 7402  BADSTA, HLT
+  135             
+  136 00261 7200  LAST,   CLA             / Send FE and -checksum of all words
+  137 00262 1031          TAD CURBUF
+  138 00263 3032          DCA LSTBUF
+  139 00264 4453          JMS I SENDF
+  140 00265 7300          CLA CLL
+  141 00266 1044          TAD FE
+  142 00267 4452          JMS I PUNF
+  143 00270 7300          CLA CLL
+  144 00271 1046          TAD CHKSUM
+  145 00272 7041          CIA
+  146 00273 4452          JMS I PUNF
+  147 00274 7300          CLA CLL
+  148 00275 1046          TAD CHKSUM
+  149 00276 7041          CIA
+  150 00277 7012          RTR
+  151 00300 7012          RTR
+  152 00301 7012          RTR
+  153 00302 7012          RTR
+  154 00303 0041          AND MASK1
+  155 00304 4452          JMS I PUNF
+
+
+
+      LSTBUF, 1000            / Address to send data from                 Page 3
+
+
+  156 00305 7200          CLA
+  157 00306 1022          TAD ERRCN2      / Leave AC with # of errors
+  158 00307 7402  FINISH, HLT             / Normal good halt
+  159 00310 5200          JMP START
+  160             
+  161 00311 0000  CHKRD,  0
+  162 00312 7300          CLA CLL
+  163 00313 1043          TAD FF          / Set good read flag
+  164 00314 3051          DCA READST
+  165 00315 7300          CLA CLL         / Display address reading in AC
+  166 00316 1030          TAD EXBIT
+  167 00317 7010          RAR
+  168 00320 1027          TAD TRACK
+  169 00321 7010          RAR
+  170 00322 6741          DSKP            / Done?
+  171 00323 5322          JMP .-1
+  172 00324 6745          DRST            / Any errors
+  173 00325 7041          CIA
+  174 00326 1025          TAD K4000
+  175 00327 7640          SZA CLA
+  176 00330 5335          JMP ERROR
+  177 00331 1023          TAD RETCNT      / Reset error counter for next read
+  178 00332 7040          CMA
+  179 00333 3020          DCA ERRCNT
+  180 00334 5711          JMP I CHKRD
+  181             
+  182 00335 2022  ERROR,  ISZ ERRCN2      / Inc total # of errors
+  183 00336 2020          ISZ ERRCNT      / To many errors?
+  184 00337 5352          JMP RETRY
+  185 00340 6745          DRST            / Yes, leave error in AC and halt
+  186 00341 7402          HLT             / ********* Remove halt to go past errors
+  187 00342 4234          JMS RECAL
+  188 00343 7300          CLA CLL
+  189 00344 1045          TAD FD          / Set bad read flag
+  190 00345 3051          DCA READST
+  191 00346 1023          TAD RETCNT      / Reset error counter for next read
+  192 00347 7040          CMA
+  193 00350 3020          DCA ERRCNT
+  194 00351 5711          JMP I CHKRD
+  195             RETRY,
+  196 00352 4234          JMS RECAL       / No, recal drive and try again
+  197 00353 5214          JMP DUMP        /
+  198             
+  199             
+  200 00354 0000  INCTRK, 0               / Increment track and exbit value for next sector
+  201 00355 7300          CLA CLL         / AC non zero on return if done
+  202 00356 1030          TAD EXBIT
+  203 00357 7440          SZA
+  204 00360 5366          JMP CHKCYL
+  205 00361 2027  INC2,   ISZ TRACK
+
+
+
+      LSTBUF, 1000            / Address to send data from                 Page 4
+
+
+  206 00362 5754          JMP I INCTRK
+  207 00363 2030          ISZ EXBIT
+  208 00364 5754          JMP I INCTRK
+  209 00365 7402          HLT
+  210 00366 7200  CHKCYL, CLA
+  211 00367 1027          TAD TRACK
+  212 00370 7041          CIA
+  213 00371 1035          TAD MAXTRK
+  214 00372 7450          SNA
+  215 00373 5376          JMP FIN
+  216 00374 7200          CLA
+  217 00375 5361          JMP INC2
+  218 00376 7201  FIN,    CLA IAC
+  219 00377 5754          JMP I INCTRK
+  220             
+  221                     PAGE
+  222 00400 0000  READ,   0
+  223 00401 7301          CLA CLL IAC     / Standard read from manual
+  224 00402 6742          DCLR
+  225 00403 1031          TAD CURBUF
+  226 00404 6744          DLCA
+  227 00405 1021          TAD DRIVE
+  228 00406 1036          TAD REDDAT
+  229 00407 1026          TAD FLD
+  230 00410 1030          TAD EXBIT
+  231 00411 6746          DLDC
+  232 00412 1027          TAD TRACK       / Display address reading in AC
+  233 00413 6743          DLAG
+  234 00414 5600          JMP I READ
+  235             
+  236 00415 0000  SEND,   0               / Send data, each sector starts with FF
+  237 00416 7300          CLA CLL         / then 2 12 bit words in 3 bytes
+  238 00417 1032          TAD LSTBUF
+  239 00420 3037          DCA LOC
+  240 00421 1047          TAD BLKSZ
+  241 00422 3050          DCA LEN
+  242 00423 7300          CLA CLL
+  243 00424 1051          TAD READST
+  244 00425 4267          JMS PUN
+  245 00426 7300  OUT,    CLA CLL
+  246 00427 1437          TAD I LOC
+  247 00430 1046          TAD CHKSUM      / Keep checksum of all words sent
+  248 00431 3046          DCA CHKSUM
+  249 00432 1437          TAD I LOC
+  250 00433 4267          JMS PUN
+  251 00434 7300          CLA CLL
+  252 00435 1437          TAD I LOC
+  253 00436 7012          RTR             / Shift top 4 bits to low 4
+  254 00437 7012          RTR
+  255 00440 7012          RTR
+
+
+
+      LSTBUF, 1000            / Address to send data from                 Page 5
+
+
+  256 00441 7012          RTR
+  257 00442 0041          AND MASK1
+  258 00443 3040          DCA TEMP
+  259 00444 2037          ISZ LOC
+  260 00445 1437          TAD I LOC
+  261 00446 1046          TAD CHKSUM
+  262 00447 3046          DCA CHKSUM
+  263 00450 1437          TAD I LOC
+  264 00451 7006          RTL
+  265 00452 7006          RTL
+  266 00453 0042          AND MASK2
+  267 00454 1040          TAD TEMP
+  268 00455 4267          JMS PUN
+  269 00456 7300          CLA CLL
+  270 00457 1437          TAD I LOC
+  271 00460 7012          RTR
+  272 00461 7012          RTR
+  273 00462 4267          JMS PUN
+  274 00463 2037          ISZ LOC
+  275 00464 2050          ISZ LEN
+  276 00465 5226          JMP OUT
+  277 00466 5615          JMP I SEND
+  278             
+  279 00467 0000  PUN,    0
+  280             /       PLS             / Punch for testing with emulator
+  281 00470 6046          TLS2            / Send out console
+  282 00471 7300          CLA CLL
+  283 00472 1030          TAD EXBIT
+  284 00473 7010          RAR
+  285 00474 1027          TAD TRACK
+  286 00475 7010          RAR
+  287             /       PSF
+  288 00476 6041          TSF2             /Wait until character sent
+  289 00477 5276          JMP .-1
+  290 00500 5667          JMP I PUN
+  291             
+  292                     $
+
+      No detected errors

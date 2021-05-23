@@ -1,0 +1,331 @@
+/ RK05 RESTORE Program
+/ This program will receive a RK05 image and write it to the disk.  The
+/ entire disk it written, with each sector having a reread check.
+/ See dump for the format of the serial data.
+/ To run start at 0200.
+/    SR 9-11 should be drive 
+/ Should halt at HLT at label finish with AC = 0 if it worked.
+/ Hit cont to display in AC number of recoverable errors
+/ At normal exit hitting cont again will restart the program
+/
+/ The current location being written to will be displayed in the AC
+/ while running.  It is (cylinder * 16 + sector) / 2
+
+        DSKP=6741
+        DCLR=6742
+        DLAG=6743
+        DLCA=6744
+        DRST=6745
+        DLDC=6746
+
+	INAD=030		/ Address of serial input, 30 for console
+	KCF2=6000 INAD
+	KSF2=6001 INAD
+	KCC2=6002 INAD
+	KRS2=6004 INAD
+        KIE2=6005 INAD
+	KRB2=6006 INAD
+
+	OUTAD=040		/ Address of serial output, 40 for console
+	TFL2=6000 OUTAD
+	TSF2=6001 OUTAD
+	TCF2=6002 OUTAD
+	TPC2=6004 OUTAD
+	TSK2=6005 OUTAD
+	TLS2=6006 OUTAD
+
+        *20
+ERRCNT, 7760            / Stop when err count = 0, init at startup
+DRIVE,  0               / Drive # * 2
+K0200,  0200
+K4000,  4000
+FLD,    10              / Use field 1 for data buffer
+TRACK,  0
+MAXTRK, 4537
+EXBIT,  0
+WRTDAT, 4000
+REDDAT, 0000
+WRTLOC, 0000            / Address to write data to disk
+BUFLOC, 0000            / Address to store next word received
+NUMSEC, 0               / Number of sectors received but not written
+RDBUF,  1000            / Buffer for reread check
+DSPTRK, 0
+LOC,    0
+LEN,    0
+K17,    17
+K377,   377
+K7400,  7400
+KN1,    7777
+CHKSUM, 0
+TEMP,   0
+LAST,   0
+DONEFG,	0		/ 1 when end of data flag received
+STATE,  0               / Where in serial data we are 0 = Need ff sector head,
+                        /  -1 = byte1, ... -3 = byte 3
+BUFCNT, 0               / Count of words received in sector
+ISRAC,  0
+ISRFLG, 0
+RISR,   ISR
+        DECIMAL
+NBLKSZ, -256
+        OCTAL
+WRITEF, WRITE
+RECALF, RECAL
+STARTF,	START
+
+        *1000
+        1234
+        4321
+
+        *1
+        JMP I RISR      / Interrupt handler
+
+        *200
+START,	CDF 0           / Init all our variables
+	CAF
+        CLA CLL OSR         / Init variables changed during run
+        RAL
+        DCA DRIVE
+        DCA TRACK
+        DCA EXBIT
+        DCA CHKSUM
+        DCA STATE
+        DCA WRTLOC
+        DCA BUFLOC
+        DCA NUMSEC
+	DCA DONEFG
+        TAD K17
+        CIA
+        DCA ERRCNT
+        ION             / Turn on serial interrupt handler
+        CLA CLL IAC     / Set bit 11 to enable interrupts
+	KIE2
+	KRB2
+/	RPE             / PTR Testing, use paper tape with emulator
+/	RFC
+RECAL,  CLA CLL IAC     / Recal drive, clear errors and set to cyl 0
+        DCLR            / From manual
+        TAD DRIVE
+        DLDC
+        CLA CLL CML RTL
+        DCLR
+        DSKP
+        JMP .-1
+        TAD K0200
+        TAD DRIVE
+        DLDC
+        DSKP
+        JMP .-1
+        DRST
+        CIA
+        TAD K4000
+        SZA CLA
+        JMP BADSTA
+        JMP I WRITEF
+BADSTA, HLT
+
+        PAGE
+WRITE,  CLA CLL
+        TAD EXBIT
+        RAR
+        TAD TRACK
+        RAR
+        DCA DSPTRK      / Save track for display
+CDAT,   CLA
+        TAD DSPTRK      / Display write location
+        AND DSPTRK	/ Kill time to make brighter
+        AND DSPTRK
+        AND DSPTRK
+        IOF             / Turn off interrupts so we can safely update
+        CLA             / # of sectors in buffer
+        TAD NUMSEC
+        SNA
+        JMP NODAT
+        TAD KN1
+        DCA NUMSEC
+        IAC		/ 1 flags sector to write
+NODAT,  ION
+        SZA
+	JMP DOWRT	/ Got data write it
+	TAD DONEFG	/ No more data flag?
+	SNA
+        JMP CDAT	/ No, try again
+	JMP DONE	/ yes
+DOWRT,	CLA CLL IAC     / We have one waiting, write it
+        DCLR
+        TAD WRTLOC
+        DLCA
+        TAD DRIVE
+        TAD WRTDAT
+        TAD FLD
+        TAD EXBIT
+        DLDC
+        TAD TRACK
+        DLAG
+        CLL
+        TAD DSPTRK
+        DSKP
+        JMP .-1
+        DRST
+        CIA
+        TAD K4000
+        SZA CLA
+        JMP ERROR
+RDCHK,  CLA CLL IAC     / And now reread sector
+        DCLR
+        TAD RDBUF
+        DLCA
+        TAD DRIVE
+        TAD REDDAT
+        TAD EXBIT
+        DLDC
+        TAD TRACK
+        DLAG
+        CLA CLL
+        TAD DSPTRK
+        DSKP
+        JMP .-1
+        DRST
+        CIA
+        TAD K4000
+        SZA CLA
+        JMP ERROR
+        TAD RDBUF
+        DCA LOC
+        TAD NBLKSZ
+        DCA LEN
+CHKDAT, CDF 10          / And now compare
+        TAD I WRTLOC
+        CIA
+        CDF 0
+        TAD I LOC
+        SZA
+        HLT             / Big trouble, sector is bad without CRC error
+        ISZ WRTLOC
+        ISZ LOC
+        ISZ LEN
+        JMP CHKDAT
+        CLA CLL
+INCTRK, ISZ TRACK       / Increment track and exbit value for next sector
+        JMP WRITE
+        ISZ EXBIT
+        JMP WRITE
+        HLT
+DONE,   CLA CLL CMA     / Done, wait for one more word
+        TAD BUFLOC      / Not the best way to handle it, should use
+        AND K17         / fe flag
+        SZA
+        JMP DONE
+        TAD CHKSUM
+FINISH,	HLT             / Stop with sum of all words (including -checksum)
+                        / Should be 0
+	CLA
+        TAD K17
+	TAD ERRCNT
+	HLT		/ # of errors
+	JMP I STARTF
+
+ERROR,  ISZ ERRCNT      / To many errors?
+        JMP I RECALF    / No, recal drive and try again
+        DRST            / Yes, leave error in AC and halt
+        HLT
+
+        PAGE
+ISR,
+        DCA ISRAC       / Save AC
+        GTF
+        DCA ISRFLG      / And flags
+        CDF 10          / Buffer in field 1
+/	RSF		/ PTR
+	KSF2            / Have character waiting
+        JMP IRET        / No, not our interrupt
+        CLA
+/	RRB RFC		/ PTR
+	KRB2            / Get character
+        DCA TEMP
+        TAD STATE       / Find out where in sequence we are
+        SNA
+        JMP SBLK        / Start of block
+        IAC
+        SNA
+        JMP BYTE1
+        IAC
+        SNA
+        JMP BYTE2
+        CLA             / Byte 3
+        TAD TEMP
+        CLL
+        RTL
+        RTL
+        TAD LAST
+        DCA I BUFLOC
+        TAD CHKSUM
+        TAD I BUFLOC
+        DCA CHKSUM
+        TAD BUFLOC
+        IAC
+        DCA BUFLOC
+        STA             / -1 for byte 1
+        DCA STATE
+        ISZ BUFCNT
+        JMP IRET
+        DCA STATE       / End of sector, set to 0 to check header byte
+        ISZ NUMSEC      / Inc number of sectors buffered
+        TAD K17
+        CIA
+        TAD NUMSEC
+        SNA
+        HLT             / To many buffered, halt.  Must of had to many
+                        / retries in a row
+IRET,   CLA
+        TAD ISRFLG
+        RTF
+        CLA
+        TAD ISRAC
+        JMP I 0
+BYTE2,  CLA
+        TAD TEMP
+        RTL
+        RTL
+        RTL
+        RTL
+        AND K7400
+        TAD LAST
+        DCA I BUFLOC
+        TAD CHKSUM
+        TAD I BUFLOC
+        DCA CHKSUM
+        ISZ BUFLOC
+        ISZ BUFCNT
+        TAD TEMP
+        RTR
+        RTR
+        AND K17
+        DCA LAST
+        CMA
+        TAD STATE
+        DCA STATE
+        JMP IRET
+BYTE1,  CLA
+        TAD TEMP
+        DCA LAST
+        CMA
+        TAD STATE
+        DCA STATE
+        JMP IRET
+SBLK,   TAD K377
+        CIA
+        TAD TEMP        / Is is a ff?
+        SNA
+        JMP FLAGOK      / Yes
+        IAC             / Is it a fe?
+        SZA
+        HLT             / No, halt
+	IAC
+	DCA DONEFG
+FLAGOK, STA             / -1 for byte 1
+        DCA STATE
+        TAD NBLKSZ      / And setup to look for 256 words
+        DCA BUFCNT
+        JMP IRET
+        $

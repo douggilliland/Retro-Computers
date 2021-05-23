@@ -1,0 +1,292 @@
+/ RK05 DUMP Program
+/ This program will send a RK05 image out the console port.
+/ The format of the data sent is 0xff (0377) or 0xfd if read error
+/ followed by 256 word  of data for each sector.  
+/ After the last sector a 0xfe (0376) is sent
+/ with a two byte checksum, low 8 bits first then upper 4.
+/ The words in a sector are sent as three bytes for each 2 words.
+/   1 = low 8 bits first word
+/   2 = upper 4 bits first and lower 4 bits second
+/   3 = upper 8 bits second word
+/ To run start at 0200.
+/    The SR should have the drive # is 9-11
+/ Should halt at label finish with number of recoverable errors in AC
+/ At normal exit hitting cont will restart the program
+/ The current location being read will be displayed in the AC
+/ while running.  It is (cylinder * 16 + sector) / 2
+
+/ If a unrecoverable error occurs the program will halt with the error in
+/ the AC.  Hit continue to dump more or comment out hlt, search for *****.
+/ The PC program will print out the bad location if an error occurs
+
+        DSKP=6741
+        DCLR=6742
+        DLAG=6743
+        DLCA=6744
+        DRST=6745
+        DLDC=6746
+
+	INAD=030		/ Address of serial input, 30 for console
+	KCF2=6000 INAD
+	KSF2=6001 INAD
+	KCC2=6002 INAD
+	KRS2=6004 INAD
+        KIE2=6005 INAD
+	KRB2=6006 INAD
+
+	OUTAD=040		/ Address of serial output, 40 for console
+	TFL2=6000 OUTAD
+	TSF2=6001 OUTAD
+	TCF2=6002 OUTAD
+	TPC2=6004 OUTAD
+	TSK2=6005 OUTAD
+	TLS2=6006 OUTAD
+
+        *20
+ERRCNT, 7760            / Stop when err count = 0, init at startup
+DRIVE,  0               / Drive # * 2
+ERRCN2,	0		/ Total # of errors
+RETCNT,	200		/ Max retries
+K0200,  0200
+K4000,  4000
+FLD,    0
+TRACK,  0
+EXBIT,  0
+CURBUF, 1000            / Address to read data into
+LSTBUF, 1000            / Address to send data from
+BUFORG, 1000            / First buffer address
+BUFSZ,  400
+MAXTRK, 4537
+REDDAT, 0000
+LOC,    0
+TEMP,   0
+MASK1,  17
+MASK2,  360
+FF,     377
+FE,     376
+FD,	375
+CHKSUM, 0
+        DECIMAL
+BLKSZ,  -128
+        OCTAL
+LEN,    0
+READST,	377
+PUNF,   PUN
+SENDF,  SEND
+READF,	READ
+
+        *1000
+        1234
+        4321
+
+        *200
+START,	CAF
+        CLA CLL OSR	/ Init variables changed during run
+        RAL
+        DCA DRIVE
+        DCA TRACK
+        DCA EXBIT
+        DCA CHKSUM
+        TAD RETCNT
+        CMA
+        DCA ERRCNT
+	DCA ERRCN2
+	JMS RECAL
+
+DUMP,   JMS I READF     / Start read operation
+DMPLP,  JMS CHKRD       / Wait until done and check for errors
+        JMS INCTRK      / Set read loc to next sector
+        SZA
+        JMP LAST        / Last, send checksum
+        CLA
+        TAD CURBUF
+        DCA LSTBUF      / Save buffer data read into for dumping
+        TAD CURBUF      / And setup to read into next buffer
+        TAD BUFSZ
+        AND BUFSZ
+        TAD BUFORG
+        DCA CURBUF
+        JMS I READF     / Start the read
+        JMS I SENDF     / Send the last buffer
+        JMP DMPLP       / And check read started etc
+
+RECAL,  0
+	CLA CLL IAC     / Recal drive, clear errors and set to cyl 0
+        DCLR            / From manual
+        TAD DRIVE
+        DLDC
+        CLA CLL CML RTL
+        DCLR
+        DSKP
+        JMP .-1
+        TAD K0200
+        TAD DRIVE
+        DLDC
+        DSKP
+        JMP .-1
+        DRST
+        CIA
+        TAD K4000
+        SZA CLA
+        JMP BADSTA
+	JMP I RECAL
+        		/JMP DUMP
+BADSTA, HLT
+
+LAST,   CLA             / Send FE and -checksum of all words
+        TAD CURBUF
+        DCA LSTBUF
+        JMS I SENDF
+        CLA CLL
+        TAD FE
+        JMS I PUNF
+        CLA CLL
+        TAD CHKSUM
+        CIA
+        JMS I PUNF
+        CLA CLL
+        TAD CHKSUM
+        CIA
+        RTR
+        RTR
+        RTR
+        RTR
+        AND MASK1
+        JMS I PUNF
+        CLA
+        TAD ERRCN2      / Leave AC with # of errors
+FINISH,	HLT		/ Normal good halt
+	JMP START
+
+CHKRD,  0
+	CLA CLL
+	TAD FF		/ Set good read flag
+	DCA READST
+        CLA CLL         / Display address reading in AC
+        TAD EXBIT
+        RAR
+        TAD TRACK
+        RAR
+        DSKP            / Done?
+        JMP .-1
+        DRST            / Any errors
+        CIA
+        TAD K4000
+        SZA CLA
+        JMP ERROR
+        TAD RETCNT	/ Reset error counter for next read
+        CMA
+        DCA ERRCNT
+        JMP I CHKRD
+
+ERROR, 	ISZ ERRCN2 	/ Inc total # of errors
+	ISZ ERRCNT      / To many errors?
+	JMP RETRY
+        DRST            / Yes, leave error in AC and halt
+        HLT		/ ********* Remove halt to go past errors
+	JMS RECAL
+	CLA CLL
+	TAD FD		/ Set bad read flag
+	DCA READST
+        TAD RETCNT	/ Reset error counter for next read
+        CMA
+        DCA ERRCNT
+        JMP I CHKRD
+RETRY,
+	JMS RECAL       / No, recal drive and try again
+	JMP DUMP	/
+
+
+INCTRK, 0               / Increment track and exbit value for next sector
+        CLA CLL         / AC non zero on return if done
+        TAD EXBIT
+        SZA
+        JMP CHKCYL
+INC2,   ISZ TRACK
+        JMP I INCTRK
+        ISZ EXBIT
+        JMP I INCTRK
+        HLT
+CHKCYL, CLA
+        TAD TRACK
+        CIA
+        TAD MAXTRK
+        SNA
+        JMP FIN
+        CLA
+        JMP INC2
+FIN,    CLA IAC
+        JMP I INCTRK
+
+        PAGE
+READ,   0
+        CLA CLL IAC     / Standard read from manual
+        DCLR
+        TAD CURBUF
+        DLCA
+        TAD DRIVE
+        TAD REDDAT
+        TAD FLD
+        TAD EXBIT
+        DLDC
+        TAD TRACK       / Display address reading in AC
+        DLAG
+        JMP I READ
+
+SEND,   0               / Send data, each sector starts with FF
+        CLA CLL         / then 2 12 bit words in 3 bytes
+        TAD LSTBUF
+        DCA LOC
+        TAD BLKSZ
+        DCA LEN
+        CLA CLL
+        TAD READST
+        JMS PUN
+OUT,    CLA CLL
+        TAD I LOC
+        TAD CHKSUM      / Keep checksum of all words sent
+        DCA CHKSUM
+        TAD I LOC
+        JMS PUN
+        CLA CLL
+        TAD I LOC
+        RTR             / Shift top 4 bits to low 4
+        RTR
+        RTR
+        RTR
+        AND MASK1
+        DCA TEMP
+        ISZ LOC
+        TAD I LOC
+        TAD CHKSUM
+        DCA CHKSUM
+        TAD I LOC
+        RTL
+        RTL
+        AND MASK2
+        TAD TEMP
+        JMS PUN
+        CLA CLL
+        TAD I LOC
+        RTR
+        RTR
+        JMS PUN
+        ISZ LOC
+        ISZ LEN
+        JMP OUT
+        JMP I SEND
+
+PUN,    0
+/       PLS             / Punch for testing with emulator
+        TLS2            / Send out console
+        CLA CLL
+        TAD EXBIT
+        RAR
+        TAD TRACK
+        RAR
+/       PSF
+        TSF2             /Wait until character sent
+        JMP .-1
+        JMP I PUN
+
+        $
