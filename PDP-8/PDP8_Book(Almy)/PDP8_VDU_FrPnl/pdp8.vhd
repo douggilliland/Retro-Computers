@@ -332,6 +332,7 @@ begin
 	dispMALED <= led(1);
 	dispMDLED <= led(0);
 	dispLEDs <= dispout;
+	linkLED <= linkout;
 	
 	Inst_IOT_Distributor: IOT_Distributor PORT MAP(
 		ready_3		=> ready_3,

@@ -186,10 +186,10 @@ begin
 
 	   case (curr_state) is
 			when S0 => 					
---				en_addr_sw <= '1'; 
---				read_enable <= '1'; 				-- I don't see why I'm doing this
+				en_addr_sw <= '1'; 
+				read_enable <= '1'; 				-- I don't see why I'm doing this
 				next_state <= S0A; 				-- Start out by reading memory location
-				en_load_pc_panel <= '1';		-- Set PC to 0200(oct) - REMOVE with real front panel
+				-- en_load_pc_panel <= '1';		-- Set PC to 0200(oct) - REMOVE with real front panel
 			when S0A =>								-- finish memory operation
 				en_load_pc_panel	<= '0';
 				en_addr_sw			<= '1';
