@@ -20,6 +20,8 @@
 --
 -- Additional Comments: Build for RETRO-EP4CE15, using EP4CE15 FPGA
 --		http://land-boards.com/blwiki/index.php?title=RETRO-EP4CE15
+-- Front Panel
+--		http://land-boards.com/blwiki/index.php?title=PDP-8_Front_Panel#PDP-8_Front_Panel_Assembly_Sheet
 --		Rus sieve, echo demos.
 -- Uses bin2mif.py utility to convert the DEC bin file to Altera MIF file
 --	Software at:	https://github.com/douggilliland/Linux-68k/tree/master/pdp8
@@ -40,28 +42,27 @@ use IEEE.STD_LOGIC_1164.ALL;
 
 entity pdp8 is
 	Port (
-		clk			: in  STD_LOGIC;
-		sw			 	: in STD_LOGIC_VECTOR(11 downto 0);
+		clk			: in STD_LOGIC;
 		
-		--
+		-- Front Panel inputs
+		sw			 	: in STD_LOGIC_VECTOR(11 downto 0);
 		runSwitch	: in std_logic;		-- Run switch
 		lnkSwitch	: in std_logic;		-- Link switch
-		btnCpuReset	: in std_logic;		-- reset button
-		dispPB		: in std_logic;		-- display select button (btnc)
-		stepPB		: in std_logic;		-- step button (btnu)
-		ldACPB		: in std_logic;		-- load AC button (btnr)
+		btnCpuReset	: in std_logic;		-- Reset button
+		dispPB		: in std_logic;		-- 12 LEDs display select button (btnc)
+		stepPB		: in std_logic;		-- Step Program Counter button (btnu)
+		ldACPB		: in std_logic;		-- load Accumulator button (btnr)
 		depPB			: in std_logic;		-- deposit button (btnd)
 		ldPCPB		: in std_logic;		-- load PC button (btnl)
 		
-		-- Outs
-		runLED		: out  STD_LOGIC;									-- led 15 is Running light
-		-- selLEDs		: out  STD_LOGIC_VECTOR (3 downto 0);		-- 3 to 0 is display selection
-		dispPCLED	: out  STD_LOGIC;
-		dispMALED	: out  STD_LOGIC;
-		dispMDLED	: out  STD_LOGIC;
-		dispACLED	: out  STD_LOGIC;
+		-- Front Panel Outputs
+		runLED		: out  STD_LOGIC;		-- RUN
+		dispPCLED	: out  STD_LOGIC;		-- PC is currently displayed on the 12 LEDs
+		dispMALED	: out  STD_LOGIC;		-- MQ value?
+		dispMDLED	: out  STD_LOGIC;		-- Indicates that the memory data is currently displayed on the 12 LEDs
+		dispACLED	: out  STD_LOGIC;		-- Indicates that the Accumulator is currently displayed on the 12 LEDs
+		linkLED		: out  STD_LOGIC;		-- Link bit value
 		dispLEDs		: out  STD_LOGIC_VECTOR (11 downto 0);
-		linkLED		: out  STD_LOGIC := '0';
 		
 		-- Serial
 		RsRx			: in  STD_LOGIC;
@@ -74,7 +75,7 @@ entity pdp8 is
 		o_vid_grn	: out  STD_LOGIC_VECTOR (1 downto 0);
 		o_vid_blu	: out  STD_LOGIC_VECTOR (1 downto 0);
 		
-		-- PA/2 Kbd
+		-- PS/2 Kbd
 		io_ps2Clk	: inout std_logic;
 		io_ps2Data	: inout std_logic
 		);
@@ -233,18 +234,11 @@ architecture Behavioral of pdp8 is
 	-- Systemwide
 	signal reset : std_logic;
 
-	-- Fake out inputs from front panel
---	signal swX					: std_logic_vector(15 downto 0);
-	signal swX			: std_logic_vector(15 downto 0);	-- SW 15 is Run/Stop. 
+	-- Panel to CPU
+	signal swX			: std_logic_vector(15 downto 0);	-- SW 15 is Run/Stop
+																		-- SW 14, 13 unused
 																		-- SW 12 loads link with load AC button (eventually)
 																		-- SW 11 to SW 0 is Switch Register
---	signal btnc			: std_logic := '0';					-- display select button
---	signal btnu			: std_logic := '0';					-- step button
---	signal btnr			: std_logic := '0';					-- load AC button
---	signal btnd			: std_logic := '0';					-- deposit button
---	signal btnl			: std_logic := '0';					-- load PC button
-			
-	-- Panel to CPU
 	signal swreg		: std_logic_vector (11 downto 0);
 	signal dispsel		: std_logic_vector (1 downto 0);
 	signal run			: std_logic := '1';
@@ -252,11 +246,8 @@ architecture Behavioral of pdp8 is
 	signal loadac		: std_logic := '0'; -- added
 	signal step			: std_logic := '0';
 	signal deposit		: std_logic := '0';
-	-- signal led			: std_logic_vector(15 downto 0);
-
 	-- CPU to Panel
 	signal dispout		: std_logic_vector(11 downto 0);
-	-- signal dispLEDs	: std_logic_vector(11 downto 0);
 	signal linkout		: std_logic;
 	signal halt			: std_logic;
 	-- CPU to IOT_Distributor
@@ -307,32 +298,25 @@ architecture Behavioral of pdp8 is
 --attribute syn_keep of dataout			: signal is true;
 --attribute syn_keep of write_data		: signal is true;
 --attribute syn_keep of read_data		: signal is true;
---attribute syn_keep of datain_3		: signal is true;
+--attribute syn_keep of datain_3			: signal is true;
 --attribute syn_keep of dataout_4		: signal is true;
 --attribute syn_keep of write_enable	: signal is true;
---attribute syn_keep of read_enable	: signal is true;
+--attribute syn_keep of read_enable		: signal is true;
 --attribute syn_keep of mem_finished	: signal is true;
 --attribute syn_keep of run				: signal is true;
 
 -- System reset
 begin
-
-	-- Cut the fron panel connection down to bare minimum
-	-- hardcoded start address
-	runLED <= led(15);
---	sw(11 downto 0) <= "000010000000"; 	-- 200 (start address)
+	-- Combine the 12 switches, Link switch and Run switch
 	swX <= runSwitch&"00"&lnkSwitch&sw;
---	selLEDs <= led(1)&led(2)&led(3)&led(0);			-- Select LEDS
---	dispout <= pc_reg			when dispsel = "00" else
---	           ac_reg			when dispsel = "01" else
---				  hidden_reg	when dispsel = "10" else
---				  mq_reg;
-	dispPCLED <= led(3);
-	dispACLED <= led(2);
-	dispMALED <= led(1);
-	dispMDLED <= led(0);
-	dispLEDs <= dispout;
-	linkLED <= linkout;
+	-- Pick out the status LEDs from led()
+	runLED		<= led(15);
+	dispPCLED	<= led(3);
+	dispACLED	<= led(2);
+	dispMALED	<= led(1);
+	dispMDLED	<= led(0);
+	dispLEDs		<= dispout;		-- The 12 LEDs
+	linkLED		<= linkout;
 	
 	Inst_IOT_Distributor: IOT_Distributor PORT MAP(
 		ready_3		=> ready_3,

@@ -14,8 +14,8 @@
 --
 -- Revision: 
 -- Revision 0.01 - File Created
--- Additional Comments: 
---		9600 baud UART
+-- Additional Comments:
+--		Almy book shows this port as 9600,n,8,1
 ----------------------------------------------------------------------------------
 
 library IEEE;
@@ -26,11 +26,6 @@ use IEEE.STD_LOGIC_ARITH.ALL;
 -- Uncomment the following library declaration if using
 -- arithmetic functions with Signed or Unsigned values
 --use IEEE.NUMERIC_STD.ALL;
-
--- Uncomment the following library declaration if instantiating
--- any Xilinx primitives in this code.
---library UNISIM;
---use UNISIM.VComponents.all;
 
 entity UART is
 	Port 
