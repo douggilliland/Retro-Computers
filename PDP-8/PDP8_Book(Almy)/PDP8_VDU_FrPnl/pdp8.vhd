@@ -22,7 +22,7 @@
 --		http://land-boards.com/blwiki/index.php?title=RETRO-EP4CE15
 -- Front Panel
 --		http://land-boards.com/blwiki/index.php?title=PDP-8_Front_Panel#PDP-8_Front_Panel_Assembly_Sheet
---		Rus sieve, echo demos.
+--		Runs sieve, echo demos.
 -- Uses bin2mif.py utility to convert the DEC bin file to Altera MIF file
 --	Software at:	https://github.com/douggilliland/Linux-68k/tree/master/pdp8
 -- VHDL at: 		https://github.com/douggilliland/Retro-Computers/tree/master/PDP-8/PDP8_Book(Almy)
