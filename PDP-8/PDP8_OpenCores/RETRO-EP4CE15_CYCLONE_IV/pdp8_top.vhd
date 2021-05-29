@@ -84,6 +84,7 @@ ENTITY pdp8_top IS
 		stepPB		: in std_logic;		-- Single Step pushbutton 
 		ldPCPB		: in std_logic;		-- Load PC pushbutton
 		runSwitch	: in std_logic;		-- Run/Halt slide switch
+		depPB			: in std_logic;		-- Deposit pushbutton
 		sw			 	: in STD_LOGIC_VECTOR(11 downto 0);		-- Slide switches
 
 		runLED		: out  STD_LOGIC;		-- RUN LED
@@ -175,6 +176,11 @@ END pdp8_top;
 	signal ldpc_dly2		: std_logic;	--! Delay used for step logic
 	signal ldpc_dly3		: std_logic;	--! Delay used for step logic
 	signal ldpc_dly4		: std_logic;	--! Delay used for step logic
+
+	signal dep_dly1		: std_logic;	--! Delay used for step logic
+	signal dep_dly2		: std_logic;	--! Delay used for step logic
+	signal dep_dly3		: std_logic;	--! Delay used for step logic
+	signal dep_dly4		: std_logic;	--! Delay used for step logic
 
 	constant max_count	: natural := 24000;
 	signal op 				: std_logic;
@@ -289,6 +295,28 @@ begin
 	end process;
 
 	
+	----------------------------------------------------------------------------
+	--  Deposit pushbutton signal generator.
+	----------------------------------------------------------------------------
+	process(CLOCK_50)
+	begin
+		if(rising_edge(CLOCK_50)) then
+			if dig_counter(17 downto 0) = 0 then
+				dep_dly1 <= not depPB;
+				dep_dly2 <= dep_dly1 and (not depPB);
+			end if;
+		end if;
+	end process;
+
+	process(CLOCK_50, dep_dly2)
+	begin
+		if(rising_edge(CLOCK_50)) then
+			dep_dly3		<= dep_dly2;
+			dep_dly4		<= dep_dly3;
+			swCNTL.dep	<= dep_dly4 and (not dep_dly3);
+		end if;
+	end process;
+
 	----------------------------------------------------------------------------
 	--  Load PC signal generator.
 	----------------------------------------------------------------------------
