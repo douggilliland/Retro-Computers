@@ -85,6 +85,7 @@ ENTITY pdp8_top IS
 		ldPCPB		: in std_logic;		-- Load PC pushbutton
 		runSwitch	: in std_logic;		-- Run/Halt slide switch
 		depPB			: in std_logic;		-- Deposit pushbutton
+		examinePB	: in std_logic;		-- Examine pushbutton (LDA)
 		sw			 	: in STD_LOGIC_VECTOR(11 downto 0);		-- Slide switches
 
 		runLED		: out  STD_LOGIC;		-- RUN LED
@@ -182,6 +183,11 @@ END pdp8_top;
 	signal dep_dly3		: std_logic;	--! Delay used for step logic
 	signal dep_dly4		: std_logic;	--! Delay used for step logic
 
+	signal exam_dly1		: std_logic;	--! Delay used for step logic
+	signal exam_dly2		: std_logic;	--! Delay used for step logic
+	signal exam_dly3		: std_logic;	--! Delay used for step logic
+	signal exam_dly4		: std_logic;	--! Delay used for step logic
+
 	constant max_count	: natural := 24000;
 	signal op 				: std_logic;
 
@@ -190,7 +196,6 @@ END pdp8_top;
 	signal i 				: integer range 0 to 32 := 0;
 	--signal i : std_logic_vector(7 downto 0) := (others => '0');
 	signal data7			: std_logic_vector(31 downto 0); -- := X"fa00fa00"; -- (others => '0');
---	signal ds2, ds1, ds, dsdb;
 	signal disp_dly1		: std_logic;	--! Delay used for disp select logic
 	signal disp_dly2		: std_logic;	--! Delay used for disp select logic
 	signal disp_dly3		: std_logic;	--! Delay used for disp select logic
@@ -201,11 +206,12 @@ begin
 
 	dispLEDs <= ledDATA;
 	
-	swOPT.KE8       <= '1'; 
-	swOPT.KM8E      <= '1';
-	swOPT.TSD       <= '1';
+	swOPT.KE8       <= '1';	-- KE8 - Extended Arithmetic Element Provided 
+	swOPT.KM8E      <= '1';	-- KM8E - Extended Memory Provided
+	swOPT.TSD       <= '1';	-- Time Share Disable
 	swOPT.STARTUP   <= '1'; -- Setting the 'STARTUP' bit will cause the PDP8 to boot
-	-- to the address in the switch register
+									-- to the address in the switch register (panel mode)
+									
 	swCNTL.halt <= not runSwitch;
 
 
@@ -294,7 +300,28 @@ begin
 		end if;
 	end process;
 
-	
+	----------------------------------------------------------------------------
+	--  Examine pushbutton signal generator.
+	----------------------------------------------------------------------------
+	process(CLOCK_50)
+	begin
+		if(rising_edge(CLOCK_50)) then
+			if dig_counter(17 downto 0) = 0 then
+				exam_dly1 <= not examinePB;
+				exam_dly2 <= exam_dly1 and (not examinePB);
+			end if;
+		end if;
+	end process;
+
+	process(CLOCK_50, exam_dly2)
+	begin
+		if(rising_edge(CLOCK_50)) then
+			exam_dly3		<= exam_dly2;
+			exam_dly4		<= exam_dly3;
+			swCNTL.exam		<= exam_dly4 and (not exam_dly3);
+		end if;
+	end process;
+
 	----------------------------------------------------------------------------
 	--  Deposit pushbutton signal generator.
 	----------------------------------------------------------------------------
