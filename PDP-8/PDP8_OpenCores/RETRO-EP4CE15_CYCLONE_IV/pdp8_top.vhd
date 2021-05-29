@@ -4,15 +4,16 @@
 --!
 --! \brief
 --!      PDP-8 implementation for the RETRO-EP4CE15 board
+--! 		CPU Configured to emulate PDP8A (swCPU)
 --!
 --! \details
 --! Additional Comments: Build for RETRO-EP4CE15, using EP4CE15 FPGA
 --!		http://land-boards.com/blwiki/index.php?title=RETRO-EP4CE15
 --! Front Panel
---!		http://land-boards.com/blwiki/index.php?title=PDP-8_Front_Panel#PDP-8_Front_Panel_Assembly_Sheet
+--!		http://land-boards.com/blwiki/index.php?title=PDP-8_Front_Panel
 --! Uses bin2mif.py utility to convert the DEC bin file to Altera MIF file
---!	Software at:	https://github.com/douggilliland/Linux-68k/tree/master/pdp8
---! VHDL at:	https://github.com/douggilliland/Retro-Computers/tree/master/PDP-8/PDP8_OpenCores/RETRO-EP4CE15_CYCLONE_IV
+--! Software at:	https://github.com/douggilliland/Linux-68k/tree/master/pdp8
+--! VHDL at:		https://github.com/douggilliland/Retro-Computers/tree/master/PDP-8/PDP8_OpenCores/RETRO-EP4CE15_CYCLONE_IV
 --!
 --! \file
 --!      pdp8_top.vhd
@@ -81,6 +82,7 @@ ENTITY pdp8_top IS
 		-- 
 		sw			 	: in STD_LOGIC_VECTOR(11 downto 0);		-- Slide switches
 		dispPB		: in std_logic;								-- 12 LEDs display select button selects source
+		stepPB		: in std_logic;								-- 
 		runSwitch	: in std_logic;		-- Run switch
 
 		runLED		: out  STD_LOGIC;		-- RUN LED
@@ -102,12 +104,7 @@ ENTITY pdp8_top IS
 --		PTR_RXD : IN STD_LOGIC;
 --		PTR_CTS : IN STD_LOGIC;
 --		PTR_RTS : OUT STD_LOGIC;
-		-- USB_CLK_12MHZ : OUT STD_LOGIC; -- FIXME
 --		fpMISO : IN STD_LOGIC;
--- 	Front panel is 7 seg LEDs with SPI-ish interface
---		fpMOSI : OUT STD_LOGIC;
---		fpFS : OUT STD_LOGIC;
---		fpSCLK : OUT STD_LOGIC;
 
 --		swLOCK : IN STD_LOGIC;
 --		swCONT : IN STD_LOGIC;
@@ -118,28 +115,7 @@ ENTITY pdp8_top IS
 --		swLDEXTD : IN STD_LOGIC;
 --		swSTEP : IN STD_LOGIC;
 --		swDEP : IN STD_LOGIC; 
-		--
---		swD0 : IN STD_LOGIC;
---		swD1 : IN STD_LOGIC;
---		swD2 : IN STD_LOGIC;
---		swD3 : IN STD_LOGIC;
---		swD4 : IN STD_LOGIC;
---		swD5 : IN STD_LOGIC;
---		swD6 : IN STD_LOGIC;
---		swD7 : IN STD_LOGIC;
---		swD8 : IN STD_LOGIC;
---		swD9 : IN STD_LOGIC;
---		swD10 : IN STD_LOGIC;
---		swD11 : IN STD_LOGIC;
-		--
---		swROT0 : IN STD_LOGIC;
---		swROT1 : IN STD_LOGIC;
---		swROT2 : IN STD_LOGIC;
---		swROT3 : IN STD_LOGIC;
---		swROT4 : IN STD_LOGIC;
---		swROT5 : IN STD_LOGIC;
---		swROT6 : IN STD_LOGIC;
---		swROT7 : IN STD_LOGIC;
+
 		--
 		sdCS		: OUT STD_LOGIC; --! SD card chip select
 		sdCLK		: OUT STD_LOGIC; --! SD card clock
@@ -187,6 +163,12 @@ END pdp8_top;
 	signal reset_dly3		: std_logic;	--! Delay used for reset logic
 	signal reset_dly4		: std_logic;	--! Delay used for reset logic
 	signal rst_out			: std_logic;   --! Reset line output to PDP-8
+
+	signal step_dly1		: std_logic;	--! Delay used for step logic
+	signal step_dly2		: std_logic;	--! Delay used for step logic
+	signal step_dly3		: std_logic;	--! Delay used for step logic
+	signal step_dly4		: std_logic;	--! Delay used for step logic
+	signal step_out		: std_logic;   --! Step line output to PDP-8
 
 	constant max_count	: natural := 24000;
 	signal op 				: std_logic;
@@ -255,7 +237,7 @@ begin
 			end if;
 		end if;
 	end process;
-
+	
 	----------------------------------------------------------------------------
 	--  RESET signal generator.
 	----------------------------------------------------------------------------
@@ -278,15 +260,40 @@ begin
 		end if;
 	end process;
 
+	
+	----------------------------------------------------------------------------
+	--  STEP signal generator.
+	----------------------------------------------------------------------------
+	process(CLOCK_50)
+	begin
+		if(rising_edge(CLOCK_50)) then
+			if dig_counter(17 downto 0) = 0 then
+				step_dly1 <= not stepPB;
+				step_dly2 <= step_dly1 and (not stepPB);
+			end if;
+		end if;
+	end process;
+
+	process(CLOCK_50)
+	begin
+		if(rising_edge(CLOCK_50)) then
+			step_dly3 <= step_dly2;
+			step_dly4 <= step_dly3;
+			step_out <= step_dly4 and (not step_dly3);
+		end if;
+	end process;
+	
+	swCNTL.step <= 	step_out;
+	
 	--
 	-- Front Panel Data Switches
 	--
 
-	swDATA          <= sw;
-	--swDATA          <= o"0023";   
-	--swDATA          <= o"7400";   
+	swDATA          <= sw;				-- Set start address from switches
+	--swDATA          <= o"0023";		-- Tight loop code? 
+	--swDATA          <= o"7400";		-- ? code
 
-	 compteur : process(CLOCK_50, rst_out)
+	 computer : process(CLOCK_50, rst_out)
 		  variable count : natural range 0 to max_count := 0;
 	 begin
 			if rising_edge(CLOCK_50) then
@@ -301,7 +308,7 @@ begin
 					 op    <='1';
 				end if;
 		  end if;
-	 end process compteur;   
+	 end process computer;   
 
 	----------------------------------------------------------------------------
 	-- PDP8 Processor
@@ -311,7 +318,7 @@ begin
 	 clk      => CLOCK_50,                   --! 50 MHz Clock
 	 rst      => rst_out,                    --! Reset Button
 	 -- CPU Configuration
-	 swCPU    => swPDP8A,                    --! CPU Configured to emulate PDP8A
+	 swCPU    => swPDP8A,                    --! CPU Configured to emulate PDP8A (swCPU)
 	 swOPT    => swOPT,                      --! Enable Options
 	 -- Real Time Clock Configuration
 	 swRTC    => clkDK8EC2,                  --! RTC 50 Hz interrupt
@@ -357,8 +364,7 @@ begin
 	 swDATA   => swDATA,                     --! RK8E Boot Loader Address
 	 swCNTL   => swCNTL,                     --! Switches
 	 ledRUN 	=> runLED,                      --! Run LED
-	 ledDATA => ledDATA,                     --! Data output register
-	 ledADDR => open                         --! Address output register
+	 ledDATA => ledDATA                      --! Data output register
 	 );
 	 
 end rtl;
