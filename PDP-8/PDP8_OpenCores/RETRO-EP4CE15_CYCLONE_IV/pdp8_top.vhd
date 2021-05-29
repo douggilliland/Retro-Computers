@@ -70,27 +70,25 @@ use work.sdspi_types.all;                       --! SPI Types
 use work.oct_7seg;
 
 ENTITY pdp8_top IS
-  generic(
+  generic
+  (
     invert_reset : std_logic := '1' -- 0 : not invert, 1 invert
-    );
+  );
   
   PORT ( 
-		CLOCK_50 : IN STD_LOGIC;                                     --! Input clock
-		RESET : OUT STD_LOGIC;
+		CLOCK_50		: IN STD_LOGIC;                                     --! Input clock
+		reset_n 		: in STD_LOGIC;
 		-- 
---		SW : IN STD_LOGIC_VECTOR(3 DOWNTO 0) := (others => 'Z');     --! Toggle switches
-		sw			 	: in STD_LOGIC_VECTOR(11 downto 0);
-		dispPB		: in std_logic;		-- 12 LEDs display select button
+		sw			 	: in STD_LOGIC_VECTOR(11 downto 0);		-- Slide switches
+		dispPB		: in std_logic;								-- 12 LEDs display select button selects source
+		runSwitch	: in std_logic;		-- Run switch
 
---		KEY : IN STD_LOGIC_VECTOR(1 DOWNTO 0) := (others => 'Z');    --! Push buttons
-		runLED		: out  STD_LOGIC;		-- RUN
-		dispLEDs		: out  STD_LOGIC_VECTOR (11 downto 0) := "000000000000";
+		runLED		: out  STD_LOGIC;		-- RUN LED
+		dispLEDs		: out  STD_LOGIC_VECTOR (11 downto 0);
 		dispPCLED	: out  STD_LOGIC;		-- PC is currently displayed on the 12 LEDs
-		dispMALED	: out  STD_LOGIC;		-- MQ value?
+		dispMALED	: out  STD_LOGIC;		-- Indicates that the memory address is currently displayed on the 12 LEDs
 		dispMDLED	: out  STD_LOGIC;		-- Indicates that the memory data is currently displayed on the 12 LEDs
 		dispACLED	: out  STD_LOGIC;		-- Indicates that the Accumulator is currently displayed on the 12 LEDs
-
-		--		LED : OUT STD_LOGIC_VECTOR(7 DOWNTO 0) := (others => 'Z');   --! Output green LEDs
 
 		TTY1_TXD : OUT STD_LOGIC;                                    --! UART send line
 		TTY1_RXD : IN STD_LOGIC;                                     --! UART receive line
@@ -172,34 +170,33 @@ ENTITY pdp8_top IS
 END pdp8_top;
 
  architecture rtl of pdp8_top is
-  signal rk8eSTAT		: rk8eSTAT_t;
-  signal swCNTL		: swCNTL_t := (others => '0');                       --! Front Panel Control Switches
-  signal swROT			: swROT_t := dispIR;                                  --! Front panel rotator switch
-  signal swOPT			: swOPT_t;                                           --! PDP-8 options\
-  signal swDATA		: swDATA_t;             --! Front panel switches
-  signal LED			: std_logic_vector(7 downto 0);
-  signal ledDATA		: data_t;
-  --
-  signal dig_counter			: std_logic_vector (19 downto 0) := (others => '0');
-  signal dispstep 				: std_logic := '0';
-  signal dispselcnt				: std_logic_vector (2 downto 0) := "000";
-  --
-  signal dly			: std_logic := '0';         --! Delay used for reset logic
-  signal rst			: std_logic := '0';         --! Internal reset line
-  signal int_reset	: std_logic;         --! Initial reset line
-  signal rst_out		: std_logic;           --! Reset line output to PDP-8
-  
-  constant max_count : natural := 24000;
-  signal op 			: std_logic;
-  
-  type display_type is (S0, S1, S2, S3, S4, S5);
-  signal state: display_type := S0;   
-  signal i 				: integer range 0 to 32 := 0;
-  --signal i : std_logic_vector(7 downto 0) := (others => '0');
-  signal data7			: std_logic_vector(31 downto 0); -- := X"fa00fa00"; -- (others => '0');
-  signal ds2, ds1, ds, dsdb : std_logic := '0';
+	signal rk8eSTAT		: rk8eSTAT_t;
+	signal swCNTL			: swCNTL_t := (others => '0');                       --! Front Panel Control Switches
+	signal swROT			: swROT_t := dispIR;                                  --! Front panel rotator switch
+	signal swOPT			: swOPT_t;                                           --! PDP-8 options\
+	signal swDATA			: swDATA_t;             --! Front panel switches
+	signal LED				: std_logic_vector(7 downto 0);
+	signal ledDATA			: data_t;
+	--
+	signal dig_counter	: std_logic_vector (19 downto 0) := (others => '0');
+	signal dispstep 		: std_logic := '0';
+	signal dispselcnt		: std_logic_vector (2 downto 0) := "000";
+	--
+	signal reset_dly1		: std_logic;	--! Delay used for reset logic
+	signal reset_dly2		: std_logic;	--! Delay used for reset logic
+	signal reset_dly3		: std_logic;	--! Delay used for reset logic
+	signal reset_dly4		: std_logic;	--! Delay used for reset logic
+	signal rst_out			: std_logic;   --! Reset line output to PDP-8
 
-  
+	constant max_count	: natural := 24000;
+	signal op 				: std_logic;
+
+	type display_type is (S0, S1, S2, S3, S4, S5);
+	signal state: display_type := S0;   
+	signal i 				: integer range 0 to 32 := 0;
+	--signal i : std_logic_vector(7 downto 0) := (others => '0');
+	signal data7			: std_logic_vector(31 downto 0); -- := X"fa00fa00"; -- (others => '0');
+	signal ds2, ds1, ds, dsdb : std_logic := '0';
 
 begin
 
@@ -212,18 +209,17 @@ begin
 --    constant dispMQ     : swROT_t := "101";                     --! Display MQ
 --    constant dispST     : swROT_t := "110";                     --! Display ST
 --    constant dispSC     : swROT_t := "111";                     --! Display SC
-	dispPCLED <= (not swROT(2)) and (not swROT(1)) and (not swROT(0));	--! Display PC
-	dispACLED <= (not swROT(2)) and (not swROT(1)) and (    swROT(0));	--! Display AC
-	dispMDLED <= (    swROT(2)) and (not swROT(1)) and (not swROT(0));	--! Display MD
-	dispMALED <= (    swROT(2)) and (    swROT(1)) and (    swROT(0));	--! Display MA
+	dispPCLED <= '1' when swROT = "000" else '0';		--! Display PC
+	dispACLED <= '1' when swROT = "001" else '0';		--! Display AC
+	dispMDLED <= '1' when swROT = "011" else '0';		--! Display MD
+	dispMALED <= '1' when swROT = "100" else '0';		--! Display MA
 	
 	swOPT.KE8       <= '1'; 
 	swOPT.KM8E      <= '1';
 	swOPT.TSD       <= '1';
 	swOPT.STARTUP   <= '1'; -- Setting the 'STARTUP' bit will cause the PDP8 to boot
 	-- to the address in the switch register
-
-	int_reset <= '0';
+	swCNTL.halt <= not runSwitch;
 
 	-- 2^18 = 256,000, 50M/250K = 200 mS ticks
 	process (CLOCK_50) begin
@@ -243,7 +239,7 @@ begin
 		end if;
 	end process;
 
-	-- Edge detect/one-shots for step, loadpc, and deposit switches.
+	-- Edge detect/one-shots for display pushbutton
 	process (CLOCK_50, ds) begin
 		if rising_edge(CLOCK_50) then
 			ds2		<= ds;
@@ -251,7 +247,7 @@ begin
 	   end if;
 	end process;
 	
--- Display selection
+-- Increment display selection
 	process (CLOCK_50) begin 
 		if rising_edge(CLOCK_50) then
 			if dispstep = '1' then
@@ -265,14 +261,22 @@ begin
 	----------------------------------------------------------------------------
 	process(CLOCK_50)
 	begin
-	 if(rising_edge(CLOCK_50)) then
-		dly <= ( not(int_reset) and     dly  and not(rst) )
-				 or ( not(int_reset) and not(dly) and     rst  );
-		rst <= ( not(int_reset) and not(dly) and not(rst) );
-	 end if;
+		if(rising_edge(CLOCK_50)) then
+			if dig_counter(17 downto 0) = 0 then
+				reset_dly1 <= not reset_n;
+				reset_dly2 <= reset_dly1 and (not reset_n);
+			end if;
+		end if;
 	end process;
 
-	rst_out <= rst xor invert_reset ;
+	process(CLOCK_50)
+	begin
+		if(rising_edge(CLOCK_50)) then
+			reset_dly3 <= reset_dly2;
+			reset_dly4 <= reset_dly3;
+			rst_out <= reset_dly4 and (not reset_dly3);
+		end if;
+	end process;
 
 	--
 	-- Front Panel Data Switches
@@ -352,8 +356,8 @@ begin
 	 swROT    => swROT,                      --! Data LEDS display PC
 	 swDATA   => swDATA,                     --! RK8E Boot Loader Address
 	 swCNTL   => swCNTL,                     --! Switches
-	 ledRUN => runLED,                       --! Run LED
-	 ledDATA => ledDATA,                        --! Data output register
+	 ledRUN 	=> runLED,                      --! Run LED
+	 ledDATA => ledDATA,                     --! Data output register
 	 ledADDR => open                         --! Address output register
 	 );
 	 
