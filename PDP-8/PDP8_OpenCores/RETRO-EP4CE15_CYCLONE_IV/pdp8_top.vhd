@@ -95,12 +95,14 @@ ENTITY pdp8_top is
 		linkLED		: out  STD_LOGIC := '0';		-- 
 		dispLEDs		: out  STD_LOGIC_VECTOR (11 downto 0);
 
-		TTY1_TXD : OUT STD_LOGIC;                                    --! UART send line
-		TTY1_RXD : IN STD_LOGIC;                                     --! UART receive line
---		TTY2_TXD : OUT STD_LOGIC;                                    --! UART send line
---		TTY2_RXD : IN STD_LOGIC;                                     --! UART receive line	 
---		LPR_TXD : OUT STD_LOGIC;                                     --! LPR send line
---		LPR_RXD : IN STD_LOGIC;                                      --! LPR receive line
+		TTY1_TXD : OUT STD_LOGIC;			--! UART send line
+		TTY1_RXD : IN STD_LOGIC;			--! UART receive line
+		TTY1_CTS : IN STD_LOGIC;			--! UART CTS
+		TTY1_RTS : OUT STD_LOGIC;			--! UART RTS
+--		TTY2_TXD : OUT STD_LOGIC;			--! UART send line
+--		TTY2_RXD : IN STD_LOGIC;			--! UART receive line	 
+--		LPR_TXD : OUT STD_LOGIC;			--! LPR send line
+--		LPR_RXD : IN STD_LOGIC;				--! LPR receive line
 --		LPR_CTS : IN STD_LOGIC;
 --		LPR_RTS : OUT STD_LOGIC;
 --		PTR_TXD : OUT STD_LOGIC;
@@ -302,9 +304,9 @@ begin
 	 swRTC    => clkDK8EC2,                  --! RTC 50 Hz interrupt
 	 -- TTY1 Interfaces
 	 tty1BR   => uartBR9600,                 --! TTY1 is 9600 Baud
-	 tty1HS   => uartHSnone,                 --! TTY1 has no flow control
-	 tty1CTS  => '1',                        --! TTY1 doesn't need CTS
-	 tty1RTS  => open,                       --! TTY1 doesn't need RTS
+	 tty1HS   => uartHShw,                   --! TTY1 uses hardware handshake
+	 tty1CTS  => TTY1_CTS,                   --! TTY1 CTS (in)
+	 tty1RTS  => TTY1_RTS,                   --! TTY1 RTS (out)
 	 tty1RXD  => TTY1_RXD,                   --! TTY1 RXD (to RS-232 interface)
 	 tty1TXD  => TTY1_TXD,                   --! TTY1 TXD (to RS-232 interface)
 	 -- TTY2 Interfaces
