@@ -76,6 +76,7 @@ ENTITY pdp8_top is
   PORT ( 
 		CLOCK_50		: IN STD_LOGIC;      -- Input clock
 		reset_n 		: in STD_LOGIC;		-- Reset
+		
 		-- 
 		dispPB		: in std_logic;		-- 12 LEDs display select button selects source
 		stepPB		: in std_logic;		-- Single Step pushbutton 
@@ -109,11 +110,11 @@ ENTITY pdp8_top is
 --		fpMISO : IN STD_LOGIC;
 
 		-- SD card
-		sdCS		: OUT STD_LOGIC; --! SD card chip select
-		sdCLK		: OUT STD_LOGIC; --! SD card clock
-		sdDI		: OUT STD_LOGIC; --! SD card master out slave in
-		sdDO		: IN STD_LOGIC; --! SD card master in slave out
-		sdCD		: IN STD_LOGIC;
+		sdCS		: OUT STD_LOGIC;	--! SD card chip select
+		sdCLK		: OUT STD_LOGIC;	--! SD card clock
+		sdDI		: OUT STD_LOGIC;	--! SD card master out slave in
+		sdDO		: IN STD_LOGIC;	--! SD card master in slave out
+		sdCD		: IN STD_LOGIC;	--! SD card detect
 	 
 		-- Not using the External SRAM on the QMTECH card but making sure that it's not active
 		sramData		: inout std_logic_vector(7 downto 0) := "ZZZZZZZZ";
@@ -286,7 +287,7 @@ begin
 	-- Loopback link switch for now
 	linkLB	<= linkSW;
 	linkLED	<= linkLB;
-
+	
 	----------------------------------------------------------------------------
 	-- PDP8 Processor
 	---------------------------------------------------------------------------    
@@ -328,7 +329,7 @@ begin
 	 ptrRXD   => '1',                        --! PTR RXD (tied off)
 	 ptrTXD   => open,                       --! PTR TXD (tied off)
 	 -- Secure Digital Disk Interface
-	 sdCD     => sdCD,                        --! SD Card Detect
+	 sdCD     => '0',                        --! SD Card Detect
 	 sdWP     => '0',                        --! SD Write Protect
 	 sdMISO   => sdDO,                       --! SD Data In
 	 sdMOSI   => sdDI,                       --! SD Data Out
