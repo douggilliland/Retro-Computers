@@ -115,14 +115,14 @@ ENTITY pdp8_top is
 		sdDO		: IN STD_LOGIC; --! SD card master in slave out
 		sdCD		: IN STD_LOGIC;
 	 
-		-- Not using the External SRAM but making sure that it's not active
+		-- Not using the External SRAM on the QMTECH card but making sure that it's not active
 		sramData		: inout std_logic_vector(7 downto 0) := "ZZZZZZZZ";
 		sramAddress	: out std_logic_vector(19 downto 0) := x"00000";
 		n_sRamWE		: out std_logic :='1';
 		n_sRamCS		: out std_logic :='1';
 		n_sRamOE		: out std_logic :='1';
 
-		-- Not using the SD RAM but making sure that it's not active
+		-- Not using the SD RAM on the RETRO-EP4CE15 card but making sure that it's not active
 		n_sdRamCas	: out std_logic := '1';		-- CAS on schematic
 		n_sdRamRas	: out std_logic := '1';		-- RAS
 		n_sdRamWe	: out std_logic := '1';		-- SDWE
