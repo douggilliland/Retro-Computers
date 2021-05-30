@@ -1,4 +1,4 @@
---!
+------------------------------------------------------------------------------------------------------------------------
 --! OpenCores PDP-8 Processor
 --!	https://opencores.org/projects/pdp8
 --!
@@ -12,8 +12,10 @@
 --! Front Panel
 --!		http://land-boards.com/blwiki/index.php?title=PDP-8_Front_Panel
 --! Uses bin2mif.py utility to convert the DEC bin file to Altera MIF file
---! Software at:	https://github.com/douggilliland/Linux-68k/tree/master/pdp8
---! VHDL at:		https://github.com/douggilliland/Retro-Computers/tree/master/PDP-8/PDP8_OpenCores/RETRO-EP4CE15_CYCLONE_IV
+--! Software at:
+--!		https://github.com/douggilliland/Linux-68k/tree/master/pdp8
+--! VHDL at:
+--!		https://github.com/douggilliland/Retro-Computers/tree/master/PDP-8/PDP8_OpenCores/RETRO-EP4CE15_CYCLONE_IV
 --!
 --! \file
 --!      pdp8_top.vhd
@@ -23,7 +25,7 @@
 --!
 --!	Doug Gilliland - adapted to EP4CE15 card
 --
---------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------
 --
 --  Copyright (C) 2012 Joe Manojlovich
 --
@@ -70,15 +72,10 @@ use work.sd_types.all;                          --! SD Types
 use work.sdspi_types.all;                       --! SPI Types
 use work.oct_7seg;
 
-ENTITY pdp8_top IS
-  generic
-  (
-    invert_reset : std_logic := '1' -- 0 : not invert, 1 invert
-  );
-  
+ENTITY pdp8_top is  
   PORT ( 
 		CLOCK_50		: IN STD_LOGIC;      -- Input clock
-		reset_n 		: in STD_LOGIC;
+		reset_n 		: in STD_LOGIC;		-- Reset
 		-- 
 		dispPB		: in std_logic;		-- 12 LEDs display select button selects source
 		stepPB		: in std_logic;		-- Single Step pushbutton 
@@ -86,6 +83,7 @@ ENTITY pdp8_top IS
 		runSwitch	: in std_logic;		-- Run/Halt slide switch
 		depPB			: in std_logic;		-- Deposit pushbutton
 		examinePB	: in std_logic;		-- Examine pushbutton (LDA)
+		linkSW		: in std_logic;		-- Link Switch
 		sw			 	: in STD_LOGIC_VECTOR(11 downto 0);		-- Slide switches
 
 		runLED		: out  STD_LOGIC;		-- RUN LED
@@ -110,25 +108,12 @@ ENTITY pdp8_top IS
 --		PTR_RTS : OUT STD_LOGIC;
 --		fpMISO : IN STD_LOGIC;
 
---		swLOCK : IN STD_LOGIC;
---		swCONT : IN STD_LOGIC;
---		swBOOT : IN STD_LOGIC;
---		swEXAM : IN STD_LOGIC;
---		swLDADDR : IN STD_LOGIC;
---		swHALT : IN STD_LOGIC;
---		swLDEXTD : IN STD_LOGIC;
---		swSTEP : IN STD_LOGIC;
---		swDEP : IN STD_LOGIC; 
-
-		--
+		-- SD card
 		sdCS		: OUT STD_LOGIC; --! SD card chip select
 		sdCLK		: OUT STD_LOGIC; --! SD card clock
 		sdDI		: OUT STD_LOGIC; --! SD card master out slave in
 		sdDO		: IN STD_LOGIC; --! SD card master in slave out
 		sdCD		: IN STD_LOGIC;
-		-- 
---		swCLEAR : IN STD_LOGIC;
---		swWP : IN STD_LOGIC;
 	 
 		-- Not using the External SRAM but making sure that it's not active
 		sramData		: inout std_logic_vector(7 downto 0) := "ZZZZZZZZ";
@@ -151,16 +136,14 @@ END pdp8_top;
 
  architecture rtl of pdp8_top is
 	signal rk8eSTAT		: rk8eSTAT_t;
-	signal swCNTL			: swCNTL_t := (others => '0');                       --! Front Panel Control Switches
-	signal swROT			: swROT_t := dispIR;                                  --! Front panel rotator switch
-	signal swOPT			: swOPT_t;                                           --! PDP-8 options\
-	signal swDATA			: swDATA_t;             --! Front panel switches
-	signal LED				: std_logic_vector(7 downto 0);
+	signal swCNTL			: swCNTL_t := (others => '0');   --! Front Panel Control Switches
+	signal swROT			: swROT_t := dispPC;             --! Front panel rotator switch
+	signal swOPT			: swOPT_t;                       --! PDP-8 options
+	signal swDATA			: swDATA_t;             			--! Front panel switches
 	signal ledDATA			: data_t;
 	--
 	signal dig_counter	: std_logic_vector (19 downto 0) := (others => '0');
-	signal dispstep 		: std_logic := '0';
-	signal dispselcnt		: std_logic_vector (2 downto 0) := "000";
+	signal dispstep 		: std_logic;
 	--
 	signal reset_dly1		: std_logic;	--! Delay used for reset logic
 	signal reset_dly2		: std_logic;	--! Delay used for reset logic
@@ -173,20 +156,22 @@ END pdp8_top;
 	signal step_dly3		: std_logic;	--! Delay used for step logic
 	signal step_dly4		: std_logic;	--! Delay used for step logic
 
-	signal ldpc_dly1		: std_logic;	--! Delay used for step logic
-	signal ldpc_dly2		: std_logic;	--! Delay used for step logic
-	signal ldpc_dly3		: std_logic;	--! Delay used for step logic
-	signal ldpc_dly4		: std_logic;	--! Delay used for step logic
+	signal ldpc_dly1		: std_logic;	--! Delay used for load address logic
+	signal ldpc_dly2		: std_logic;	--! Delay used for load address  logic
+	signal ldpc_dly3		: std_logic;	--! Delay used for load address  logic
+	signal ldpc_dly4		: std_logic;	--! Delay used for load address  logic
 
-	signal dep_dly1		: std_logic;	--! Delay used for step logic
-	signal dep_dly2		: std_logic;	--! Delay used for step logic
-	signal dep_dly3		: std_logic;	--! Delay used for step logic
-	signal dep_dly4		: std_logic;	--! Delay used for step logic
+	signal dep_dly1		: std_logic;	--! Delay used for deposit logic
+	signal dep_dly2		: std_logic;	--! Delay used for deposit logic
+	signal dep_dly3		: std_logic;	--! Delay used for deposit logic
+	signal dep_dly4		: std_logic;	--! Delay used for deposit logic
 
-	signal exam_dly1		: std_logic;	--! Delay used for step logic
-	signal exam_dly2		: std_logic;	--! Delay used for step logic
-	signal exam_dly3		: std_logic;	--! Delay used for step logic
-	signal exam_dly4		: std_logic;	--! Delay used for step logic
+	signal exam_dly1		: std_logic;	--! Delay used for examine memory logic
+	signal exam_dly2		: std_logic;	--! Delay used for examine memory logic
+	signal exam_dly3		: std_logic;	--! Delay used for examine memory logic
+	signal exam_dly4		: std_logic;	--! Delay used for examine memory logic
+
+	signal linkLB			: std_logic;	--! Loopback link switch to Link LED
 
 	constant max_count	: natural := 24000;
 	signal op 				: std_logic;
@@ -204,23 +189,17 @@ END pdp8_top;
 
 begin
 
-	dispLEDs <= ledDATA;
-	
 	swOPT.KE8       <= '1';	-- KE8 - Extended Arithmetic Element Provided 
 	swOPT.KM8E      <= '1';	-- KM8E - Extended Memory Provided
 	swOPT.TSD       <= '1';	-- Time Share Disable
 	swOPT.STARTUP   <= '1'; -- Setting the 'STARTUP' bit will cause the PDP8 to boot
 									-- to the address in the switch register (panel mode)
 									
-	swCNTL.halt <= not runSwitch;
-
-
 	----------------------------------------------------------------------------
 	-- 200 mS full range counter
 	-- Useful for prescaling pushbuttons
 	-- 2^18 = 256,000, 50M/250K = 200 mS ticks
 	----------------------------------------------------------------------------
-	
 	process (CLOCK_50) begin
 		if rising_edge(CLOCK_50) then
 			dig_counter <= dig_counter+1;
@@ -230,8 +209,7 @@ begin
 	----------------------------------------------------------------------------
 	--  Display select signal generator.
 	----------------------------------------------------------------------------
-	
-		-- Debounce for display pushbutton
+	-- Debounce for display pushbutton
 	process (CLOCK_50, dispPB)
 	begin
 		if rising_edge(CLOCK_50) then
@@ -256,27 +234,19 @@ begin
 	begin 
 		if rising_edge(CLOCK_50) then
 			if dispstep = '1' then
-				if		swROT = "000" then swROT <= "011";
-				elsif swROT = "011" then swROT <= "100";
-				elsif swROT = "100" then swROT <= "001";
+				if		swROT = dispPC then swROT <= dispMA;
+				elsif swROT = dispMA then swROT <= dispMD;
+				elsif swROT = dispMD then swROT <= dispAC;
 				else  swROT <= "000";
 				end if;
 			end if;
 		end if;
 	end process;
-	
---    constant dispPC     : swROT_t := "000";                     --! Display PC
---    constant dispAC     : swROT_t := "001";                     --! Display AC
---    constant dispIR     : swROT_t := "010";                     --! Display IR
---    constant dispMA     : swROT_t := "011";                     --! Display MA
---    constant dispMD     : swROT_t := "100";                     --! Display MD
---    constant dispMQ     : swROT_t := "101";                     --! Display MQ
---    constant dispST     : swROT_t := "110";                     --! Display ST
---    constant dispSC     : swROT_t := "111";                     --! Display SC
-	dispPCLED <= '1' when swROT = "000" else '0';		--! Display PC
-	dispMALED <= '1' when swROT = "100" else '0';		--! Display MA
-	dispMDLED <= '1' when swROT = "011" else '0';		--! Display MD
-	dispACLED <= '1' when swROT = "001" else '0';		--! Display AC
+	-- Display selection LEDS
+	dispPCLED <= '1' when swROT = dispPC else '0';		--! Display PC
+	dispMALED <= '1' when swROT = dispMA else '0';		--! Display MA
+	dispMDLED <= '1' when swROT = dispMD else '0';		--! Display MD
+	dispACLED <= '1' when swROT = dispAC else '0';		--! Display AC
 	
 	----------------------------------------------------------------------------
 	--  RESET signal generator.
@@ -365,7 +335,6 @@ begin
 			swCNTL.loadADDR	<= ldpc_dly4 and (not ldpc_dly3);
 		end if;
 	end process;
-
 	
 	----------------------------------------------------------------------------
 	--  STEP signal generator.
@@ -392,10 +361,17 @@ begin
 	--
 	-- Front Panel Data Switches
 	--
-
 	swDATA          <= sw;				-- Set start address from switches
 	--swDATA          <= o"0023";		-- Tight loop code? 
 	--swDATA          <= o"7400";		-- ? code
+	swCNTL.halt <= not runSwitch;
+
+	-- Loopback link switch for now
+	linkLB	<= linkSW;
+	linkLED	<= linkLB;
+
+	dispLEDs <= ledDATA;
+	
 
 	 computer : process(CLOCK_50, rst_out)
 		  variable count : natural range 0 to max_count := 0;

@@ -1,6 +1,7 @@
 -- PDP-11/70 build
 --	http://land-boards.com/blwiki/index.php?title=PDP-11_ON_RETRO-EP4CE15
 -- Wiki page: http://land-boards.com/blwiki/index.php?title=PDP-11_ON_RETRO-EP4CE15
+--	GitHub - https://hackaday.io/project/179642-pdp-11-on-a-fpga
 --
 -- Copyright (c) 2008-2021 Sytse van Slooten
 --
@@ -25,36 +26,51 @@ entity top is
    port(
       clkin 		: in std_logic;
 
+		-- Switches/jumpers
       resetbtn 	: in std_logic;
-      sw 			: in std_logic_vector(5 downto 0);
-      greenled 	: out std_logic_vector(4 downto 0);
+      sw 			: in std_logic_vector(5 downto 0);	-- J3-1 to -3 
+																		-- selects drive type
+		-- LEDs
+      greenled 	: out std_logic_vector(4 downto 0);	-- greenled(4) - Instruction Fetch
+																		-- greenled(3..0)	- "0011" - Reset
+																		--						- "0011" - Init
+																		-- greenled(1) -	on = SD card
+																		--						off = SDHC card
+																		-- greenled(2) -	Read from card
+																		-- greenled(3) -	Read from card
 
+		-- VGA (2:2:2)
       vgar : out std_logic_vector(1 downto 0);
       vgag : out std_logic_vector(1 downto 0);
       vgab : out std_logic_vector(1 downto 0);
       vgah : out std_logic;
       vgav : out std_logic;
 
+		-- PS/2 keyboard
       ps2k_c : in std_logic;
       ps2k_d : in std_logic;
 
+		-- Serial port
+		-- USB-to-Serial - 115200/8/n/1 debug output from microcode
       tx1	: out std_logic;
       rx1	: in std_logic;
       rts1	: out std_logic;
       cts1	: in std_logic;
 
-      sdcard_cs : out std_logic;
+		-- SD card
+      sdcard_cs	: out std_logic;
       sdcard_mosi : out std_logic;
       sdcard_sclk : out std_logic;
       sdcard_miso : in std_logic;
 
--- ethernet, enc424j600 controller interface
+		-- ethernet, enc424j600 controller interface
       xu_cs			: out std_logic;
       xu_mosi		: out std_logic;
       xu_sclk		: out std_logic;
       xu_miso		: in std_logic;
-      xu_debug_tx	: out std_logic;                                   -- rs232, 115200/8/n/1 debug output from microcode
+      xu_debug_tx	: out std_logic;
 
+		-- Uses the SDRAM as the main storage space
       dram_addr	: out std_logic_vector(12 downto 0);
       dram_dq		: inout std_logic_vector(15 downto 0);
       dram_ba_1	: out std_logic;
@@ -74,65 +90,71 @@ architecture implementation of top is
 
 component unibus is
    port(
+-- clocks and reset
+      clk : in std_logic;													-- cpu clock
+      clk50mhz : in std_logic;											-- 50Mhz clock for peripherals
+      reset : in std_logic;												-- active '1' synchronous reset
+		
 -- bus interface
-      addr : out std_logic_vector(21 downto 0);                      -- physical address driven out to the bus by cpu or busmaster peripherals
-      dati : in std_logic_vector(15 downto 0);                       -- data input to cpu or busmaster peripherals
-      dato : out std_logic_vector(15 downto 0);                      -- data output from cpu or busmaster peripherals
-      control_dati : out std_logic;                                  -- if '1', this is an input cycle
-      control_dato : out std_logic;                                  -- if '1', this is an output cycle
-      control_datob : out std_logic;                                 -- if '1', the current output cycle is for a byte
-      addr_match : in std_logic;                                     -- '1' if the address is recognized
+      addr				: out std_logic_vector(21 downto 0);		-- physical address driven out to the bus by cpu or busmaster peripherals
+      dati				: in std_logic_vector(15 downto 0);			-- data input to cpu or busmaster peripherals
+      dato				: out std_logic_vector(15 downto 0);		-- data output from cpu or busmaster peripherals
+      control_dati	: out std_logic;									-- if '1', this is an input cycle
+      control_dato	: out std_logic;									-- if '1', this is an output cycle
+      control_datob	: out std_logic;									-- if '1', the current output cycle is for a byte
+      addr_match		: in std_logic;									-- '1' if the address is recognized
 
 -- debug & blinkenlights
-      ifetch : out std_logic;                                        -- '1' if this cycle is an ifetch cycle
-      iwait : out std_logic;                                         -- '1' if the cpu is in wait state
-      cpu_addr_v : out std_logic_vector(15 downto 0);                -- virtual address from cpu, for debug and general interest
+      ifetch			: out std_logic;									-- '1' if this cycle is an ifetch cycle
+      iwait				: out std_logic;									-- '1' if the cpu is in wait state
+      cpu_addr_v		: out std_logic_vector(15 downto 0);		-- virtual address from cpu, for debug and general interest
 
 -- rl controller
-      have_rl : in integer range 0 to 1 := 0;                        -- enable conditional compilation
-      rl_sdcard_cs : out std_logic;
+      have_rl			: in integer range 0 to 1 := 0;				-- enable conditional compilation
+      rl_sdcard_cs	: out std_logic;
       rl_sdcard_mosi : out std_logic;
       rl_sdcard_sclk : out std_logic;
       rl_sdcard_miso : in std_logic := '0';
-      rl_sdcard_debug : out std_logic_vector(3 downto 0);            -- debug/blinkenlights
+      rl_sdcard_debug : out std_logic_vector(3 downto 0);		-- debug/blinkenlights
 
 -- rk controller
-      have_rk : in integer range 0 to 1 := 0;                        -- enable conditional compilation
-      have_rk_num : in integer range 1 to 8 := 8;                    -- active number of drives on the controller; set to < 8 to save core
-      rk_sdcard_cs : out std_logic;
+      have_rk			: in integer range 0 to 1 := 0;				-- enable conditional compilation
+      have_rk_num		: in integer range 1 to 8 := 8;				-- active number of drives on the controller; set to < 8 to save core
+      rk_sdcard_cs	: out std_logic;
       rk_sdcard_mosi : out std_logic;
       rk_sdcard_sclk : out std_logic;
       rk_sdcard_miso : in std_logic := '0';
-      rk_sdcard_debug : out std_logic_vector(3 downto 0);            -- debug/blinkenlights
+      rk_sdcard_debug : out std_logic_vector(3 downto 0);		-- debug/blinkenlights
 
 -- rh controller
-      have_rh : in integer range 0 to 1 := 0;                        -- enable conditional compilation
-      rh_sdcard_cs : out std_logic;
+      have_rh			: in integer range 0 to 1 := 0;				-- enable conditional compilation
+      rh_sdcard_cs	: out std_logic;
       rh_sdcard_mosi : out std_logic;
       rh_sdcard_sclk : out std_logic;
       rh_sdcard_miso : in std_logic := '0';
-      rh_sdcard_debug : out std_logic_vector(3 downto 0);            -- debug/blinkenlights
-      rh_type : in integer range 4 to 7 := 6;
+      rh_sdcard_debug : out std_logic_vector(3 downto 0);		-- debug/blinkenlights
+      rh_type			: in integer range 4 to 7 := 6;
 
 -- xu enc424j600 controller interface
-      have_xu : in integer range 0 to 1 := 0;                        -- enable conditional compilation
-      have_xu_debug : in integer range 0 to 1 := 1;                  -- enable debug core
-      xu_cs : out std_logic;
-      xu_mosi : out std_logic;
-      xu_sclk : out std_logic;
-      xu_miso : in std_logic := '0';
-      xu_debug_tx : out std_logic;                                   -- rs232, 115200/8/n/1 debug output from microcode
+      have_xu			: in integer range 0 to 1 := 0;				-- enable conditional compilation
+      have_xu_debug	: in integer range 0 to 1 := 1;				-- enable debug core
+      xu_cs				: out std_logic;
+      xu_mosi			: out std_logic;
+      xu_sclk			: out std_logic;
+      xu_miso			: in std_logic := '0';
+      xu_debug_tx		: out std_logic;
 
 -- kl11, console ports
-      have_kl11 : in integer range 0 to 4 := 4;                      -- conditional compilation - number of kl11 controllers to include. Should normally be at least 1
+-- rs232, 115200/8/n/1 debug output from microcode
+      have_kl11		: in integer range 0 to 4 := 4;				-- conditional compilation - number of kl11 controllers to include. Should normally be at least 1
 
-      tx0 : out std_logic;
-      rx0 : in std_logic := '1';
-      rts0 : out std_logic;
-      cts0 : in std_logic := '0';
-      kl0_bps : in integer range 1200 to 230400 := 9600;             -- bps rate - don't set over 38400 for interrupt control applications
-      kl0_force7bit : in integer range 0 to 1 := 1;                  -- zero out high order bit on transmission and reception
-      kl0_rtscts : in integer range 0 to 1 := 1;                     -- conditional compilation switch for rts and cts signals; also implies to include core that implements a silo buffer
+      tx0				: out std_logic;
+      rx0				: in std_logic := '1';
+      rts0				: out std_logic;
+      cts0				: in std_logic := '0';
+      kl0_bps			: in integer range 1200 to 230400 := 9600;	-- bps rate - don't set over 38400 for interrupt control applications
+      kl0_force7bit	: in integer range 0 to 1 := 1;					-- zero out high order bit on transmission and reception
+      kl0_rtscts		: in integer range 0 to 1 := 1;					-- conditional compilation switch for rts and cts signals; also implies to include core that implements a silo buffer
 
       tx1 : out std_logic;
       rx1 : in std_logic := '1';
@@ -225,41 +247,36 @@ component unibus is
       init_psw : in std_logic_vector(15 downto 0) := x"00e0";        -- initial psw for kernel mode, primary register set, priority 7
 
 -- console
-      cons_load : in std_logic := '0';
-      cons_exa : in std_logic := '0';
-      cons_dep : in std_logic := '0';
-      cons_cont : in std_logic := '0';                               -- continue, pulse '1'
-      cons_ena : in std_logic := '1';                                -- ena/halt, '1' is enable
-      cons_start : in std_logic := '0';
-      cons_sw : in std_logic_vector(21 downto 0) := (others => '0');
+      cons_load		: in std_logic := '0';
+      cons_exa			: in std_logic := '0';									-- Examine memory
+      cons_dep			: in std_logic := '0';									-- Deposit
+      cons_cont		: in std_logic := '0';									-- continue, pulse '1'
+      cons_ena			: in std_logic := '1';									-- ena/halt, '1' is enable
+      cons_start		: in std_logic := '0';
+      cons_sw			: in std_logic_vector(21 downto 0) := (others => '0');
       cons_adss_mode : in std_logic_vector(1 downto 0) := (others => '0');
-      cons_adss_id : in std_logic := '0';
+      cons_adss_id	: in std_logic := '0';
       cons_adss_cons : in std_logic := '0';
-      cons_consphy : out std_logic_vector(21 downto 0);
-      cons_progphy : out std_logic_vector(21 downto 0);
-      cons_br : out std_logic_vector(15 downto 0);
-      cons_shfr : out std_logic_vector(15 downto 0);
-      cons_maddr : out std_logic_vector(15 downto 0);                -- microcode address fpu/cpu
-      cons_dr : out std_logic_vector(15 downto 0);
-      cons_parh : out std_logic;
-      cons_parl : out std_logic;
+      cons_consphy	: out std_logic_vector(21 downto 0);
+      cons_progphy	: out std_logic_vector(21 downto 0);
+      cons_br			: out std_logic_vector(15 downto 0);
+      cons_shfr		: out std_logic_vector(15 downto 0);
+      cons_maddr		: out std_logic_vector(15 downto 0);				-- microcode address fpu/cpu
+      cons_dr			: out std_logic_vector(15 downto 0);
+      cons_parh		: out std_logic;
+      cons_parl		: out std_logic;
 
-      cons_adrserr : out std_logic;
-      cons_run : out std_logic;                                      -- '1' if executing instructions (incl wait)
-      cons_pause : out std_logic;                                    -- '1' if bus has been relinquished to npr
-      cons_master : out std_logic;                                   -- '1' if cpu is bus master and not running
-      cons_kernel : out std_logic;                                   -- '1' if kernel mode
-      cons_super : out std_logic;                                    -- '1' if super mode
-      cons_user : out std_logic;                                     -- '1' if user mode
-      cons_id : out std_logic;                                       -- '0' if instruction, '1' if data AND data mapping is enabled in the mmu
-      cons_map16 : out std_logic;                                    -- '1' if 16-bit mapping
-      cons_map18 : out std_logic;                                    -- '1' if 18-bit mapping
-      cons_map22 : out std_logic;                                    -- '1' if 22-bit mapping
-
--- clocks and reset
-      clk : in std_logic;                                            -- cpu clock
-      clk50mhz : in std_logic;                                       -- 50Mhz clock for peripherals
-      reset : in std_logic                                           -- active '1' synchronous reset
+      cons_adrserr	: out std_logic;
+      cons_run			: out std_logic;			-- '1' if executing instructions (incl wait)
+      cons_pause : out std_logic;				-- '1' if bus has been relinquished to npr
+      cons_master : out std_logic;				-- '1' if cpu is bus master and not running
+      cons_kernel : out std_logic;				-- '1' if kernel mode
+      cons_super : out std_logic;				-- '1' if super mode
+      cons_user : out std_logic;					-- '1' if user mode
+      cons_id : out std_logic;					-- '0' if instruction, '1' if data AND data mapping is enabled in the mmu
+      cons_map16 : out std_logic;				-- '1' if 16-bit mapping
+      cons_map18 : out std_logic;				-- '1' if 18-bit mapping
+      cons_map22 : out std_logic					-- '1' if 22-bit mapping
    );
 end component;
 
@@ -405,6 +422,13 @@ begin
 --   c0 <= clkin;
 
    pdp11: unibus port map(
+
+      modelcode => 70,
+
+      reset => cpureset,
+      clk50mhz => clkin,
+      clk => cpuclk,
+		
       addr => addr,
       dati => dati,
       dato => dato,
@@ -446,13 +470,7 @@ begin
       xu_mosi => xu_mosi,
       xu_sclk => xu_sclk,
       xu_miso => xu_miso,
-      xu_debug_tx => xu_debug_tx,
-
-      modelcode => 70,
-
-      reset => cpureset,
-      clk50mhz => clkin,
-      clk => cpuclk
+      xu_debug_tx => xu_debug_tx
    );
 
    vt0: vt port map(
@@ -482,13 +500,21 @@ begin
    tx1 <= txtx1;
    rxrx1 <= rx1;
 
-   sddebug <= rh_sddebug when have_rh = 1 else rl_sddebug when have_rl = 1 else rk_sddebug;
-   sdcard_cs <= rh_cs when have_rh = 1 else rl_cs when have_rl = 1 else rk_cs;
-   sdcard_mosi <= rh_mosi when have_rh = 1 else rl_mosi when have_rl = 1 else rk_mosi;
-   sdcard_sclk <= rh_sclk when have_rh = 1 else rl_sclk when have_rl = 1 else rk_sclk;
-   rh_miso <= sdcard_miso;
-   rl_miso <= sdcard_miso;
-   rk_miso <= sdcard_miso;
+   sddebug		<= rh_sddebug when have_rh = 1 
+						else rl_sddebug when have_rl = 1
+						else rk_sddebug;
+   sdcard_cs	<= rh_cs when have_rh = 1
+						else rl_cs when have_rl = 1
+						else rk_cs;
+   sdcard_mosi	<= rh_mosi when have_rh = 1
+						else rl_mosi when have_rl = 1
+						else rk_mosi;
+   sdcard_sclk <= rh_sclk when have_rh = 1 
+						else rl_sclk when have_rl = 1
+						else rk_sclk;
+   rh_miso		<= sdcard_miso;
+   rl_miso		<= sdcard_miso;
+   rk_miso		<= sdcard_miso;
 
 	-- The hexadecimal RGB code of Amber color is #FFBF00
    vgar <= "11" when vga_fb = '1' else "10" when vga_ht = '1' else "00";
