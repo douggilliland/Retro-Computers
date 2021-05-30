@@ -312,9 +312,9 @@ begin
 	-- Pick out the status LEDs from led()
 	runLED		<= led(15);
 	dispPCLED	<= led(3);
-	dispACLED	<= led(2);
-	dispMALED	<= led(1);
-	dispMDLED	<= led(0);
+	dispMALED	<= led(2);
+	dispMDLED	<= led(1);
+	dispACLED	<= led(0);
 	dispLEDs		<= dispout;		-- The 12 LEDs
 	linkLED		<= linkout;
 	
