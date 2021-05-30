@@ -144,6 +144,7 @@ END pdp8_top;
 	--
 	signal dig_counter	: std_logic_vector (19 downto 0) := (others => '0');
 	signal dispstep 		: std_logic;
+	signal pulse200ms		: std_logic;
 	--
 	signal reset_dly1		: std_logic;	--! Delay used for reset logic
 	signal reset_dly2		: std_logic;	--! Delay used for reset logic
@@ -189,44 +190,44 @@ END pdp8_top;
 
 begin
 
+	-- Options
 	swOPT.KE8       <= '1';	-- KE8 - Extended Arithmetic Element Provided 
 	swOPT.KM8E      <= '1';	-- KM8E - Extended Memory Provided
 	swOPT.TSD       <= '1';	-- Time Share Disable
 	swOPT.STARTUP   <= '1'; -- Setting the 'STARTUP' bit will cause the PDP8 to boot
 									-- to the address in the switch register (panel mode)
-									
+
 	----------------------------------------------------------------------------
-	-- 200 mS full range counter
-	-- Useful for prescaling pushbuttons
+	-- 200 mS counter
 	-- 2^18 = 256,000, 50M/250K = 200 mS ticks
+	-- Used for prescaling pushbuttons
+	-- pulse200ms = single clock pulse every 200 mSecs
 	----------------------------------------------------------------------------
 	process (CLOCK_50) begin
 		if rising_edge(CLOCK_50) then
 			dig_counter <= dig_counter+1;
-		end if;
-	end process;
-
-	----------------------------------------------------------------------------
-	--  Display select signal generator.
-	----------------------------------------------------------------------------
-	-- Debounce for display pushbutton
-	process (CLOCK_50, dispPB)
-	begin
-		if rising_edge(CLOCK_50) then
 			if dig_counter(17 downto 0) = 0 then
-				disp_dly1	<= dispPB;
-				disp_dly2	<= disp_dly1;
+				pulse200ms <= '1';
+			else
+				pulse200ms <= '0';
 			end if;
 		end if;
 	end process;
 
-	-- Edge detect/one-shots for display pushbutton
-	process (CLOCK_50, disp_dly2) begin
+	----------------------------------------------------------------------------
+	-- Debounce for display select pushbutton
+	----------------------------------------------------------------------------
+	process (CLOCK_50, dispPB, pulse200ms)
+	begin
 		if rising_edge(CLOCK_50) then
+			if pulse200ms = '1' then
+				disp_dly1	<= dispPB;
+				disp_dly2	<= disp_dly1;
+			end if;
 			disp_dly3	<= disp_dly2;
 			disp_dly4	<= disp_dly3;
 			dispstep		<= disp_dly4 and (not disp_dly3);
-	   end if;
+		end if;
 	end process;
 	
 -- Increment display selection
@@ -251,19 +252,13 @@ begin
 	----------------------------------------------------------------------------
 	--  RESET signal generator.
 	----------------------------------------------------------------------------
-	process(CLOCK_50)
+	process(CLOCK_50, pulse200ms)
 	begin
 		if(rising_edge(CLOCK_50)) then
-			if dig_counter(17 downto 0) = 0 then
+			if pulse200ms = '1' then
 				reset_dly1 <= not reset_n;
 				reset_dly2 <= reset_dly1 and (not reset_n);
 			end if;
-		end if;
-	end process;
-
-	process(CLOCK_50)
-	begin
-		if(rising_edge(CLOCK_50)) then
 			reset_dly3 <= reset_dly2;
 			reset_dly4 <= reset_dly3;
 			rst_out <= reset_dly4 and (not reset_dly3);
@@ -273,19 +268,13 @@ begin
 	----------------------------------------------------------------------------
 	--  Examine pushbutton signal generator.
 	----------------------------------------------------------------------------
-	process(CLOCK_50)
+	process(CLOCK_50, pulse200ms)
 	begin
 		if(rising_edge(CLOCK_50)) then
-			if dig_counter(17 downto 0) = 0 then
+			if pulse200ms = '1' then
 				exam_dly1 <= not examinePB;
 				exam_dly2 <= exam_dly1 and (not examinePB);
 			end if;
-		end if;
-	end process;
-
-	process(CLOCK_50, exam_dly2)
-	begin
-		if(rising_edge(CLOCK_50)) then
 			exam_dly3		<= exam_dly2;
 			exam_dly4		<= exam_dly3;
 			swCNTL.exam		<= exam_dly4 and (not exam_dly3);
@@ -295,19 +284,13 @@ begin
 	----------------------------------------------------------------------------
 	--  Deposit pushbutton signal generator.
 	----------------------------------------------------------------------------
-	process(CLOCK_50)
+	process(CLOCK_50, pulse200ms)
 	begin
 		if(rising_edge(CLOCK_50)) then
-			if dig_counter(17 downto 0) = 0 then
+			if pulse200ms = '1' then
 				dep_dly1 <= not depPB;
 				dep_dly2 <= dep_dly1 and (not depPB);
 			end if;
-		end if;
-	end process;
-
-	process(CLOCK_50, dep_dly2)
-	begin
-		if(rising_edge(CLOCK_50)) then
 			dep_dly3		<= dep_dly2;
 			dep_dly4		<= dep_dly3;
 			swCNTL.dep	<= dep_dly4 and (not dep_dly3);
@@ -317,47 +300,35 @@ begin
 	----------------------------------------------------------------------------
 	--  Load PC signal generator.
 	----------------------------------------------------------------------------
-	process(CLOCK_50)
+	process(CLOCK_50, pulse200ms)
 	begin
 		if(rising_edge(CLOCK_50)) then
-			if dig_counter(17 downto 0) = 0 then
+			if pulse200ms = '1' then
 				ldpc_dly1 <= not ldPCPB;
 				ldpc_dly2 <= ldpc_dly1 and (not ldPCPB);
 			end if;
-		end if;
-	end process;
-
-	process(CLOCK_50, ldpc_dly2)
-	begin
-		if(rising_edge(CLOCK_50)) then
 			ldpc_dly3			<= ldpc_dly2;
 			ldpc_dly4			<= ldpc_dly3;
 			swCNTL.loadADDR	<= ldpc_dly4 and (not ldpc_dly3);
 		end if;
-	end process;
+	end process
 	
 	----------------------------------------------------------------------------
 	--  STEP signal generator.
 	----------------------------------------------------------------------------
-	process(CLOCK_50)
+	process(CLOCK_50, pulse200ms)
 	begin
 		if(rising_edge(CLOCK_50)) then
-			if dig_counter(17 downto 0) = 0 then
+			if pulse200ms = '1' then
 				step_dly1 <= not stepPB;
 				step_dly2 <= step_dly1 and (not stepPB);
 			end if;
-		end if;
-	end process;
-
-	process(CLOCK_50)
-	begin
-		if(rising_edge(CLOCK_50)) then
 			step_dly3 <= step_dly2;
 			step_dly4 <= step_dly3;
 			swCNTL.step <= step_dly4 and (not step_dly3);
 		end if;
 	end process;
-	
+
 	--
 	-- Front Panel Data Switches
 	--
