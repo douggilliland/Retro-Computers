@@ -31,6 +31,10 @@ entity top is
       resetbtn 	: in std_logic;
       sw 			: in std_logic_vector(5 downto 0);	-- J3-1 to -3 
 																		-- selects drive type
+																		-- J3-1 installed = RL
+																		-- J3-2 installed = RK
+																		-- J3-3 installed = RH
+																		-- J3-4 to -6 = unused
 		-- LEDs
       greenled 	: out std_logic_vector(4 downto 0);	-- greenled(4) - Instruction Fetch
 																		-- greenled(3..0)	- "0011" - Reset
@@ -496,7 +500,8 @@ begin
 
    reset <= (not resetbtn) ; -- or power_on_reset;
 
-   greenled <= ifetch & sddebug;
+   
+	<= ifetch & sddebug;
 
    tx1 <= txtx1;
    rxrx1 <= rx1;
