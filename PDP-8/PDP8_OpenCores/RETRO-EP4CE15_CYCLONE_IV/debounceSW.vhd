@@ -25,7 +25,6 @@ architecture struct of debounceSW is
 	signal dly2		: std_logic;
 	signal dly3		: std_logic;
 	signal dly4		: std_logic;
-	signal rst_out			: std_logic;
 	
 begin
 
