@@ -5,9 +5,9 @@
 ; DGG - D. Gilliland - My changes have DGG at the start of the line.
 ;
 ; 	Uses a68 assembler. Command line to make S-Record output.
-;		a68 DGG_MIKBUG_32KB.ASM -l DGG_MIKBUG_32KB.LST -s DGG_MIKBUG_32KB.s
+;		a68 DGG_MIKBUG.ASM -l DGG_MIKBUG.LST -s DGG_MIKBUG.s
 ;	Use srec_cat to shift from EPROM absolute addresses to 0x0000 as HEX file for Altera Quartus MIF
-;		srec_cat DGG_MIKBUG_32KB.s -offset - -minimum-addr DGG_MIKBUG_32KB.s -o DGG_MIKBUG_32KB.hex -Intel
+;		srec_cat DGG_MIKBUG.s -offset - -minimum-addr DGG_MIKBUG.s -o DGG_MIKBUG.hex -Intel
 ;	Need to watch Quartus warning and remove next to last line in the .HEX file
 ;
 ; This was from the latest SMITHBUG+S1 source 
@@ -44,9 +44,9 @@
 ;
 ;	ADDRESS
 ;
-; DGG - Set the start of the scratchpad SRAM which is at the top of the 32KB of user memory
+; DGG - Set the start of the scratchpad SRAM which is at the top of the 60KB of user memory
 ;       to reflect the M6800 FPGA memory map 
-VAR	EQU	$7F00		; TOP OF USER MEMORY
+VAR	EQU	$EF00		; TOP OF USER MEMORY
 ;
 		ORG VAR
 ; DGG - RAM variables for MIKBUG
@@ -91,8 +91,8 @@ ADDRESS1	RMB 1			; Build 16 bit address byte 2
 BYTESTORE	RMB 1			; Save Byte Count
 TEMPA		RMB 1			; Save A Register
 ; DGG - Fixed addresses for ACIA to match FPGA board address mapping
-ACIACS	EQU	$8018
-ACIADA	EQU	$8019
+ACIACS	EQU	$FC18
+ACIADA	EQU	$FC19
 ; DGG - Addresses in I/O space
 ; DGG - PIA is unused in this build
 ;PIAD1A	EQU	$FC00		;V2 has PIA support
@@ -1021,9 +1021,9 @@ PCTR	 FCB $50,$43,$3D,$04
 CSET	 FCB $48,$49,$4E,$5A,$56,$43
 CRLFAS 	 FCB $0D,$0A,$20,$04
 ADASC	 FCB $0D,$0A
-	 FCB $42,$4B,$41,$44,$44,$52,$20,$04	; BKADDR
-FROMAD	 FCB $0D,$0A,$46,$52,$4F,$4D,$20	; FROM
-	 FCB $41,$44,$44,$52,$20,$04			; ADDR
+	 FCB $42,$4B,$41,$44,$44,$52,$20,$04
+FROMAD	 FCB $0D,$0A,$46,$52,$4F,$4D,$20
+	 FCB $41,$44,$44,$52,$20,$04
 THRUAD 	 FCB $0D,$0A,$54,$48,$52,$55,$20,$41
 	 FCB $44,$44,$52,$20,$04
 TOADD	 FCB $54,$4F,$20,$41,$44,$44,$52,$20,$04
