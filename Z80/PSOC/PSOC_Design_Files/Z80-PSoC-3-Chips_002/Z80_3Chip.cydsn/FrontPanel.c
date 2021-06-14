@@ -44,7 +44,7 @@ void init_FrontPanel(void)
 		writeRegister_MCP23017(chipAddr,MCP23017_GPINTENA_REGADR,MCP23017_GPINTEN_ENABLE);  // GPINT: Enable interrupts for switches
 		writeRegister_MCP23017(chipAddr,MCP23017_GPINTENB_REGADR,MCP23017_GPINTEN_DISABLE); // GPINT: Disable interrupts for LED outputs
 		writeRegister_MCP23017(chipAddr,MCP23017_DEFVALA_REGADR,MCP23017_DEFVALA_DEFVAL);   // Default value for pin (interrupt)
-		writeRegister_MCP23017(chipAddr,MCP23017_INTCONA_REGADR,MCP23017_INTCON_PREVPIN);    // Int for change from default value
+		writeRegister_MCP23017(chipAddr,MCP23017_INTCONA_REGADR,MCP23017_INTCON_PREVPIN);  	// Int for change from default value
 		writeRegister_MCP23017(chipAddr,MCP23017_IOCONA_REGADR,MCP23017_IOCON_DEFVAL);      
         // BANK: Register addresses are in the same bank (addresses are sequential)
 		// MIRROR: Int pins not connected (they are externally connected together on the Front Panel board)
