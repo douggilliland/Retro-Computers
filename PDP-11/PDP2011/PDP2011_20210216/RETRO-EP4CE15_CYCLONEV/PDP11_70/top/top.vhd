@@ -161,95 +161,95 @@ component unibus is
       kl0_force7bit	: in integer range 0 to 1 := 1;					-- zero out high order bit on transmission and reception
       kl0_rtscts		: in integer range 0 to 1 := 1;					-- conditional compilation switch for rts and cts signals; also implies to include core that implements a silo buffer
 
-      tx1 : out std_logic;
-      rx1 : in std_logic := '1';
-      rts1 : out std_logic;
-      cts1 : in std_logic := '0';
-      kl1_bps : in integer range 1200 to 230400 := 9600;
-      kl1_force7bit : in integer range 0 to 1 := 1;
-      kl1_rtscts : in integer range 0 to 1 := 0;
+      tx1				: out std_logic;
+      rx1 				: in std_logic := '1';
+      rts1				: out std_logic;
+      cts1				: in std_logic := '0';
+      kl1_bps			: in integer range 1200 to 230400 := 9600;
+      kl1_force7bit	: in integer range 0 to 1 := 1;
+      kl1_rtscts		: in integer range 0 to 1 := 0;
 
-      tx2 : out std_logic;
-      rx2 : in std_logic := '1';
-      rts2 : out std_logic;
-      cts2 : in std_logic := '0';
-      kl2_bps : in integer range 1200 to 230400 := 9600;
-      kl2_force7bit : in integer range 0 to 1 := 1;
-      kl2_rtscts : in integer range 0 to 1 := 0;
+      tx2				: out std_logic;
+      rx2				: in std_logic := '1';
+      rts2				: out std_logic;
+      cts2				: in std_logic := '0';
+      kl2_bps			: in integer range 1200 to 230400 := 9600;
+      kl2_force7bit	: in integer range 0 to 1 := 1;
+      kl2_rtscts		: in integer range 0 to 1 := 0;
 
-      tx3 : out std_logic;
-      rx3 : in std_logic := '1';
-      rts3 : out std_logic;
-      cts3 : in std_logic := '0';
-      kl3_bps : in integer range 1200 to 230400 := 9600;
-      kl3_force7bit : in integer range 0 to 1 := 1;
-      kl3_rtscts : in integer range 0 to 1 := 0;
+      tx3				: out std_logic;
+      rx3				: in std_logic := '1';
+      rts3				: out std_logic;
+      cts3				: in std_logic := '0';
+      kl3_bps			: in integer range 1200 to 230400 := 9600;
+      kl3_force7bit	: in integer range 0 to 1 := 1;
+      kl3_rtscts		: in integer range 0 to 1 := 0;
 
 -- dr11c, universal interface
 
-      have_dr11c : in integer range 0 to 1 := 0;                     -- conditional compilation
-      have_dr11c_loopback : in integer range 0 to 1 := 0;            -- for testing only - zdrc
-      have_dr11c_signal_stretch : in integer range 0 to 127 := 7;    -- the signals ndr*, dxm, init will be stretched to this many cpu cycles
+      have_dr11c						: in integer range 0 to 1 := 0;		-- conditional compilation
+      have_dr11c_loopback			: in integer range 0 to 1 := 0;		-- for testing only - zdrc
+      have_dr11c_signal_stretch	: in integer range 0 to 127 := 7;	-- the signals ndr*, dxm, init will be stretched to this many cpu cycles
 
-      dr11c_in : in std_logic_vector(15 downto 0) := (others => '0');
-      dr11c_out : out std_logic_vector(15 downto 0);
-      dr11c_reqa : in std_logic := '0';
-      dr11c_reqb : in std_logic := '0';
-      dr11c_csr0 : out std_logic;
-      dr11c_csr1 : out std_logic;
-      dr11c_ndr : out std_logic;                                     -- new data ready : dr11c_out has new data
-      dr11c_ndrlo : out std_logic;                                   -- new data ready : dr11c_out(7 downto 0) has new data
-      dr11c_ndrhi : out std_logic;                                   -- new data ready : dr11c_out(15 downto 8) has new data
-      dr11c_dxm : out std_logic;                                     -- data transmitted : dr11c_in data has been read by the cpu
-      dr11c_init : out std_logic;                                    -- unibus reset propagated out to the user device
+      dr11c_in		: in std_logic_vector(15 downto 0) := (others => '0');
+      dr11c_out	: out std_logic_vector(15 downto 0);
+      dr11c_reqa	: in std_logic := '0';
+      dr11c_reqb	: in std_logic := '0';
+      dr11c_csr0	: out std_logic;
+      dr11c_csr1	: out std_logic;
+      dr11c_ndr	: out std_logic;                                     -- new data ready : dr11c_out has new data
+      dr11c_ndrlo	: out std_logic;                                   -- new data ready : dr11c_out(7 downto 0) has new data
+      dr11c_ndrhi	: out std_logic;                                   -- new data ready : dr11c_out(15 downto 8) has new data
+      dr11c_dxm	: out std_logic;                                     -- data transmitted : dr11c_in data has been read by the cpu
+      dr11c_init	: out std_logic;                                    -- unibus reset propagated out to the user device
 
 -- minc-11
 
-      have_mncad : in integer range 0 to 1 := 0;                     -- mncad: a/d, max one card in a system
-      have_mnckw : in integer range 0 to 2 := 0;                     -- mnckw: clock, either one or two
-      have_mncaa : in integer range 0 to 1 := 0;                     -- mncaa: d/a
-      have_mncdi : in integer range 0 to 1 := 0;                     -- mncdo: digital in
-      have_mncdo : in integer range 0 to 1 := 0;                     -- mncdo: digital out
-      ad_start : out std_logic;                                      -- interface from mncad to a/d hardware : '1' signals to start converting
-      ad_done : in std_logic := '1';                                 -- interface from mncad to a/d hardware : '1' signals to the mncad that the a/d has completed a conversion
-      ad_channel : out std_logic_vector(5 downto 0);                 -- interface from mncad to a/d hardware : the channel number for the current command
-      ad_nxc : in std_logic := '1';                                  -- interface from mncad to a/d hardware : '1' signals to the mncad that the required channel does not exist
-      ad_sample : in std_logic_vector(11 downto 0) := "000000000000";-- interface from mncad to a/d hardware : the value of the last sample
-      kw_st1in : in std_logic := '0';                                -- mnckw0 st1 signal input, active on rising edge
-      kw_st2in : in std_logic := '0';                                -- mnckw0 st2 signal input, active on rising edge
-      kw_st1out : out std_logic;                                     -- mnckw0 st1 output pulse (actually : copy of the st1flag in the csr
-      kw_st2out : out std_logic;                                     -- mnckw0 st2 output pulse
-      kw_clkov : out std_logic;                                      -- mnckw0 clkovf output pulse
-      da_dac1 : out std_logic_vector(11 downto 0);
-      da_dac2 : out std_logic_vector(11 downto 0);
-      da_dac3 : out std_logic_vector(11 downto 0);
-      da_dac4 : out std_logic_vector(11 downto 0);
-      have_diloopback : in integer range 0 to 1 := 0;                -- set to 1 to loop back mncdo0 to mncdi0 internally for testing
-      di_dir : in std_logic_vector(15 downto 0) := "0000000000000000";    -- mncdi0 data input register
-      di_strobe : in std_logic := '0';
-      di_reply : out std_logic;
-      di_pgmout : out std_logic;
-      di_event : out std_logic;
-      do_dor : out std_logic_vector(15 downto 0);
-      do_hb_strobe : out std_logic;
-      do_lb_strobe : out std_logic;
-      do_reply : in std_logic := '0';
+      have_mncad			: in integer range 0 to 1 := 0;                     	-- mncad: a/d, max one card in a system
+      have_mnckw			: in integer range 0 to 2 := 0;                     	-- mnckw: clock, either one or two
+      have_mncaa			: in integer range 0 to 1 := 0;                     	-- mncaa: d/a
+      have_mncdi			: in integer range 0 to 1 := 0;                     	-- mncdo: digital in
+      have_mncdo			: in integer range 0 to 1 := 0;                     	-- mncdo: digital out
+      ad_start				: out std_logic;                                      -- interface from mncad to a/d hardware : '1' signals to start converting
+      ad_done				: in std_logic := '1';                                -- interface from mncad to a/d hardware : '1' signals to the mncad that the a/d has completed a conversion
+      ad_channel			: out std_logic_vector(5 downto 0);                 	-- interface from mncad to a/d hardware : the channel number for the current command
+      ad_nxc				: in std_logic := '1';                                -- interface from mncad to a/d hardware : '1' signals to the mncad that the required channel does not exist
+      ad_sample			: in std_logic_vector(11 downto 0) := "000000000000";	-- interface from mncad to a/d hardware : the value of the last sample
+      kw_st1in				: in std_logic := '0';                                -- mnckw0 st1 signal input, active on rising edge
+      kw_st2in				: in std_logic := '0';                                -- mnckw0 st2 signal input, active on rising edge
+      kw_st1out			: out std_logic;                                     	-- mnckw0 st1 output pulse (actually : copy of the st1flag in the csr
+      kw_st2out			: out std_logic;                                     	-- mnckw0 st2 output pulse
+      kw_clkov				: out std_logic;                                      -- mnckw0 clkovf output pulse
+      da_dac1				: out std_logic_vector(11 downto 0);
+      da_dac2				: out std_logic_vector(11 downto 0);
+      da_dac3				: out std_logic_vector(11 downto 0);
+      da_dac4				: out std_logic_vector(11 downto 0);
+      have_diloopback	: in integer range 0 to 1 := 0;                					-- set to 1 to loop back mncdo0 to mncdi0 internally for testing
+      di_dir				: in std_logic_vector(15 downto 0) := "0000000000000000";   -- mncdi0 data input register
+      di_strobe			: in std_logic := '0';
+      di_reply				: out std_logic;
+      di_pgmout			: out std_logic;
+      di_event				: out std_logic;
+      do_dor				: out std_logic_vector(15 downto 0);
+      do_hb_strobe		: out std_logic;
+      do_lb_strobe		: out std_logic;
+      do_reply				: in std_logic := '0';
 
 -- cpu console, switches and display register
       have_csdr : in integer range 0 to 1 := 1;
 
 -- clock
-      have_kw11l : in integer range 0 to 1 := 1;                     -- conditional compilation
-      kw11l_hz : in integer range 50 to 800 := 60;                   -- valid values are 50, 60, 800
+      have_kw11l : in integer range 0 to 1 := 1;			-- conditional compilation
+      kw11l_hz : in integer range 50 to 800 := 60;			-- valid values are 50, 60, 800
 
 -- model code
-      modelcode : in integer range 0 to 255;                         -- mostly used are 20,34,44,45,70,94; others are less well tested
-      have_fp : in integer range 0 to 2 := 2;                        -- fp11 switch; 0=don't include; 1=include; 2=include if the cpu model can support fp11
-      have_fpa : in integer range 0 to 1 := 1;                       -- floating point accelerator present with J11 cpu
+      modelcode	: in integer range 0 to 255;				-- mostly used are 20,34,44,45,70,94; others are less well tested
+      have_fp		: in integer range 0 to 2 := 2;			-- fp11 switch; 0=don't include; 1=include; 2=include if the cpu model can support fp11
+      have_fpa		: in integer range 0 to 1 := 1;			-- floating point accelerator present with J11 cpu
 
 -- cpu initial r7 and psw
-      init_r7 : in std_logic_vector(15 downto 0) := x"ea10";         -- start address after reset f600 = o'173000' = m9312 hi rom; ea10 = 165020 = m9312 lo rom
-      init_psw : in std_logic_vector(15 downto 0) := x"00e0";        -- initial psw for kernel mode, primary register set, priority 7
+      init_r7 : in std_logic_vector(15 downto 0) := x"ea10";	-- start address after reset f600 = o'173000' = m9312 hi rom; ea10 = 165020 = m9312 lo rom
+      init_psw : in std_logic_vector(15 downto 0) := x"00e0";	-- initial psw for kernel mode, primary register set, priority 7
 
 -- console
       cons_load		: in std_logic := '0';
@@ -272,65 +272,65 @@ component unibus is
       cons_parl		: out std_logic;
 
       cons_adrserr	: out std_logic;
-      cons_run			: out std_logic;			-- '1' if executing instructions (incl wait)
-      cons_pause : out std_logic;				-- '1' if bus has been relinquished to npr
-      cons_master : out std_logic;				-- '1' if cpu is bus master and not running
-      cons_kernel : out std_logic;				-- '1' if kernel mode
-      cons_super : out std_logic;				-- '1' if super mode
-      cons_user : out std_logic;					-- '1' if user mode
-      cons_id : out std_logic;					-- '0' if instruction, '1' if data AND data mapping is enabled in the mmu
-      cons_map16 : out std_logic;				-- '1' if 16-bit mapping
-      cons_map18 : out std_logic;				-- '1' if 18-bit mapping
-      cons_map22 : out std_logic					-- '1' if 22-bit mapping
+      cons_run			: out std_logic;		-- '1' if executing instructions (incl wait)
+      cons_pause		: out std_logic;		-- '1' if bus has been relinquished to npr
+      cons_master		: out std_logic;		-- '1' if cpu is bus master and not running
+      cons_kernel		: out std_logic;		-- '1' if kernel mode
+      cons_super		: out std_logic;		-- '1' if super mode
+      cons_user		: out std_logic;		-- '1' if user mode
+      cons_id			: out std_logic;		-- '0' if instruction, '1' if data AND data mapping is enabled in the mmu
+      cons_map16		: out std_logic;		-- '1' if 16-bit mapping
+      cons_map18		: out std_logic;		-- '1' if 18-bit mapping
+      cons_map22		: out std_logic		-- '1' if 22-bit mapping
    );
 end component;
 
 component vt is
    port(
-      vga_hsync : out std_logic;                                     -- horizontal sync
-      vga_vsync : out std_logic;                                     -- vertical sync
-      vga_fb : out std_logic;                                        -- output - full
-      vga_ht : out std_logic;                                        -- output - half
+      vga_hsync	: out std_logic;			-- horizontal sync
+      vga_vsync	: out std_logic;			-- vertical sync
+      vga_fb		: out std_logic;			-- output - full
+      vga_ht		: out std_logic;			-- output - half
 
 -- serial port
-      tx : out std_logic;                                            -- transmit
-      rx : in std_logic;                                             -- receive
-      rts : out std_logic;                                           -- request to send
-      cts : in std_logic := '0';                                     -- clear to send
-      bps : in integer range 1200 to 230400 := 9600;                 -- bps rate - don't set to more than 38400
-      force7bit : in integer range 0 to 1 := 0;                      -- zero out high order bit on transmission and reception
-      rtscts : in integer range 0 to 1 := 0;                         -- conditional compilation switch for rts and cts signals; also implies to include core that implements a silo buffer
+      tx				: out std_logic;										-- transmit
+      rx				: in std_logic;										-- receive
+      rts			: out std_logic;										-- request to send
+      cts			: in std_logic := '0';								-- clear to send
+      bps			: in integer range 1200 to 230400 := 9600;	-- bps rate - don't set to more than 38400
+      force7bit	: in integer range 0 to 1 := 0;					-- zero out high order bit on transmission and reception
+      rtscts		: in integer range 0 to 1 := 0;					-- conditional compilation switch for rts and cts signals; also implies to include core that implements a silo buffer
 
 -- ps2 keyboard
-      ps2k_c : in std_logic;                                         -- clock
-      ps2k_d : in std_logic;                                         -- data
+      ps2k_c : in std_logic;			-- clock
+      ps2k_d : in std_logic;			-- data
 
 -- debug & blinkenlights
-      ifetch : out std_logic;                                        -- ifetch : the cpu is running an instruction fetch cycle
-      iwait : out std_logic;                                         -- iwait : the cpu is in wait state
-      teste : in std_logic := '0';                                   -- teste : display 24*80 capital E without changing the display buffer
-      testf : in std_logic := '0';                                   -- testf : display 24*80 all pixels on
-      vga_debug : out std_logic_vector(15 downto 0);                 -- debug output from microcode
-      vga_bl : out std_logic_vector(9 downto 0);                     -- blinkenlight vector
+      ifetch		: out std_logic;								-- ifetch : the cpu is running an instruction fetch cycle
+      iwait			: out std_logic;								-- iwait : the cpu is in wait state
+      teste			: in std_logic := '0';						-- teste : display 24*80 capital E without changing the display buffer
+      testf			: in std_logic := '0';						-- testf : display 24*80 all pixels on
+      vga_debug	: out std_logic_vector(15 downto 0);	-- debug output from microcode
+      vga_bl		: out std_logic_vector(9 downto 0);		-- blinkenlight vector
 
 -- vt type code : 100 or 105
-      vttype : in integer range 100 to 105 := 100;                   -- vt100 or vt105
-      vga_cursor_block : in std_logic := '1';                        -- cursor is block ('1') or underline ('0')
-      vga_cursor_blink : in std_logic := '0';                        -- cursor blinks ('1') or not ('0')
-      have_act_seconds : in integer range 0 to 7200 := 900;          -- auto screen off time, in seconds; 0 means disabled
-      have_act : in integer range 1 to 2 := 2;                       -- auto screen off counter reset by keyboard and serial port activity (1) or keyboard only (2)
+      vttype				: in integer range 100 to 105 := 100;	-- vt100 or vt105
+      vga_cursor_block	: in std_logic := '1';						-- cursor is block ('1') or underline ('0')
+      vga_cursor_blink	: in std_logic := '0';						-- cursor blinks ('1') or not ('0')
+      have_act_seconds	: in integer range 0 to 7200 := 900;	-- auto screen off time, in seconds; 0 means disabled
+      have_act				: in integer range 1 to 2 := 2;			-- auto screen off counter reset by keyboard and serial port activity (1) or keyboard only (2)
 
 -- clock & reset
-      cpuclk : in std_logic;                                         -- cpuclk : should be around 10MHz, give or take a few
-      clk50mhz : in std_logic;                                       -- clk50mhz : used for vga signal timing
-      reset : in std_logic                                           -- reset
+      cpuclk	: in std_logic;		-- cpuclk : should be around 10MHz, give or take a few
+      clk50mhz	: in std_logic;		-- clk50mhz : used for vga signal timing
+      reset		: in std_logic			-- reset
    );
 end component;
 
 component pll is
    port(
-      inclk0 : in std_logic := '0';
-      c0 : out std_logic
+      inclk0	: in std_logic := '0';
+      c0			: out std_logic
    );
 end component;
 
@@ -501,7 +501,7 @@ begin
    reset <= (not resetbtn) ; -- or power_on_reset;
 
    
-	<= ifetch & sddebug;
+	greenled<= ifetch & sddebug;
 
    tx1 <= txtx1;
    rxrx1 <= rx1;
