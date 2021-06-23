@@ -1,0 +1,68 @@
+Thoughts on 6800
+
+
+The first problem is the lack of PSHX and PULX. The current code uses
+these to stack arguments more easily, because you can LDX, PSHX but have
+to LDD PSHA/B (or on 6800 LDAA LDAB PSHA/B).
+
+Almost all of this code goes via CanLoadViaX/CanStoreViaX so you can tell
+the compiler tough it can't do that.
+
+X is not preserved across function calls so pshx/pulx is only used
+internally for preserving stuf and that can use an extra  DP value instead (just
+remember to save/restore it on irqs like @tmp and friends).
+
+Constant loads need optimizing because it's not only a win to use clra/clrb
+but also to do things like clra ldab #n and also to spot stuff like -1 with
+ldaa #-1 tab
+
+Probably all the ldd statements everywhere would want to become
+
+	LoadDConst(value, preserve_carry)
+	LoadDViaX(value)
+
+and churn out the right per CPU code, ditto some other cases.
+
+
+The second problem is adjusting the stack. On the 6803 we can use ABX to
+recover the stack frame (although we don't yet do it well as we don't
+usually know in the right place if we called a void function or don't
+need the arguments). On the 6800 you can't pull into X which also means
+that since A and B hold your arguments you've not got many options. For
+smaller values one option might be to have say 32 INS statements in a
+row with labels and just JMP to the right offset. Big stuff will have to
+std @tmp sts @tmp2 ldd #-n addd @tmp2 std @tmp2 lds @tmp2 etc
+
+Similar problem building a stack frame but worse in that you can't just
+jsr/rts. Possibly something like
+
+	ldx #label
+	jmp growstack
+label:	.byte n
+	code continues...
+
+but still not pretty
+
+
+Various other chunks of code need to move between X and D. These should
+already do the right thing because when you can't work via X the same mess
+is present on 6803, and only 6303 has xgdx. With some peephole rules a
+surprisingly large number of these go away.
+
+The painful stuff is dealing with all the code that uses 16bit ops for
+add/sub/etc as each will need an alternative, or in some cases for size
+probably a helper jsr. A lot of it doesn't bloat much but becomes add/adc
+etc.
+
+Stack offsets are uglier because there is no ABX. That means that if it's
+not within the ,X range you have to do it the hard way and can't use tsx abx
+patterns . The code is already there for this, it's just ugly and slow but the
+6801/6303 almost never use it. Shouldn't be a big problem cc65 on the 6502 just
+barfs in this case and it handles most stuff!
+
+(Another option for the D reg stuff in many cases might be to add a
+
+	.setcpu 6800auto
+
+and have the assembler turn the 16bit ops that are trivial into the
+equivalent pairs - eg for load, store, rotate, shift, add, sub.)
