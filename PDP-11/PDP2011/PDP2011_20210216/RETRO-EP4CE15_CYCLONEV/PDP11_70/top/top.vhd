@@ -42,25 +42,25 @@ entity top is
 																		-- greenled(1) -	on = SD card
 																		--						off = SDHC card
 																		-- greenled(2) -	Read from card
-																		-- greenled(3) -	Read from card
+																		-- greenled(3) -	'0' when running
 
 		-- VGA (2:2:2)
-      vgar : out std_logic_vector(1 downto 0);
-      vgag : out std_logic_vector(1 downto 0);
-      vgab : out std_logic_vector(1 downto 0);
-      vgah : out std_logic;
-      vgav : out std_logic;
+      vgar			: out std_logic_vector(1 downto 0);
+      vgag			: out std_logic_vector(1 downto 0);
+      vgab			: out std_logic_vector(1 downto 0);
+      vgah			: out std_logic;
+      vgav			: out std_logic;
 
 		-- PS/2 keyboard
-      ps2k_c : in std_logic;
-      ps2k_d : in std_logic;
+      ps2k_c		: in std_logic;
+      ps2k_d		: in std_logic;
 
 		-- Serial port
 		-- USB-to-Serial - 115200/8/n/1 debug output from microcode
-      tx1	: out std_logic;
-      rx1	: in std_logic;
-      rts1	: out std_logic;
-      cts1	: in std_logic;
+      tx1			: out std_logic;
+      rx1			: in std_logic;
+      rts1			: out std_logic;
+      cts1			: in std_logic;
 
 		-- SD card
       sdcard_cs	: out std_logic;
@@ -115,30 +115,30 @@ component unibus is
       cpu_addr_v		: out std_logic_vector(15 downto 0);		-- virtual address from cpu, for debug and general interest
 
 -- rl controller
-      have_rl			: in integer range 0 to 1 := 0;				-- enable conditional compilation
-      rl_sdcard_cs	: out std_logic;
-      rl_sdcard_mosi : out std_logic;
-      rl_sdcard_sclk : out std_logic;
-      rl_sdcard_miso : in std_logic := '0';
-      rl_sdcard_debug : out std_logic_vector(3 downto 0);		-- debug/blinkenlights
+      have_rl				: in integer range 0 to 1 := 0;			-- enable conditional compilation
+      rl_sdcard_cs		: out std_logic;
+      rl_sdcard_mosi		: out std_logic;
+      rl_sdcard_sclk		: out std_logic;
+      rl_sdcard_miso		: in std_logic := '0';
+      rl_sdcard_debug	: out std_logic_vector(3 downto 0);		-- debug/blinkenlights
 
 -- rk controller
-      have_rk			: in integer range 0 to 1 := 0;				-- enable conditional compilation
-      have_rk_num		: in integer range 1 to 8 := 8;				-- active number of drives on the controller; set to < 8 to save core
-      rk_sdcard_cs	: out std_logic;
-      rk_sdcard_mosi : out std_logic;
-      rk_sdcard_sclk : out std_logic;
-      rk_sdcard_miso : in std_logic := '0';
-      rk_sdcard_debug : out std_logic_vector(3 downto 0);		-- debug/blinkenlights
+      have_rk				: in integer range 0 to 1 := 0;				-- enable conditional compilation
+      have_rk_num			: in integer range 1 to 8 := 8;				-- active number of drives on the controller; set to < 8 to save core
+      rk_sdcard_cs		: out std_logic;
+      rk_sdcard_mosi 	: out std_logic;
+      rk_sdcard_sclk 	: out std_logic;
+      rk_sdcard_miso 	: in std_logic := '0';
+      rk_sdcard_debug	: out std_logic_vector(3 downto 0);		-- debug/blinkenlights
 
 -- rh controller
-      have_rh			: in integer range 0 to 1 := 0;				-- enable conditional compilation
-      rh_sdcard_cs	: out std_logic;
-      rh_sdcard_mosi : out std_logic;
-      rh_sdcard_sclk : out std_logic;
-      rh_sdcard_miso : in std_logic := '0';
-      rh_sdcard_debug : out std_logic_vector(3 downto 0);		-- debug/blinkenlights
-      rh_type			: in integer range 4 to 7 := 6;
+      have_rh				: in integer range 0 to 1 := 0;				-- enable conditional compilation
+      rh_sdcard_cs		: out std_logic;
+      rh_sdcard_mosi 	: out std_logic;
+      rh_sdcard_sclk 	: out std_logic;
+      rh_sdcard_miso 	: in std_logic := '0';
+      rh_sdcard_debug	: out std_logic_vector(3 downto 0);		-- debug/blinkenlights
+      rh_type				: in integer range 4 to 7 := 6;
 
 -- xu enc424j600 controller interface
       have_xu			: in integer range 0 to 1 := 0;				-- enable conditional compilation
@@ -500,32 +500,36 @@ begin
 
    reset <= (not resetbtn) ; -- or power_on_reset;
 
-   
+   -- Status LEDs
 	greenled<= ifetch & sddebug;
 
    tx1 <= txtx1;
    rxrx1 <= rx1;
 
-   sddebug		<= rh_sddebug when have_rh = 1 
-						else rl_sddebug when have_rl = 1
-						else rk_sddebug;
-   sdcard_cs	<= rh_cs when have_rh = 1
-						else rl_cs when have_rl = 1
-						else rk_cs;
-   sdcard_mosi	<= rh_mosi when have_rh = 1
-						else rl_mosi when have_rl = 1
-						else rk_mosi;
-   sdcard_sclk <= rh_sclk when have_rh = 1 
-						else rl_sclk when have_rl = 1
-						else rk_sclk;
+   sddebug		<= rh_sddebug when have_rh = 1 else
+						rl_sddebug when have_rl = 1 else
+						rk_sddebug;
+   sdcard_cs	<= rh_cs when have_rh = 1 else 
+						rl_cs when have_rl = 1 else
+						rk_cs;
+   sdcard_mosi	<= rh_mosi when have_rh = 1 else 
+						rl_mosi when have_rl = 1 else 
+						rk_mosi;
+   sdcard_sclk <= rh_sclk when have_rh = 1 else
+						rl_sclk when have_rl = 1 else
+						rk_sclk;
    rh_miso		<= sdcard_miso;
    rl_miso		<= sdcard_miso;
    rk_miso		<= sdcard_miso;
 
 	-- The hexadecimal RGB code of Amber color is #FFBF00
-   vgar <= "11" when vga_fb = '1' else "10" when vga_ht = '1' else "00";
-   vgag <= "11" when vga_fb = '1' else "10" when vga_ht = '1' else "00";
-   vgab <= "00";
+   vgar <=	"11" when vga_fb = '1' else
+				"10" when vga_ht = '1' else
+				"00";
+   vgag <=	"11" when vga_fb = '1' else 
+				"10" when vga_ht = '1' else
+				"00";
+   vgab <=	"00";
    vgav <= vga_vsync;
    vgah <= vga_hsync;
 
@@ -552,6 +556,7 @@ begin
             cpuclk <= '0';
             cpureset <= '1';
             cpuresetlength <= 63;
+				-- Select the drive type from jumpers
             if sw(2 downto 0) = "110" then
                have_rl <= 1;
                have_rk <= 0;

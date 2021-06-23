@@ -21,19 +21,19 @@ use IEEE.STD_LOGIC_UNSIGNED.ALL;
 
 entity vt is
    port(
-      vga_hsync : out std_logic;                                     -- horizontal sync
-      vga_vsync : out std_logic;                                     -- vertical sync
-      vga_fb : out std_logic;                                        -- output - full
-      vga_ht : out std_logic;                                        -- output - half
+      vga_hsync	: out std_logic;						-- horizontal sync
+      vga_vsync	: out std_logic;						-- vertical sync
+      vga_fb		: out std_logic;						-- output - full
+      vga_ht		: out std_logic;						-- output - half
 
 -- serial port
-      tx : out std_logic;                                            -- transmit
-      rx : in std_logic;                                             -- receive
-      rts : out std_logic;                                           -- request to send
-      cts : in std_logic := '0';                                     -- clear to send
-      bps : in integer range 1200 to 230400 := 9600;                 -- bps rate - don't set to more than 38400
-      force7bit : in integer range 0 to 1 := 0;                      -- zero out high order bit on transmission and reception
-      rtscts : in integer range 0 to 1 := 0;                         -- conditional compilation switch for rts and cts signals; also implies to include core that implements a silo buffer
+      tx				: out std_logic;						-- transmit
+      rx				: in std_logic;						-- receive
+      rts			: out std_logic;						-- request to send
+      cts			: in std_logic := '0';				-- clear to send
+      bps			: in integer range 1200 to 230400 := 9600;	-- bps rate - don't set to more than 38400
+      force7bit	: in integer range 0 to 1 := 0;	-- zero out high order bit on transmission and reception
+      rtscts		: in integer range 0 to 1 := 0;	-- conditional compilation switch for rts and cts signals; also implies to include core that implements a silo buffer
 
 -- ps2 keyboard
       ps2k_c : in std_logic;                                         -- clock
