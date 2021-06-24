@@ -1,4 +1,5 @@
--- PDP-11 build
+--
+-- PDP-11/45 build
 --
 -- Copyright (c) 2008-2021 Sytse van Slooten
 --
@@ -71,6 +72,7 @@ end top;
 architecture implementation of top is
 
 component unibus is
+
    port(
 -- bus interface
       addr : out std_logic_vector(21 downto 0);                      -- physical address driven out to the bus by cpu or busmaster peripherals
@@ -395,7 +397,7 @@ signal dram_fsm : dram_fsm_type := dram_init;
 
 begin
 
-   pll0: pll port map(
+  pll0: pll port map(
       inclk0 => clkin,
       c0 => c0
    );
