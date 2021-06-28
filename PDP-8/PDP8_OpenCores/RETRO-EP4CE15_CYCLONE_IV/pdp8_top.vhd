@@ -148,7 +148,7 @@ END pdp8_top;
 	-- Front Panel SWitch debouncing
 	signal dig_counter	: std_logic_vector (19 downto 0) := (others => '0');
 	signal dispstep 		: std_logic;
-	signal pulse200ms		: std_logic;
+	signal pulse50ms		: std_logic;
 	signal rst_out			: std_logic;   --! Reset line output to PDP-8
 	signal disp_out		: std_logic;   --! Disp select line output to PDP-8
 
@@ -164,18 +164,18 @@ begin
 									-- to the address in the switch register (panel mode)
 
 	----------------------------------------------------------------------------
-	-- 200 mS counter
-	-- 2^18 = 256,000, 50M/250K = 200 mS ticks
+	-- 50 mS counter
+	-- 2^18 = 256,000, 50M/250K = 200 Hz ticks
 	-- Used for prescaling pushbuttons
-	-- pulse200ms = single 20 nS clock pulse every 200 mSecs
+	-- pulse50ms = single 20 nS clock pulse every 200 mSecs
 	----------------------------------------------------------------------------
 	process (CLOCK_50) begin
 		if rising_edge(CLOCK_50) then
 			dig_counter <= dig_counter+1;
 			if dig_counter(17 downto 0) = 0 then
-				pulse200ms <= '1';
+				pulse50ms <= '1';
 			else
-				pulse200ms <= '0';
+				pulse50ms <= '0';
 			end if;
 		end if;
 	end process;
@@ -186,7 +186,7 @@ begin
 	debounceReset : entity work.debounceSW
 	port map (
 		i_CLOCK_50	=> CLOCK_50,
-		i_slowCLK	=> pulse200ms,
+		i_slowCLK	=> pulse50ms,
 		i_PinIn		=> reset_n,
 		o_PinOut		=> rst_out
 	);
@@ -197,7 +197,7 @@ begin
 	debounceExamine : entity work.debounceSW
 	port map (
 		i_CLOCK_50	=> CLOCK_50,
-		i_slowCLK	=> pulse200ms,
+		i_slowCLK	=> pulse50ms,
 		i_PinIn		=> examinePB,
 		o_PinOut		=> swCNTL.exam
 	);
@@ -208,7 +208,7 @@ begin
 	debounceDeposit : entity work.debounceSW
 	port map (
 		i_CLOCK_50	=> CLOCK_50,
-		i_slowCLK	=> pulse200ms,
+		i_slowCLK	=> pulse50ms,
 		i_PinIn		=> depPB,
 		o_PinOut		=> swCNTL.dep
 	);
@@ -219,7 +219,7 @@ begin
 	debounceLoadAC : entity work.debounceSW
 	port map (
 		i_CLOCK_50	=> CLOCK_50,
-		i_slowCLK	=> pulse200ms,
+		i_slowCLK	=> pulse50ms,
 		i_PinIn		=> ldPCPB,
 		o_PinOut		=> swCNTL.loadADDR
 	);
@@ -230,7 +230,7 @@ begin
 	debounceStep : entity work.debounceSW
 	port map (
 		i_CLOCK_50	=> CLOCK_50,
-		i_slowCLK	=> pulse200ms,
+		i_slowCLK	=> pulse50ms,
 		i_PinIn		=> stepPB,
 		o_PinOut		=> swCNTL.step
 	);
@@ -241,7 +241,7 @@ begin
 	debounceDispSel : entity work.debounceSW
 	port map (
 		i_CLOCK_50	=> CLOCK_50,
-		i_slowCLK	=> pulse200ms,
+		i_slowCLK	=> pulse50ms,
 		i_PinIn		=> dispPB,
 		o_PinOut		=> dispstep
 	);
@@ -331,7 +331,7 @@ begin
 	 ptrRXD   => '1',                        --! PTR RXD (tied off)
 	 ptrTXD   => open,                       --! PTR TXD (tied off)
 	 -- Secure Digital Disk Interface
-	 sdCD     => '0',                        --! SD Card Detect
+	 sdCD     => not sdCD,                   --! SD Card Detec
 	 sdWP     => '0',                        --! SD Write Protect
 	 sdMISO   => sdDO,                       --! SD Data In
 	 sdMOSI   => sdDI,                       --! SD Data Out
@@ -340,10 +340,10 @@ begin
 	 -- Status
 	 rk8eSTAT => rk8eSTAT,                   --! Disk Status (Ignore)
 	 -- Switches and LEDS
-	 swROT    => swROT,                      --! Data LEDS display PC
-	 swDATA   => swDATA,                     --! RK8E Boot Loader Address
-	 swCNTL   => swCNTL,                     --! Switches
-	 ledRUN 	=> runLED,                      --! Run LED
+	 swROT	=> swROT,                      --! Data LEDS display PC
+	 swDATA	=> swDATA,                     --! RK8E Boot Loader Address
+	 swCNTL	=> swCNTL,                     --! Switches
+	 ledRUN	=> runLED,                      --! Run LED
 	 ledDATA => ledDATA                      --! Data output register
 	 );
 	 
