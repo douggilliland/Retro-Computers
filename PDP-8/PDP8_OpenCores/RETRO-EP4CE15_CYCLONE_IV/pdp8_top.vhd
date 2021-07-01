@@ -164,21 +164,22 @@ begin
 									-- to the address in the switch register (panel mode)
 
 	----------------------------------------------------------------------------
-	-- 50 mS counter
-	-- 2^18 = 256,000, 50M/250K = 200 Hz ticks
+	-- 20 mS counter
+	-- 2^20 = 1M 000, 50M/1M = 50 Hz  = 20 mS ticks
 	-- Used for prescaling pushbuttons
-	-- pulse50ms = single 20 nS clock pulse every 200 mSecs
+	-- pulse20ms = single 20 nS clock pulse every 20 mSecs
 	----------------------------------------------------------------------------
 	process (CLOCK_50) begin
 		if rising_edge(CLOCK_50) then
 			dig_counter <= dig_counter+1;
-			if dig_counter(17 downto 0) = 0 then
-				pulse50ms <= '1';
+			if dig_counter = 0 then
+				pulse20ms <= '1';
 			else
-				pulse50ms <= '0';
+				pulse20ms <= '0';
 			end if;
 		end if;
 	end process;
+
 
 	----------------------------------------------------------------------------
 	--  Debounce for RESET pushbutton
