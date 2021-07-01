@@ -35,7 +35,7 @@ entity ANSITerm1 is
 	(
 		-- Clock and reset
 		i_CLOCK_50		: in std_logic;		-- Clock (50 MHz)
-		i_n_reset		: in std_logic;		-- RDebounced reset button
+		i_n_reset		: in std_logic;		-- Debounced reset button
 		-- Serial port (as referenced from USB side)
 		i_rxd				: in	std_logic;
 		o_txd				: out std_logic;
