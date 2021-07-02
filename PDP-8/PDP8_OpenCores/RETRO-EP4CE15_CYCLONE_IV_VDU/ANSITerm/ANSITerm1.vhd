@@ -75,8 +75,7 @@ architecture struct of ANSITerm1 is
 	-- Serial clock enable
    signal w_serialEn      		: std_logic;		-- 16x baud rate clock
 	
-	-- Keyboard
-	signal w_latKBDData			:	std_logic_vector(7 downto 0);
+	-- Peripheral data outs
 	signal w_KbdDataOut			:	std_logic_vector(7 downto 0);
 	signal w_UartDataOut			:	std_logic_vector(7 downto 0);
 	signal w_VDUDataOut			:	std_logic_vector(7 downto 0);

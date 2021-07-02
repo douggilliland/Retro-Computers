@@ -46,32 +46,32 @@ library ieee;
 
 entity ANSIDisplayVGA is
 	generic	(
-		constant EXTENDED_CHARSET : integer := 1; -- 1 = 256 chars, 0 = 128 chars
-		constant COLOUR_ATTS_ENABLED : integer := 1; -- 1=Colour for each character, 0=Colour applied to whole display
+		constant EXTENDED_CHARSET		: integer := 1; 	-- 1 = 256 chars, 0 = 128 chars
+		constant COLOUR_ATTS_ENABLED	: integer := 1; 	-- 1 = Colour for each character, 0=Colour applied to whole display
 		-- VGA 640x480 Default values
-		constant VERT_CHARS : integer := 25;
-		constant HORIZ_CHARS : integer := 80;
-		constant CLOCKS_PER_SCANLINE : integer := 1600; -- NTSC/PAL = 3200
+		constant VERT_CHARS				: integer := 25;
+		constant HORIZ_CHARS				: integer := 80;
+		constant CLOCKS_PER_SCANLINE	: integer := 1600; -- NTSC/PAL = 3200
 		constant DISPLAY_TOP_SCANLINE : integer := 35+40;
-		constant DISPLAY_LEFT_CLOCK : integer := 288; -- NTSC/PAL = 600+
-		constant VERT_SCANLINES : integer := 525; -- NTSC=262, PAL=312
-		constant VSYNC_SCANLINES : integer := 2; -- NTSC/PAL = 4
-		constant HSYNC_CLOCKS : integer := 192;  -- NTSC/PAL = 235
+		constant DISPLAY_LEFT_CLOCK	: integer := 288;	-- NTSC/PAL = 600+
+		constant VERT_SCANLINES			: integer := 525;	-- NTSC=262, PAL=312
+		constant VSYNC_SCANLINES		: integer := 2;	-- NTSC/PAL = 4
+		constant HSYNC_CLOCKS			: integer := 192; -- NTSC/PAL = 235
 		constant VERT_PIXEL_SCANLINES : integer := 2;
-		constant CLOCKS_PER_PIXEL : integer := 2; -- min = 2
-		constant H_SYNC_ACTIVE : std_logic := '0';
-		constant V_SYNC_ACTIVE : std_logic := '0';
+		constant CLOCKS_PER_PIXEL		: integer := 2;	-- min = 2
+		constant H_SYNC_ACTIVE			: std_logic := '0';
+		constant V_SYNC_ACTIVE			: std_logic := '0';
 
-		constant DEFAULT_ATT : std_logic_vector(7 downto 0) := "00001111"; -- background iBGR | foreground iBGR (i=intensity)
-		constant ANSI_DEFAULT_ATT : std_logic_vector(7 downto 0) := "00000111"; -- background iBGR | foreground iBGR (i=intensity)
-		constant SANS_SERIF_FONT : integer := 1 -- 0 => use conventional CGA font, 1 => use san serif font
+		constant DEFAULT_ATT				: std_logic_vector(7 downto 0) := "00001111"; -- background iBGR | foreground iBGR (i=intensity)
+		constant ANSI_DEFAULT_ATT		: std_logic_vector(7 downto 0) := "00000111"; -- background iBGR | foreground iBGR (i=intensity)
+		constant SANS_SERIF_FONT		: integer := 1 -- 0 => use conventional CGA font, 1 => use san serif font
 	);
 	port (
 		clk    		: in  std_logic;
 		n_reset		: in	std_logic;
-		n_wr			: in  std_logic;
-		n_rd			: in  std_logic;
-		regSel		: in  std_logic;
+		n_wr			: in  std_logic;								-- Standard CPU - capture data on trailing edge of wr
+		n_rd			: in  std_logic;								-- Standard CPU - present data on leading edge of rd
+		regSel		: in  std_logic;								
 		dataIn		: in  std_logic_vector(7 downto 0);
 		dataOut		: out std_logic_vector(7 downto 0);
 		n_int			: out std_logic;
@@ -105,9 +105,9 @@ architecture rtl of ANSIDisplayVGA is
 --constant H_SYNC_ACTIVE : std_logic := '0';
 --constant V_SYNC_ACTIVE : std_logic := '1';
 
-constant HORIZ_CHAR_MAX : integer := HORIZ_CHARS-1;
-constant VERT_CHAR_MAX : integer := VERT_CHARS-1;
-constant CHARS_PER_SCREEN : integer := HORIZ_CHARS*VERT_CHARS;
+constant HORIZ_CHAR_MAX		: integer := HORIZ_CHARS-1;
+constant VERT_CHAR_MAX		: integer := VERT_CHARS-1;
+constant CHARS_PER_SCREEN	: integer := HORIZ_CHARS*VERT_CHARS;
 
 	signal	func_reset: std_logic := '0';
 
@@ -128,12 +128,12 @@ constant CHARS_PER_SCREEN : integer := HORIZ_CHARS*VERT_CHARS;
 -- benefit. Without the +1 the design synthesises and works fine but gives a fatal
 -- error in RTL simulation when the signal goes out of range.
 
-	signal	charHoriz: integer range 0 to 1+HORIZ_CHAR_MAX; --unsigned(6 DOWNTO 0);
-	signal	charBit: std_logic_vector(3 DOWNTO 0);
+	signal	charHoriz		: integer range 0 to 1+HORIZ_CHAR_MAX; --unsigned(6 DOWNTO 0);
+	signal	charBit			: std_logic_vector(3 DOWNTO 0);
 
 	-- top left-hand corner of the display is 0,0 aka "home".
-	signal	cursorVert: integer range 0 to VERT_CHAR_MAX :=0;
-	signal	cursorHoriz: integer range 0 to HORIZ_CHAR_MAX :=0;
+	signal	cursorVert		: integer range 0 to VERT_CHAR_MAX :=0;
+	signal	cursorHoriz		: integer range 0 to HORIZ_CHAR_MAX :=0;
 
 	-- save cursor position during erase-to-end-of-screen etc.
 	signal	cursorVertRestore: integer range 0 to VERT_CHAR_MAX :=0;
@@ -756,10 +756,10 @@ end generate GEN_NO_ATTRAM;
 					end if;
 				end if;
 			when dispWrite =>
-				if dispCharWRData=13 then -- CR
+				if dispCharWRData=13 then 			-- CR
 					cursorHoriz <= 0;
 					dispState<=idle;
-				elsif dispCharWRData=10 then -- LF
+				elsif dispCharWRData=10 then		-- LF
 					if cursorVert<VERT_CHAR_MAX then -- move down to next line
 						cursorVert <= cursorVert+1;
 						dispState<=idle;
