@@ -1,29 +1,28 @@
 --------------------------------------------------------------------
---! OpenCores PDP-8 Processor
---!	https://opencores.org/projects/pdp8
---!
---! \brief
---!      PDP-8 implementation for the RETRO-EP4CE15 board
---! 		CPU Configured to emulate PDP8A (swCPU)
---!
---! \details
---! Additional Comments: Build for RETRO-EP4CE15, using EP4CE15 FPGA
---!		http://land-boards.com/blwiki/index.php?title=RETRO-EP4CE15
---! Front Panel
---!		http://land-boards.com/blwiki/index.php?title=PDP-8_Front_Panel
---! Uses bin2mif.py utility to convert the DEC bin file to Altera MIF file
---! Software at:
---!		https://github.com/douggilliland/Linux-68k/tree/master/pdp8
---! VHDL at:
---!		https://github.com/douggilliland/Retro-Computers/tree/master/PDP-8/PDP8_OpenCores/RETRO-EP4CE15_CYCLONE_IV
---!
---! \file
---!      pdp8_top.vhd
---!
---! \author
---!    Joe Manojlovich - joe.manojlovich (at) gmail (dot) com
---!
---!	Doug Gilliland - adapted to EP4CE15 card
+-- OpenCores PDP-8 Processor
+--	https://opencores.org/projects/pdp8
+--
+--	PDP-8 implementation for the RETRO-EP4CE15 board
+--		CPU Configured to emulate PDP8A (swCPU)
+--		Video Display Unit (VDU) with PS/2 kryboard
+--
+-- Additional Comments: Build for RETRO-EP4CE15, using EP4CE15 FPGA
+--		http://land-boards.com/blwiki/index.php?title=RETRO-EP4CE15
+-- Front Panel
+--		http://land-boards.com/blwiki/index.php?title=PDP-8_Front_Panel
+-- Uses bin2mif.py utility to convert the DEC bin file to Altera MIF file
+-- Software at:
+--		https://github.com/douggilliland/Linux-68k/tree/master/pdp8
+-- VHDL at:
+--		https://github.com/douggilliland/Retro-Computers/tree/master/PDP-8/PDP8_OpenCores/RETRO-EP4CE15_CYCLONE_IV
+--
+-- \file
+--      pdp8_top.vhd
+--
+-- \author
+--    Joe Manojlovich - joe.manojlovich (at) gmail (dot) com
+--
+--	Doug Gilliland - adapted to EP4CE15 card
 --
 --------------------------------------------------------------------
 --
@@ -59,17 +58,17 @@ USE ieee.std_logic_1164.all;
 USE ieee.std_logic_arith.all;
 USE ieee.std_logic_unsigned.all;
 use ieee.numeric_std;
-use work.uart_types.all;                        --! UART Types
-use work.dk8e_types.all;                        --! DK8E Types
-use work.kc8e_types.all;                        --! KC8E Types
-use work.kl8e_types.all;                        --! KL8E Types
-use work.rk8e_types.all;                        --! RK8E Types
-use work.rk05_types.all;                        --! RK05 Types
-use work.ls8e_types.all;                        --! LS8E Types
-use work.pr8e_types.all;                        --! PR8E Types
-use work.cpu_types.all;                         --! CPU Types
-use work.sd_types.all;                          --! SD Types
-use work.sdspi_types.all;                       --! SPI Types
+use work.uart_types.all;                        -- UART Types
+use work.dk8e_types.all;                        -- DK8E Types
+use work.kc8e_types.all;                        -- KC8E Types
+use work.kl8e_types.all;                        -- KL8E Types
+use work.rk8e_types.all;                        -- RK8E Types
+use work.rk05_types.all;                        -- RK05 Types
+use work.ls8e_types.all;                        -- LS8E Types
+use work.pr8e_types.all;                        -- PR8E Types
+use work.cpu_types.all;                         -- CPU Types
+use work.sd_types.all;                          -- SD Types
+use work.sdspi_types.all;                       -- SPI Types
 use work.oct_7seg;
 
 ENTITY pdp8_top is  
@@ -77,16 +76,18 @@ ENTITY pdp8_top is
 		CLOCK_50		: IN STD_LOGIC;      -- Input clock
 		reset_n 		: in STD_LOGIC;		-- Reset
 		
-		-- 
+		-- Switches/pushbuttons
 		dispPB		: in std_logic;		-- 12 LEDs display select button selects source
 		stepPB		: in std_logic;		-- Single Step pushbutton 
 		ldPCPB		: in std_logic;		-- Load PC pushbutton
 		runSwitch	: in std_logic;		-- Run/Halt slide switch
+		ldACPB		: in std_logic;		-- Load Accum pushbutton
 		depPB			: in std_logic;		-- Deposit pushbutton
 		examinePB	: in std_logic;		-- Examine pushbutton (LDA)
 		linkSW		: in std_logic;		-- Link Switch
 		sw			 	: in STD_LOGIC_VECTOR(11 downto 0);		-- Slide switches
 
+		-- LEDs
 		runLED		: out  STD_LOGIC;		-- RUN LED
 		dispPCLED	: out  STD_LOGIC;		-- PC is currently displayed on the 12 LEDs
 		dispMALED	: out  STD_LOGIC;		-- Indicates that the memory address is currently displayed on the 12 LEDs
@@ -95,14 +96,14 @@ ENTITY pdp8_top is
 		linkLED		: out  STD_LOGIC := '0';		-- 
 		dispLEDs		: out  STD_LOGIC_VECTOR (11 downto 0);
 
---		TTY1_TXD : OUT STD_LOGIC;			--! UART send line
---		TTY1_RXD : IN STD_LOGIC;			--! UART receive line
---		TTY1_CTS : IN STD_LOGIC;			--! UART CTS
---		TTY1_RTS : OUT STD_LOGIC;			--! UART RTS
---		TTY2_TXD : OUT STD_LOGIC;			--! UART send line
---		TTY2_RXD : IN STD_LOGIC;			--! UART receive line	 
---		LPR_TXD : OUT STD_LOGIC;			--! LPR send line
---		LPR_RXD : IN STD_LOGIC;				--! LPR receive line
+--		TTY1_TXD : OUT STD_LOGIC;			-- UART send line
+--		TTY1_RXD : IN STD_LOGIC;			-- UART receive line
+--		TTY1_CTS : IN STD_LOGIC;			-- UART CTS
+--		TTY1_RTS : OUT STD_LOGIC;			-- UART RTS
+--		TTY2_TXD : OUT STD_LOGIC;			-- UART send line
+--		TTY2_RXD : IN STD_LOGIC;			-- UART receive line	 
+--		LPR_TXD : OUT STD_LOGIC;			-- LPR send line
+--		LPR_RXD : IN STD_LOGIC;				-- LPR receive line
 --		LPR_CTS : IN STD_LOGIC;
 --		LPR_RTS : OUT STD_LOGIC;
 --		PTR_TXD : OUT STD_LOGIC;
@@ -112,14 +113,14 @@ ENTITY pdp8_top is
 --		fpMISO : IN STD_LOGIC;
 
 		-- SD card
-		sdCS		: OUT STD_LOGIC;	--! SD card chip select
-		sdCLK		: OUT STD_LOGIC;	--! SD card clock
-		sdDI		: OUT STD_LOGIC;	--! SD card master out slave in
-		sdDO		: IN STD_LOGIC;	--! SD card master in slave out
-		sdCD		: IN STD_LOGIC;	--! SD card detect
+		sdCS		: OUT STD_LOGIC;	-- SD card chip select
+		sdCLK		: OUT STD_LOGIC;	-- SD card clock
+		sdDI		: OUT STD_LOGIC;	-- SD card master out slave in
+		sdDO		: IN STD_LOGIC;	-- SD card master in slave out
+		sdCD		: IN STD_LOGIC;	-- SD card detect
 	 
 		-- ANSI Terminal
-		-- Serial port (as referenced from USB side)
+		-- Serial port (not used with VDU)
 --		rxd1							: in	std_logic := '1';
 --		txd1							: out std_logic;
 --		cts1							: in	std_logic := '1';
@@ -162,20 +163,20 @@ END pdp8_top;
 
  architecture rtl of pdp8_top is
 	signal rk8eSTAT		: rk8eSTAT_t;
-	signal swCNTL			: swCNTL_t := (others => '0');   --! Front Panel Control Switches
-	signal swROT			: swROT_t := dispPC;             --! Front panel rotator switch emulted with DISP pushbutton
-	signal swOPT			: swOPT_t;                       --! PDP-8 options
-	signal swDATA			: swDATA_t;             			--! Front panel switches
+	signal swCNTL			: swCNTL_t := (others => '0');   -- Front Panel Control Switches
+	signal swROT			: swROT_t := dispPC;             -- Front panel rotator switch emulted with DISP pushbutton
+	signal swOPT			: swOPT_t;                       -- PDP-8 options
+	signal swDATA			: swDATA_t;             			-- Front panel switches
 	signal ledDATA			: data_t;
 	
 	-- Front Panel SWitch debouncing
 	signal dig_counter	: std_logic_vector (19 downto 0) := (others => '0');
 	signal dispstep 		: std_logic;
 	signal pulse20ms		: std_logic;
-	signal w_rstOut_Hi		: std_logic;   --! Reset line output to PDP-8
-	signal disp_out		: std_logic;   --! Disp select line output to PDP-8
+	signal w_rstOut_Hi		: std_logic;   -- Reset line output to PDP-8
+	signal disp_out		: std_logic;   -- Disp select line output to PDP-8
 
-	signal linkLB			: std_logic;	--! Loopback link switch to Link LED
+	signal linkLB			: std_logic;	-- Loopback link switch to Link LED
 	
 	-- Loopack serial
 	signal TTY1_TXD		: std_logic;
@@ -311,14 +312,14 @@ begin
 	----------------------------------------------------------------------------
 	-- Increment display selection
 	-- Emulates rotator switch
---    constant dispPC     : swROT_t := "000";                     --! Display PC
---    constant dispAC     : swROT_t := "001";                     --! Display AC
---    constant dispIR     : swROT_t := "010";                     --! Display IR
---    constant dispMA     : swROT_t := "011";                     --! Display MA
---    constant dispMD     : swROT_t := "100";                     --! Display MD
---    constant dispMQ     : swROT_t := "101";                     --! Display MQ
---    constant dispST     : swROT_t := "110";                     --! Display ST
---    constant dispSC     : swROT_t := "111";                     --! Display SC
+--    constant dispPC     : swROT_t := "000";                     -- Display PC
+--    constant dispAC     : swROT_t := "001";                     -- Display AC
+--    constant dispIR     : swROT_t := "010";                     -- Display IR
+--    constant dispMA     : swROT_t := "011";                     -- Display MA
+--    constant dispMD     : swROT_t := "100";                     -- Display MD
+--    constant dispMQ     : swROT_t := "101";                     -- Display MQ
+--    constant dispST     : swROT_t := "110";                     -- Display ST
+--    constant dispSC     : swROT_t := "111";                     -- Display SC
 	----------------------------------------------------------------------------
 	process (CLOCK_50, dispstep)
 	begin
@@ -333,10 +334,10 @@ begin
 		end if;
 	end process;
 	-- Display selection LEDS - Press DISP button to select
-	dispPCLED <= '1' when swROT = dispPC else '0';										--! Display PC
-	dispMALED <= '1' when swROT = dispMA else '0';										--! Display MA
-	dispMDLED <= '1' when swROT = dispMD else '0';										--! Display MD
-	dispACLED <= '1' when ((swROT = dispAC) or (swROT = dispMQ)) else '0';		--! Display AC
+	dispPCLED <= '1' when swROT = dispPC else '0';										-- Display PC
+	dispMALED <= '1' when swROT = dispMA else '0';										-- Display MA
+	dispMDLED <= '1' when swROT = dispMD else '0';										-- Display MD
+	dispACLED <= '1' when ((swROT = dispAC) or (swROT = dispMQ)) else '0';		-- Display AC
 	
 	----------------------------------------------------------------------------
 	-- Front Panel Data Switches
@@ -375,38 +376,38 @@ begin
 	 tty2BR   => uartBR9600,				-- TTY2 is 9600 Baud
 	 tty2HS   => uartHSnone,				-- TTY2 has no flow control
 	 tty2CTS  => '1', 						-- TTY2 doesn't need CTS
-	 tty2RTS  => open,						--! TTY2 doesn't need RTS
-	 tty2RXD  => '1',                        --! TTY2 RXD (tied off)
-	 tty2TXD  => open,                       --! TTY2 TXD (tied off)
+	 tty2RTS  => open,						-- TTY2 doesn't need RTS
+	 tty2RXD  => '1',                        -- TTY2 RXD (tied off)
+	 tty2TXD  => open,                       -- TTY2 TXD (tied off)
 	 -- LPR Interface
-	 lprBR    => uartBR9600,                 --! LPR is 9600 Baud
-	 lprHS    => uartHSnone,                 --! LPR has no flow control
-	 lprDTR   => '1',                        --! LPR doesn't need DTR
-	 lprDSR   => open,                       --! LPR doesn't need DSR
-	 lprRXD   => '1',                        --! LPR RXD (tied off)
-	 lprTXD   => open,                       --! LPR TXD (tied off)
+	 lprBR    => uartBR9600,                 -- LPR is 9600 Baud
+	 lprHS    => uartHSnone,                 -- LPR has no flow control
+	 lprDTR   => '1',                        -- LPR doesn't need DTR
+	 lprDSR   => open,                       -- LPR doesn't need DSR
+	 lprRXD   => '1',                        -- LPR RXD (tied off)
+	 lprTXD   => open,                       -- LPR TXD (tied off)
 	 -- Paper Tape Reader Interface
-	 ptrBR    => uartBR9600,                 --! PTR is 9600 Baud
-	 ptrHS    => uartHSnone,                 --! PTR has no flow control
-	 ptrCTS   => '1',                        --! PTR doesn't need CTS
-	 ptrRTS   => open,                       --! PTR doesn't need RTS
-	 ptrRXD   => '1',                        --! PTR RXD (tied off)
-	 ptrTXD   => open,                       --! PTR TXD (tied off)
+	 ptrBR    => uartBR9600,                 -- PTR is 9600 Baud
+	 ptrHS    => uartHSnone,                 -- PTR has no flow control
+	 ptrCTS   => '1',                        -- PTR doesn't need CTS
+	 ptrRTS   => open,                       -- PTR doesn't need RTS
+	 ptrRXD   => '1',                        -- PTR RXD (tied off)
+	 ptrTXD   => open,                       -- PTR TXD (tied off)
 	 -- Secure Digital Disk Interface
-	 sdCD     => not sdCD,                   --! SD Card Detec
-	 sdWP     => '0',                        --! SD Write Protect
-	 sdMISO   => sdDO,                       --! SD Data In
-	 sdMOSI   => sdDI,                       --! SD Data Out
-	 sdSCLK   => sdCLK,                      --! SD Clock
-	 sdCS     => sdCS,                       --! SD Chip Select
+	 sdCD     => not sdCD,                   -- SD Card Detec
+	 sdWP     => '0',                        -- SD Write Protect
+	 sdMISO   => sdDO,                       -- SD Data In
+	 sdMOSI   => sdDI,                       -- SD Data Out
+	 sdSCLK   => sdCLK,                      -- SD Clock
+	 sdCS     => sdCS,                       -- SD Chip Select
 	 -- Status
-	 rk8eSTAT => rk8eSTAT,                   --! Disk Status (Ignore)
+	 rk8eSTAT => rk8eSTAT,                   -- Disk Status (Ignore)
 	 -- Switches and LEDS
-	 swROT	=> swROT,                      --! Data LEDS display PC
-	 swDATA	=> swDATA,                     --! RK8E Boot Loader Address
-	 swCNTL	=> swCNTL,                     --! Switches
-	 ledRUN	=> runLED,                      --! Run LED
-	 ledDATA => ledDATA                      --! Data output register
+	 swROT	=> swROT,                      -- Data LEDS display PC
+	 swDATA	=> swDATA,                     -- RK8E Boot Loader Address
+	 swCNTL	=> swCNTL,                     -- Switches
+	 ledRUN	=> runLED,                      -- Run LED
+	 ledDATA => ledDATA                      -- Data output register
 	 );
 	 
 end rtl;
