@@ -131,9 +131,6 @@ ENTITY pdp8_top is
 		io_PS2_CLK					: inout std_logic;
 		io_PS2_DAT					: inout std_logic;
 		
-		-- Test Points
---		testPt						: out std_logic_vector(6 downto 2);
-		
 		-- Not using the External SRAM on the QMTECH card but making sure that it's not active
 		sramData		: inout std_logic_vector(7 downto 0) := "ZZZZZZZZ";
 		sramAddress	: out std_logic_vector(19 downto 0) := x"00000";
@@ -165,8 +162,6 @@ END pdp8_top;
 	signal linkLB			: std_logic;	-- Loopback link switch to Link LED
 	
 	-- Front Panel SWitch debouncing
---	signal deb_counter	: std_logic_vector (19 downto 0) := (others => '0');
---	signal pulse20ms		: std_logic;
 	signal w_rstOut_Hi	: std_logic;   -- Reset line output to PDP-8
 	signal debouncedSws	: std_logic_vector(5 downto 0);
 	
