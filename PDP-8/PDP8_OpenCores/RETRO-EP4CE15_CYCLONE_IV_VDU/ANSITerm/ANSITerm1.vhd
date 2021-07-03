@@ -23,6 +23,7 @@
 -- 	0X03 - DISPLAY (Data) (w)
 -- 	0X04 - KBD (c/S) (r)
 -- 	0X05 - KBD (Data) (r) 
+--		0x07 - Sense VDU or USB (r)
  
 --	---------------------------------------------------------------------------------------------------------
 
@@ -37,6 +38,8 @@ entity ANSITerm1 is
 		-- Clock and reset
 		i_CLOCK_50		: in std_logic;		-- Clock (50 MHz)
 		i_n_reset		: in std_logic;		-- Debounced reset button
+		-- Sense USB (0) vs VDU (1)
+		serSource		: in std_logic;
 		-- Serial port (as referenced from USB side)
 		i_rxd				: in	std_logic;
 		o_txd				: out std_logic;
@@ -80,6 +83,7 @@ architecture struct of ANSITerm1 is
 	signal w_KbdDataOut			:	std_logic_vector(7 downto 0);
 	signal w_UartDataOut			:	std_logic_vector(7 downto 0);
 	signal w_VDUDataOut			:	std_logic_vector(7 downto 0);
+	signal w_SenseSrc				:	std_logic_vector(7 downto 0);
 
 	-- Signal Tap Logic Analyzer signals
 	attribute syn_keep							: boolean;
@@ -92,6 +96,8 @@ architecture struct of ANSITerm1 is
 --	attribute syn_keep of w_serialEn			: signal is true;
 	
 begin
+
+	w_SenseSrc <= "0000000" & serSource;		-- 0x00 is UART, 0x01 is VDU
 
 	-- I/O Processor
 	-- Set ROM size in generic INST_SRAM_SIZE_PASS (512W uses 1 of 1K Blocks in EP4CE15 FPGA)
@@ -118,6 +124,7 @@ begin
 	w_IOPDataIn <=	w_UartDataOut		when (w_periphAdr(7 downto 1)="000"&x"0")	else
 						w_VDUDataOut		when (w_periphAdr(7 downto 1)="000"&x"1")	else
 						w_KbdDataOut		when (w_periphAdr(7 downto 1)="000"&x"2")	else
+						w_SenseSrc			when (w_periphAdr(7 downto 1)="000"&x"3")	else
 						x"00";
 
 	-- Strobes/Selects

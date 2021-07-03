@@ -297,6 +297,8 @@ begin
 			-- Clock and reset
 			I_clock_50			=> CLOCK_50,			-- Clock (50 MHz)
 			i_n_reset			=> not w_rstOut_Hi,	-- Reset from Pushbutton on FPGA card (De-bounced)
+			-- Sense USB (0) vs VDU (1)
+			serSource			=> serSelect,
 			-- Serial port (as referenced from USB side)
 			i_rxd					=> TTY1_TXD_Term,			-- PDP-11 to ANSI Terminal serial data
 			o_txd					=> TTY1_RXD_Term,			-- ANSI Terminal to PDP-11 serial data
