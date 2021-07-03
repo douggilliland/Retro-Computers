@@ -18,6 +18,9 @@
 --   Version History
 --   Version 1.0 11/29/2013 Scott Larson
 --     Initial Public Release
+--
+--		DGG 2021-07-03
+--		Mapped Backspace to 0x7F
 --    
 --------------------------------------------------------------------------------
 

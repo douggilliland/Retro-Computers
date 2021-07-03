@@ -1,22 +1,24 @@
 --	---------------------------------------------------------------------------------------------------------
+--
 -- ANSI Terminal
---		Reads keyboard and writes to UART
---		Reads UART and writes to the screen
+--		Reads keyboard and writes to UART (connected at the higher level to PDP-8)
+--		Reads UART (connected at the higher level to PDP-8) and writes to the screen
 --		Supports Grant Searle's ANSI escape sequences
 --			http://searle.x10host.com/Multicomp/index.html#ANSICodes
---		https://wiki.bash-hackers.org/scripting/terminalcodes?fbclid=IwAR1FXn3ETOIEj1U4R5_PKNk687XHcIYyUb7_M2F5QwQ9NkbIlfq5W705iJA#:~:text=Cursor%20handling%20%20%20%20ANSI%20%20,saved%20cursor%20position%20%203%20more%20rows%20
+--			https://wiki.bash-hackers.org/scripting/terminalcodes?fbclid=IwAR1FXn3ETOIEj1U4R5_PKNk687XHcIYyUb7_M2F5QwQ9NkbIlfq5W705iJA#:~:text=Cursor%20handling%20%20%20%20ANSI%20%20,saved%20cursor%20position%20%203%20more%20rows%20
 --
---	VGA
---		80x24
--- PS/2 keyboard
---	6850 UART
+--	Peripherals
+--		VGA
+--			80x24
+-- 	PS/2 keyboard
+--		6850 ACIA UART
 --
 -- IOP16 CPU
 --		Custom 16 bit I/O Processor
 --		Minimal Intruction set (enough for basic I/O)
 --		8 Clocks per instruction at 50 MHz = 6.25 MIPS
 --
--- IOP16 mEMORY mAP
+-- IOP16 MEMORY MAP
 --		0X00 - UART (c/S) (r/w)
 -- 	0X01 - UART (Data) (r/w)
 -- 	0X02 - DISPLAY (c/S) (w)
@@ -38,13 +40,15 @@ entity ANSITerm1 is
 		-- Clock and reset
 		i_CLOCK_50		: in std_logic;		-- Clock (50 MHz)
 		i_n_reset		: in std_logic;		-- Debounced reset button
-		-- Sense USB (0) vs VDU (1)
-		serSource		: in std_logic;
 		-- Serial port (as referenced from USB side)
 		i_rxd				: in	std_logic;
 		o_txd				: out std_logic;
 		i_cts				: in	std_logic;
 		o_rts				: out std_logic;
+		-- Sense serial source - USB (0) vs VDU (1)
+		serSource		: in std_logic;		-- Detect Serial source
+														-- monitored by IOP16
+														-- Routing is via a mux at the next higher level
 		-- Video
 		o_videoR0		: out std_logic;
 		o_videoR1		: out std_logic;
@@ -86,18 +90,16 @@ architecture struct of ANSITerm1 is
 	signal w_SenseSrc				:	std_logic_vector(7 downto 0);
 
 	-- Signal Tap Logic Analyzer signals
-	attribute syn_keep							: boolean;
-	attribute syn_keep of w_rdKBD				: signal is true;
-	attribute syn_keep of w_IOPDataIn		: signal is true;
-	attribute syn_keep of w_IOPDataOut		: signal is true;
-	attribute syn_keep of w_periphWr			: signal is true;
-	attribute syn_keep of w_periphRd			: signal is true;
-	attribute syn_keep of w_wrUart			: signal is true;
+--	attribute syn_keep							: boolean;
+--	attribute syn_keep of w_rdKBD				: signal is true;
+--	attribute syn_keep of w_IOPDataIn		: signal is true;
+--	attribute syn_keep of w_IOPDataOut		: signal is true;
+--	attribute syn_keep of w_periphWr			: signal is true;
+--	attribute syn_keep of w_periphRd			: signal is true;
+--	attribute syn_keep of w_wrUart			: signal is true;
 --	attribute syn_keep of w_serialEn			: signal is true;
 	
 begin
-
-	w_SenseSrc <= "0000000" & serSource;		-- 0x00 is UART, 0x01 is VDU
 
 	-- I/O Processor
 	-- Set ROM size in generic INST_SRAM_SIZE_PASS (512W uses 1 of 1K Blocks in EP4CE15 FPGA)
@@ -126,6 +128,8 @@ begin
 						w_KbdDataOut		when (w_periphAdr(7 downto 1)="000"&x"2")	else
 						w_SenseSrc			when (w_periphAdr(7 downto 1)="000"&x"3")	else
 						x"00";
+
+	w_SenseSrc <= "0000000" & serSource;		-- 0x00 is UART, 0x01 is VDU
 
 	-- Strobes/Selects
 	w_wrUart		<= '1' when ((w_periphAdr(7 downto 1)="000"&x"0") and (w_periphWr = '1')) else '0';		-- UART (0X00=STAT, 0X01=DATA)
@@ -163,16 +167,18 @@ begin
 			videoG1		=> o_videoG1,
 			videoB0		=> o_videoB0,
 			videoB1		=> o_videoB1,
---			o_hActive	=> ,					- Use to force background color by replacing videoXx with o_hActive
 			hSync  		=> o_hSync,
 			vSync  		=> o_vSync
-	 );
+		);
 
 	-- PS/2 keyboard/mapper to ASCII
+	-- Emulated 6850 ACIA (minimal) status/data accesses 
 	KEYBOARD : ENTITY  WORK.Wrap_Keyboard
 		port MAP (
+			-- Clock, reset
 			i_CLOCK_50		=> i_CLOCK_50,
 			i_n_reset		=> i_n_reset,
+			-- CPU I/F
 			i_kbCS			=> w_rdKBD,
 			i_RegSel			=> w_periphAdr(0),
 			i_rd_Kbd			=> w_rdKBD,
@@ -181,7 +187,7 @@ begin
 			o_kbdDat			=> w_KbdDataOut
 		);
 
-	-- Baud Rate Generator
+	-- Baud Rate Generator Wrapper
 	-- These clock enables are asserted for one period of input clk, at 16x the baud rate.
 	-- Set baud rate in BAUD_RATE generic
 	BAUDRATEGEN	:	ENTITY work.BaudRate6850
@@ -191,7 +197,7 @@ begin
 		PORT map (
 			i_CLOCK_50	=> i_CLOCK_50,
 			o_serialEn	=> w_serialEn
-	);
+		);
 
 	-- 6850 style UART
 	UART: entity work.bufferedUART
@@ -212,7 +218,7 @@ begin
 			txd     			=> o_txd,
 			n_rts   			=> o_rts,
 			n_cts   			=> i_cts
-   );
+		);
 
 	-- ____________________________________________________________________________________
 

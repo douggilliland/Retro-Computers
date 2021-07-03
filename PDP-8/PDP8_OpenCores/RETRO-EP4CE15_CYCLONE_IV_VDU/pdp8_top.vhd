@@ -77,8 +77,8 @@ ENTITY pdp8_top is
 		CLOCK_50		: IN STD_LOGIC;      -- Input clock
 		reset_n 		: in STD_LOGIC;		-- Reset
 		
-		-- Switches/pushbuttons
-		sw			 	: in STD_LOGIC_VECTOR(11 downto 0);		-- Slide switches
+		-- Switches/pushbuttons (Land Boardsw PDP-8 Front Panel)
+		sw			 	: in STD_LOGIC_VECTOR(11 downto 0);		-- 12 Slide switches
 		dispPB		: in std_logic;		-- 12 LEDs display select button selects source
 		stepPB		: in std_logic;		-- Single Step pushbutton 
 		ldPCPB		: in std_logic;		-- Load PC pushbutton
@@ -89,7 +89,7 @@ ENTITY pdp8_top is
 		runSwitch	: in std_logic;		-- Run/Halt slide switch
 
 		-- LEDs
-		dispLEDs		: out  STD_LOGIC_VECTOR (11 downto 0);		-- Display LEDs
+		dispLEDs		: out  STD_LOGIC_VECTOR (11 downto 0);		-- 12 Display LEDs
 		runLED		: out  STD_LOGIC;		-- RUN LED
 		dispPCLED	: out  STD_LOGIC;		-- PC is currently displayed on the 12 LEDs
 		dispMALED	: out  STD_LOGIC;		-- Indicates that the memory address is currently displayed on the 12 LEDs
@@ -101,10 +101,8 @@ ENTITY pdp8_top is
 		TTY1_TXD_Ser 	: OUT STD_LOGIC;			-- UART send line
 		TTY1_CTS_ser 	: IN STD_LOGIC;			-- UART CTS
 		TTY1_RTS_ser 	: OUT STD_LOGIC;			-- UART RTS
-		serSelect	: IN STD_LOGIC;			-- Serial select
+		serSelect		: IN STD_LOGIC;			-- Serial select (Jumper J3-1 - Installed=USB, Removed=VDU)
 		-- 
---		TTY2_TXD : OUT STD_LOGIC;			-- UART send line
---		TTY2_RXD : IN STD_LOGIC;			-- UART receive line	 
 --		LPR_TXD : OUT STD_LOGIC;			-- LPR send line
 --		LPR_RXD : IN STD_LOGIC;				-- LPR receive line
 --		LPR_CTS : IN STD_LOGIC;
@@ -113,7 +111,6 @@ ENTITY pdp8_top is
 --		PTR_RXD : IN STD_LOGIC;
 --		PTR_CTS : IN STD_LOGIC;
 --		PTR_RTS : OUT STD_LOGIC;
---		fpMISO : IN STD_LOGIC;
 
 		-- SD card
 		sdCS		: OUT STD_LOGIC;	-- SD card chip select
@@ -136,7 +133,7 @@ ENTITY pdp8_top is
 		io_PS2_DAT					: inout std_logic;
 		
 		-- Test Points
-		testPt						: out std_logic_vector(6 downto 2);
+--		testPt						: out std_logic_vector(6 downto 2);
 		
 		-- Not using the External SRAM on the QMTECH card but making sure that it's not active
 		sramData		: inout std_logic_vector(7 downto 0) := "ZZZZZZZZ";
@@ -192,13 +189,6 @@ begin
 	TTY1_RTS_Ser	<= (TTY1_RTS_PDP8	and (not serSelect));
 	TTY1_TXD_Term	<= (TTY1_TXD_PDP8	and serSelect) or (not serSelect);
 	TTY1_RTS_Term	<= TTY1_RTS_PDP8	and serSelect;
-
---	testPt(6) <= TTY1_TXD_Term;
---	testPt(5) <= TTY1_RXD_Term;
---	testPt(4) <= TTY1_RTS_Term;
---	testPt(3) <= TTY1_CTS_Term;
---	testPt(2) <= '0';
---	testPt(1) <= '0';
 	
 	-- Options
 	swOPT.KE8       <= '1';	-- KE8 - Extended Arithmetic Element Provided 
