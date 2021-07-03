@@ -67,38 +67,39 @@ use work.pr8e_types.all;                        -- PR8E Types
 use work.cpu_types.all;                         -- CPU Types
 use work.sd_types.all;                          -- SD Types
 use work.sdspi_types.all;                       -- SPI Types
---use work.oct_7seg;
 
 ENTITY pdp8_top is  
   PORT ( 
+		-- Clock and reset
 		CLOCK_50		: IN STD_LOGIC;      -- Input clock
 		reset_n 		: in STD_LOGIC;		-- Reset
 		
-		-- Switches/pushbuttons (Land Boardsw PDP-8 Front Panel)
-		sw			 	: in STD_LOGIC_VECTOR(11 downto 0);		-- 12 Slide switches
-		dispPB		: in std_logic;		-- 12 LEDs display select button selects source
-		stepPB		: in std_logic;		-- Single Step pushbutton 
-		ldPCPB		: in std_logic;		-- Load PC pushbutton
-		depPB			: in std_logic;		-- Deposit pushbutton
-		ldACPB		: in std_logic;		-- Load Accum pushbutton
-		linkSW		: in std_logic;		-- Link Switch
-		examinePB	: in std_logic;		-- Examine pushbutton (LDA) (Marked as PB1)
-		runSwitch	: in std_logic;		-- Run/Halt slide switch
+		-- Switches/pushbuttons (Land Boards PDP-8 Front Panel)
+		SW12_SS		: in STD_LOGIC_VECTOR(11 downto 0);		-- 12 Slide switches
+		DISP_PB		: in std_logic;		-- 12 LEDs display select button selects source
+		STEP_PB		: in std_logic;		-- Single Step pushbutton 
+		LDPC_PB		: in std_logic;		-- Load PC pushbutton
+		DEP_PB		: in std_logic;		-- Deposit pushbutton
+		LDA_PB		: in std_logic;		-- Load Accum pushbutton
+		LINK_SS		: in std_logic;		-- Link Switch
+		EXAM_PB		: in std_logic;		-- Examine pushbutton (LDA) (Marked as PB1)
+		RUN_SS		: in std_logic;		-- Run/Halt slide switch
 
 		-- LEDs
-		dispLEDs		: out  STD_LOGIC_VECTOR (11 downto 0);		-- 12 Display LEDs
-		runLED		: out  STD_LOGIC;		-- RUN LED
-		dispPCLED	: out  STD_LOGIC;		-- PC is currently displayed on the 12 LEDs
-		dispMALED	: out  STD_LOGIC;		-- Indicates that the memory address is currently displayed on the 12 LEDs
-		dispMDLED	: out  STD_LOGIC;		-- Indicates that the memory data is currently displayed on the 12 LEDs
-		dispACLED	: out  STD_LOGIC;		-- Indicates that the Accumulator is currently displayed on the 12 LEDs
-		linkLED		: out  STD_LOGIC := '0';		-- 
+		OUT12_LEDs	: out  STD_LOGIC_VECTOR (11 downto 0);		-- 12 Display LEDs
+		RUN_LED		: out  STD_LOGIC;		-- RUN LED
+		PC_LED		: out  STD_LOGIC;		-- PC is currently displayed on the 12 LEDs
+		MADR_LED		: out  STD_LOGIC;		-- Indicates that the memory address is currently displayed on the 12 LEDs
+		MD_LED		: out  STD_LOGIC;		-- Indicates that the memory data is currently displayed on the 12 LEDs
+		AC_LED		: out  STD_LOGIC;		-- Indicates that the Accumulator is currently displayed on the 12 LEDs
+		LINK_LED		: out  STD_LOGIC := '0';	-- 
 
-		TTY1_RXD_Ser	: IN STD_LOGIC;			-- UART receive line
-		TTY1_TXD_Ser 	: OUT STD_LOGIC;			-- UART send line
-		TTY1_CTS_ser 	: IN STD_LOGIC;			-- UART CTS
-		TTY1_RTS_ser 	: OUT STD_LOGIC;			-- UART RTS
-		serSelect		: IN STD_LOGIC;			-- Serial select (Jumper J3-1 - Installed=USB, Removed=VDU)
+		-- UART Serial
+		TTY1_RXD_Ser	: IN STD_LOGIC;	-- UART receive line
+		TTY1_TXD_Ser 	: OUT STD_LOGIC;	-- UART send line
+		TTY1_CTS_ser 	: IN STD_LOGIC;	-- UART CTS
+		TTY1_RTS_ser 	: OUT STD_LOGIC;	-- UART RTS
+		serSelect		: IN STD_LOGIC;	-- Serial select (Jumper J3-1 - Installed=USB, Removed=VDU)
 		-- 
 --		LPR_TXD : OUT STD_LOGIC;			-- LPR send line
 --		LPR_RXD : IN STD_LOGIC;				-- LPR receive line
@@ -189,6 +190,7 @@ begin
 	swOPT.STARTUP   <= '1'; -- Setting the 'STARTUP' bit will cause the PDP8 to boot
 									-- to the address in the switch register (panel mode)
 									
+	LINK_LED <= LINK_SS;
 	-- Route the serial port to/from PDP-8 and VDU/KBD or UART
 	TTY1_RXD_PDP8 	<= (TTY1_RXD_Ser	and (not serSelect)) or (TTY1_RXD_Term and serSelect);
 	TTY1_CTS_PDP8	<= (TTY1_CTS_Ser 	and (not serSelect)) or (TTY1_CTS_Term and serSelect);
@@ -202,7 +204,7 @@ begin
 		port map
 		(
 			i_CLOCK_50	=> CLOCK_50,
-			i_InPins		=> reset_n		& examinePB		& depPB			& ldPCPB				& stepPB			& dispPB,
+			i_InPins		=> reset_n		& EXAM_PB		& DEP_PB			& LDPC_PB				& STEP_PB			& DISP_PB,
 			o_OutPins	=> debouncedSws
 		);
 	w_rstOut_Hi 		<= debouncedSws(5);
@@ -265,24 +267,24 @@ begin
 		end if;
 	end process;
 	-- Display selection LEDS - Press DISP button to select
-	dispPCLED <= '1' when swROT = dispPC else '0';										-- Display PC
-	dispMALED <= '1' when swROT = dispMA else '0';										-- Display MA
-	dispMDLED <= '1' when swROT = dispMD else '0';										-- Display MD
-	dispACLED <= '1' when ((swROT = dispAC) or (swROT = dispMQ)) else '0';		-- Display AC
+	PC_LED <= '1' when swROT = dispPC else '0';										-- Display PC
+	MADR_LED <= '1' when swROT = dispMA else '0';										-- Display MA
+	MD_LED <= '1' when swROT = dispMD else '0';										-- Display MD
+	AC_LED <= '1' when ((swROT = dispAC) or (swROT = dispMQ)) else '0';		-- Display AC
 	
 	----------------------------------------------------------------------------
 	-- Front Panel Data Switches
 	--	swDATA          <= o"0023";		-- Tight loop code? 
 	--	swDATA          <= o"7400";		-- ? code
 	----------------------------------------------------------------------------
-	swDATA		<= sw;				-- Set start address from switches
-	swCNTL.halt	<= not runSwitch;	-- Run/Halt slide switch
+	swDATA		<= SW12_SS;				-- Set start address from switches
+	swCNTL.halt	<= not RUN_SS;	-- Run/Halt slide switch
 
-	dispLEDs <= ledDATA;
+	OUT12_LEDs <= ledDATA;
 	
 	-- Loopback link switch for now
-	linkLB	<= linkSW;
-	linkLED	<= linkLB;
+	linkLB	<= LINK_SS;
+	LINK_LED	<= linkLB;
 	
 	----------------------------------------------------------------------------
 	-- PDP8 Processor
@@ -337,7 +339,7 @@ begin
 	 swROT	=> swROT,                      -- Data LEDS display PC
 	 swDATA	=> swDATA,                     -- RK8E Boot Loader Address
 	 swCNTL	=> swCNTL,                     -- Switches
-	 ledRUN	=> runLED,                      -- Run LED
+	 ledRUN	=> RUN_LED,                      -- Run LED
 	 ledDATA => ledDATA                      -- Data output register
 	 );
 	 
