@@ -166,7 +166,7 @@ BEGIN
               --translate characters that do not depend on shift, or caps lock
               CASE ps2_code IS
                 WHEN x"29" => ascii <= x"20"; --space
-                WHEN x"66" => ascii <= x"08"; --backspace (BS control code)
+                WHEN x"66" => ascii <= x"7F"; --backspace (BS control code)
                 WHEN x"0D" => ascii <= x"09"; --tab (HT control code)
                 WHEN x"5A" => ascii <= x"0D"; --enter (CR control code)
                 WHEN x"76" => ascii <= x"1B"; --escape (ESC control code)
