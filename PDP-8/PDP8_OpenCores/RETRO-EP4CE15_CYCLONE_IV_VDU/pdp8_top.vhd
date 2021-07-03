@@ -4,22 +4,23 @@
 --
 --	PDP-8 implementation for the RETRO-EP4CE15 board
 --		CPU Configured to emulate PDP8A (swCPU)
---		Video Display Unit (VDU) with PS/2 kryboard
+--		Video Display Unit (VDU) with PS/2 keyboard or Serial (serSelect jumper selectable)
 --
 -- Additional Comments: Build for RETRO-EP4CE15, using EP4CE15 FPGA
 --		http://land-boards.com/blwiki/index.php?title=RETRO-EP4CE15
 -- Front Panel
 --		http://land-boards.com/blwiki/index.php?title=PDP-8_Front_Panel
+--	IOP16 code
+--		https://github.com/douggilliland/Retro-Computers/blob/master/PDP-8/PDP8_OpenCores/RETRO-EP4CE15_CYCLONE_IV_VDU/ANSITerm/IOP16/IOP16_ASSEMBLER/PDP_Term/PDP_Term.csv
 -- Uses bin2mif.py utility to convert the DEC bin file to Altera MIF file
 -- Software at:
 --		https://github.com/douggilliland/Linux-68k/tree/master/pdp8
 -- VHDL at:
 --		https://github.com/douggilliland/Retro-Computers/tree/master/PDP-8/PDP8_OpenCores/RETRO-EP4CE15_CYCLONE_IV
 --
--- \file
 --      pdp8_top.vhd
 --
--- \author
+-- Original author (OpenCORES)
 --    Joe Manojlovich - joe.manojlovich (at) gmail (dot) com
 --
 --	Doug Gilliland - adapted to EP4CE15 card
@@ -77,29 +78,31 @@ ENTITY pdp8_top is
 		reset_n 		: in STD_LOGIC;		-- Reset
 		
 		-- Switches/pushbuttons
+		sw			 	: in STD_LOGIC_VECTOR(11 downto 0);		-- Slide switches
 		dispPB		: in std_logic;		-- 12 LEDs display select button selects source
 		stepPB		: in std_logic;		-- Single Step pushbutton 
 		ldPCPB		: in std_logic;		-- Load PC pushbutton
-		runSwitch	: in std_logic;		-- Run/Halt slide switch
-		ldACPB		: in std_logic;		-- Load Accum pushbutton
 		depPB			: in std_logic;		-- Deposit pushbutton
-		examinePB	: in std_logic;		-- Examine pushbutton (LDA)
+		ldACPB		: in std_logic;		-- Load Accum pushbutton
 		linkSW		: in std_logic;		-- Link Switch
-		sw			 	: in STD_LOGIC_VECTOR(11 downto 0);		-- Slide switches
+		examinePB	: in std_logic;		-- Examine pushbutton (LDA) (Marked as PB1)
+		runSwitch	: in std_logic;		-- Run/Halt slide switch
 
 		-- LEDs
+		dispLEDs		: out  STD_LOGIC_VECTOR (11 downto 0);		-- Display LEDs
 		runLED		: out  STD_LOGIC;		-- RUN LED
 		dispPCLED	: out  STD_LOGIC;		-- PC is currently displayed on the 12 LEDs
 		dispMALED	: out  STD_LOGIC;		-- Indicates that the memory address is currently displayed on the 12 LEDs
 		dispMDLED	: out  STD_LOGIC;		-- Indicates that the memory data is currently displayed on the 12 LEDs
 		dispACLED	: out  STD_LOGIC;		-- Indicates that the Accumulator is currently displayed on the 12 LEDs
 		linkLED		: out  STD_LOGIC := '0';		-- 
-		dispLEDs		: out  STD_LOGIC_VECTOR (11 downto 0);
 
---		TTY1_TXD : OUT STD_LOGIC;			-- UART send line
---		TTY1_RXD : IN STD_LOGIC;			-- UART receive line
---		TTY1_CTS : IN STD_LOGIC;			-- UART CTS
---		TTY1_RTS : OUT STD_LOGIC;			-- UART RTS
+		TTY1_RXD_Ser	: IN STD_LOGIC;			-- UART receive line
+		TTY1_TXD_Ser 	: OUT STD_LOGIC;			-- UART send line
+		TTY1_CTS_ser 	: IN STD_LOGIC;			-- UART CTS
+		TTY1_RTS_ser 	: OUT STD_LOGIC;			-- UART RTS
+		serSelect	: IN STD_LOGIC;			-- Serial select
+		-- 
 --		TTY2_TXD : OUT STD_LOGIC;			-- UART send line
 --		TTY2_RXD : IN STD_LOGIC;			-- UART receive line	 
 --		LPR_TXD : OUT STD_LOGIC;			-- LPR send line
@@ -119,13 +122,6 @@ ENTITY pdp8_top is
 		sdDO		: IN STD_LOGIC;	-- SD card master in slave out
 		sdCD		: IN STD_LOGIC;	-- SD card detect
 	 
-		-- ANSI Terminal
-		-- Serial port (not used with VDU)
---		rxd1							: in	std_logic := '1';
---		txd1							: out std_logic;
---		cts1							: in	std_logic := '1';
---		rts1							: out std_logic;
---		serSelect					: in	std_logic := '1';
 		-- Video
 		o_videoR0					: out std_logic;
 		o_videoR1					: out std_logic;
@@ -140,7 +136,7 @@ ENTITY pdp8_top is
 		io_PS2_DAT					: inout std_logic;
 		
 		-- Test Points
-		testPt						: out std_logic_vector(6 downto 1);
+		testPt						: out std_logic_vector(6 downto 2);
 		
 		-- Not using the External SRAM on the QMTECH card but making sure that it's not active
 		sramData		: inout std_logic_vector(7 downto 0) := "ZZZZZZZZ";
@@ -178,20 +174,31 @@ END pdp8_top;
 
 	signal linkLB			: std_logic;	-- Loopback link switch to Link LED
 	
-	-- Loopack serial
-	signal TTY1_TXD		: std_logic;
-	signal TTY1_RXD		: std_logic;
-	signal TTY1_RTS		: std_logic;
-	signal TTY1_CTS		: std_logic;
+	-- Loop serial from PDP-8 and VDU_PS/2
+	signal TTY1_TXD_Term		: std_logic;
+	signal TTY1_RXD_Term		: std_logic;
+	signal TTY1_RTS_Term		: std_logic;
+	signal TTY1_CTS_Term		: std_logic;
+	
+	signal TTY1_TXD_PDP8	: std_logic;
+	signal TTY1_RXD_PDP8	: std_logic;
+	signal TTY1_RTS_PDP8	: std_logic;
+	signal TTY1_CTS_PDP8	: std_logic;
 	
 begin
+	TTY1_RXD_PDP8 	<= (TTY1_RXD_Ser	and (not serSelect)) or (TTY1_RXD_Term and serSelect);
+	TTY1_CTS_PDP8	<= (TTY1_CTS_Ser 	and (not serSelect)) or (TTY1_CTS_Term and serSelect);
+	TTY1_TXD_Ser	<= (TTY1_TXD_PDP8 and (not serSelect)) or serSelect;
+	TTY1_RTS_Ser	<= (TTY1_RTS_PDP8	and (not serSelect));
+	TTY1_TXD_Term	<= (TTY1_TXD_PDP8	and serSelect) or (not serSelect);
+	TTY1_RTS_Term	<= TTY1_RTS_PDP8	and serSelect;
 
-	testPt(6) <= TTY1_TXD;
-	testPt(5) <= TTY1_RXD;
-	testPt(4) <= TTY1_RTS;
-	testPt(3) <= TTY1_CTS;
-	testPt(2) <= '0';
-	testPt(1) <= '0';
+--	testPt(6) <= TTY1_TXD_Term;
+--	testPt(5) <= TTY1_RXD_Term;
+--	testPt(4) <= TTY1_RTS_Term;
+--	testPt(3) <= TTY1_CTS_Term;
+--	testPt(2) <= '0';
+--	testPt(1) <= '0';
 	
 	-- Options
 	swOPT.KE8       <= '1';	-- KE8 - Extended Arithmetic Element Provided 
@@ -291,10 +298,10 @@ begin
 			I_clock_50			=> CLOCK_50,			-- Clock (50 MHz)
 			i_n_reset			=> not w_rstOut_Hi,	-- Reset from Pushbutton on FPGA card (De-bounced)
 			-- Serial port (as referenced from USB side)
-			i_rxd					=> TTY1_TXD,			-- PDP-11 to ANSI Terminal serial data
-			o_txd					=> TTY1_RXD,			-- ANSI Terminal to PDP-11 serial data
-			i_cts					=> TTY1_RTS,
-			o_rts					=> TTY1_CTS,
+			i_rxd					=> TTY1_TXD_Term,			-- PDP-11 to ANSI Terminal serial data
+			o_txd					=> TTY1_RXD_Term,			-- ANSI Terminal to PDP-11 serial data
+			i_cts					=> TTY1_RTS_Term,
+			o_rts					=> TTY1_CTS_Term,
 			-- Video
 			o_videoR0			=> o_videoR0,
 			o_videoR1			=> o_videoR1,
@@ -368,10 +375,10 @@ begin
 	 -- TTY1 Interfaces
 	 tty1BR   => uartBR9600,				-- TTY1 is 9600 Baud
 	 tty1HS   => uartHShw,					-- TTY1 uses hardware handshake
-	 tty1CTS  => TTY1_CTS,					-- TTY1 CTS (in)
-	 tty1RTS  => TTY1_RTS,					-- TTY1 RTS (out)
-	 tty1RXD  => TTY1_RXD,					-- TTY1 RXD (to RS-232 interface)
-	 tty1TXD  => TTY1_TXD,					-- TTY1 TXD (to RS-232 interface)
+	 tty1CTS  => TTY1_CTS_PDP8,			-- TTY1 CTS (in)
+	 tty1RTS  => TTY1_RTS_PDP8,			-- TTY1 RTS (out)
+	 tty1RXD  => TTY1_RXD_PDP8,			-- TTY1 RXD (to RS-232 interface)
+	 tty1TXD  => TTY1_TXD_PDP8,			-- TTY1 TXD (to RS-232 interface)
 	 -- TTY2 Interfaces
 	 tty2BR   => uartBR9600,				-- TTY2 is 9600 Baud
 	 tty2HS   => uartHSnone,				-- TTY2 has no flow control
