@@ -11,12 +11,11 @@ use  IEEE.STD_LOGIC_UNSIGNED.all;
 
 entity debounceSW is
 	port(
-		i_CLOCK_50					: in std_logic;		-- GPGA Clock (50 MHz)
+		i_CLOCK_50					: in std_logic;		-- FPGA Clock (50 MHz)
 		i_slowCLK					: in std_logic;		-- 20 mS clock
 		i_PinIn						: in std_logic;		-- Active Low Level
 		o_PinOut						: out std_logic		-- Active High Pulse
 	);
-
 end debounceSW;
 
 architecture struct of debounceSW is

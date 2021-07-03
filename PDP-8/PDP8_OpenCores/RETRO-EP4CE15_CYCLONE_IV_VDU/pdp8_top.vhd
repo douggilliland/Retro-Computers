@@ -6,7 +6,7 @@
 --		CPU Configured to emulate PDP8A (swCPU)
 --		Video Display Unit (VDU) with PS/2 keyboard or Serial (serSelect jumper selectable)
 --
--- Additional Comments: Build for RETRO-EP4CE15, using EP4CE15 FPGA
+-- Build for RETRO-EP4CE15, using EP4CE15 FPGA
 --		http://land-boards.com/blwiki/index.php?title=RETRO-EP4CE15
 -- Front Panel
 --		http://land-boards.com/blwiki/index.php?title=PDP-8_Front_Panel
@@ -50,9 +50,6 @@
 -- from http://www.gnu.org/licenses/lgpl.txt
 --
 --------------------------------------------------------------------
---
--- Comments are formatted for doxygen
---
 
 LIBRARY ieee;
 USE ieee.std_logic_1164.all;
@@ -70,7 +67,7 @@ use work.pr8e_types.all;                        -- PR8E Types
 use work.cpu_types.all;                         -- CPU Types
 use work.sd_types.all;                          -- SD Types
 use work.sdspi_types.all;                       -- SPI Types
-use work.oct_7seg;
+--use work.oct_7seg;
 
 ENTITY pdp8_top is  
   PORT ( 
@@ -128,6 +125,7 @@ ENTITY pdp8_top is
 		o_videoB1					: out std_logic;
 		o_hSync						: out std_logic;
 		o_vSync						: out std_logic;
+		
 		-- PS/2 Keyboard
 		io_PS2_CLK					: inout std_logic;
 		io_PS2_DAT					: inout std_logic;
@@ -161,15 +159,15 @@ END pdp8_top;
 	signal swOPT			: swOPT_t;                       -- PDP-8 options
 	signal swDATA			: swDATA_t;             			-- Front panel switches
 	signal ledDATA			: data_t;
+	signal dispstep 		: std_logic;
+	signal disp_out		: std_logic;   -- Disp select line output to PDP-8
+	signal linkLB			: std_logic;	-- Loopback link switch to Link LED
 	
 	-- Front Panel SWitch debouncing
-	signal dig_counter	: std_logic_vector (19 downto 0) := (others => '0');
-	signal dispstep 		: std_logic;
-	signal pulse20ms		: std_logic;
-	signal w_rstOut_Hi		: std_logic;   -- Reset line output to PDP-8
-	signal disp_out		: std_logic;   -- Disp select line output to PDP-8
-
-	signal linkLB			: std_logic;	-- Loopback link switch to Link LED
+--	signal deb_counter	: std_logic_vector (19 downto 0) := (others => '0');
+--	signal pulse20ms		: std_logic;
+	signal w_rstOut_Hi	: std_logic;   -- Reset line output to PDP-8
+	signal debouncedSws	: std_logic_vector(5 downto 0);
 	
 	-- Loop serial from PDP-8 and VDU_PS/2
 	signal TTY1_TXD_Term		: std_logic;
@@ -183,12 +181,6 @@ END pdp8_top;
 	signal TTY1_CTS_PDP8	: std_logic;
 	
 begin
-	TTY1_RXD_PDP8 	<= (TTY1_RXD_Ser	and (not serSelect)) or (TTY1_RXD_Term and serSelect);
-	TTY1_CTS_PDP8	<= (TTY1_CTS_Ser 	and (not serSelect)) or (TTY1_CTS_Term and serSelect);
-	TTY1_TXD_Ser	<= (TTY1_TXD_PDP8 and (not serSelect)) or serSelect;
-	TTY1_RTS_Ser	<= (TTY1_RTS_PDP8	and (not serSelect));
-	TTY1_TXD_Term	<= (TTY1_TXD_PDP8	and serSelect) or (not serSelect);
-	TTY1_RTS_Term	<= TTY1_RTS_PDP8	and serSelect;
 	
 	-- Options
 	swOPT.KE8       <= '1';	-- KE8 - Extended Arithmetic Element Provided 
@@ -196,90 +188,30 @@ begin
 	swOPT.TSD       <= '1';	-- Time Share Disable
 	swOPT.STARTUP   <= '1'; -- Setting the 'STARTUP' bit will cause the PDP8 to boot
 									-- to the address in the switch register (panel mode)
-
-	----------------------------------------------------------------------------
-	-- 20 mS counter
-	-- 2^20 = 1M 000, 50M/1M = 50 Hz  = 20 mS ticks
-	-- Used for prescaling pushbuttons
-	-- pulse20ms = single 20 nS clock pulse every 20 mSecs
-	----------------------------------------------------------------------------
-	process (CLOCK_50) begin
-		if rising_edge(CLOCK_50) then
-			dig_counter <= dig_counter+1;
-			if dig_counter = 0 then
-				pulse20ms <= '1';
-			else
-				pulse20ms <= '0';
-			end if;
-		end if;
-	end process;
-
-	----------------------------------------------------------------------------
-	--  Debounce for RESET pushbutton
-	----------------------------------------------------------------------------
-	debounceReset : entity work.debounceSW
-	port map (
-		i_CLOCK_50	=> CLOCK_50,
-		i_slowCLK	=> pulse20ms,
-		i_PinIn		=> reset_n,
-		o_PinOut		=> w_rstOut_Hi
-	);
-
-	----------------------------------------------------------------------------
-	--  Debounce for Examine pushbutton
-	----------------------------------------------------------------------------
-	debounceExamine : entity work.debounceSW
-	port map (
-		i_CLOCK_50	=> CLOCK_50,
-		i_slowCLK	=> pulse20ms,
-		i_PinIn		=> examinePB,
-		o_PinOut		=> swCNTL.exam
-	);
-
-	----------------------------------------------------------------------------
-	--  Debounce for Deposit pushbutton (PB1)
-	----------------------------------------------------------------------------
-	debounceDeposit : entity work.debounceSW
-	port map (
-		i_CLOCK_50	=> CLOCK_50,
-		i_slowCLK	=> pulse20ms,
-		i_PinIn		=> depPB,
-		o_PinOut		=> swCNTL.dep
-	);
-
-	----------------------------------------------------------------------------
-	--  Debounce for LoaD PC pushbutton
-	----------------------------------------------------------------------------
-	debounceLoadAC : entity work.debounceSW
-	port map (
-		i_CLOCK_50	=> CLOCK_50,
-		i_slowCLK	=> pulse20ms,
-		i_PinIn		=> ldPCPB,
-		o_PinOut		=> swCNTL.loadADDR
-	);
+									
+	-- Route the serial port to/from PDP-8 and VDU/KBD or UART
+	TTY1_RXD_PDP8 	<= (TTY1_RXD_Ser	and (not serSelect)) or (TTY1_RXD_Term and serSelect);
+	TTY1_CTS_PDP8	<= (TTY1_CTS_Ser 	and (not serSelect)) or (TTY1_CTS_Term and serSelect);
+	TTY1_TXD_Ser	<= (TTY1_TXD_PDP8 and (not serSelect)) or serSelect;
+	TTY1_RTS_Ser	<= (TTY1_RTS_PDP8	and (not serSelect));
+	TTY1_TXD_Term	<= (TTY1_TXD_PDP8	and serSelect) or (not serSelect);
+	TTY1_RTS_Term	<= TTY1_RTS_PDP8	and serSelect;
 	
-	----------------------------------------------------------------------------
-	--  Debounce for STEP pushbutton
-	----------------------------------------------------------------------------
-	debounceStep : entity work.debounceSW
-	port map (
-		i_CLOCK_50	=> CLOCK_50,
-		i_slowCLK	=> pulse20ms,
-		i_PinIn		=> stepPB,
-		o_PinOut		=> swCNTL.step
-	);
-
-	----------------------------------------------------------------------------
-	-- Debounce for DISPlay select pushbutton
-	----------------------------------------------------------------------------
-	debounceDispSel : entity work.debounceSW
-	port map (
-		i_CLOCK_50	=> CLOCK_50,
-		i_slowCLK	=> pulse20ms,
-		i_PinIn		=> dispPB,
-		o_PinOut		=> dispstep
-	);
-
+	-- Debounce all the Front Panel switches
+	debounceCtrlSwitches : entity work.debouncePBSWitches
+		port map
+		(
+			i_CLOCK_50	=> CLOCK_50,
+			i_InPins		=> reset_n		& examinePB		& depPB			& ldPCPB				& stepPB			& dispPB,
+			o_OutPins	=> debouncedSws
+		);
+	w_rstOut_Hi 		<= debouncedSws(5);
+	swCNTL.exam			<= debouncedSws(4);
+	swCNTL.dep			<= debouncedSws(3);
+	swCNTL.loadADDR	<= debouncedSws(2);
+	swCNTL.step			<= debouncedSws(1);
+	dispstep				<= debouncedSws(0);
+	
 	-- Stand-alone ANSI terminal
 	ANSITerm : entity work.ANSITerm1
 		port map
