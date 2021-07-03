@@ -4,6 +4,7 @@
 --		Reads UART and writes to the screen
 --		Supports Grant Searle's ANSI escape sequences
 --			http://searle.x10host.com/Multicomp/index.html#ANSICodes
+--		https://wiki.bash-hackers.org/scripting/terminalcodes?fbclid=IwAR1FXn3ETOIEj1U4R5_PKNk687XHcIYyUb7_M2F5QwQ9NkbIlfq5W705iJA#:~:text=Cursor%20handling%20%20%20%20ANSI%20%20,saved%20cursor%20position%20%203%20more%20rows%20
 --
 --	VGA
 --		80x24
