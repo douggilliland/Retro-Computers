@@ -91,7 +91,7 @@ END IOP16;
 ARCHITECTURE IOP16_beh OF IOP16 IS
 
 	-- Grey code state counter
-	signal w_lowCount : std_logic_vector(2 DOWNTO 0);		-- Grey code step counter
+	signal w_StateGC : std_logic_vector(1 DOWNTO 0);		-- Grey code step counter
 	
 	-- Program Counter
 	signal w_PC_out	: std_logic_vector(11 DOWNTO 0);		-- Program Couner output
@@ -129,7 +129,7 @@ ARCHITECTURE IOP16_beh OF IOP16 IS
 	
 	-- Signal Tap Logic Analyzer signals
 --	attribute syn_keep	: boolean;
---	attribute syn_keep of w_lowCount			: signal is true;
+--	attribute syn_keep of w_StateGC			: signal is true;
 --	attribute syn_keep of w_PC_out			: signal is true;
 --	attribute syn_keep of w_RomData			: signal is true;
 --	attribute syn_keep of w_rtnAddr			: signal is true;
@@ -158,14 +158,14 @@ BEGIN
 	greyLow : ENTITY work.GrayCounter
 	generic map
 	(
-		N => 3
+		N => 2
 	)
 	PORT map
 	(
 		clk		=> i_clk,
 		Rst		=> not i_resetN,
 		En			=> '1',
-		output	=> w_lowCount
+		output	=> w_StateGC
 	);
 	
 	-- LIFO - Return address stack (JSR writes, RTS reads)
@@ -178,7 +178,7 @@ BEGIN
 		returnAddress : PROCESS (i_clk)
 		BEGIN
 			IF rising_edge(i_clk) THEN
-				if ((w_OP_JSR = '1') and (w_lowCount="101")) then
+				if ((w_OP_JSR = '1') and (w_StateGC="10")) then
 					w_rtnAddr <= w_PC_out + 1;
 				END IF;
 			END IF;
@@ -197,10 +197,10 @@ BEGIN
 				i_clk		=> i_clk, 					-- clock signal
 				i_rst		=> not i_resetN,			-- reset signal
 				--
-				i_we   	=> (w_OP_JSR and w_lowCount(2) and (not w_lowCount(1)) and w_lowCount(0)), -- write enable (push)
+				i_we   	=> (w_OP_JSR and w_StateGC(1) and (not w_StateGC(0))), -- write enable (push)
 				i_data 	=> pcPlus1,			-- written data
 	--			o_full	=> ,
-				i_re		=> (w_OP_RTS and w_lowCount(2) and (not w_lowCount(1)) and w_lowCount(0)), -- read enable (pop)
+				i_re		=> (w_OP_RTS and w_StateGC(1) and (not w_StateGC(0))), -- read enable (pop)
 				o_data  	=> w_rtnAddr			-- read data
 		--		o_empty :=>							-- empty LIFO indicator
 			);	
@@ -285,17 +285,17 @@ BEGIN
 					w_PC_out;
 
 	-- Incremennt the PC
-	w_incPC	<= '1' when ((w_lowCount = "100") and (w_OP_BEZ = '0') and (w_OP_BNZ = '0') and (w_OP_JMP = '0') and (w_OP_RTS = '0') and (w_OP_JSR = '0')) else 
-					'1' when  (w_lowCount = "100") and (w_OP_BEZ = '1') and (w_zBit = '0') else
-					'1' when  (w_lowCount = "100") and (w_OP_BNZ = '1') and (w_zBit = '1') else
+	w_incPC	<= '1' when ((w_StateGC = "10") and (w_OP_BEZ = '0') and (w_OP_BNZ = '0') and (w_OP_JMP = '0') and (w_OP_RTS = '0') and (w_OP_JSR = '0')) else 
+					'1' when  (w_StateGC = "10") and (w_OP_BEZ = '1') and (w_zBit = '0') else
+					'1' when  (w_StateGC = "10") and (w_OP_BNZ = '1') and (w_zBit = '1') else
 					'0';
 					
 	-- Load the PC
-	w_ldPC	<= '1' when (w_lowCount = "100") and (w_OP_BEZ = '1') and (w_zBit = '1') else		-- Conditional branche
-					'1' when (w_lowCount = "100") and (w_OP_BNZ = '1') and (w_zBit = '0') else		-- Conditional branche
-					'1' when (w_lowCount = "100") and (w_OP_JMP = '1') else								-- JMP
-					'1' when (w_lowCount = "100") and (w_OP_RTS = '1') else								-- RTS
-					'1' when (w_lowCount = "100") and (w_OP_JSR = '1') else								-- JSR
+	w_ldPC	<= '1' when (w_StateGC = "10") and (w_OP_BEZ = '1') and (w_zBit = '1') else		-- Conditional branche
+					'1' when (w_StateGC = "10") and (w_OP_BNZ = '1') and (w_zBit = '0') else		-- Conditional branche
+					'1' when (w_StateGC = "10") and (w_OP_JMP = '1') else								-- JMP
+					'1' when (w_StateGC = "10") and (w_OP_RTS = '1') else								-- RTS
+					'1' when (w_StateGC = "10") and (w_OP_JSR = '1') else								-- JSR
 					'0';
 	
 	-- Load register file input dats mux
@@ -314,10 +314,10 @@ BEGIN
 	w_aluZero <= not (w_AluOut(7) or w_AluOut(6) or w_AluOut(5) or w_AluOut(4) or w_AluOut(3) or w_AluOut(2) or w_AluOut(1) or w_AluOut(0));
 	
 	-- Zero bit
-	w_zBit <=	'1' when (w_OP_ARI = '1') and (w_lowCount="101") and (w_aluZero = '1') else
-					'1' when (w_OP_ORI = '1') and (w_lowCount="101") and (w_aluZero = '1') else
-					'0' when (w_OP_ARI = '1') and (w_lowCount="101") and (w_aluZero = '0') else
-					'0' when (w_OP_ORI = '1') and (w_lowCount="101") and (w_aluZero = '0');
+	w_zBit <=	'1' when (w_OP_ARI = '1') and (w_StateGC="10") and (w_aluZero = '1') else
+					'1' when (w_OP_ORI = '1') and (w_StateGC="10") and (w_aluZero = '1') else
+					'0' when (w_OP_ARI = '1') and (w_StateGC="10") and (w_aluZero = '0') else
+					'0' when (w_OP_ORI = '1') and (w_StateGC="10") and (w_aluZero = '0');
 
 	-- Peripheral Address
 	o_periphAdr <= w_RomData(7 downto 0) when w_OP_IOW = '1' else		-- Write
@@ -329,10 +329,10 @@ BEGIN
 								x"AA";
 	
 	-- Peripheral read/write Controls
-	o_periphWr <=	'1' when (w_OP_IOW = '1') and (w_lowCount(2 DOWNTO 1)="11") else 
+	o_periphWr <=	'1' when ((w_OP_IOW = '1') and (w_StateGC(1) = '1')) else 
 						'0';
-	o_periphRd <=	'1' when (w_OP_IOR = '1') and (w_lowCount(2 DOWNTO 1)="11") else 
-						'1' when (w_OP_IOR = '1') and (w_lowCount(2 DOWNTO 1)="11") else 
+	o_periphRd <=	'1' when ((w_OP_IOR = '1') and (w_StateGC(1) = '1')) else 
+						'1' when ((w_OP_IOR = '1') and (w_StateGC(1) = '1')) else 
 						'0';
 	
 	-- Register file (8x8 plus constants)
@@ -348,10 +348,10 @@ BEGIN
 	);
 	
 	-- Write register file
-	w_wrRegF <= '1' when (w_OP_ARI = '1') and (w_lowCount="110") else
-					'1' when (w_OP_ORI = '1') and (w_lowCount="110") else
-					'1' when (w_OP_LRI = '1') and (w_lowCount="110") else
-					'1' when (w_OP_IOR = '1') and (w_lowCount="101") else
+	w_wrRegF <= '1' when (w_OP_ARI = '1') and (w_StateGC="10") else
+					'1' when (w_OP_ORI = '1') and (w_StateGC="10") else
+					'1' when (w_OP_LRI = '1') and (w_StateGC="10") else
+					'1' when (w_OP_IOR = '1') and (w_StateGC="10") else
 					'0';
 					
 END IOP16_beh;

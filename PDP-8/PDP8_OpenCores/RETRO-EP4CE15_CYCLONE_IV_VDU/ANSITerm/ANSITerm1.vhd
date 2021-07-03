@@ -107,7 +107,7 @@ begin
 	IOP16: ENTITY work.IOP16
 	-- Need to pass down instruction RAM and stack sizes
 		generic map 	( 
-			INST_SRAM_SIZE_PASS	=> 512,	-- Small code size since program is "simple"
+			INST_SRAM_SIZE_PASS	=> 256,	-- Small code size since program is "simple"
 			STACK_DEPTH_PASS		=> 1		-- Single level subroutine (not nested)
 		)
 		PORT map

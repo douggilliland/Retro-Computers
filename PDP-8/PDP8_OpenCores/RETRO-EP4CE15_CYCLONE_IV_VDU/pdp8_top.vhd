@@ -194,21 +194,6 @@ begin
 	TTY1_TXD_Term	<= (TTY1_TXD_PDP8	and serSelect) or (not serSelect);
 	TTY1_RTS_Term	<= TTY1_RTS_PDP8	and serSelect;
 	
-	-- Debounce all the Front Panel switches
-	debounceCtrlSwitches : entity work.debouncePBSWitches
-		port map
-		(
-			i_CLOCK_50	=> CLOCK_50,
-			i_InPins		=> reset_n		& EXAM_PB		& DEP_PB			& LDPC_PB				& STEP_PB			& DISP_PB,
-			o_OutPins	=> debouncedSws
-		);
-	w_rstOut_Hi 		<= debouncedSws(5);
-	swCNTL.exam			<= debouncedSws(4);
-	swCNTL.dep			<= debouncedSws(3);
-	swCNTL.loadADDR	<= debouncedSws(2);
-	swCNTL.step			<= debouncedSws(1);
-	dispstep				<= debouncedSws(0);
-	
 	-- Stand-alone ANSI terminal
 	ANSITerm : entity work.ANSITerm1
 		port map
@@ -269,12 +254,28 @@ begin
 	
 	----------------------------------------------------------------------------
 	-- Front Panel Data Switches
-	--	swDATA          <= o"0023";		-- Tight loop code? 
+	--	swDATA          <= o"0023";		-- Run OS/8
 	--	swDATA          <= o"7400";		-- ? code
 	----------------------------------------------------------------------------
-	swDATA		<= SW12_SS;				-- Set start address from switches
-	swCNTL.halt	<= not RUN_SS;	-- Run/Halt slide switch
+	
+	swDATA		<= SW12_SS;			-- Set start address from switches
+	swCNTL.halt	<= not RUN_SS;		-- Run/Halt slide switch
 
+	-- Debounce all the Front Panel switches
+	debounceCtrlSwitches : entity work.debouncePBSWitches
+		port map
+		(
+			i_CLOCK_50	=> CLOCK_50,
+			i_InPins		=> reset_n		& EXAM_PB		& DEP_PB			& LDPC_PB				& STEP_PB			& DISP_PB,
+			o_OutPins	=> debouncedSws
+		);
+	w_rstOut_Hi 		<= debouncedSws(5);
+	swCNTL.exam			<= debouncedSws(4);
+	swCNTL.dep			<= debouncedSws(3);
+	swCNTL.loadADDR	<= debouncedSws(2);
+	swCNTL.step			<= debouncedSws(1);
+	dispstep				<= debouncedSws(0);
+	
 	OUT12_LEDs <= ledDATA;
 	
 	-- Loopback link switch for now
