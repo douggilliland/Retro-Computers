@@ -2,7 +2,7 @@
 -- IOP16B - I/O Processor with minimal instruction set
 --	
 --	Useful for offloading polled I/O or replacing CPUs in small applications
---	Runs at 50 MHz / 8 clocks = 6.25 MIPs
+--	Runs at 50 MHz / 4 clocks = 12.5 MIPS
 --		Could easily be sped up (not necessary in my applications)
 --	Small size in FPGA
 --		Uses < 190 logic cells in EP4CE15 (with Stack size of 1 - single subroutine level, no nested subroutines)
