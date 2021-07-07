@@ -2,7 +2,8 @@
 --
 --	http://land-boards.com/blwiki/index.php?title=PDP-11_ON_RETRO-EP4CE15
 -- Wiki page: http://land-boards.com/blwiki/index.php?title=PDP-11_ON_RETRO-EP4CE15
---	Hachaday page - https://hackaday.io/project/179642-pdp-11-on-a-fpga
+--	Front Panel: 
+--	Hackaday page - https://hackaday.io/project/179642-pdp-11-on-a-fpga
 --
 -- Copyright (c) 2008-2021 Sytse van Slooten
 --
@@ -21,29 +22,17 @@
 library IEEE;
 use IEEE.STD_LOGIC_1164.ALL;
 use IEEE.STD_LOGIC_ARITH.ALL;
-use IEEE.STD_LOGIC_UNSIGNED.ALL;
+--use IEEE.STD_LOGIC_UNSIGNED.ALL;
+use ieee.numeric_std.all;
 
 entity top is
    port(
       clkin 		: in std_logic;
 
-		-- Switches/jumpers
-      resetbtn 	: in std_logic;
-      sw 			: in std_logic_vector(5 downto 0);	-- J3-1 to -3 
-																		-- selects drive type
-																		-- J3-1 installed = RL
-																		-- J3-2 installed = RK
-																		-- J3-3 installed = RH
-																		-- J3-4 to -6 = unused
-		-- LEDs
-      greenled 	: out std_logic_vector(4 downto 0);	-- greenled(4) - Instruction Fetch
-																		-- greenled(3..0)	- "0011" - Reset
-																		--						- "0011" - Init
-																		-- greenled(1) -	on = SD card
-																		--						off = SDHC card
-																		-- greenled(2) -	Read from card
-																		-- greenled(3) -	'0' when running
-
+		-- Switches and PEDs
+		i_SS			: in std_logic_vector(8 downto 1);
+		i_PB			: in std_logic_vector(8 downto 1);
+		o_LED			: OUT std_logic_vector(8 downto 1);
 		-- VGA (2:2:2)
       vgar			: out std_logic_vector(1 downto 0);
       vgag			: out std_logic_vector(1 downto 0);
@@ -56,7 +45,7 @@ entity top is
       ps2k_d		: in std_logic;
 
 		-- Serial port
-		-- USB-to-Serial - 115200/8/n/1 debug output from microcode
+		-- USB-to-Serial - 9600/8/n/1 debug output from microcode
       tx1			: out std_logic;
       rx1			: in std_logic;
       rts1			: out std_logic;
@@ -150,7 +139,7 @@ component unibus is
       xu_debug_tx		: out std_logic;
 
 -- kl11, console ports
--- rs232, 115200/8/n/1 debug output from microcode
+-- rs232, 9600/8/n/1 debug output from microcode
       have_kl11		: in integer range 0 to 4 := 4;				-- conditional compilation - number of kl11 controllers to include. Should normally be at least 1
 
       tx0				: out std_logic;
@@ -316,8 +305,8 @@ component vt is
 -- vt type code : 100 or 105
       vttype				: in integer range 100 to 105 := 100;	-- vt100 or vt105
       vga_cursor_block	: in std_logic := '1';						-- cursor is block ('1') or underline ('0')
-      vga_cursor_blink	: in std_logic := '0';						-- cursor blinks ('1') or not ('0')
-      have_act_seconds	: in integer range 0 to 7200 := 900;	-- auto screen off time, in seconds; 0 means disabled
+      vga_cursor_blink	: in std_logic := '1';						-- cursor blinks ('1') or not ('0')
+      have_act_seconds	: in integer range 0 to 7200 := 1800;	-- auto screen off time, in seconds; 0 means disabled
       have_act				: in integer range 1 to 2 := 2;			-- auto screen off counter reset by keyboard and serial port activity (1) or keyboard only (2)
 
 -- clock & reset
@@ -334,62 +323,71 @@ component pll is
    );
 end component;
 
-signal c0 : std_logic;
+signal c0 					: std_logic;
 
-signal cpuclk : std_logic := '0';
-signal cpureset : std_logic := '1';
-signal cpuresetlength : integer range 0 to 63 := 63;
-signal slowreset : std_logic;
-signal slowresetdelay : integer range 0 to 4095 := 4095;
-signal vtreset : std_logic := '1';
+signal cpuclk 				: std_logic := '0';
+signal cpureset			: std_logic := '1';
+signal cpuresetlength	: integer range 0 to 63 := 63;
+signal slowreset			: std_logic;
+signal slowresetdelay	: integer range 0 to 4095 := 4095;
+signal vtreset				: std_logic := '1';
 
-signal ifetch: std_logic;
-signal iwait: std_logic;
-signal reset: std_logic;
-signal txtx0 : std_logic;
-signal rxrx0 : std_logic;
-signal txtx1 : std_logic;
-signal rxrx1 : std_logic;
+signal ifetch				: std_logic;
+signal iwait				: std_logic;
+signal reset				: std_logic;
+signal txtx0				: std_logic;
+signal rxrx0				: std_logic;
+signal txtx1				: std_logic;
+signal rxrx1				: std_logic;
+signal rtsrts1				: std_logic;
+signal ctscts1				: std_logic;
 
-signal addr : std_logic_vector(21 downto 0);
-signal addrq : std_logic_vector(21 downto 0);
-signal dati : std_logic_vector(15 downto 0);
-signal dato : std_logic_vector(15 downto 0);
-signal control_dati : std_logic;
-signal control_dato : std_logic;
+signal addr				: std_logic_vector(21 downto 0);
+signal addrq			: std_logic_vector(21 downto 0);
+signal dati				: std_logic_vector(15 downto 0);
+signal dato				: std_logic_vector(15 downto 0);
+signal control_dati	: std_logic;
+signal control_dato	: std_logic;
 signal control_datob : std_logic;
 
-signal have_rl : integer range 0 to 1;
-signal rl_cs : std_logic;
-signal rl_mosi : std_logic;
-signal rl_miso : std_logic;
-signal rl_sclk : std_logic;
-signal rl_sddebug : std_logic_vector(3 downto 0);
+signal have_rl			: integer range 0 to 1;
+signal rl_cs			: std_logic;
+signal rl_mosi			: std_logic;
+signal rl_miso			: std_logic;
+signal rl_sclk			: std_logic;
+signal rl_sddebug		: std_logic_vector(3 downto 0);
 
-signal have_rk : integer range 0 to 1;
-signal rk_cs : std_logic;
-signal rk_mosi : std_logic;
-signal rk_miso : std_logic;
-signal rk_sclk : std_logic;
-signal rk_sddebug : std_logic_vector(3 downto 0);
+signal have_rk			: integer range 0 to 1;
+signal rk_cs			: std_logic;
+signal rk_mosi			: std_logic;
+signal rk_miso			: std_logic;
+signal rk_sclk			: std_logic;
+signal rk_sddebug		: std_logic_vector(3 downto 0);
 
-signal have_rh : integer range 0 to 1;
-signal rh_cs : std_logic;
-signal rh_mosi : std_logic;
-signal rh_miso : std_logic;
-signal rh_sclk : std_logic;
-signal rh_sddebug : std_logic_vector(3 downto 0);
+signal have_rh			: integer range 0 to 1;
+signal rh_cs			: std_logic;
+signal rh_mosi			: std_logic;
+signal rh_miso			: std_logic;
+signal rh_sclk			: std_logic;
+signal rh_sddebug		: std_logic_vector(3 downto 0);
 
-signal sddebug : std_logic_vector(3 downto 0);
+signal have_kl11		: integer range 0 to 1;
+signal have_xu			: integer range 0 to 1;
 
-signal vga_hsync	: std_logic;
-signal vga_vsync	: std_logic;
-signal vga_fb		: std_logic;
-signal vga_ht		: std_logic;
+signal sddebug			: std_logic_vector(3 downto 0);
 
-signal dram_match : std_logic;
-signal dram_counter : integer range 0 to 32767;
-signal dram_wait : integer range 0 to 15;
+signal vga_hsync		: std_logic;
+signal vga_vsync		: std_logic;
+signal vga_fb			: std_logic;
+signal vga_ht			: std_logic;
+
+signal dram_match		: std_logic;
+signal dram_counter	: integer range 0 to 32767;
+signal dram_wait		: integer range 0 to 15;
+
+signal resetbtn		: std_logic;
+signal sw				: std_logic_vector(5 downto 0);
+signal greenled		: std_logic_vector(4 downto 0);
 
 type dram_fsm_type is (
    dram_init,
@@ -419,6 +417,30 @@ signal dram_fsm : dram_fsm_type := dram_init;
 
 begin
 
+-- Mapping to SWITCHES-LEDS-2 Card
+
+-- Pushbuttons (left to right)
+resetbtn	<= i_PB(8);				-- CPU Reset button
+
+-- Slide Switches (left to right)
+sw(5)		<= i_SS(6);				-- Unused
+sw(4)		<= i_SS(5);				-- unused
+sw(3)		<= i_SS(4);				-- 1 = K11 Serial TTY present
+sw(2)		<= not i_SS(3);		-- RH (RP) drive when on
+sw(1)		<= not i_SS(2);		-- RK drive when on
+sw(0)		<= not i_SS(1);		-- PL drive when on
+
+-- LEDs (left to right)
+o_LED(8) <= '1';					-- POWER LED
+o_LED(7)	<= not greenled(1);	-- Off = SD card. On = SDHC card
+o_LED(6) <= greenled(4);		-- Instruction Fetch
+o_LED(5) <= greenled(3);		-- Write to SD Card?
+o_LED(4)	<= greenled(2);		-- Read from SD card?
+o_LED(3)	<= i_SS(3);				-- RH (RP) drive when on
+o_LED(2)	<= i_SS(2);				-- RK drive when on
+o_LED(1)	<= i_SS(1);				-- RL drive when on
+
+
    pll0: pll port map(
       inclk0 => clkin,
       c0 => c0
@@ -430,71 +452,75 @@ begin
 
       modelcode => 70,
 
-      reset => cpureset,
-      clk50mhz => clkin,
-      clk => cpuclk,
+      reset				=> cpureset,
+      clk50mhz			=> clkin,
+      clk				=> cpuclk,
 		
-      addr => addr,
-      dati => dati,
-      dato => dato,
-      control_dati => control_dati,
-      control_dato => control_dato,
-      control_datob => control_datob,
-      addr_match => dram_match,
+      addr				=> addr,
+      dati				=> dati,
+      dato				=> dato,
+      control_dati	=> control_dati,
+      control_dato	=> control_dato,
+      control_datob	=> control_datob,
+      addr_match		=> dram_match,
 
-      ifetch => ifetch,
-      iwait => iwait,
+      ifetch			=> ifetch,
+      iwait				=> iwait,
 
-      have_rl => have_rl,
-      rl_sdcard_cs => rl_cs,
-      rl_sdcard_mosi => rl_mosi,
-      rl_sdcard_sclk => rl_sclk,
-      rl_sdcard_miso => rl_miso,
-      rl_sdcard_debug => rl_sddebug,
+      have_rl				=> have_rl,
+      rl_sdcard_cs		=> rl_cs,
+      rl_sdcard_mosi 	=> rl_mosi,
+      rl_sdcard_sclk 	=> rl_sclk,
+      rl_sdcard_miso 	=> rl_miso,
+      rl_sdcard_debug 	=> rl_sddebug,
 
-      have_rk => have_rk,
-      rk_sdcard_cs => rk_cs,
-      rk_sdcard_mosi => rk_mosi,
-      rk_sdcard_sclk => rk_sclk,
-      rk_sdcard_miso => rk_miso,
-      rk_sdcard_debug => rk_sddebug,
+      have_rk				=> have_rk,
+      rk_sdcard_cs		=> rk_cs,
+      rk_sdcard_mosi		=> rk_mosi,
+      rk_sdcard_sclk		=> rk_sclk,
+      rk_sdcard_miso		=> rk_miso,
+      rk_sdcard_debug	=> rk_sddebug,
 
-      have_rh => have_rh,
-      rh_sdcard_cs => rh_cs,
-      rh_sdcard_mosi => rh_mosi,
-      rh_sdcard_sclk => rh_sclk,
-      rh_sdcard_miso => rh_miso,
-      rh_sdcard_debug => rh_sddebug,
+      have_rh				=> have_rh,
+      rh_sdcard_cs		=> rh_cs,
+      rh_sdcard_mosi		=> rh_mosi,
+      rh_sdcard_sclk		=> rh_sclk,
+      rh_sdcard_miso		=> rh_miso,
+      rh_sdcard_debug	=> rh_sddebug,
 
-      have_kl11 => 1,
-      rx0 => rxrx0,
-      tx0 => txtx0,
+      have_kl11			=> have_kl11,
+      rx0					=> rxrx0,
+      tx0					=> txtx0,
+      rx1					=> rxrx1,
+      tx1					=> txtx1,
+		rts1					=> rtsrts1,
+		cts1					=> ctscts1,
 
-      have_xu => 0,
-      xu_cs => xu_cs,
-      xu_mosi => xu_mosi,
-      xu_sclk => xu_sclk,
-      xu_miso => xu_miso,
-      xu_debug_tx => xu_debug_tx
+      have_xu				=> 0,			-- Not enough resources in a 5CEFA2 FPGA
+      xu_cs					=> xu_cs,
+      xu_mosi				=> xu_mosi,
+      xu_sclk				=> xu_sclk,
+      xu_miso				=> xu_miso,
+      xu_debug_tx			=> xu_debug_tx
    );
 
    vt0: vt port map(
-      vga_hsync => vga_hsync,
-      vga_vsync => vga_vsync,
-      vga_fb => vga_fb,
-      vga_ht => vga_ht,
+      vga_hsync			=> vga_hsync,
+      vga_vsync			=> vga_vsync,
+      vga_fb				=> vga_fb,
+      vga_ht				=> vga_ht,
 
-      rx => txtx0,
-      tx => rxrx0,
+      rx						=> txtx0,
+      tx						=> rxrx0,
 
-      ps2k_c => ps2k_c,
-      ps2k_d => ps2k_d,
+      ps2k_c				=> ps2k_c,
+      ps2k_d				=> ps2k_d,
 
       vttype => 100,
 
-      cpuclk => cpuclk,
-      clk50mhz => clkin,
-      reset => vtreset
+      cpuclk				=> cpuclk,
+      clk50mhz				=> clkin,
+      reset					=> vtreset
    );
 
 
@@ -503,8 +529,11 @@ begin
    -- Status LEDs
 	greenled<= ifetch & sddebug;
 
-   tx1 <= txtx1;
+   -- Map to FPGA pins
+	tx1 <= txtx1;
    rxrx1 <= rx1;
+	rts1 <= rtsrts1;
+	ctscts1 <= cts1;
 
    sddebug		<= rh_sddebug when have_rh = 1 else
 						rl_sddebug when have_rl = 1 else
@@ -569,6 +598,16 @@ begin
                have_rl <= 0;
                have_rk <= 0;
 					have_rh <= 1;
+            end if;
+				if sw(3) = '1' then 
+					have_kl11 <= 1;
+				else
+					have_kl11 <= 0;
+            end if;
+				if sw(4) = '1' then 
+					have_xu <= 1;
+				else
+					have_xu <= 0;
             end if;
          else
 
@@ -842,7 +881,6 @@ begin
                cpuclk <= '0';
 
                when dram_c9 =>
-
                   -- read/write, t4-t5 - set nop command and deselect
                   dram_cs_n <= '1';
                   dram_ras_n <= '1';
