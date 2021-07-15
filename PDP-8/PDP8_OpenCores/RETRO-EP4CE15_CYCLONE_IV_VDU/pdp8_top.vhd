@@ -4,7 +4,7 @@
 --
 --	PDP-8 implementation for the RETRO-EP4CE15 board
 --		CPU Configured to emulate PDP8A (swCPU)
---		Video Display Unit (VDU) with PS/2 keyboard or Serial (serSelect jumper selectable)
+--		Video Display Unit (VDU) with PS/2 keyboard or Serial (i_serSelect jumper selectable)
 --
 -- Build for RETRO-EP4CE15, using EP4CE15 FPGA
 --		http://land-boards.com/blwiki/index.php?title=RETRO-EP4CE15
@@ -56,50 +56,50 @@ USE ieee.std_logic_1164.all;
 USE ieee.std_logic_arith.all;
 USE ieee.std_logic_unsigned.all;
 use ieee.numeric_std;
-use work.uart_types.all;                        -- UART Types
-use work.dk8e_types.all;                        -- DK8E Types
-use work.kc8e_types.all;                        -- KC8E Types
-use work.kl8e_types.all;                        -- KL8E Types
-use work.rk8e_types.all;                        -- RK8E Types
-use work.rk05_types.all;                        -- RK05 Types
-use work.ls8e_types.all;                        -- LS8E Types
-use work.pr8e_types.all;                        -- PR8E Types
-use work.cpu_types.all;                         -- CPU Types
-use work.sd_types.all;                          -- SD Types
-use work.sdspi_types.all;                       -- SPI Types
+use work.uart_types.all;		-- UART Types
+use work.dk8e_types.all;		-- DK8E Types
+use work.kc8e_types.all;		-- KC8E Types
+use work.kl8e_types.all;		-- KL8E Types
+use work.rk8e_types.all;		-- RK8E Types
+use work.rk05_types.all;		-- RK05 Types
+use work.ls8e_types.all;		-- LS8E Types
+use work.pr8e_types.all;		-- PR8E Types
+use work.cpu_types.all;			-- CPU Types
+use work.sd_types.all;			-- SD Types
+use work.sdspi_types.all;		-- SPI Types
 
 ENTITY pdp8_top is  
   PORT ( 
 		-- Clock and reset
-		CLOCK_50		: IN STD_LOGIC;      -- Input clock
-		reset_n 		: in STD_LOGIC;		-- Reset
+		i_CLOCK_50		: IN STD_LOGIC;      -- Input clock
+		i_reset_n 		: in STD_LOGIC;		-- Reset
 		
 		-- Switches/pushbuttons (Land Boards PDP-8 Front Panel)
-		SW12_SS		: in STD_LOGIC_VECTOR(11 downto 0);		-- 12 Slide switches
-		DISP_PB		: in std_logic;		-- 12 LEDs display select button selects source
-		STEP_PB		: in std_logic;		-- Single Step pushbutton 
-		LDPC_PB		: in std_logic;		-- Load PC pushbutton
-		DEP_PB		: in std_logic;		-- Deposit pushbutton
-		LDA_PB		: in std_logic;		-- Load Accum pushbutton
-		LINK_SS		: in std_logic;		-- Link Switch
-		EXAM_PB		: in std_logic;		-- Examine pushbutton (LDA) (Marked as PB1)
-		RUN_SS		: in std_logic;		-- Run/Halt slide switch
+		i_SW12_SS		: in STD_LOGIC_VECTOR(11 downto 0);		-- 12 Slide switches
+		i_DISP_PB		: in std_logic;		-- 12 LEDs display select button selects source
+		i_STEP_PB		: in std_logic;		-- Single Step pushbutton 
+		i_LDPC_PB		: in std_logic;		-- Load PC pushbutton
+		i_DEP_PB			: in std_logic;		-- Deposit pushbutton
+		i_LDA_PB			: in std_logic;		-- Load Accum pushbutton
+		i_LINK_SS		: in std_logic;		-- Link Switch
+		i_EXAM_PB		: in std_logic;		-- Examine pushbutton (LDA) (Marked as PB1)
+		i_RUN_SS			: in std_logic;		-- Run/Halt slide switch
 
-		-- LEDs
-		OUT12_LEDs	: out  STD_LOGIC_VECTOR (11 downto 0);		-- 12 Display LEDs
-		RUN_LED		: out  STD_LOGIC;		-- RUN LED
-		PC_LED		: out  STD_LOGIC;		-- PC is currently displayed on the 12 LEDs
-		MADR_LED		: out  STD_LOGIC;		-- Indicates that the memory address is currently displayed on the 12 LEDs
-		MD_LED		: out  STD_LOGIC;		-- Indicates that the memory data is currently displayed on the 12 LEDs
-		AC_LED		: out  STD_LOGIC;		-- Indicates that the Accumulator is currently displayed on the 12 LEDs
-		LINK_LED		: out  STD_LOGIC := '0';	-- 
+		-- LEDs on Front Panel
+		o_OUT12_LEDs	: out  STD_LOGIC_VECTOR (11 downto 0);	-- 12 Display LEDs
+		o_RUN_LED		: out  STD_LOGIC;		-- RUN LED
+		o_PC_LED			: out  STD_LOGIC;		-- PC is currently displayed on the 12 LEDs
+		o_MADR_LED		: out  STD_LOGIC;		-- Indicates that the memory address is currently displayed on the 12 LEDs
+		o_MD_LED			: out  STD_LOGIC;		-- Indicates that the memory data is currently displayed on the 12 LEDs
+		o_AC_LED			: out  STD_LOGIC;		-- Indicates that the Accumulator is currently displayed on the 12 LEDs
+		o_LINK_LED		: out  STD_LOGIC := '0';	-- LINK LED
 
-		-- UART Serial
-		TTY1_RXD_Ser	: IN STD_LOGIC;	-- UART receive line
-		TTY1_TXD_Ser 	: OUT STD_LOGIC;	-- UART send line
-		TTY1_CTS_ser 	: IN STD_LOGIC;	-- UART CTS
-		TTY1_RTS_ser 	: OUT STD_LOGIC;	-- UART RTS
-		serSelect		: IN STD_LOGIC;	-- Serial select (Jumper J3-1 - Installed=USB, Removed=VDU)
+		-- UART Serial (USB-Srtial I/F)
+		i_TTY1_RXD_Ser	: IN STD_LOGIC;	-- UART receive line
+		o_TTY1_TXD_Ser 	: OUT STD_LOGIC;	-- UART send line
+		i_TTY1_CTS_Ser 	: IN STD_LOGIC;	-- UART CTS
+		o_TTY1_RTS_Ser 	: OUT STD_LOGIC;	-- UART RTS
+		i_serSelect		: IN STD_LOGIC;	-- Serial select (Jumper J3-1 - Installed=USB, Removed=VDU)
 		-- 
 --		LPR_TXD : OUT STD_LOGIC;			-- LPR send line
 --		LPR_RXD : IN STD_LOGIC;				-- LPR receive line
@@ -111,32 +111,32 @@ ENTITY pdp8_top is
 --		PTR_RTS : OUT STD_LOGIC;
 
 		-- SD card
-		sdCS		: OUT STD_LOGIC;	-- SD card chip select
-		sdCLK		: OUT STD_LOGIC;	-- SD card clock
-		sdDI		: OUT STD_LOGIC;	-- SD card master out slave in
-		sdDO		: IN STD_LOGIC;	-- SD card master in slave out
-		sdCD		: IN STD_LOGIC;	-- SD card detect
+		o_sdCS		: OUT STD_LOGIC;	-- SD card chip select
+		o_sdCLK		: OUT STD_LOGIC;	-- SD card clock
+		o_sdDI		: OUT STD_LOGIC;	-- SD card master out slave in
+		i_sdDO		: IN STD_LOGIC;	-- SD card master in slave out
+		i_sdCD		: IN STD_LOGIC;	-- SD card detect
 	 
-		-- Video
-		o_videoR0					: out std_logic;
-		o_videoR1					: out std_logic;
-		o_videoG0					: out std_logic;
-		o_videoG1					: out std_logic;
-		o_videoB0					: out std_logic;
-		o_videoB1					: out std_logic;
-		o_hSync						: out std_logic;
-		o_vSync						: out std_logic;
+		-- VGA Video (2:2:2 - R:G:B)
+		o_videoR0	: out std_logic;
+		o_videoR1	: out std_logic;
+		o_videoG0	: out std_logic;
+		o_videoG1	: out std_logic;
+		o_videoB0	: out std_logic;
+		o_videoB1	: out std_logic;
+		o_hSync		: out std_logic;
+		o_vSync		: out std_logic;
 		
 		-- PS/2 Keyboard
-		io_PS2_CLK					: inout std_logic;
-		io_PS2_DAT					: inout std_logic;
+		io_PS2_CLK	: inout std_logic;
+		io_PS2_DAT	: inout std_logic;
 		
 		-- Not using the External SRAM on the QMTECH card but making sure that it's not active
-		sramData		: inout std_logic_vector(7 downto 0) := "ZZZZZZZZ";
-		sramAddress	: out std_logic_vector(19 downto 0) := x"00000";
-		n_sRamWE		: out std_logic :='1';
-		n_sRamCS		: out std_logic :='1';
-		n_sRamOE		: out std_logic :='1';
+		io_sramData		: inout std_logic_vector(7 downto 0) := "ZZZZZZZZ";
+		o_sramAddress	: out std_logic_vector(19 downto 0) := x"00000";
+		o_sRamWE_n		: out std_logic :='1';
+		o_sRamCS_n		: out std_logic :='1';
+		o_sRamOE_n		: out std_logic :='1';
 
 		-- Not using the SD RAM on the RETRO-EP4CE15 card but making sure that it's not active
 		n_sdRamCas	: out std_logic := '1';		-- CAS on schematic
@@ -165,12 +165,11 @@ END pdp8_top;
 	signal w_rstOut_Hi	: std_logic;   -- Reset line output to PDP-8
 	signal debouncedSws	: std_logic_vector(5 downto 0);
 	
-	-- Loop serial from PDP-8 and VDU_PS/2
-	signal TTY1_TXD_Term		: std_logic;
-	signal TTY1_RXD_Term		: std_logic;
-	signal TTY1_RTS_Term		: std_logic;
-	signal TTY1_CTS_Term		: std_logic;
-	
+	-- Loop serial from PDP-8 and VDU_PS/2 - i_serSelect determines which are used
+	signal TTY1_TXD_Term	: std_logic;
+	signal TTY1_RXD_Term	: std_logic;
+	signal TTY1_RTS_Term	: std_logic;
+	signal TTY1_CTS_Term	: std_logic;	
 	signal TTY1_TXD_PDP8	: std_logic;
 	signal TTY1_RXD_PDP8	: std_logic;
 	signal TTY1_RTS_PDP8	: std_logic;
@@ -185,24 +184,25 @@ begin
 	swOPT.STARTUP   <= '1'; -- Setting the 'STARTUP' bit will cause the PDP8 to boot
 									-- to the address in the switch register (panel mode)
 									
-	LINK_LED <= LINK_SS;
+	o_LINK_LED <= i_LINK_SS;		-- Loop LINK slideswitch out to LINK LED (Not used yet)
+	
 	-- Route the serial port to/from PDP-8 and VDU/KBD or UART
-	TTY1_RXD_PDP8 	<= (TTY1_RXD_Ser	and (not serSelect)) or (TTY1_RXD_Term and serSelect);
-	TTY1_CTS_PDP8	<= (TTY1_CTS_Ser 	and (not serSelect)) or (TTY1_CTS_Term and serSelect);
-	TTY1_TXD_Ser	<= (TTY1_TXD_PDP8 and (not serSelect)) or serSelect;
-	TTY1_RTS_Ser	<= (TTY1_RTS_PDP8	and (not serSelect));
-	TTY1_TXD_Term	<= (TTY1_TXD_PDP8	and serSelect) or (not serSelect);
-	TTY1_RTS_Term	<= TTY1_RTS_PDP8	and serSelect;
+	TTY1_RXD_PDP8 	<= (i_TTY1_RXD_Ser	and (not i_serSelect)) or (TTY1_RXD_Term and i_serSelect);
+	TTY1_CTS_PDP8	<= (i_TTY1_CTS_Ser 	and (not i_serSelect)) or (TTY1_CTS_Term and i_serSelect);
+	o_TTY1_TXD_Ser	<= (TTY1_TXD_PDP8 and (not i_serSelect)) or i_serSelect;
+	o_TTY1_RTS_Ser	<= (TTY1_RTS_PDP8	and (not i_serSelect));
+	TTY1_TXD_Term	<= (TTY1_TXD_PDP8	and i_serSelect) or (not i_serSelect);
+	TTY1_RTS_Term	<= TTY1_RTS_PDP8	and i_serSelect;
 	
 	-- Stand-alone ANSI terminal
 	ANSITerm : entity work.ANSITerm1
 		port map
 		(
 			-- Clock and reset
-			I_clock_50			=> CLOCK_50,			-- Clock (50 MHz)
+			I_clock_50			=> i_CLOCK_50,			-- Clock (50 MHz)
 			i_n_reset			=> not w_rstOut_Hi,	-- Reset from Pushbutton on FPGA card (De-bounced)
 			-- Sense USB (0) vs VDU (1)
-			serSource			=> serSelect,
+			serSource			=> i_serSelect,
 			-- Serial port (as referenced from USB side)
 			i_rxd					=> TTY1_TXD_Term,			-- PDP-11 to ANSI Terminal serial data
 			o_txd					=> TTY1_RXD_Term,			-- ANSI Terminal to PDP-11 serial data
@@ -223,20 +223,20 @@ begin
 		);
 		
 	----------------------------------------------------------------------------
-	-- Increment display selection
+	-- DISP pushbutton increments display selection
 	-- Emulates rotator switch
---    constant dispPC     : swROT_t := "000";                     -- Display PC
---    constant dispAC     : swROT_t := "001";                     -- Display AC
---    constant dispIR     : swROT_t := "010";                     -- Display IR
---    constant dispMA     : swROT_t := "011";                     -- Display MA
---    constant dispMD     : swROT_t := "100";                     -- Display MD
---    constant dispMQ     : swROT_t := "101";                     -- Display MQ
---    constant dispST     : swROT_t := "110";                     -- Display ST
---    constant dispSC     : swROT_t := "111";                     -- Display SC
+--    constant dispPC     : swROT_t := "000";	-- Display PC
+--    constant dispAC     : swROT_t := "001";	-- Display AC
+--    constant dispIR     : swROT_t := "010";	-- Display IR
+--    constant dispMA     : swROT_t := "011";	-- Display MA
+--    constant dispMD     : swROT_t := "100";	-- Display MD
+--    constant dispMQ     : swROT_t := "101";	-- Display MQ
+--    constant dispST     : swROT_t := "110";	-- Display ST
+--    constant dispSC     : swROT_t := "111";	-- Display SC
 	----------------------------------------------------------------------------
-	process (CLOCK_50, dispstep)
+	process (i_CLOCK_50, dispstep)
 	begin
-		if rising_edge(CLOCK_50) then
+		if rising_edge(i_CLOCK_50) then
 			if dispstep = '1' then
 				if		swROT = dispPC then swROT <= dispMA;
 				elsif swROT = dispMA then swROT <= dispMD;
@@ -247,28 +247,30 @@ begin
 		end if;
 	end process;
 	-- Display selection LEDS - Press DISP button to select
-	PC_LED <= '1' when swROT = dispPC else '0';										-- Display PC
-	MADR_LED <= '1' when swROT = dispMA else '0';										-- Display MA
-	MD_LED <= '1' when swROT = dispMD else '0';										-- Display MD
-	AC_LED <= '1' when ((swROT = dispAC) or (swROT = dispMQ)) else '0';		-- Display AC
+	o_PC_LED		<= '1' when swROT = dispPC else '0';										-- Display PC
+	o_MADR_LED	<= '1' when swROT = dispMA else '0';										-- Display MA
+	o_MD_LED		<= '1' when swROT = dispMD else '0';										-- Display MD
+	o_AC_LED		<= '1' when ((swROT = dispAC) or (swROT = dispMQ)) else '0';		-- Display AC
 	
 	----------------------------------------------------------------------------
 	-- Front Panel Data Switches
-	--	swDATA          <= o"0023";		-- Run OS/8
-	--	swDATA          <= o"7400";		-- ? code
+	--	swDATA	<= o"0023";		-- Run OS/8
+	--	swDATA	<= o"7400";		-- ? code
+	-- swDATA	<= o"7600";		-- Re-start OS/2 after booting
 	----------------------------------------------------------------------------
 	
-	swDATA		<= SW12_SS;			-- Set start address from switches
-	swCNTL.halt	<= not RUN_SS;		-- Run/Halt slide switch
+	swDATA		<= i_SW12_SS;			-- Set start address from switches
+	swCNTL.halt	<= not i_RUN_SS;		-- Run/Halt slide switch
 
-	-- Debounce all the Front Panel switches
+	-- Debounce the Front Panel pushbutton switches before using them
 	debounceCtrlSwitches : entity work.debouncePBSWitches
 		port map
 		(
-			i_CLOCK_50	=> CLOCK_50,
-			i_InPins		=> reset_n		& EXAM_PB		& DEP_PB			& LDPC_PB				& STEP_PB			& DISP_PB,
+			i_CLOCK_50	=> i_CLOCK_50,
+			i_InPins		=> i_reset_n & i_EXAM_PB & i_DEP_PB & i_LDPC_PB & i_STEP_PB & i_DISP_PB,
 			o_OutPins	=> debouncedSws
 		);
+	-- Connect debounced pushbuttons to usage in FPGA
 	w_rstOut_Hi 		<= debouncedSws(5);
 	swCNTL.exam			<= debouncedSws(4);
 	swCNTL.dep			<= debouncedSws(3);
@@ -276,18 +278,19 @@ begin
 	swCNTL.step			<= debouncedSws(1);
 	dispstep				<= debouncedSws(0);
 	
-	OUT12_LEDs <= ledDATA;
+	-- The 12 Data LEDs
+	o_OUT12_LEDs <= ledDATA;
 	
 	-- Loopback link switch for now
-	linkLB	<= LINK_SS;
-	LINK_LED	<= linkLB;
+	linkLB	<= i_LINK_SS;
+	o_LINK_LED	<= linkLB;
 	
 	----------------------------------------------------------------------------
 	-- PDP8 Processor
 	---------------------------------------------------------------------------    
 	iPDP8 : entity work.ePDP8 (rtl) port map (
 	 -- System
-	 clk      => CLOCK_50,					-- 50 MHz Clock
+	 clk      => i_CLOCK_50,					-- 50 MHz Clock
 	 rst      => w_rstOut_Hi,				-- Reset Button
 	 -- CPU Configuration
 	 swCPU    => swPDP8A,					-- CPU Configured to emulate PDP8A (swCPU)
@@ -306,37 +309,37 @@ begin
 	 tty2HS   => uartHSnone,				-- TTY2 has no flow control
 	 tty2CTS  => '1', 						-- TTY2 doesn't need CTS
 	 tty2RTS  => open,						-- TTY2 doesn't need RTS
-	 tty2RXD  => '1',                        -- TTY2 RXD (tied off)
-	 tty2TXD  => open,                       -- TTY2 TXD (tied off)
+	 tty2RXD  => '1',							-- TTY2 RXD (tied off)
+	 tty2TXD  => open,						-- TTY2 TXD (tied off)
 	 -- LPR Interface
-	 lprBR    => uartBR9600,                 -- LPR is 9600 Baud
-	 lprHS    => uartHSnone,                 -- LPR has no flow control
-	 lprDTR   => '1',                        -- LPR doesn't need DTR
-	 lprDSR   => open,                       -- LPR doesn't need DSR
-	 lprRXD   => '1',                        -- LPR RXD (tied off)
-	 lprTXD   => open,                       -- LPR TXD (tied off)
+	 lprBR    => uartBR9600,				-- LPR is 9600 Baud
+	 lprHS    => uartHSnone,				-- LPR has no flow control
+	 lprDTR   => '1',							-- LPR doesn't need DTR
+	 lprDSR   => open,						-- LPR doesn't need DSR
+	 lprRXD   => '1',							-- LPR RXD (tied off)
+	 lprTXD   => open,						-- LPR TXD (tied off)
 	 -- Paper Tape Reader Interface
-	 ptrBR    => uartBR9600,                 -- PTR is 9600 Baud
-	 ptrHS    => uartHSnone,                 -- PTR has no flow control
-	 ptrCTS   => '1',                        -- PTR doesn't need CTS
-	 ptrRTS   => open,                       -- PTR doesn't need RTS
-	 ptrRXD   => '1',                        -- PTR RXD (tied off)
-	 ptrTXD   => open,                       -- PTR TXD (tied off)
+	 ptrBR    => uartBR9600,				-- PTR is 9600 Baud
+	 ptrHS    => uartHSnone,				-- PTR has no flow control
+	 ptrCTS   => '1',							-- PTR doesn't need CTS
+	 ptrRTS   => open,						-- PTR doesn't need RTS
+	 ptrRXD   => '1',							-- PTR RXD (tied off)
+	 ptrTXD   => open,						-- PTR TXD (tied off)
 	 -- Secure Digital Disk Interface
-	 sdCD     => not sdCD,                   -- SD Card Detec
-	 sdWP     => '0',                        -- SD Write Protect
-	 sdMISO   => sdDO,                       -- SD Data In
-	 sdMOSI   => sdDI,                       -- SD Data Out
-	 sdSCLK   => sdCLK,                      -- SD Clock
-	 sdCS     => sdCS,                       -- SD Chip Select
+	 sdCD     => not i_sdCD,					-- SD Card Detec
+	 sdWP     => '0',							-- SD Write Protect
+	 sdMISO   => i_sdDO,						-- SD Data In
+	 sdMOSI   => o_sdDI,						-- SD Data Out
+	 sdSCLK   => o_sdCLK,						-- SD Clock
+	 sdCS     => o_sdCS,						-- SD Chip Select
 	 -- Status
-	 rk8eSTAT => rk8eSTAT,                   -- Disk Status (Ignore)
+	 rk8eSTAT => rk8eSTAT,					-- Disk Status (Ignore)
 	 -- Switches and LEDS
-	 swROT	=> swROT,                      -- Data LEDS display PC
-	 swDATA	=> swDATA,                     -- RK8E Boot Loader Address
-	 swCNTL	=> swCNTL,                     -- Switches
-	 ledRUN	=> RUN_LED,                      -- Run LED
-	 ledDATA => ledDATA                      -- Data output register
+	 swROT	=> swROT,						-- Data LEDS display PC
+	 swDATA	=> swDATA,						-- RK8E Boot Loader Address
+	 swCNTL	=> swCNTL,						-- Switches
+	 ledRUN	=> o_RUN_LED,						-- Run LED
+	 ledDATA => ledDATA						-- Data output register
 	 );
 	 
 end rtl;

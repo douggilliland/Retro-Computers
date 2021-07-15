@@ -73,8 +73,8 @@ use work.oct_7seg;
 
 ENTITY pdp8_top is  
   PORT ( 
-		CLOCK_50		: IN STD_LOGIC;      -- Input clock
-		reset_n 		: in STD_LOGIC;		-- Reset
+		i_CLOCK_50		: IN STD_LOGIC;      -- Input clock
+		i_reset_n 		: in STD_LOGIC;		-- Reset
 		
 		-- Switches/pushbuttons
 		dispPB		: in std_logic;		-- 12 LEDs display select button selects source
@@ -113,19 +113,19 @@ ENTITY pdp8_top is
 --		fpMISO : IN STD_LOGIC;
 
 		-- SD card
-		sdCS		: OUT STD_LOGIC := '1';		-- SD card chip select
-		sdCLK		: OUT STD_LOGIC := '0';		-- SD card clock
-		sdDI		: OUT STD_LOGIC;				-- SD card master out slave in
-		sdDO		: IN STD_LOGIC := '0';		-- SD card master in slave out
-		sdCD		: IN STD_LOGIC;				-- SD card detect
+		o_sdCS		: OUT STD_LOGIC := '1';		-- SD card chip select
+		o_sdCLK		: OUT STD_LOGIC := '0';		-- SD card clock
+		o_sdDI		: OUT STD_LOGIC;				-- SD card master out slave in
+		i_sdDO		: IN STD_LOGIC := '0';		-- SD card master in slave out
+		o_sdCD		: IN STD_LOGIC;				-- SD card detect
 	 
 		-- ANSI Terminal
 		-- Serial port (not used with VDU)
-		rxd1							: in	std_logic := '1';
-		txd1							: out std_logic := '1';
-		cts1							: in	std_logic := '1';
-		rts1							: out std_logic := '1';
-		serSelect					: in	std_logic := '1'; --
+		i_rxd1							: in	std_logic := '1';
+		o_txd1							: out std_logic := '1';
+		i_cts1							: in	std_logic := '1';
+		o_rts1							: out std_logic := '1';
+		i_serSelect					: in	std_logic := '1'; --
 		-- Video
 		o_videoR0					: out std_logic;
 		o_videoR1					: out std_logic;
@@ -143,11 +143,11 @@ ENTITY pdp8_top is
 		testPt						: out std_logic_vector(6 downto 1);
 		
 		-- Not using the External SRAM on the QMTECH card but making sure that it's not active
-		sramData		: inout std_logic_vector(7 downto 0) := "ZZZZZZZZ";
-		sramAddress	: out std_logic_vector(19 downto 0) := x"00000";
-		n_sRamWE		: out std_logic :='1';
-		n_sRamCS		: out std_logic :='1';
-		n_sRamOE		: out std_logic :='1';
+		io_sramData		: inout std_logic_vector(7 downto 0) := "ZZZZZZZZ";
+		o_sramAddress	: out std_logic_vector(19 downto 0) := x"00000";
+		o_n_sRamWE		: out std_logic :='1';
+		o_n_sRamCS		: out std_logic :='1';
+		o_n_sRamOE		: out std_logic :='1';
 
 		-- Not using the SD RAM on the RETRO-EP4CE15 card but making sure that it's not active
 		n_sdRamCas	: out std_logic := '1';		-- CAS on schematic
