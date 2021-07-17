@@ -194,6 +194,7 @@ begin
 	w_TTY1_TXD_Term	<= (w_TTY1_TXD_PDP8	and      i_serSelect)  or (not i_serSelect);
 	w_TTY1_RTS_Term	<= w_TTY1_RTS_PDP8	and      i_serSelect;
 	
+	----------------------------------------------------------------------------
 	-- Stand-alone ANSI terminal
 	ANSITerm : entity work.ANSITerm1
 		port map

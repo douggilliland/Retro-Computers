@@ -101,6 +101,7 @@ architecture struct of ANSITerm1 is
 	
 begin
 
+--	---------------------------------------------------------------------------------------------------------
 	-- I/O Processor
 	-- Set ROM size in generic INST_ROM_SIZE_PASS (512W uses 1 of 1K Blocks in EP4CE15 FPGA)
 	-- Set stack size in STACK_DEPTH generic
@@ -138,8 +139,13 @@ begin
 	w_rdTerm		<= '1' when ((w_periphAdr(7 downto 1)="000"&x"1") and (w_periphRd = '1')) else '0';
 	w_rdKBD		<= '1' when ((w_periphAdr(7 downto 1)="000"&x"2") and (w_periphRd = '1')) else '0';		-- KEYBOARD (0X04=STAT, 0X05=DATA)
 	
+--	---------------------------------------------------------------------------------------------------------
 	-- ANSI Display
 	-- Resource usage can be reduced by changing the generics below
+	-- EXTENDED_CHARSET=0, COLOUR_ATTS_ENABLED=0 - Uses 3 M9K blocks
+	-- EXTENDED_CHARSET=1, COLOUR_ATTS_ENABLED=0 - Uses 4 M9K blocks
+	-- EXTENDED_CHARSET=0, COLOUR_ATTS_ENABLED=1 - Uses 5 M9K blocks
+	-- EXTENDED_CHARSET=1, COLOUR_ATTS_ENABLED=1 - Uses 6 M9K blocks
 	ANSIDisplay: entity work.ANSIDisplayVGA	
 	generic map	(
 		EXTENDED_CHARSET 		=>	0,		 		-- 1 = 256 chars
@@ -171,6 +177,7 @@ begin
 			vSync  		=> o_vSync
 		);
 
+--	---------------------------------------------------------------------------------------------------------
 	-- PS/2 keyboard/mapper to ASCII
 	-- Emulated 6850 ACIA (minimal) status/data accesses 
 	KEYBOARD : ENTITY  WORK.Wrap_Keyboard
@@ -187,18 +194,7 @@ begin
 			o_kbdDat			=> w_KbdDataOut
 		);
 
-	-- Baud Rate Generator Wrapper
-	-- These clock enables are asserted for one period of input clk, at 16x the baud rate.
-	-- Set baud rate in BAUD_RATE generic
-	BAUDRATEGEN	:	ENTITY work.BaudRate6850
-		GENERIC map (
-			BAUD_RATE	=> 9600
-		)
-		PORT map (
-			i_CLOCK_50	=> i_CLOCK_50,
-			o_serialEn	=> w_serialEn
-		);
-
+--	---------------------------------------------------------------------------------------------------------
 	-- 6850 style UART
 	UART: entity work.bufferedUART
 		port map (
@@ -218,6 +214,18 @@ begin
 			txd     			=> o_txd,
 			n_rts   			=> o_rts,
 			n_cts   			=> i_cts
+		);
+
+	-- Baud Rate Generator Wrapper
+	-- These clock enables are asserted for one period of input clk, at 16x the baud rate.
+	-- Set baud rate in BAUD_RATE generic
+	BAUDRATEGEN	:	ENTITY work.BaudRate6850
+		GENERIC map (
+			BAUD_RATE	=> 9600
+		)
+		PORT map (
+			i_CLOCK_50	=> i_CLOCK_50,
+			o_serialEn	=> w_serialEn
 		);
 
 	-- ____________________________________________________________________________________
