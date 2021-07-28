@@ -10,10 +10,9 @@
 --		VGA Framebuffer
 --		PS/2 Keyboard and Mouse support
 --		SD Card support
--- Runs on RETRO-EP4CE15 basecard
---		http://land-boards.com/blwiki/index.php?title=RETRO-EP4CE15#QMTECH_EP4CE15
+-- Runs on 
 -- FPGA card is EP4CE15 Cyclone IV FPGA
---		http://land-boards.com/blwiki/index.php?title=QMTECH_EP4CE15_FPGA_Card
+--		http://land-boards.com/blwiki/index.php?title=QMTECH_EP4CE15_Standalone_Board
 --
 -- Memory Map
 --		0x00000000-0x0000ffff = ROM 
@@ -28,7 +27,7 @@
 library ieee;
 use ieee.std_logic_1164.all;
 use ieee.std_logic_unsigned.all;
-use IEEE.numeric_std.ALL;
+use IEEE.numeric_std.ALL; 
 
 library altera;
 use altera.altera_syn_attributes.all;
@@ -55,9 +54,9 @@ entity C4BoardToplevel is
 		o_sdram_udqm	: out std_logic;
 
 		-- VGA
-		o_vga_red 		: out unsigned(1 downto 0);
-		o_vga_green 	: out unsigned(1 downto 0);
-		o_vga_blue 		: out unsigned(1 downto 0);
+		o_vga_red 		: out unsigned(4 downto 0);
+		o_vga_green 	: out unsigned(5 downto 0);
+		o_vga_blue 		: out unsigned(4 downto 0);
 		o_vga_hsync 	: buffer std_logic;
 		o_vga_vsync 	: buffer std_logic;
 
@@ -82,16 +81,6 @@ entity C4BoardToplevel is
 		sd_miso			: in std_logic;
 		sd_mosi			: out std_logic;
 		sd_clk			: out std_logic;
-		
-		-- I/O Pins on J1
-		IO_PIN 			: out std_logic_vector(48 downto 15);
-		
-		-- External SRAM Not used but assigning pins so it's not active
-		sramData			: inout std_logic_vector(7 downto 0);
-		sramAddress		: out std_logic_vector(19 downto 0) := X"00000";
-		n_sRamWE			: out std_logic := '1';
-		n_sRamCS			: out std_logic := '1';
-		n_sRamOE			: out std_logic := '1';
 		
 		-- Power and LEDs (wired to J1 pins 3-...)
 		power_button 	: in std_logic;
@@ -124,9 +113,13 @@ signal w_disk_led			: unsigned(5 downto 0);
 signal w_net_led			: unsigned(5 downto 0);
 signal w_odd_led			: unsigned(5 downto 0);
 
+signal w_vga_dith_r		: unsigned(5 downto 0);
+signal w_vga_dith_g		: unsigned(5 downto 0);
+signal w_vga_dith_b		: unsigned(5 downto 0);
+
 signal w_vga_r 			: unsigned(7 downto 0);
-signal w_vga_g 			: unsigned(7 downto 0);
-signal w_vga_b 			: unsigned(7 downto 0);
+signal w_vga_g				: unsigned(7 downto 0);
+signal w_vga_b				: unsigned(7 downto 0);
 signal w_vga_hsync 		: std_logic;
 signal w_vga_vsync 		: std_logic;
 signal w_vga_window 		: std_logic;
@@ -147,52 +140,9 @@ END COMPONENT;
 
 begin
 
---	IO_PIN(3) <= '0';
---	IO_PIN(4) <= '0';
---	IO_PIN(5) <= '0';
---	IO_PIN(6) <= '0';
---	IO_PIN(7) <= '0';
---	IO_PIN(8) <= '0';
---	IO_PIN(9) <= '0';
---	IO_PIN(10) <= '0';
---	IO_PIN(11) <= '0';
---	IO_PIN(12) <= '0';
---	IO_PIN(13) <= '0';
---	IO_PIN(14) <= '0';
-	IO_PIN(15) <= '0';
-	IO_PIN(16) <= '0';
-	IO_PIN(17) <= '0';
-	IO_PIN(18) <= '0';
-	IO_PIN(19) <= '0';
-	IO_PIN(20) <= '0';
-	IO_PIN(21) <= '0';
-	IO_PIN(22) <= '0';
-	IO_PIN(23) <= '0';
-	IO_PIN(24) <= '0';
-	IO_PIN(25) <= '0';
-	IO_PIN(26) <= '0';
-	IO_PIN(27) <= '0';
-	IO_PIN(28) <= '0';
-	IO_PIN(29) <= '0';
-	IO_PIN(30) <= '0';
-	IO_PIN(31) <= w_vga_r(7);
-	IO_PIN(32) <= w_vga_r(6);
-	IO_PIN(33) <= w_vga_r(5);
-	IO_PIN(34) <= w_vga_r(4);
-	IO_PIN(35) <= w_vga_r(3);
-	IO_PIN(36) <= w_vga_g(7);
-	IO_PIN(37) <= w_vga_g(6);
-	IO_PIN(38) <= w_vga_g(5);
-	IO_PIN(39) <= w_vga_g(4);
-	IO_PIN(40) <= w_vga_g(3);
-	IO_PIN(41) <= w_vga_g(2);
-	IO_PIN(42) <= w_vga_b(7);
-	IO_PIN(43) <= w_vga_b(6);
-	IO_PIN(44) <= w_vga_b(5);
-	IO_PIN(45) <= w_vga_b(4);
-	IO_PIN(46) <= w_vga_b(3);
-	IO_PIN(47) <= w_vga_hsync;
-	IO_PIN(48) <= w_vga_vsync;
+	o_vga_red	<= w_vga_dith_r(5 downto 1);
+	o_vga_green	<= w_vga_dith_g(5 downto 0);
+	o_vga_blue	<= w_vga_dith_b(5 downto 1);
 
 	w_power_led(5 downto 2)	<= unsigned(w_debugvalue(15 downto 12));
 	w_disk_led(5 downto 2)	<= unsigned(w_debugvalue(11 downto 8));
@@ -239,7 +189,7 @@ begin
 
 	mydither : entity work.video_vga_dither
 		generic map(
-			outbits => 2
+			outbits => 6
 		)
 		port map (
 			clk		=> w_clk_fast,
@@ -249,9 +199,9 @@ begin
 			iRed		=> w_vga_r,
 			iGreen	=> w_vga_g,
 			iBlue		=> w_vga_b,
-			oRed		=> o_vga_red,
-			oGreen	=> o_vga_green,
-			oBlue		=> o_vga_blue
+			oRed		=> w_vga_dith_r,
+			oGreen	=> w_vga_dith_g,
+			oBlue		=> w_vga_dith_b
 		);
 
 	o_vga_hsync <= w_vga_hsync;
