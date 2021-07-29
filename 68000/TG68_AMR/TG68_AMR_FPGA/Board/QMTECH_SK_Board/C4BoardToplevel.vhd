@@ -10,6 +10,7 @@
 --		VGA Framebuffer
 --		PS/2 Keyboard and Mouse support
 --		SD Card support
+--		UART
 --
 -- Runs on off-the-shelf FPGA card
 --		http://land-boards.com/blwiki/index.php?title=QMTECH_EP4CE15_Standalone_Board
