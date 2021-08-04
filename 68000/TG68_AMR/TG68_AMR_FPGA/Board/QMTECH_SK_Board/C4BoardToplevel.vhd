@@ -15,12 +15,17 @@
 -- Runs on off-the-shelf FPGA card
 --		http://land-boards.com/blwiki/index.php?title=QMTECH_EP4CE15_Standalone_Board
 --
+--	External cards
+--		http://land-boards.com/blwiki/index.php?title=PS2X49
+--		http://land-boards.com/blwiki/index.php?title=FTDI-49MM
+--		http://land-boards.com/blwiki/index.php?title=SD_CARD_X49
+--
 -- Memory Map
 --		0x00000000-0x0000ffff = ROM 
 --		0x80000000 = VGA controller
 --		0x81000000 = Peripherals
 --		0x82000000 = Audio controller
---		Everywhere else = SDRAM - 8 MB?
+--		Everywhere else = SDRAM - 32MB
 --
 -- Doug Gilliland 2020-2021
 --
@@ -41,7 +46,7 @@ entity C4BoardToplevel is
 		clk_50			: in 	std_logic;
 		reset_n			: in 	std_logic;
 
-		-- SDRAM
+		-- 32MB SDRAM on FPGA card
 		o_sdram_clk		: buffer std_logic; -- Different name format to escape wildcard in SDC file
 		o_sdram_addr	: out std_logic_vector(12 downto 0);
 		io_sdram_data	: inout std_logic_vector(15 downto 0);
@@ -54,14 +59,14 @@ entity C4BoardToplevel is
 		o_sdram_ldqm	: out std_logic;
 		o_sdram_udqm	: out std_logic;
 
-		-- VGA
+		-- 5:6:5 VGA on Srandalone  FPGA card
 		o_vga_red 		: out unsigned(4 downto 0);
 		o_vga_green 	: out unsigned(5 downto 0);
 		o_vga_blue 		: out unsigned(4 downto 0);
 		o_vga_hsync 	: buffer std_logic;
 		o_vga_vsync 	: buffer std_logic;
 
-		-- PS/2 Keyboard/Mouse
+		-- PS/2 Keyboard/Mouse on external card
 		ps2k_clk 		: inout std_logic;
 		ps2k_dat 		: inout std_logic;
 		ps2m_clk 		: inout std_logic;
@@ -71,13 +76,13 @@ entity C4BoardToplevel is
 		aud_l 			: out std_logic;
 		aud_r 			: out std_logic;
 		
-		-- Serial (USB-to-Serial)
+		-- Serial (USB-to-Serial) on external card
 		rs232_rxd		: in std_logic;
 		rs232_txd		: out std_logic;
 --		n_cts				: in std_logic := '0';
 --		n_rts				: out std_logic := '0';
 
-		-- SD card interface
+		-- SD card interface on external card
 		sd_cs				: out std_logic;
 		sd_miso			: in std_logic;
 		sd_mosi			: out std_logic;
