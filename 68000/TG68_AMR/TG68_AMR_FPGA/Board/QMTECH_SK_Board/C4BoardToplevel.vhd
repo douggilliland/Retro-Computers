@@ -251,7 +251,7 @@ begin
 			rxd => rs232_rxd,
 			txd => rs232_txd,
 				
-			-- PS/2
+			-- PS/2 Keyboard, mouse
 			ps2k_clk_in		=> w_ps2k_clk_in,
 			ps2k_dat_in		=> w_ps2k_dat_in,
 			ps2k_clk_out	=> w_ps2k_clk_out,
