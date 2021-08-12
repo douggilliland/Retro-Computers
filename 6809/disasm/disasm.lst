@@ -1,0 +1,2065 @@
+0001                         ;
+0002                         ; 6809 Disassembler
+0003                         ;
+0004                         ; Copyright (C) 2019 by Jeff Tranter <tranter@pobox.com>
+0005                         ;
+0006                         ; Licensed under the Apache License, Version 2.0 (the "License");
+0007                         ; you may not use this file except in compliance with the License.
+0008                         ; You may obtain a copy of the License at
+0009                         ;
+0010                         ;   http://www.apache.org/licenses/LICENSE-2.0
+0011                         ;
+0012                         ; Unless required by applicable law or agreed to in writing, software
+0013                         ; distributed under the License is distributed on an "AS IS" BASIS,
+0014                         ; WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+0015                         ; See the License for the specific language governing permissions and
+0016                         ; limitations under the License.
+0017                         ;
+0018                         ; Revision History
+0019                         ; Version Date         Comments
+0020                         ; 0.0     29-Jan-2019  First version started, based on 6502 code.
+0021                         ; 0.1     03-Feb-2019  All instructions now supported.
+0022                         ;
+0023                         ; To Do:
+0024                         ; - Other TODOs in code
+0025                         ; - Add option to suppress data bytes in output (for feeding back into assembler)
+0026                         ; - Add option to show invalid opcodes as constants
+0027                         ; - Some unwanted spaces in output due to use of ASSIST09 routines
+0028                         
+0029                         ; Character defines
+0030                         
+0031 0004                    EOT     EQU     $04             ; String terminator
+0032 000a                    LF      EQU     $0A             ; Line feed
+0033 000d                    CR      EQU     $0D             ; Carriage return
+0034 0020                    SP      EQU     $20             ; Space
+0035                         
+0036 0018                    PAGELEN EQU     24              ; Number of instructions to show before waiting for keypress
+0037                         
+0038                         ; ASSIST09 SWI call numbers
+0039                         
+0040 0000                    INCHNP  EQU     0               ; INPUT CHAR IN A REG - NO PARITY
+0041 0001                    OUTCH   EQU     1               ; OUTPUT CHAR FROM A REG
+0042 0002                    PDATA1  EQU     2               ; OUTPUT STRING
+0043 0003                    PDATA   EQU     3               ; OUTPUT CR/LF THEN STRING
+0044 0004                    OUT2HS  EQU     4               ; OUTPUT TWO HEX AND SPACE
+0045 0005                    OUT4HS  EQU     5               ; OUTPUT FOUR HEX AND SPACE
+0046 0006                    PCRLF   EQU     6               ; OUTPUT CR/LF
+0047 0007                    SPACE   EQU     7               ; OUTPUT A SPACE
+0048 0008                    MONITR  EQU     8               ; ENTER ASSIST09 MONITOR
+0049 0009                    VCTRSW  EQU     9               ; VECTOR EXAMINE/SWITCH
+0050 000a                    BRKPT   EQU     10              ; USER PROGRAM BREAKPOINT
+0051 000b                    PAUSE   EQU     11              ; TASK PAUSE FUNCTION
+0052                         
+0053                         ; Start address
+0054 1000                            ORG     $1000
+0055 1000 20 0d                      BRA     MAIN            ; So start address stays constant
+0056                         
+0057                         ; Variables
+0058                         
+0059 1002                    ADDR    RMB     2               ; Current address to disassemble
+0060 1004                    OPCODE  RMB     1               ; Opcode of instruction
+0061 1005                    AM      RMB     1               ; Addressing mode of instruction
+0062 1006                    OPTYPE  RMB     1               ; Instruction type
+0063 1007                    POSTBYT RMB     1               ; Post byte (for indexed addressing)
+0064 1008                    LEN     RMB     1               ; Length of instruction
+0065 1009                    TEMP    RMB     2               ; Temp variable (used by print routines)
+0066 100b                    TEMP1   RMB     2               ; Temp variable
+0067 100d                    FIRST   RMB     1               ; Flag used to indicate first time an item printed
+0068 100e                    PAGE23  RMB     1               ; Flag indicating page2/3 instruction when non-zero
+0069                         
+0070                         ; Instructions. Matches indexes into entries in table MNEMONICS.
+0071                         
+0072 0000                    OP_INV   EQU    $00
+0073 0001                    OP_ABX   EQU    $01
+0074 0002                    OP_ADCA  EQU    $02
+0075 0003                    OP_ADCB  EQU    $03
+0076 0004                    OP_ADDA  EQU    $04
+0077 0005                    OP_ADDB  EQU    $05
+0078 0006                    OP_ADDD  EQU    $06
+0079 0007                    OP_ANDA  EQU    $07
+0080 0008                    OP_ANDB  EQU    $08
+0081 0009                    OP_ANDCC EQU    $09
+0082 000a                    OP_ASL   EQU    $0A
+0083 000b                    OP_ASLA  EQU    $0B
+0084 000c                    OP_ASLB  EQU    $0C
+0085 000d                    OP_ASR   EQU    $0D
+0086 000e                    OP_ASRA  EQU    $0E
+0087 000f                    OP_ASRB  EQU    $0F
+0088 0010                    OP_BCC   EQU    $10
+0089 0011                    OP_BCS   EQU    $11
+0090 0012                    OP_BEQ   EQU    $12
+0091 0013                    OP_BGE   EQU    $13
+0092 0014                    OP_BGT   EQU    $14
+0093 0015                    OP_BHI   EQU    $15
+0094 0016                    OP_BITA  EQU    $16
+0095 0017                    OP_BITB  EQU    $17
+0096 0018                    OP_BLE   EQU    $18
+0097 0019                    OP_BLS   EQU    $19
+0098 001a                    OP_BLT   EQU    $1A
+0099 001b                    OP_BMI   EQU    $1B
+0100 001c                    OP_BNE   EQU    $1C
+0101 001d                    OP_BPL   EQU    $1D
+0102 001e                    OP_BRA   EQU    $1E
+0103 001f                    OP_BRN   EQU    $1F
+0104 0020                    OP_BSR   EQU    $20
+0105 0021                    OP_BVC   EQU    $21
+0106 0022                    OP_BVS   EQU    $22
+0107 0023                    OP_CLR   EQU    $23
+0108 0024                    OP_CLRA  EQU    $24
+0109 0025                    OP_CLRB  EQU    $25
+0110 0026                    OP_CMPA  EQU    $26
+0111 0027                    OP_CMPB  EQU    $27
+0112 0028                    OP_CMPD  EQU    $28
+0113 0029                    OP_CMPS  EQU    $29
+0114 002a                    OP_CMPU  EQU    $2A
+0115 002b                    OP_CMPX  EQU    $2B
+0116 002c                    OP_CMPY  EQU    $2C
+0117 002d                    OP_COMA  EQU    $2D
+0118 002e                    OP_COMB  EQU    $2E
+0119 002f                    OP_COM   EQU    $2F
+0120 0030                    OP_CWAI  EQU    $30
+0121 0031                    OP_DAA   EQU    $31
+0122 0032                    OP_DEC   EQU    $32
+0123 0033                    OP_DECA  EQU    $33
+0124 0034                    OP_DECB  EQU    $34
+0125 0035                    OP_EORA  EQU    $35
+0126 0036                    OP_EORB  EQU    $36
+0127 0037                    OP_EXG   EQU    $37
+0128 0038                    OP_INC   EQU    $38
+0129 0039                    OP_INCA  EQU    $39
+0130 003a                    OP_INCB  EQU    $3A
+0131 003b                    OP_JMP   EQU    $3B
+0132 003c                    OP_JSR   EQU    $3C
+0133 003d                    OP_LBCC  EQU    $3D
+0134 003e                    OP_LBCS  EQU    $3E
+0135 003f                    OP_LBEQ  EQU    $3F
+0136 0040                    OP_LBGE  EQU    $40
+0137 0041                    OP_LBGT  EQU    $41
+0138 0042                    OP_LBHI  EQU    $42
+0139 0043                    OP_LBLE  EQU    $43
+0140 0044                    OP_LBLS  EQU    $44
+0141 0045                    OP_LBLT  EQU    $45
+0142 0046                    OP_LBMI  EQU    $46
+0143 0047                    OP_LBNE  EQU    $47
+0144 0048                    OP_LBPL  EQU    $48
+0145 0049                    OP_LBRA  EQU    $49
+0146 004a                    OP_LBRN  EQU    $4A
+0147 004b                    OP_LBSR  EQU    $4B
+0148 004c                    OP_LBVC  EQU    $4C
+0149 004d                    OP_LBVS  EQU    $4D
+0150 004e                    OP_LDA   EQU    $4E
+0151 004f                    OP_LDB   EQU    $4F
+0152 0050                    OP_LDD   EQU    $50
+0153 0051                    OP_LDS   EQU    $51
+0154 0052                    OP_LDU   EQU    $52
+0155 0053                    OP_LDX   EQU    $53
+0156 0054                    OP_LDY   EQU    $54
+0157 0055                    OP_LEAS  EQU    $55
+0158 0056                    OP_LEAU  EQU    $56
+0159 0057                    OP_LEAX  EQU    $57
+0160 0058                    OP_LEAY  EQU    $58
+0161 0059                    OP_LSR   EQU    $59
+0162 005a                    OP_LSRA  EQU    $5A
+0163 005b                    OP_LSRB  EQU    $5B
+0164 005c                    OP_MUL   EQU    $5C
+0165 005d                    OP_NEG   EQU    $5D
+0166 005e                    OP_NEGA  EQU    $5E
+0167 005f                    OP_NEGB  EQU    $5F
+0168 0060                    OP_NOP   EQU    $60
+0169 0061                    OP_ORA   EQU    $61
+0170 0062                    OP_ORB   EQU    $62
+0171 0063                    OP_ORCC  EQU    $63
+0172 0064                    OP_PSHS  EQU    $64
+0173 0065                    OP_PSHU  EQU    $65
+0174 0066                    OP_PULS  EQU    $66
+0175 0067                    OP_PULU  EQU    $67
+0176 0068                    OP_ROL   EQU    $68
+0177 0069                    OP_ROLA  EQU    $69
+0178 006a                    OP_ROLB  EQU    $6A
+0179 006b                    OP_ROR   EQU    $6B
+0180 006c                    OP_RORA  EQU    $6C
+0181 006d                    OP_RORB  EQU    $6D
+0182 006e                    OP_RTI   EQU    $6E
+0183 006f                    OP_RTS   EQU    $6F
+0184 0070                    OP_SBCA  EQU    $70
+0185 0071                    OP_SBCB  EQU    $71
+0186 0072                    OP_SEX   EQU    $72
+0187 0073                    OP_STA   EQU    $73
+0188 0074                    OP_STB   EQU    $74
+0189 0075                    OP_STD   EQU    $75
+0190 0076                    OP_STS   EQU    $76
+0191 0077                    OP_STU   EQU    $77
+0192 0078                    OP_STX   EQU    $78
+0193 0079                    OP_STY   EQU    $79
+0194 007a                    OP_SUBA  EQU    $7A
+0195 007b                    OP_SUBB  EQU    $7B
+0196 007c                    OP_SUBD  EQU    $7C
+0197 007d                    OP_SWI   EQU    $7D
+0198 007e                    OP_SWI2  EQU    $7E
+0199 007f                    OP_SWI3  EQU    $7F
+0200 0080                    OP_SYNC  EQU    $80
+0201 0081                    OP_TFR   EQU    $81
+0202 0082                    OP_TST   EQU    $82
+0203 0083                    OP_TSTA  EQU    $83
+0204 0084                    OP_TSTB  EQU    $84
+0205                         
+0206                         ; Addressing Modes. OPCODES table lists these for each instruction.
+0207                         ; LENGTHS lists the instruction length for each addressing mode.
+0208                         ; Need to distinguish relative modes that are 2 and 3 (long) bytes.
+0209                         ; Some immediate are 2 and some 3 bytes.
+0210                         ; Indexed modes can be longer depending on postbyte.
+0211                         ; Page 2 and 3 opcodes are one byte longer (prefixed by 10 or 11)
+0212                         
+0213 0000                    AM_INVALID      EQU     0       ; $01 (1)
+0214 0001                    AM_INHERENT     EQU     1       ; RTS (1)
+0215 0002                    AM_IMMEDIATE8   EQU     2       ; LDA #$12 (2)
+0216 0003                    AM_IMMEDIATE16  EQU     3       ; LDD #$1234 (3)
+0217 0004                    AM_DIRECT       EQU     4       ; LDA $12 (2)
+0218 0005                    AM_EXTENDED     EQU     5       ; LDA $1234 (3)
+0219 0006                    AM_RELATIVE8    EQU     6       ; BSR $1234 (2)
+0220 0007                    AM_RELATIVE16   EQU     7       ; LBSR $1234 (3)
+0221 0008                    AM_INDEXED      EQU     8       ; LDA 0,X (2+)
+0222                         
+0223                         ; *** CODE ***
+0224                         
+0225                         ; Main program. Disassembles a page at a time.
+0226                         
+0227 100f 8e 10 0f           MAIN    LDX     #MAIN           ; Starting address for disassembly (this code)
+0228 1012 bf 10 02                   STX     ADDR            ; Store it
+0229 1015 86 18              PAGE    LDA     #PAGELEN        ; Number of instructions to disassemble per page
+0230 1017 34 02              DIS     PSHS    A               ; Save A
+0231 1019 17 00 97                   LBSR    DISASM          ; Do disassembly of one instruction
+0232 101c 35 02                      PULS    A               ; Restore A
+0233 101e 4a                         DECA                    ; Decrement count
+0234 101f 26 f6                      BNE     DIS             ; Go back and repeat until a page has been done
+0235 1021 30 8d 0b 7f                LEAX    MSG2,PCR        ; Display message to press a key
+0236 1025 17 00 84                   LBSR    PrintString
+0237 1028 8d 63              BADKEY  BSR     GetChar         ; Wait for keyboard input
+0238 102a 8d 11                      BSR     PrintCR
+0239 102c 81 20                      CMPA    #SP             ; Space key pressed?
+0240 102e 27 e5                      BEQ     PAGE            ; If so, display next page
+0241 1030 81 51                      CMPA    #'Q             ; Q key pressed?
+0242 1032 27 08                      BEQ     RETN            ; If so, return
+0243 1034 81 71                      CMPA    #'q             ; q key pressed?
+0244 1036 27 04                      BEQ     RETN            ; If so, return
+0245 1038 8d 72                      BSR     PrintString     ; Bad key, prompt and try again
+0246 103a 20 ec                      BRA     BADKEY
+0247 103c 39                 RETN    RTS                     ; Return to caller
+0248                         
+0249                         ; *** Utility Functions ***
+0250                         ; Some of these call ASSIST09 ROM monitor routines.
+0251                         
+0252                         ; Print CR/LF to the console.
+0253                         ; Registers changed: none
+0254                         PrintCR
+0255 103d 34 02                      PSHS    A               ; Save A
+0256 103f 86 0d                      LDA     #CR
+0257 1041 8d 47                      BSR     PrintChar
+0258 1043 86 0a                      LDA     #LF
+0259 1045 8d 43                      BSR     PrintChar
+0260 1047 35 02                      PULS    A               ; Restore A
+0261 1049 39                         RTS
+0262                         
+0263                         ; Print dollar sign to the console.
+0264                         ; Registers changed: none
+0265                         PrintDollar
+0266 104a 34 02                      PSHS    A               ; Save A
+0267 104c 86 24                      LDA     #'$
+0268 104e 8d 3a                      BSR     PrintChar
+0269 1050 35 02                      PULS    A               ; Restore A
+0270 1052 39                         RTS
+0271                         
+0272                         ; Print comma to the console.
+0273                         ; Registers changed: none
+0274                         PrintComma
+0275 1053 34 02                      PSHS    A               ; Save A
+0276 1055 86 2c                      LDA     #',
+0277 1057 8d 31                      BSR     PrintChar
+0278 1059 35 02                      PULS    A               ; Restore A
+0279 105b 39                         RTS
+0280                         
+0281                         ; Print left square bracket to the console.
+0282                         ; Registers changed: none
+0283                         PrintLBracket
+0284 105c 34 02                      PSHS    A               ; Save A
+0285 105e 86 5b                      LDA     #'[
+0286 1060 8d 28                      BSR     PrintChar
+0287 1062 35 02                      PULS    A               ; Restore A
+0288 1064 39                         RTS
+0289                         
+0290                         ; Print right square bracket to the console.
+0291                         ; Registers changed: none
+0292                         PrintRBracket
+0293 1065 34 02                      PSHS    A               ; Save A
+0294 1067 86 5d                      LDA     #']
+0295 1069 8d 1f                      BSR     PrintChar
+0296 106b 35 02                      PULS    A               ; Restore A
+0297 106d 39                         RTS
+0298                         
+0299                         ; Print space sign to the console.
+0300                         ; Registers changed: none
+0301                         PrintSpace
+0302 106e 3f                         SWI
+0303 106f 07                         FCB     SPACE
+0304 1070 39                         RTS
+0305                         
+0306                         ; Print two spaces to the console.
+0307                         ; Registers changed: none
+0308                         Print2Spaces
+0309 1071 34 02                      PSHS    A               ; Save A
+0310 1073 86 20                      LDA     #SP
+0311 1075 8d 13                      BSR     PrintChar
+0312 1077 8d 11                      BSR     PrintChar
+0313 1079 35 02                      PULS    A               ; Restore A
+0314 107b 39                         RTS
+0315                         
+0316                         ; Print several space characters.
+0317                         ; A contains number of spaces to print.
+0318                         ; Registers changed: none
+0319                         PrintSpaces
+0320 107c 34 02                      PSHS    A               ; Save registers used
+0321 107e 81 00              PS1     CMPA    #0              ; Is count zero?
+0322 1080 27 05                      BEQ     PS2             ; Is so, done
+0323 1082 8d ea                      BSR     PrintSpace      ; Print a space
+0324 1084 4a                         DECA                    ; Decrement count
+0325 1085 20 f7                      BRA     PS1             ; Check again
+0326 1087 35 02              PS2     PULS    A               ; Restore registers used
+0327 1089 39                         RTS
+0328                         
+0329                         ; Print character to the console
+0330                         ; A contains character to print.
+0331                         ; Registers changed: none
+0332                         PrintChar
+0333 108a 3f                         SWI                     ; Call ASSIST09 monitor function
+0334 108b 01                         FCB     OUTCH           ; Service code byte
+0335 108c 39                         RTS
+0336                         
+0337                         ; Get character from the console
+0338                         ; A contains character read. Blocks until key pressed. Character is
+0339                         ; echoed. Ignores NULL ($00) and RUBOUT ($7F). CR ($OD) is converted
+0340                         ; to LF ($0A).
+0341                         ; Registers changed: none (flags may change). Returns char in A.
+0342                         GetChar
+0343 108d 3f                         SWI                     ; Call ASSIST09 monitor function
+0344 108e 00                         FCB     INCHNP          ; Service code byte
+0345 108f 39                         RTS
+0346                         
+0347                         ; Print a byte as two hex digits followed by a space.
+0348                         ; A contains byte to print.
+0349                         ; Registers changed: none
+0350                         PrintByte
+0351 1090 34 16                      PSHS    A,B,X           ; Save registers used
+0352 1092 b7 10 09                   STA     TEMP            ; Needs to be in memory so we can point to it
+0353 1095 30 8d ff 70                LEAX    TEMP,PCR        ; Get pointer to it
+0354 1099 3f                         SWI                     ; Call ASSIST09 monitor function
+0355 109a 04                         FCB     OUT2HS          ; Service code byte
+0356 109b 35 16                      PULS    X,B,A           ; Restore registers used
+0357 109d 39                         RTS
+0358                         
+0359                         ; Print a word as four hex digits followed by a space.
+0360                         ; X contains word to print.
+0361                         ; Registers changed: none
+0362                         PrintAddress
+0363 109e 34 16                      PSHS    A,B,X           ; Save registers used
+0364 10a0 bf 10 09                   STX     TEMP            ; Needs to be in memory so we can point to it
+0365 10a3 30 8d ff 62                LEAX    TEMP,PCR        ; Get pointer to it
+0366 10a7 3f                         SWI                     ; Call ASSIST09 monitor function
+0367 10a8 05                         FCB     OUT4HS          ; Service code byte
+0368 10a9 35 16                      PULS    X,B,A           ; Restore registers used
+0369 10ab 39                         RTS
+0370                         
+0371                         ; Print a string.
+0372                         ; X points to start of string to display.
+0373                         ; String must be terminated in EOT character.
+0374                         ; Registers changed: none
+0375                         PrintString
+0376 10ac 34 10                      PSHS    X               ; Save registers used
+0377 10ae 3f                         SWI                     ; Call ASSIST09 monitor function
+0378 10af 02                         FCB     PDATA1          ; Service code byte
+0379 10b0 35 10                      PULS    X               ; Restore registers used
+0380 10b2 39                         RTS
+0381                         
+0382                         ; Disassemble instruction at address ADDR. On return, ADDR points to
+0383                         ; next instruction so it can be called again.
+0384                         
+0385 10b3 7f 10 0e           DISASM  CLR     PAGE23          ; Clear page2/3 flag
+0386 10b6 ae 8d ff 48                LDX     ADDR,PCR        ; Get address of instruction
+0387 10ba e6 84                      LDB     ,X              ; Get instruction op code
+0388 10bc c1 10                      CMPB    #$10            ; Is it a page 2 16-bit opcode prefix with 10?
+0389 10be 27 07                      BEQ     handle10        ; If so, do special handling
+0390 10c0 c1 11                      CMPB    #$11            ; Is it a page 3 16-bit opcode prefix with 11?
+0391 10c2 27 52                      BEQ     handle11        ; If so, do special handling
+0392 10c4 16 00 9d                   LBRA    not1011         ; If not, handle as normal case
+0393                         
+0394                         handle10                        ; Handle page 2 instruction
+0395 10c7 86 01                      LDA     #1              ; Set page2/3 flag
+0396 10c9 b7 10 0e                   STA     PAGE23
+0397 10cc e6 01                      LDB     1,X             ; Get real opcode
+0398 10ce f7 10 04                   STB     OPCODE          ; Save it.
+0399 10d1 30 8d 0a 36                LEAX    PAGE2,PCR       ; Pointer to start of table
+0400 10d5 4f                         CLRA                    ; Set index into table to zero
+0401                         search10
+0402 10d6 e1 86                      CMPB    A,X             ; Check for match of opcode in table
+0403 10d8 27 1f                      BEQ     found10         ; Branch if found
+0404 10da 8b 03                      ADDA    #3              ; Advance to next entry in table (entries are 3 bytes long)
+0405 10dc 6d 86                      TST     A,X             ; Check entry
+0406 10de 27 02                      BEQ     notfound10      ; If zero, then reached end of table
+0407 10e0 20 f4                      BRA     search10        ; If not, keep looking
+0408                         
+0409                         notfound10                      ; Instruction not found, so is invalid.
+0410 10e2 86 10                      LDA     #$10            ; Set opcode to 10
+0411 10e4 b7 10 04                   STA     OPCODE
+0412 10e7 86 00                      LDA     #OP_INV         ; Set as instruction type invalid
+0413 10e9 b7 10 06                   STA     OPTYPE
+0414 10ec 86 00                      LDA     #AM_INVALID     ; Set as addressing mode invalid
+0415 10ee b7 10 05                   STA     AM
+0416 10f1 86 01                      LDA     #1              ; Set length to one
+0417 10f3 b7 10 08                   STA     LEN
+0418 10f6 16 00 8d                   LBRA    dism            ; Disassemble as normal
+0419                         
+0420                         found10                         ; Found entry in table
+0421 10f9 8b 01                      ADDA    #1              ; Advance to instruction type entry in table
+0422 10fb e6 86                      LDB     A,X             ; Get instruction type
+0423 10fd f7 10 06                   STB     OPTYPE          ; Save it
+0424 1100 8b 01                      ADDA    #1              ; Advanced to address mode entry in table
+0425 1102 e6 86                      LDB     A,X             ; Get address mode
+0426 1104 f7 10 05                   STB     AM              ; Save it
+0427 1107 4f                         CLRA                    ; Clear MSB of D, addressing mode is now in A:B (D)
+0428 1108 1f 01                      TFR     D,X             ; Put addressing mode in X
+0429 110a e6 89 18 de                LDB     LENGTHS,X       ; Get instruction length from table
+0430 110e f7 10 08                   STB     LEN             ; Store it
+0431 1111 7c 10 08                   INC     LEN             ; Add one because it is a two byte op code
+0432 1114 20 70                      BRA     dism            ; Continue normal disassembly processing.
+0433                         
+0434                         handle11                        ; Same logic as above, but use table for page 3 opcodes.
+0435 1116 86 01                      LDA     #1              ; Set page2/3 flag
+0436 1118 b7 10 0e                   STA     PAGE23
+0437 111b e6 01                      LDB     1,X             ; Get real opcode
+0438 111d f7 10 04                   STB     OPCODE          ; Save it.
+0439 1120 30 8d 0a 5a                LEAX    PAGE3,PCR       ; Pointer to start of table
+0440 1124 4f                         CLRA                    ; Set index into table to zero
+0441                         search11
+0442 1125 e1 86                      CMPB    A,X             ; Check for match of opcode in table
+0443 1127 27 1e                      BEQ     found11         ; Branch if found
+0444 1129 8b 03                      ADDA    #3              ; Advance to next entry in table (entries are 3 bytes long)
+0445 112b 6d 86                      TST     A,X             ; Check entry
+0446 112d 27 02                      BEQ     notfound11      ; If zero, then reached end of table
+0447 112f 20 f4                      BRA     search11        ; If not, keep looking
+0448                         
+0449                         notfound11                      ; Instruction not found, so is invalid.
+0450 1131 86 11                      LDA     #$11            ; Set opcode to 10
+0451 1133 b7 10 04                   STA     OPCODE
+0452 1136 86 00                      LDA     #OP_INV         ; Set as instruction type invalid
+0453 1138 b7 10 06                   STA     OPTYPE
+0454 113b 86 00                      LDA     #AM_INVALID     ; Set as addressing mode invalid
+0455 113d b7 10 05                   STA     AM
+0456 1140 86 01                      LDA     #1              ; Set length to one
+0457 1142 b7 10 08                   STA     LEN
+0458 1145 20 3f                      BRA     dism            ; Disassemble as normal
+0459                         
+0460                         found11                         ; Found entry in table
+0461 1147 8b 01                      ADDA    #1              ; Advance to instruction type entry in table
+0462 1149 e6 86                      LDB     A,X             ; Get instruction type
+0463 114b f7 10 06                   STB     OPTYPE          ; Save it
+0464 114e 8b 01                      ADDA    #1              ; Advanced to address mode entry in table
+0465 1150 e6 86                      LDB     A,X             ; Get address mode
+0466 1152 f7 10 05                   STB     AM              ; Save it
+0467 1155 4f                         CLRA                    ; Clear MSB of D, addressing mode is now in A:B (D)
+0468 1156 1f 01                      TFR     D,X             ; Put addressing mode in X
+0469 1158 e6 89 18 de                LDB     LENGTHS,X       ; Get instruction length from table
+0470 115c f7 10 08                   STB     LEN             ; Store it
+0471 115f 7c 10 08                   INC     LEN             ; Add one because it is a two byte op code
+0472 1162 20 22                      BRA     dism            ; Continue normal disassembly processing.
+0473                         
+0474                         not1011
+0475 1164 f7 10 04                   STB     OPCODE          ; Save the op code
+0476 1167 4f                         CLRA                    ; Clear MSB of D
+0477 1168 1f 01                      TFR     D,X             ; Put op code in X
+0478 116a e6 89 19 0b                LDB     OPCODES,X       ; Get opcode type from table
+0479 116e f7 10 06                   STB     OPTYPE          ; Store it
+0480 1171 f6 10 04                   LDB     OPCODE          ; Get op code again
+0481 1174 1f 01                      TFR     D,X             ; Put opcode in X
+0482 1176 e6 89 1a 0b                LDB     MODES,X         ; Get addressing mode type from table
+0483 117a f7 10 05                   STB     AM              ; Store it
+0484 117d 1f 01                      TFR     D,X             ; Put addressing mode in X
+0485 117f e6 89 18 de                LDB     LENGTHS,X       ; Get instruction length from table
+0486 1183 f7 10 08                   STB     LEN             ; Store it
+0487                         
+0488                         ; If addressing mode is indexed, get and save the indexed addressing
+0489                         ; post byte.
+0490                         
+0491 1186 b6 10 05           dism    LDA     AM              ; Get addressing mode
+0492 1189 81 08                      CMPA    #AM_INDEXED     ; Is it indexed mode?
+0493 118b 26 22                      BNE     NotIndexed      ; Branch if not
+0494 118d ae 8d fe 71                LDX     ADDR,PCR        ; Get address of op code
+0495                                                         ; If it is a page2/3 instruction, op code is the next byte after ADDR
+0496 1191 7d 10 0e                   TST     PAGE23          ; Page2/3 instruction?
+0497 1194 27 04                      BEQ     norm            ; Branch if not
+0498 1196 a6 02                      LDA     2,X             ; Post byte is two past ADDR
+0499 1198 20 02                      BRA     getpb
+0500 119a a6 01              norm    LDA     1,X             ; Get next byte (the post byte)
+0501 119c b7 10 07           getpb   STA     POSTBYT         ; Save it
+0502                         
+0503                         ; Determine number of additional bytes for indexed addressing based on
+0504                         ; postbyte. If most significant bit is 0, there are no additional
+0505                         ; bytes and we can skip the rest of the check.
+0506                         
+0507 119f 2a 0e                      BPL     NotIndexed      ; Branch of MSB is zero
+0508                         
+0509                         ; Else if most significant bit is 1, mask off all but low order 5 bits
+0510                         ; and look up length in table.
+0511                         
+0512 11a1 84 1f                      ANDA    #%00011111      ; Mask off bits
+0513 11a3 30 8d 07 44                LEAX    POSTBYTES,PCR   ; Lookup table of lengths
+0514 11a7 a6 86                      LDA     A,X             ; Get table entry
+0515 11a9 bb 10 08                   ADDA    LEN             ; Add to instruction length
+0516 11ac b7 10 08                   STA     LEN             ; Save new length
+0517                         
+0518                         NotIndexed
+0519                         
+0520                         ; Print address followed by a space
+0521 11af ae 8d fe 4f                LDX     ADDR,PCR
+0522 11b3 17 fe e8                   LBSR    PrintAddress
+0523                         
+0524                         ; Print one more space
+0525                         
+0526 11b6 17 fe b5                   LBSR    PrintSpace
+0527                         
+0528                         ; Print the op code bytes based on the instruction length
+0529                         
+0530 11b9 f6 10 08                   LDB     LEN             ; Number of bytes in instruction
+0531 11bc ae 8d fe 42                LDX     ADDR,PCR        ; Pointer to start of instruction
+0532 11c0 a6 80              opby    LDA     ,X+             ; Get instruction byte and increment pointer
+0533 11c2 17 fe cb                   LBSR    PrintByte       ; Print it, followed by a space
+0534 11c5 5a                         DECB                    ; Decrement byte count
+0535 11c6 26 f8                      BNE     opby            ; Repeat until done
+0536                         
+0537                         ; Print needed remaining spaces to pad out to correct column
+0538                         
+0539 11c8 30 8d 07 1b                LEAX    PADDING,PCR     ; Pointer to start of lookup table
+0540 11cc b6 10 08                   LDA     LEN             ; Number of bytes in instruction
+0541 11cf 4a                         DECA                    ; Subtract 1 since table starts at 1, not 0
+0542 11d0 a6 86                      LDA     A,X             ; Get number of spaces to print
+0543 11d2 17 fe a7                   LBSR    PrintSpaces
+0544                         
+0545                         ; If a page2/3 instruction, advance ADDR to the next byte which points
+0546                         ; to the real op code.
+0547                         
+0548 11d5 7d 10 0e                   TST     PAGE23          ; Flag set
+0549 11d8 27 09                      BEQ     noinc           ; Branch if not
+0550 11da fc 10 02                   LDD     ADDR            ; Increment 16-bit address
+0551 11dd c3 00 01                   ADDD    #1
+0552 11e0 fd 10 02                   STD     ADDR
+0553                         
+0554                         ; Get and print mnemonic (4 chars)
+0555                         
+0556 11e3 f6 10 06           noinc   LDB     OPTYPE          ; Get instruction type to index into table
+0557 11e6 4f                         CLRA                    ; Clear MSB of D
+0558 11e7 58                         ASLB                    ; 16-bit shift of D: Rotate B, MSB into Carry
+0559 11e8 49                         ROLA                    ; Rotate A, Carry into LSB
+0560 11e9 58                         ASLB                    ; Do it twice to multiple by four
+0561 11ea 49                         ROLA                    ;
+0562 11eb 30 8d 04 db                LEAX    MNEMONICS,PCR   ; Pointer to start of table
+0563 11ef b7 10 0b                   STA     TEMP1           ; Save value of A
+0564 11f2 a6 8b                      LDA     D,X             ; Get first char of mnemonic
+0565 11f4 17 fe 93                   LBSR    PrintChar       ; Print it
+0566 11f7 b6 10 0b                   LDA     TEMP1           ; Restore value of A
+0567 11fa 5c                         INCB                    ; Advance pointer
+0568 11fb a6 8b                      LDA     D,X             ; Get second char of mnemonic
+0569 11fd 17 fe 8a                   LBSR    PrintChar       ; Print it
+0570 1200 b6 10 0b                   LDA     TEMP1           ; Restore value of A
+0571 1203 5c                         INCB                    ; Advance pointer
+0572 1204 a6 8b                      LDA     D,X             ; Get third char of mnemonic
+0573 1206 17 fe 81                   LBSR    PrintChar       ; Print it
+0574 1209 b6 10 0b                   LDA     TEMP1           ; Restore value of A
+0575 120c 5c                         INCB                    ; Advance pointer
+0576 120d a6 8b                      LDA     D,X             ; Get fourth char of mnemonic
+0577 120f 17 fe 78                   LBSR    PrintChar       ; Print it
+0578                         
+0579                         ; Display any operands based on addressing mode and call appropriate
+0580                         ; routine. TODO: Could use a lookup table for this.
+0581                         
+0582 1212 b6 10 05                   LDA     AM              ; Get addressing mode
+0583 1215 81 00                      CMPA    #AM_INVALID
+0584 1217 27 2e                      BEQ     DO_INVALID
+0585 1219 81 01                      CMPA    #AM_INHERENT
+0586 121b 27 39                      BEQ     DO_INHERENT
+0587 121d 81 02                      CMPA    #AM_IMMEDIATE8
+0588 121f 27 38                      BEQ     DO_IMMEDIATE8
+0589 1221 81 03                      CMPA    #AM_IMMEDIATE16
+0590 1223 10 27 01 af                LBEQ    DO_IMMEDIATE16
+0591 1227 81 04                      CMPA    #AM_DIRECT
+0592 1229 10 27 01 c4                LBEQ    DO_DIRECT
+0593 122d 81 05                      CMPA    #AM_EXTENDED
+0594 122f 10 27 01 d0                LBEQ    DO_EXTENDED
+0595 1233 81 06                      CMPA    #AM_RELATIVE8
+0596 1235 10 27 01 e0                LBEQ    DO_RELATIVE8
+0597 1239 81 07                      CMPA    #AM_RELATIVE16
+0598 123b 10 27 01 f5                LBEQ    DO_RELATIVE16
+0599 123f 81 08                      CMPA    #AM_INDEXED
+0600 1241 10 27 02 09                LBEQ    DO_INDEXED
+0601 1245 20 00                      BRA     DO_INVALID      ; Should never be reached
+0602                         
+0603                         DO_INVALID                      ; Display "   ; INVALID"
+0604 1247 86 0f                      LDA     #15             ; Want 15 spaces
+0605 1249 17 fe 30                   LBSR    PrintSpaces
+0606 124c 30 8d 09 4a                LEAX    MSG1,PCR
+0607 1250 17 fe 59                   LBSR    PrintString
+0608 1253 16 04 5e                   LBRA    done
+0609                         
+0610                         DO_INHERENT                    ; Nothing else to do
+0611 1256 16 04 5b                   LBRA    done
+0612                         
+0613                         DO_IMMEDIATE8
+0614 1259 b6 10 06                   LDA     OPTYPE          ; Get opcode type
+0615 125c 81 81                      CMPA    #OP_TFR         ; Is is TFR?
+0616 125e 27 33                      BEQ     XFREXG          ; Handle special case of TFR
+0617 1260 81 37                      CMPA    #OP_EXG         ; Is is EXG?
+0618 1262 27 2f                      BEQ     XFREXG          ; Handle special case of EXG
+0619                         
+0620 1264 81 66                      CMPA    #OP_PULS        ; Is is PULS?
+0621 1266 10 27 00 ad                LBEQ    PULPSH
+0622 126a 81 67                      CMPA    #OP_PULU        ; Is is PULU?
+0623 126c 10 27 00 a7                LBEQ    PULPSH
+0624 1270 81 64                      CMPA    #OP_PSHS        ; Is is PSHS?
+0625 1272 10 27 00 a1                LBEQ    PULPSH
+0626 1276 81 65                      CMPA    #OP_PSHU        ; Is is PSHU?
+0627 1278 10 27 00 9b                LBEQ    PULPSH
+0628                                                         ; Display "  #$nn"
+0629 127c 17 fd f2                   LBSR    Print2Spaces    ; Two spaces
+0630 127f 86 23                      LDA     #'#             ; Number sign
+0631 1281 17 fe 06                   LBSR    PrintChar
+0632 1284 17 fd c3                   LBSR    PrintDollar     ; Dollar sign
+0633 1287 ae 8d fd 77                LDX     ADDR,PCR        ; Get address of op code
+0634 128b a6 01                      LDA     1,X             ; Get next byte (immediate data)
+0635 128d 17 fe 00                   LBSR    PrintByte       ; Print as hex value
+0636 1290 16 04 21                   LBRA    done
+0637                         
+0638                         XFREXG                          ; Handle special case of TFR and EXG
+0639                                                         ; Display "  r1,r2"
+0640 1293 17 fd db                   LBSR    Print2Spaces    ; Two spaces
+0641 1296 ae 8d fd 68                LDX     ADDR,PCR        ; Get address of op code
+0642 129a a6 01                      LDA     1,X             ; Get next byte (postbyte)
+0643 129c 84 f0                      ANDA    #%11110000      ; Mask out source register bits
+0644 129e 44                         LSRA                    ; Shift into low order bits
+0645 129f 44                         LSRA
+0646 12a0 44                         LSRA
+0647 12a1 44                         LSRA
+0648 12a2 8d 0e                      BSR     TFREXGRegister  ; Print source register name
+0649 12a4 86 2c                      LDA     #',             ; Print comma
+0650 12a6 17 fd e1                   LBSR    PrintChar
+0651 12a9 a6 01                      LDA     1,X             ; Get postbyte again
+0652 12ab 84 0f                      ANDA    #%00001111      ; Mask out destination register bits
+0653 12ad 8d 03                      BSR     TFREXGRegister  ; Print destination register name
+0654 12af 16 04 02                   LBRA    done
+0655                         
+0656                         ; Look up register name (in A) from Transfer/Exchange postbyte. 4 LSB
+0657                         ; bits determine the register name. Value is printed. Invalid value
+0658                         ; is shown as '?'.
+0659                         ; Value:    0 1 2 3 4 5  8 9 10 11
+0660                         ; Register: D X Y U S PC A B CC DP
+0661                         
+0662                         TFREXGRegister
+0663 12b2 81 00                      CMPA    #0
+0664 12b4 26 04                      BNE     Try1
+0665 12b6 86 44                      LDA     #'D
+0666 12b8 20 50                      BRA     Print1Reg
+0667 12ba 81 01              Try1    CMPA    #1
+0668 12bc 26 04                      BNE     Try2
+0669 12be 86 58                      LDA     #'X
+0670 12c0 20 48                      BRA     Print1Reg
+0671 12c2 81 02              Try2    CMPA    #2
+0672 12c4 26 04                      BNE     Try3
+0673 12c6 86 59                      LDA     #'Y
+0674 12c8 20 40                      BRA     Print1Reg
+0675 12ca 81 03              Try3    CMPA    #3
+0676 12cc 26 04                      BNE     Try4
+0677 12ce 86 55                      LDA     #'U
+0678 12d0 20 38                      BRA     Print1Reg
+0679 12d2 81 04              Try4    CMPA    #4
+0680 12d4 26 04                      BNE     Try5
+0681 12d6 86 53                      LDA     #'S
+0682 12d8 20 30                      BRA     Print1Reg
+0683 12da 81 05              Try5    CMPA    #5
+0684 12dc 26 06                      BNE     Try8
+0685 12de 86 50                      LDA     #'P
+0686 12e0 c6 43                      LDB     #'C
+0687 12e2 20 2a                      BRA     Print2Reg
+0688 12e4 81 08              Try8    CMPA    #8
+0689 12e6 26 04                      BNE     Try9
+0690 12e8 86 41                      LDA     #'A
+0691 12ea 20 1e                      BRA     Print1Reg
+0692 12ec 81 09              Try9    CMPA    #9
+0693 12ee 26 04                      BNE     Try10
+0694 12f0 86 42                      LDA     #'B
+0695 12f2 20 16                      BRA     Print1Reg
+0696 12f4 81 0a              Try10   CMPA    #10
+0697 12f6 26 06                      BNE     Try11
+0698 12f8 86 43                      LDA     #'C
+0699 12fa c6 43                      LDB     #'C
+0700 12fc 20 10                      BRA     Print2Reg
+0701 12fe 81 0b              Try11   CMPA    #11
+0702 1300 26 06                      BNE     Inv
+0703 1302 86 44                      LDA     #'D
+0704 1304 c6 50                      LDB     #'P
+0705 1306 20 06                      BRA     Print2Reg
+0706 1308 86 3f              Inv     LDA     #'?             ; Invalid
+0707                                                         ; Fall through
+0708                         Print1Reg
+0709 130a 17 fd 7d                   LBSR   PrintChar        ; Print character
+0710 130d 39                         RTS
+0711                         Print2Reg
+0712 130e 17 fd 79                   LBSR   PrintChar        ; Print first character
+0713 1311 1f 98                      TFR    B,A
+0714 1313 17 fd 74                   LBSR   PrintChar        ; Print second character
+0715 1316 39                         RTS
+0716                         
+0717                         ; Handle PSHS/PSHU/PULS/PULU instruction operands
+0718                         ; Format is a register list, eg; "  A,B,X"
+0719                         
+0720                         PULPSH
+0721 1317 17 fd 57                   LBSR    Print2Spaces    ; Two spaces
+0722 131a 86 01                      LDA     #1
+0723 131c b7 10 0d                   STA     FIRST           ; Flag set before any items printed
+0724 131f ae 8d fc df                LDX     ADDR,PCR        ; Get address of op code
+0725 1323 a6 01                      LDA     1,X             ; Get next byte (postbyte)
+0726                         
+0727                         ; Postbyte bits indicate registers to push/pull when 1.
+0728                         ; 7  6   5 4 3  2 1 0
+0729                         ; PC S/U Y X DP B A CC
+0730                         
+0731                         ; TODO: Could simplify this with shifting and lookup table.
+0732                         
+0733 1325 85 80                      BITA    #%10000000      ; Bit 7 set?
+0734 1327 27 0d                      BEQ     bit6
+0735 1329 34 06                      PSHS    A,B
+0736 132b 86 50                      LDA     #'P
+0737 132d c6 43                      LDB     #'C
+0738 132f 8d dd                      BSR     Print2Reg       ; Print PC
+0739 1331 7f 10 0d                   CLR     FIRST
+0740 1334 35 06                      PULS    A,B
+0741 1336 85 40              bit6    BITA    #%01000000      ; Bit 6 set?
+0742 1338 27 21                      BEQ     bit5
+0743                         
+0744                         ; Need to show S or U depending on instruction
+0745                         
+0746 133a 34 02                      PSHS    A               ; Save postbyte
+0747 133c b6 10 06                   LDA     OPTYPE          ; Get opcode type
+0748 133f 81 66                      CMPA    #OP_PULS
+0749 1341 27 12                      BEQ     printu
+0750 1343 81 64                      CMPA    #OP_PSHS
+0751 1345 27 0e                      BEQ     printu
+0752 1347 17 00 81                   LBSR    PrintCommaIfNotFirst
+0753 134a 86 53                      LDA     #'S             ; Print S
+0754 134c 8d bc              pr1     BSR     Print1Reg
+0755 134e 7f 10 0d                   CLR     FIRST
+0756 1351 35 02                      PULS    A
+0757 1353 20 06                      bra     bit5
+0758 1355 8d 74              printu  BSR     PrintCommaIfNotFirst
+0759 1357 86 55                      LDA     #'U             ; Print U
+0760 1359 20 f1                      bra     pr1
+0761 135b 85 20              bit5    BITA    #%00100000      ; Bit 5 set?
+0762 135d 27 0d                      BEQ     bit4
+0763 135f 34 02                      PSHS    A
+0764 1361 8d 68                      BSR     PrintCommaIfNotFirst
+0765 1363 86 59                      LDA     #'Y
+0766 1365 8d a3                      BSR     Print1Reg       ; Print Y
+0767 1367 7f 10 0d                   CLR     FIRST
+0768 136a 35 02                      PULS    A
+0769 136c 85 10              bit4    BITA    #%00010000      ; Bit 4 set?
+0770 136e 27 0d                      BEQ     bit3
+0771 1370 34 02                      PSHS    A
+0772 1372 8d 57                      BSR     PrintCommaIfNotFirst
+0773 1374 86 58                      LDA     #'X
+0774 1376 8d 92                      BSR     Print1Reg       ; Print X
+0775 1378 7f 10 0d                   CLR     FIRST
+0776 137b 35 02                      PULS    A
+0777 137d 85 08              bit3    BITA    #%00001000      ; Bit 3 set?
+0778 137f 27 0f                      BEQ     bit2
+0779 1381 34 06                      PSHS    A,B
+0780 1383 8d 46                      BSR     PrintCommaIfNotFirst
+0781 1385 86 44                      LDA     #'D
+0782 1387 c6 50                      LDB     #'P
+0783 1389 8d 83                      BSR     Print2Reg       ; Print DP
+0784 138b 7f 10 0d                   CLR     FIRST
+0785 138e 35 06                      PULS    A,B
+0786 1390 85 04              bit2    BITA    #%00000100      ; Bit 2 set?
+0787 1392 27 0e                      BEQ     bit1
+0788 1394 34 02                      PSHS    A
+0789 1396 8d 33                      BSR     PrintCommaIfNotFirst
+0790 1398 86 42                      LDA     #'B
+0791 139a 17 ff 6d                   LBSR    Print1Reg       ; Print B
+0792 139d 7f 10 0d                   CLR     FIRST
+0793 13a0 35 02                      PULS    A
+0794 13a2 85 02              bit1    BITA    #%00000010      ; Bit 1 set?
+0795 13a4 27 0e                      BEQ     bit0
+0796 13a6 34 02                      PSHS    A
+0797 13a8 8d 21                      BSR     PrintCommaIfNotFirst
+0798 13aa 86 41                      LDA     #'A
+0799 13ac 17 ff 5b                   LBSR    Print1Reg       ; Print A
+0800 13af 7f 10 0d                   CLR     FIRST
+0801 13b2 35 02                      PULS    A
+0802 13b4 85 01              bit0    BITA    #%00000001      ; Bit 0 set?
+0803 13b6 27 10                      BEQ     done1
+0804 13b8 34 06                      PSHS    A,B
+0805 13ba 8d 0f                      BSR     PrintCommaIfNotFirst
+0806 13bc 86 43                      LDA     #'C
+0807 13be c6 43                      LDB     #'C
+0808 13c0 17 ff 4b                   LBSR    Print2Reg       ; Print CC
+0809 13c3 7f 10 0d                   CLR     FIRST
+0810 13c6 35 06                      PULS    A,B
+0811 13c8 16 02 e9           done1   LBRA    done
+0812                         
+0813                         ; Print comma if FIRST flag is not set.
+0814                         PrintCommaIfNotFirst
+0815 13cb 7d 10 0d                   TST     FIRST
+0816 13ce 26 05                      BNE     ret1
+0817 13d0 86 2c                      LDA     #',
+0818 13d2 17 fc b5                   LBSR    PrintChar
+0819 13d5 39                 ret1    RTS
+0820                         
+0821                         DO_IMMEDIATE16                  ; Display "  #$nnnn"
+0822 13d6 17 fc 98                   LBSR    Print2Spaces    ; Two spaces
+0823 13d9 86 23                      LDA     #'#             ; Number sign
+0824 13db 17 fc ac                   LBSR    PrintChar
+0825 13de 17 fc 69                   LBSR    PrintDollar     ; Dollar sign
+0826 13e1 ae 8d fc 1d                LDX     ADDR,PCR        ; Get address of op code
+0827 13e5 a6 01                      LDA     1,X             ; Get first byte (immediate data MSB)
+0828 13e7 e6 02                      LDB     2,X             ; Get second byte (immediate data LSB)
+0829 13e9 1f 01                      TFR     D,X             ; Put in X to print
+0830 13eb 17 fc b0                   LBSR    PrintAddress    ; Print as hex value
+0831 13ee 16 02 c3                   LBRA    done
+0832                         
+0833                         DO_DIRECT                       ; Display "  $nn"
+0834 13f1 17 fc 7d                   LBSR    Print2Spaces    ; Two spaces
+0835 13f4 17 fc 53                   LBSR    PrintDollar     ; Dollar sign
+0836 13f7 ae 8d fc 07                LDX     ADDR,PCR        ; Get address of op code
+0837 13fb a6 01                      LDA     1,X             ; Get next byte (byte data)
+0838 13fd 17 fc 90                   LBSR    PrintByte       ; Print as hex value
+0839 1400 16 02 b1                   LBRA    done
+0840                         
+0841                         DO_EXTENDED                     ; Display "  $nnnn"
+0842 1403 17 fc 6b                   LBSR    Print2Spaces    ; Two spaces
+0843 1406 17 fc 41                   LBSR    PrintDollar     ; Dollar sign
+0844 1409 ae 8d fb f5                LDX     ADDR,PCR        ; Get address of op code
+0845 140d a6 01                      LDA     1,X             ; Get first byte (address MSB)
+0846 140f e6 02                      LDB     2,X             ; Get second byte (address LSB)
+0847 1411 1f 01                      TFR     D,X             ; Put in X to print
+0848 1413 17 fc 88                   LBSR    PrintAddress    ; Print as hex value
+0849 1416 16 02 9b                   LBRA    done
+0850                         
+0851                         DO_RELATIVE8                    ; Display "  $nnnn"
+0852 1419 17 fc 55                   LBSR    Print2Spaces    ; Two spaces
+0853 141c 17 fc 2b                   LBSR    PrintDollar     ; Dollar sign
+0854                         
+0855                         ; Destination address for relative branch is address of opcode + (sign
+0856                         ; extended)offset + 2, e.g.
+0857                         ;   $1015 + $(FF)FC + 2 = $1013
+0858                         ;   $101B + $(00)27 + 2 = $1044
+0859                         
+0860 141f ae 8d fb df                LDX     ADDR,PCR        ; Get address of op code
+0861 1423 e6 01                      LDB     1,X             ; Get first byte (8-bit branch offset)
+0862 1425 1d                         SEX                     ; Sign extend to 16 bits
+0863 1426 f3 10 02                   ADDD    ADDR            ; Add address of op code
+0864 1429 c3 00 02                   ADDD    #2              ; Add 2
+0865 142c 1f 01                      TFR     D,X             ; Put in X to print
+0866 142e 17 fc 6d                   LBSR    PrintAddress    ; Print as hex value
+0867 1431 16 02 80                   LBRA    done
+0868                         
+0869                         DO_RELATIVE16                   ; Display "  $nnnn"
+0870 1434 17 fc 3a                   LBSR    Print2Spaces    ; Two spaces
+0871 1437 17 fc 10                   LBSR    PrintDollar     ; Dollar sign
+0872                         
+0873                         ; Destination address calculation is similar to above, except offset
+0874                         ; is 16 bits and need to add 3.
+0875                         
+0876 143a ae 8d fb c4                LDX     ADDR,PCR        ; Get address of op code
+0877 143e ec 01                      LDD     1,X             ; Get next 2 bytes (16-bit branch offset)
+0878 1440 f3 10 02                   ADDD    ADDR            ; Add address of op code
+0879 1443 c3 00 03                   ADDD    #3              ; Add 3
+0880 1446 1f 01                      TFR     D,X             ; Put in X to print
+0881 1448 17 fc 53                   LBSR    PrintAddress    ; Print as hex value
+0882 144b 16 02 66                   LBRA    done
+0883                         
+0884                         DO_INDEXED
+0885 144e 17 fc 20                   LBSR    Print2Spaces    ; Two spaces
+0886                         
+0887                         ; Addressing modes are determined by the postbyte:
+0888                         ;
+0889                         ; Postbyte  Format  Additional Bytes
+0890                         ; --------  ------  ----------------
+0891                         ; 0RRnnnnn  n,R     0
+0892                         ; 1RR00100  ,R      0
+0893                         ; 1RR01000  n,R     1
+0894                         ; 1RR01001  n,R     2
+0895                         ; 1RR00110  A,R     0
+0896                         ; 1RR00101  B,R     0
+0897                         ; 1RR01011  D,R     0
+0898                         ; 1RR00000  ,R+     0
+0899                         ; 1RR00001  ,R++    0
+0900                         ; 1RR00010  ,-R     0
+0901                         ; 1RR00011  ,--R    0
+0902                         ; 1xx01100  n,PCR   1
+0903                         ; 1xx01101  n,PCR   2
+0904                         ; 1RR10100  [,R]    0
+0905                         ; 1RR11000  [n,R]   1
+0906                         ; 1RR11001  [n,R]   2
+0907                         ; 1RR10110  [A,R]   0
+0908                         ; 1RR10101  [B,R]   0
+0909                         ; 1RR11011  [D,R]   0
+0910                         ; 1RR10001  [,R++]  0
+0911                         ; 1RR10011  [,--R]  0
+0912                         ; 1xx11100  [n,PCR] 1
+0913                         ; 1xx11101  [n,PCR] 2
+0914                         ; 10011111  [n]     2
+0915                         ;
+0916                         ; Where RR: 00=X 01=Y 10=U 11=S
+0917                         
+0918 1451 b6 10 07                   LDA     POSTBYT         ; Get postbyte
+0919 1454 2b 14                      BMI     ind2            ; Branch if MSB is 1
+0920                         
+0921                                                         ; Format is 0RRnnnnn  n,R
+0922 1456 84 1f                      ANDA    #%00011111      ; Get 5-bit offset
+0923 1458 17 fb ef                   LBSR    PrintDollar     ; Dollar sign
+0924 145b 17 fc 32                   LBSR    PrintByte       ; Print offset
+0925 145e 17 fb f2                   LBSR    PrintComma      ; Print comma
+0926 1461 b6 10 07                   LDA     POSTBYT         ; Get postbyte again
+0927 1464 17 02 2d                   LBSR    PrintRegister   ; Print register name
+0928 1467 16 02 4a                   LBRA    done
+0929                         ind2
+0930 146a 84 9f                      ANDA    #%10011111      ; Mask out register bits
+0931 146c 81 84                      CMPA    #%10000100      ; Check against pattern
+0932 146e 26 0c                      BNE     ind3
+0933                                                         ; Format is 1RR00100  ,R
+0934 1470 17 fb e0                   LBSR    PrintComma      ; Print comma
+0935 1473 b6 10 07                   LDA     POSTBYT         ; Get postbyte again
+0936 1476 17 02 1b                   LBSR    PrintRegister   ; Print register name
+0937 1479 16 02 38                   LBRA    done
+0938                         ind3
+0939 147c 81 88                      CMPA    #%10001000      ; Check against pattern
+0940 147e 26 18                      BNE     ind4
+0941                                                         ; Format is 1RR01000  n,R
+0942 1480 ae 8d fb 7e                LDX     ADDR,PCR
+0943 1484 a6 02                      LDA     2,X             ; Get 8-bit offset
+0944 1486 17 fb c1                   LBSR    PrintDollar     ; Dollar sign
+0945 1489 17 fc 04                   LBSR    PrintByte       ; Display it
+0946 148c 17 fb c4                   LBSR    PrintComma      ; Print comma
+0947 148f b6 10 07                   LDA     POSTBYT         ; Get postbyte again
+0948 1492 17 01 ff                   LBSR    PrintRegister   ; Print register name
+0949 1495 16 02 1c                   LBRA    done
+0950                         ind4
+0951 1498 81 89                      CMPA    #%10001001      ; Check against pattern
+0952 149a 26 1a                      BNE     ind5
+0953                                                         ; Format is 1RR01001  n,R
+0954 149c ae 8d fb 62                LDX     ADDR,PCR
+0955 14a0 ec 02                      LDD     2,X             ; Get 16-bit offset
+0956 14a2 1f 01                      TFR     D,X
+0957 14a4 17 fb a3                   LBSR    PrintDollar     ; Dollar sign
+0958 14a7 17 fb f4                   LBSR    PrintAddress    ; Display it
+0959 14aa 17 fb a6                   LBSR    PrintComma      ; Print comma
+0960 14ad b6 10 07                   LDA     POSTBYT         ; Get postbyte again
+0961 14b0 17 01 e1                   LBSR    PrintRegister   ; Print register name
+0962 14b3 16 01 fe                   LBRA    done
+0963                         ind5
+0964 14b6 81 86                      CMPA    #%10000110      ; Check against pattern
+0965 14b8 26 11                      BNE     ind6
+0966                                                         ; Format is 1RR00110  A,R
+0967 14ba 86 41                      LDA     #'A
+0968 14bc 17 fb cb                   LBSR    PrintChar       ; Print A
+0969 14bf 17 fb 91           commar  LBSR    PrintComma      ; Print comma
+0970 14c2 b6 10 07                   LDA     POSTBYT         ; Get postbyte again
+0971 14c5 17 01 cc                   LBSR    PrintRegister   ; Print register name
+0972 14c8 16 01 e9                   LBRA    done
+0973                         ind6
+0974 14cb 81 85                      CMPA    #%10000101      ; Check against pattern
+0975 14cd 26 07                      BNE     ind7
+0976                                                         ; Format is 1RR00101  B,R
+0977 14cf 86 42                      LDA     #'B
+0978 14d1 17 fb b6                   LBSR    PrintChar
+0979 14d4 20 e9                      BRA     commar
+0980                         ind7
+0981 14d6 81 8b                      CMPA    #%10001011      ; Check against pattern
+0982 14d8 26 07                      BNE     ind8
+0983                                                         ; Format is 1RR01011  D,R
+0984 14da 86 44                      LDA     #'D
+0985 14dc 17 fb ab                   LBSR    PrintChar
+0986 14df 20 de                      BRA     commar
+0987                         ind8
+0988 14e1 81 80                      CMPA    #%10000000      ; Check against pattern
+0989 14e3 26 11                      BNE     ind9
+0990                                                         ; Format is 1RR00000  ,R+
+0991 14e5 17 fb 6b                   LBSR    PrintComma      ; Print comma
+0992 14e8 b6 10 07                   LDA     POSTBYT         ; Get postbyte again
+0993 14eb 17 01 a6                   LBSR    PrintRegister   ; Print register name
+0994 14ee 86 2b                      LDA     #'+             ; Print plus
+0995 14f0 17 fb 97                   LBSR    PrintChar
+0996 14f3 16 01 be                   LBRA    done
+0997                         ind9
+0998 14f6 81 81                      CMPA    #%10000001      ; Check against pattern
+0999 14f8 26 14                      BNE     ind10
+1000                                                         ; Format is 1RR00001  ,R++
+1001 14fa 17 fb 56                   LBSR    PrintComma      ; Print comma
+1002 14fd b6 10 07                   LDA     POSTBYT         ; Get postbyte again
+1003 1500 17 01 91                   LBSR    PrintRegister   ; Print register name
+1004 1503 86 2b                      LDA     #'+             ; Print plus twice
+1005 1505 17 fb 82                   LBSR    PrintChar
+1006 1508 17 fb 7f                   LBSR    PrintChar
+1007 150b 16 01 a6                   LBRA    done
+1008                         ind10
+1009 150e 81 82                      CMPA    #%10000010      ; Check against pattern
+1010 1510 26 11                      BNE     ind11
+1011                                                         ; Format is 1RR00010  ,-R
+1012 1512 17 fb 3e                   LBSR    PrintComma      ; Print comma
+1013 1515 86 2d                      LDA     #'-             ; Print minus
+1014 1517 17 fb 70                   LBSR    PrintChar
+1015 151a b6 10 07                   LDA     POSTBYT         ; Get postbyte again
+1016 151d 17 01 74                   LBSR    PrintRegister   ; Print register name
+1017 1520 16 01 91                   LBRA    done
+1018                         ind11
+1019 1523 81 83                      CMPA    #%10000011      ; Check against pattern
+1020 1525 26 14                      BNE     ind12
+1021                                                         ; Format is 1RR00011  ,--R
+1022 1527 17 fb 29                   LBSR    PrintComma      ; Print comma
+1023 152a 86 2d                      LDA     #'-             ; Print minus twice
+1024 152c 17 fb 5b                   LBSR    PrintChar
+1025 152f 17 fb 58                   LBSR    PrintChar
+1026 1532 b6 10 07                   LDA     POSTBYT         ; Get postbyte again
+1027 1535 17 01 5c                   LBSR    PrintRegister   ; Print register name
+1028 1538 16 01 79                   LBRA    done
+1029                         ind12
+1030 153b 81 8c                      CMPA    #%10001100      ; Check against pattern
+1031 153d 26 15                      BNE     ind13
+1032                                                         ; Format is 1xx01100  n,PCR
+1033 153f ae 8d fa bf                LDX     ADDR,PCR
+1034 1543 a6 02                      LDA     2,X             ; Get 8-bit offset
+1035 1545 17 fb 02                   LBSR    PrintDollar     ; Dollar sign
+1036 1548 17 fb 45                   LBSR    PrintByte       ; Display it
+1037 154b 17 fb 05                   LBSR    PrintComma      ; Print comma
+1038 154e 17 01 5b                   LBSR    PrintPCR        ; Print PCR
+1039 1551 16 01 60                   LBRA    done
+1040                         ind13
+1041 1554 81 8d                      CMPA    #%10001101      ; Check against pattern
+1042 1556 26 17                      BNE     ind14
+1043                                                         ; Format is 1xx01101  n,PCR
+1044 1558 ae 8d fa a6                LDX     ADDR,PCR
+1045 155c ec 02                      LDD     2,X             ; Get 16-bit offset
+1046 155e 1f 01                      TFR     D,X
+1047 1560 17 fa e7                   LBSR    PrintDollar     ; Dollar sign
+1048 1563 17 fb 38                   LBSR    PrintAddress    ; Display it
+1049 1566 17 fa ea                   LBSR    PrintComma      ; Print comma
+1050 1569 17 01 40                   LBSR    PrintPCR        ; Print PCR
+1051 156c 16 01 45                   LBRA    done
+1052                         ind14
+1053 156f 81 94                      CMPA    #%10010100      ; Check against pattern
+1054 1571 26 12                      BNE     ind15
+1055                                                         ; Format is 1RR10100  [,R]
+1056 1573 17 fa e6                   LBSR    PrintLBracket   ; Print left bracket
+1057 1576 17 fa da                   LBSR    PrintComma      ; Print comma
+1058 1579 b6 10 07                   LDA     POSTBYT         ; Get postbyte again
+1059 157c 17 01 15                   LBSR    PrintRegister   ; Print register name
+1060 157f 17 fa e3                   LBSR    PrintRBracket   ; Print right bracket
+1061 1582 16 01 2f                   LBRA    done
+1062                         ind15
+1063 1585 81 98                      CMPA    #%10011000      ; Check against pattern
+1064 1587 26 1e                      BNE     ind16
+1065                                                         ; Format is 1RR11000  [n,R]
+1066 1589 17 fa d0                   LBSR    PrintLBracket   ; Print left bracket
+1067 158c ae 8d fa 72                LDX     ADDR,PCR
+1068 1590 a6 02                      LDA     2,X             ; Get 8-bit offset
+1069 1592 17 fa b5                   LBSR    PrintDollar     ; Dollar sign
+1070 1595 17 fa f8                   LBSR    PrintByte       ; Display it
+1071 1598 17 fa b8                   LBSR    PrintComma      ; Print comma
+1072 159b b6 10 07                   LDA     POSTBYT         ; Get postbyte again
+1073 159e 17 00 f3                   LBSR    PrintRegister   ; Print register name
+1074 15a1 17 fa c1                   LBSR    PrintRBracket   ; Print right bracket
+1075 15a4 16 01 0d                   LBRA    done
+1076                         ind16
+1077 15a7 81 99                      CMPA    #%10011001      ; Check against pattern
+1078 15a9 26 20                      BNE     ind17
+1079                                                         ; Format is 1RR11001  [n,R]
+1080 15ab 17 fa ae                   LBSR    PrintLBracket   ; Print left bracket
+1081 15ae ae 8d fa 50                LDX     ADDR,PCR
+1082 15b2 ec 02                      LDD     2,X             ; Get 16-bit offset
+1083 15b4 1f 01                      TFR     D,X
+1084 15b6 17 fa 91                   LBSR    PrintDollar     ; Dollar sign
+1085 15b9 17 fa e2                   LBSR    PrintAddress    ; Display it
+1086 15bc 17 fa 94                   LBSR    PrintComma      ; Print comma
+1087 15bf b6 10 07                   LDA     POSTBYT         ; Get postbyte again
+1088 15c2 17 00 cf                   LBSR    PrintRegister   ; Print register name
+1089 15c5 17 fa 9d                   LBSR    PrintRBracket   ; Print right bracket
+1090 15c8 16 00 e9                   LBRA    done
+1091                         ind17
+1092 15cb 81 96                      CMPA    #%10010110      ; Check against pattern
+1093 15cd 26 17                      BNE     ind18
+1094                                                         ; Format is 1RR10110  [A,R]
+1095 15cf 17 fa 8a                   LBSR    PrintLBracket   ; Print left bracket
+1096 15d2 86 41                      LDA     #'A
+1097 15d4 17 fa b3                   LBSR    PrintChar       ; Print A
+1098 15d7 17 fa 79           comrb   LBSR    PrintComma      ; Print comma
+1099 15da b6 10 07                   LDA     POSTBYT         ; Get postbyte again
+1100 15dd 17 00 b4                   LBSR    PrintRegister   ; Print register name
+1101 15e0 17 fa 82                   LBSR    PrintRBracket   ; Print right bracket
+1102 15e3 16 00 ce                   LBRA    done
+1103                         ind18
+1104 15e6 81 95                      CMPA    #%10010101      ; Check against pattern
+1105 15e8 26 0a                      BNE     ind19
+1106                                                         ; Format is 1RR10101  [B,R]
+1107 15ea 17 fa 6f                   LBSR    PrintLBracket   ; Print left bracket
+1108 15ed 86 42                      LDA     #'B
+1109 15ef 17 fa 98                   LBSR    PrintChar
+1110 15f2 20 e3                      BRA     comrb
+1111                         ind19
+1112 15f4 81 9b                      CMPA    #%10011011      ; Check against pattern
+1113 15f6 26 0a                      BNE     ind20
+1114                                                         ; Format is 1RR11011  [D,R]
+1115 15f8 17 fa 61                   LBSR    PrintLBracket   ; Print left bracket
+1116 15fb 86 44                      LDA     #'D
+1117 15fd 17 fa 8a                   LBSR    PrintChar
+1118 1600 20 d5                      BRA     comrb
+1119                         ind20
+1120 1602 81 91                      CMPA    #%10010001      ; Check against pattern
+1121 1604 26 1a                      BNE     ind21
+1122                                                         ; Format is 1RR10001  [,R++]
+1123 1606 17 fa 53                   LBSR    PrintLBracket   ; Print left bracket
+1124 1609 17 fa 47                   LBSR    PrintComma      ; Print comma
+1125 160c b6 10 07                   LDA     POSTBYT         ; Get postbyte again
+1126 160f 17 00 82                   LBSR    PrintRegister   ; Print register name
+1127 1612 86 2b                      LDA     #'+             ; Print plus twice
+1128 1614 17 fa 73                   LBSR    PrintChar
+1129 1617 17 fa 70                   LBSR    PrintChar
+1130 161a 17 fa 48                   LBSR    PrintRBracket   ; Print right bracket
+1131 161d 16 00 94                   LBRA    done
+1132                         ind21
+1133 1620 81 93                      CMPA    #%10010011      ; Check against pattern
+1134 1622 26 18                      BNE     ind22
+1135                                                         ; Format is 1RR10011  [,--R]
+1136 1624 17 fa 35                   LBSR    PrintLBracket   ; Print left bracket
+1137 1627 17 fa 29                   LBSR    PrintComma      ; Print comma
+1138 162a 86 2d                      LDA     #'-             ; Print minus twice
+1139 162c 17 fa 5b                   LBSR    PrintChar
+1140 162f 17 fa 58                   LBSR    PrintChar
+1141 1632 b6 10 07                   LDA     POSTBYT         ; Get postbyte again
+1142 1635 8d 5d                      BSR     PrintRegister   ; Print register name
+1143 1637 17 fa 2b                   LBSR    PrintRBracket   ; Print right bracket
+1144 163a 20 78                      BRA     done
+1145                         ind22
+1146 163c 81 9c                      CMPA    #%10011100      ; Check against pattern
+1147 163e 26 19                      BNE     ind23
+1148                                                         ; Format is 1xx11100  [n,PCR]
+1149 1640 17 fa 19                   LBSR    PrintLBracket   ; Print left bracket
+1150 1643 ae 8d f9 bb                LDX     ADDR,PCR
+1151 1647 a6 02                      LDA     2,X             ; Get 8-bit offset
+1152 1649 17 f9 fe                   LBSR    PrintDollar     ; Dollar sign
+1153 164c 17 fa 41                   LBSR    PrintByte       ; Display it
+1154 164f 17 fa 01                   LBSR    PrintComma      ; Print comma
+1155 1652 8d 58                      BSR     PrintPCR        ; Print PCR
+1156 1654 17 fa 0e                   LBSR    PrintRBracket   ; Print right bracket
+1157 1657 20 5b                      BRA     done
+1158                         ind23
+1159 1659 81 9d                      CMPA    #%10011101      ; Check against pattern
+1160 165b 26 1b                      BNE     ind24
+1161                                                         ; Format is 1xx11101  [n,PCR]
+1162 165d 17 f9 fc                   LBSR    PrintLBracket   ; Print left bracket
+1163 1660 ae 8d f9 9e                LDX     ADDR,PCR
+1164 1664 ec 02                      LDD     2,X             ; Get 16-bit offset
+1165 1666 1f 01                      TFR     D,X
+1166 1668 17 f9 df                   LBSR    PrintDollar     ; Dollar sign
+1167 166b 17 fa 30                   LBSR    PrintAddress    ; Display it
+1168 166e 17 f9 e2                   LBSR    PrintComma      ; Print comma
+1169 1671 8d 39                      BSR     PrintPCR        ; Print PCR
+1170 1673 17 f9 ef                   LBSR    PrintRBracket   ; Print right bracket
+1171 1676 20 3c                      BRA     done
+1172                         ind24
+1173 1678 81 9f                      CMPA    #%10011111      ; Check against pattern
+1174 167a 26 16                      BNE     ind25
+1175                                                         ; Format is 1xx11111  [n]
+1176 167c 17 f9 dd                   LBSR    PrintLBracket   ; Print left bracket
+1177 167f ae 8d f9 7f                LDX     ADDR,PCR
+1178 1683 ec 02                      LDD     2,X             ; Get 16-bit offset
+1179 1685 1f 01                      TFR     D,X
+1180 1687 17 f9 c0                   LBSR    PrintDollar     ; Dollar sign
+1181 168a 17 fa 11                   LBSR    PrintAddress    ; Display it
+1182 168d 17 f9 d5                   LBSR    PrintRBracket   ; Print right bracket
+1183 1690 20 22                      BRA     done
+1184                         ind25                           ; Should never be reached
+1185 1692 20 20                      BRA     done
+1186                         
+1187                         ; Print register name encoded in bits 5 and 6 of A for indexed
+1188                         ; addressing: xRRxxxxx where RR: 00=X 01=Y 10=U 11=S
+1189                         ; Registers changed: X
+1190                         PrintRegister
+1191 1694 34 02                      PSHS    A               ; Save A
+1192 1696 84 60                      ANDA    #%01100000      ; Mask out other bits
+1193 1698 44                         LSRA                    ; Shift into 2 LSB
+1194 1699 44                         LSRA
+1195 169a 44                         LSRA
+1196 169b 44                         LSRA
+1197 169c 44                         LSRA
+1198 169d 30 8c 08                   LEAX    <REGTABLE,PCR   ; Lookup table of register name characters
+1199 16a0 a6 86                      LDA     A,X             ; Get character
+1200 16a2 17 f9 e5                   LBSR    PrintChar       ; Print it
+1201 16a5 35 02                      PULS    A               ; Restore A
+1202 16a7 39                         RTS                     ; Return
+1203                         REGTABLE
+1204 16a8 58 59 55 53                FCC     "XYUS"
+1205                         
+1206                         ; Print the string "PCR" on the console.
+1207                         ; Registers changed: X
+1208                         PrintPCR
+1209 16ac 30 8d 05 1c                LEAX    MSG3,PCR        ; "PCR" string
+1210 16b0 17 f9 f9                   LBSR    PrintString
+1211 16b3 39                         RTS
+1212                         
+1213                         ; Print final CR
+1214                         
+1215 16b4 17 f9 86           done    LBSR    PrintCR
+1216                         
+1217                         ; Update address to next instruction
+1218                         ; If it was a page 2/3 instruction, we need to subtract one from the
+1219                         ; length to account for ADDR being moved to the second byte of the
+1220                         ; instruction.
+1221                         
+1222 16b7 7d 10 0e                   TST     PAGE23          ; Flag set
+1223 16ba 27 03                      BEQ     not23           ; Branch if not
+1224 16bc 7a 10 08                   DEC     LEN             ; Decrement length
+1225 16bf 4f                 not23   CLRA                    ; Clear MSB of D
+1226 16c0 f6 10 08                   LDB     LEN             ; Get length byte in LSB of D
+1227 16c3 f3 10 02                   ADDD    ADDR            ; Add to address
+1228 16c6 fd 10 02                   STD     ADDR            ; Write new address
+1229                         
+1230                         ; Return
+1231 16c9 39                         RTS
+1232                         
+1233                         ; *** DATA
+1234                         
+1235                         ; Table of instruction strings. 4 bytes per table entry
+1236                         MNEMONICS
+1237 16ca 3f 3f 3f 20                FCC     "??? "          ; $00
+1238 16ce 41 42 58 20                FCC     "ABX "          ; $01
+1239 16d2 41 44 43 41                FCC     "ADCA"          ; $02
+1240 16d6 41 44 43 42                FCC     "ADCB"          ; $03
+1241 16da 41 44 44 41                FCC     "ADDA"          ; $04
+1242 16de 41 44 44 42                FCC     "ADDB"          ; $05
+1243 16e2 41 44 44 44                FCC     "ADDD"          ; $06
+1244 16e6 41 4e 44 41                FCC     "ANDA"          ; $07
+1245 16ea 41 4e 44 42                FCC     "ANDB"          ; $08
+1246 16ee 41 4e 44 43                FCC     "ANDC"          ; $09 Should really  be "ANDCC"
+1247 16f2 41 53 4c 20                FCC     "ASL "          ; $0A
+1248 16f6 41 53 4c 41                FCC     "ASLA"          ; $0B
+1249 16fa 41 53 4c 42                FCC     "ASLB"          ; $0C
+1250 16fe 41 53 52 20                FCC     "ASR "          ; $0D
+1251 1702 41 53 52 41                FCC     "ASRA"          ; $0E
+1252 1706 41 53 52 42                FCC     "ASRB"          ; $0F
+1253 170a 42 43 43 20                FCC     "BCC "          ; $10
+1254 170e 42 43 53 20                FCC     "BCS "          ; $11
+1255 1712 42 45 51 20                FCC     "BEQ "          ; $12
+1256 1716 42 47 45 20                FCC     "BGE "          ; $13
+1257 171a 42 47 54 20                FCC     "BGT "          ; $14
+1258 171e 42 48 49 20                FCC     "BHI "          ; $15
+1259 1722 42 49 54 41                FCC     "BITA"          ; $16
+1260 1726 42 49 54 42                FCC     "BITB"          ; $17
+1261 172a 42 4c 45 20                FCC     "BLE "          ; $18
+1262 172e 42 4c 53 20                FCC     "BLS "          ; $19
+1263 1732 42 4c 54 20                FCC     "BLT "          ; $1A
+1264 1736 42 4d 49 20                FCC     "BMI "          ; $1B
+1265 173a 42 4e 45 20                FCC     "BNE "          ; $1C
+1266 173e 42 50 4c 20                FCC     "BPL "          ; $1D
+1267 1742 42 52 41 20                FCC     "BRA "          ; $1E
+1268 1746 42 52 4e 20                FCC     "BRN "          ; $1F
+1269 174a 42 53 52 20                FCC     "BSR "          ; $20
+1270 174e 42 56 43 20                FCC     "BVC "          ; $21
+1271 1752 42 56 53 20                FCC     "BVS "          ; $22
+1272 1756 43 4c 52 20                FCC     "CLR "          ; $23
+1273 175a 43 4c 52 41                FCC     "CLRA"          ; $24
+1274 175e 43 4c 52 42                FCC     "CLRB"          ; $25
+1275 1762 43 4d 50 41                FCC     "CMPA"          ; $26
+1276 1766 43 4d 50 42                FCC     "CMPB"          ; $27
+1277 176a 43 4d 50 44                FCC     "CMPD"          ; $28
+1278 176e 43 4d 50 53                FCC     "CMPS"          ; $29
+1279 1772 43 4d 50 55                FCC     "CMPU"          ; $2A
+1280 1776 43 4d 50 58                FCC     "CMPX"          ; $2B
+1281 177a 43 4d 50 59                FCC     "CMPY"          ; $2C
+1282 177e 43 4f 4d 41                FCC     "COMA"          ; $2D
+1283 1782 43 4f 4d 42                FCC     "COMB"          ; $2E
+1284 1786 43 4f 4d 20                FCC     "COM "          ; $2F
+1285 178a 43 57 41 49                FCC     "CWAI"          ; $30
+1286 178e 44 41 41 20                FCC     "DAA "          ; $31
+1287 1792 44 45 43 20                FCC     "DEC "          ; $32
+1288 1796 44 45 43 41                FCC     "DECA"          ; $33
+1289 179a 44 45 43 42                FCC     "DECB"          ; $34
+1290 179e 45 4f 52 41                FCC     "EORA"          ; $35
+1291 17a2 45 4f 52 42                FCC     "EORB"          ; $36
+1292 17a6 45 58 47 20                FCC     "EXG "          ; $37
+1293 17aa 49 4e 43 20                FCC     "INC "          ; $38
+1294 17ae 49 4e 43 41                FCC     "INCA"          ; $39
+1295 17b2 49 4e 43 42                FCC     "INCB"          ; $3A
+1296 17b6 4a 4d 50 20                FCC     "JMP "          ; $3B
+1297 17ba 4a 53 52 20                FCC     "JSR "          ; $3C
+1298 17be 4c 42 43 43                FCC     "LBCC"          ; $3D
+1299 17c2 4c 42 43 53                FCC     "LBCS"          ; $3E
+1300 17c6 4c 42 45 51                FCC     "LBEQ"          ; $3F
+1301 17ca 4c 42 47 45                FCC     "LBGE"          ; $40
+1302 17ce 4c 42 47 54                FCC     "LBGT"          ; $41
+1303 17d2 4c 42 48 49                FCC     "LBHI"          ; $42
+1304 17d6 4c 42 4c 45                FCC     "LBLE"          ; $43
+1305 17da 4c 42 4c 53                FCC     "LBLS"          ; $44
+1306 17de 4c 42 4c 54                FCC     "LBLT"          ; $45
+1307 17e2 4c 42 4d 49                FCC     "LBMI"          ; $46
+1308 17e6 4c 42 4e 45                FCC     "LBNE"          ; $47
+1309 17ea 4c 42 50 4c                FCC     "LBPL"          ; $48
+1310 17ee 4c 42 52 41                FCC     "LBRA"          ; $49
+1311 17f2 4c 42 52 4e                FCC     "LBRN"          ; $4A
+1312 17f6 4c 42 53 52                FCC     "LBSR"          ; $4B
+1313 17fa 4c 42 56 43                FCC     "LBVC"          ; $4C
+1314 17fe 4c 42 56 53                FCC     "LBVS"          ; $4D
+1315 1802 4c 44 41 20                FCC     "LDA "          ; $4E
+1316 1806 4c 44 42 20                FCC     "LDB "          ; $4F
+1317 180a 4c 44 44 20                FCC     "LDD "          ; $50
+1318 180e 4c 44 53 20                FCC     "LDS "          ; $51
+1319 1812 4c 44 55 20                FCC     "LDU "          ; $52
+1320 1816 4c 44 58 20                FCC     "LDX "          ; $53
+1321 181a 4c 44 59 20                FCC     "LDY "          ; $54
+1322 181e 4c 45 41 53                FCC     "LEAS"          ; $55
+1323 1822 4c 45 41 55                FCC     "LEAU"          ; $56
+1324 1826 4c 45 41 58                FCC     "LEAX"          ; $57
+1325 182a 4c 45 41 59                FCC     "LEAY"          ; $58
+1326 182e 4c 53 52 20                FCC     "LSR "          ; $59
+1327 1832 4c 53 52 41                FCC     "LSRA"          ; $5A
+1328 1836 4c 53 52 42                FCC     "LSRB"          ; $5B
+1329 183a 4d 55 4c 20                FCC     "MUL "          ; $5C
+1330 183e 4e 45 47 20                FCC     "NEG "          ; $5D
+1331 1842 4e 45 47 41                FCC     "NEGA"          ; $5E
+1332 1846 4e 45 47 42                FCC     "NEGB"          ; $5F
+1333 184a 4e 4f 50 20                FCC     "NOP "          ; $60
+1334 184e 4f 52 41 20                FCC     "ORA "          ; $61
+1335 1852 4f 52 42 20                FCC     "ORB "          ; $62
+1336 1856 4f 52 43 43                FCC     "ORCC"          ; $63
+1337 185a 50 53 48 53                FCC     "PSHS"          ; $64
+1338 185e 50 53 48 55                FCC     "PSHU"          ; $65
+1339 1862 50 55 4c 53                FCC     "PULS"          ; $66
+1340 1866 50 55 4c 55                FCC     "PULU"          ; $67
+1341 186a 52 4f 4c 20                FCC     "ROL "          ; $68
+1342 186e 52 4f 4c 41                FCC     "ROLA"          ; $69
+1343 1872 52 4f 4c 42                FCC     "ROLB"          ; $6A
+1344 1876 52 4f 52 20                FCC     "ROR "          ; $6B
+1345 187a 52 4f 52 41                FCC     "RORA"          ; $6C
+1346 187e 52 4f 52 42                FCC     "RORB"          ; $6D
+1347 1882 52 54 49 20                FCC     "RTI "          ; $6E
+1348 1886 52 54 53 20                FCC     "RTS "          ; $6F
+1349 188a 53 42 43 41                FCC     "SBCA"          ; $70
+1350 188e 53 42 43 42                FCC     "SBCB"          ; $71
+1351 1892 53 45 58 20                FCC     "SEX "          ; $72
+1352 1896 53 54 41 20                FCC     "STA "          ; $73
+1353 189a 53 54 42 20                FCC     "STB "          ; $74
+1354 189e 53 54 44 20                FCC     "STD "          ; $75
+1355 18a2 53 54 53 20                FCC     "STS "          ; $76
+1356 18a6 53 54 55 20                FCC     "STU "          ; $77
+1357 18aa 53 54 58 20                FCC     "STX "          ; $78
+1358 18ae 53 54 59 20                FCC     "STY "          ; $79
+1359 18b2 53 55 42 41                FCC     "SUBA"          ; $7A
+1360 18b6 53 55 42 42                FCC     "SUBB"          ; $7B
+1361 18ba 53 55 42 44                FCC     "SUBD"          ; $7C
+1362 18be 53 57 49 20                FCC     "SWI "          ; $7D
+1363 18c2 53 57 49 32                FCC     "SWI2"          ; $7E
+1364 18c6 53 57 49 33                FCC     "SWI3"          ; $7F
+1365 18ca 53 59 4e 43                FCC     "SYNC"          ; $80
+1366 18ce 54 46 52 20                FCC     "TFR "          ; $81
+1367 18d2 54 53 54 20                FCC     "TST "          ; $82
+1368 18d6 54 53 54 41                FCC     "TSTA"          ; $83
+1369 18da 54 53 54 42                FCC     "TSTB"          ; $84
+1370                         
+1371                         ; Lengths of instructions given an addressing mode. Matches values of
+1372                         ; AM_* Indexed addessing instructions length can increase due to post
+1373                         ; byte.
+1374                         LENGTHS
+1375 18de 01                         FCB     1               ; 0 AM_INVALID
+1376 18df 01                         FCB     1               ; 1 AM_INHERENT
+1377 18e0 02                         FCB     2               ; 2 AM_IMMEDIATE8
+1378 18e1 03                         FCB     3               ; 3 AM_IMMEDIATE16
+1379 18e2 02                         FCB     2               ; 4 AM_DIRECT
+1380 18e3 03                         FCB     3               ; 5 AM_EXTENDED
+1381 18e4 02                         FCB     2               ; 6 AM_RELATIVE8
+1382 18e5 03                         FCB     3               ; 7 AM_RELATIVE16
+1383 18e6 02                         FCB     2               ; 8 AM_INDEXED
+1384                         
+1385                         ; Lookup table to return needed remaining spaces to print to pad out
+1386                         ; instruction to correct column in disassembly.
+1387                         ; # bytes: 1 2 3 4
+1388                         ; Padding: 9 6 3 0
+1389                         PADDING
+1390 18e7 0a 07 04 01                FCB     10,7,4,1
+1391                         
+1392                         ; Lookup table to return number of additional bytes for indexed
+1393                         ; addressing based on low order 5 bits of postbyte. Based on
+1394                         ; detailed list of values below.
+1395                         
+1396                         POSTBYTES
+1397 18eb 00 00 00 00 00 00          FCB     0,0,0,0,0,0,0,0
+     00 00
+1398 18f3 01 02 00 00 01 02          FCB     1,2,0,0,1,2,0,0
+     00 00
+1399 18fb 00 00 00 00 00 00          FCB     0,0,0,0,0,0,0,0
+     00 00
+1400 1903 01 02 00 00 01 02          FCB     1,2,0,0,1,2,0,2
+     00 02
+1401                         
+1402                         ; Pattern:  # Extra bytes:
+1403                         ; --------  --------------
+1404                         ; 0XXXXXXX   0
+1405                         ; 1XX00000   0
+1406                         ; 1XX00001   0
+1407                         ; 1XX00010   0
+1408                         ; 1XX00011   0
+1409                         ; 1XX00100   0
+1410                         ; 1X000101   0
+1411                         ; 1XX00110   0
+1412                         ; 1XX00111   0 (INVALID)
+1413                         ; 1XX01000   1
+1414                         ; 1XX01001   2
+1415                         ; 1XX01010   0 (INVALID)
+1416                         ; 1XX01011   0
+1417                         ; 1XX01100   1
+1418                         ; 1XX01101   2
+1419                         ; 1XX01110   0 (INVALID)
+1420                         ; 1XX01111   0 (INVALID)
+1421                         ; 1XX10000   0 (INVALID)
+1422                         ; 1XX10001   0
+1423                         ; 1XX10010   0 (INVALID)
+1424                         ; 1XX10011   0
+1425                         ; 1XX10100   0
+1426                         ; 1XX10101   0
+1427                         ; 1XX10110   0
+1428                         ; 1XX10111   0 (INVALID)
+1429                         ; 1XX11000   1
+1430                         ; 1XX11001   2
+1431                         ; 1XX11010   0 (INVALID)
+1432                         ; 1XX11011   0
+1433                         ; 1XX11100   1
+1434                         ; 1XX11101   2
+1435                         ; 1XX11110   0 (INVALID)
+1436                         ; 1XX11111   2
+1437                         
+1438                         ; Opcodes. Listed in order indexed by op code. Defines the mnemonic.
+1439                         OPCODES
+1440 190b 5d                         FCB     OP_NEG          ; 00
+1441 190c 00                         FCB     OP_INV          ; 01
+1442 190d 00                         FCB     OP_INV          ; 02
+1443 190e 2e                         FCB     OP_COMB         ; 03
+1444 190f 59                         FCB     OP_LSR          ; 04
+1445 1910 00                         FCB     OP_INV          ; 05
+1446 1911 6b                         FCB     OP_ROR          ; 06
+1447 1912 0d                         FCB     OP_ASR          ; 07
+1448 1913 0a                         FCB     OP_ASL          ; 08
+1449 1914 68                         FCB     OP_ROL          ; 09
+1450 1915 32                         FCB     OP_DEC          ; 0A
+1451 1916 00                         FCB     OP_INV          ; 0B
+1452 1917 38                         FCB     OP_INC          ; 0C
+1453 1918 82                         FCB     OP_TST          ; 0D
+1454 1919 3b                         FCB     OP_JMP          ; 0E
+1455 191a 23                         FCB     OP_CLR          ; 0F
+1456                         
+1457 191b 00                         FCB     OP_INV          ; 10 Page 2 extended opcodes (see other table)
+1458 191c 00                         FCB     OP_INV          ; 11 Page 3 extended opcodes (see other table)
+1459 191d 60                         FCB     OP_NOP          ; 12
+1460 191e 80                         FCB     OP_SYNC         ; 13
+1461 191f 00                         FCB     OP_INV          ; 14
+1462 1920 00                         FCB     OP_INV          ; 15
+1463 1921 49                         FCB     OP_LBRA         ; 16
+1464 1922 4b                         FCB     OP_LBSR         ; 17
+1465 1923 00                         FCB     OP_INV          ; 18
+1466 1924 31                         FCB     OP_DAA          ; 19
+1467 1925 63                         FCB     OP_ORCC         ; 1A
+1468 1926 00                         FCB     OP_INV          ; 1B
+1469 1927 09                         FCB     OP_ANDCC        ; 1C
+1470 1928 72                         FCB     OP_SEX          ; 1D
+1471 1929 37                         FCB     OP_EXG          ; 1E
+1472 192a 81                         FCB     OP_TFR          ; 1F
+1473                         
+1474 192b 1e                         FCB     OP_BRA          ; 20
+1475 192c 1f                         FCB     OP_BRN          ; 21
+1476 192d 15                         FCB     OP_BHI          ; 22
+1477 192e 19                         FCB     OP_BLS          ; 23
+1478 192f 10                         FCB     OP_BCC          ; 24
+1479 1930 11                         FCB     OP_BCS          ; 25
+1480 1931 1c                         FCB     OP_BNE          ; 26
+1481 1932 12                         FCB     OP_BEQ          ; 27
+1482 1933 21                         FCB     OP_BVC          ; 28
+1483 1934 22                         FCB     OP_BVS          ; 29
+1484 1935 1d                         FCB     OP_BPL          ; 2A
+1485 1936 1b                         FCB     OP_BMI          ; 2B
+1486 1937 13                         FCB     OP_BGE          ; 2C
+1487 1938 1a                         FCB     OP_BLT          ; 2D
+1488 1939 14                         FCB     OP_BGT          ; 2E
+1489 193a 18                         FCB     OP_BLE          ; 2F
+1490                         
+1491 193b 57                         FCB     OP_LEAX         ; 30
+1492 193c 58                         FCB     OP_LEAY         ; 31
+1493 193d 55                         FCB     OP_LEAS         ; 32
+1494 193e 56                         FCB     OP_LEAU         ; 33
+1495 193f 64                         FCB     OP_PSHS         ; 34
+1496 1940 66                         FCB     OP_PULS         ; 35
+1497 1941 65                         FCB     OP_PSHU         ; 36
+1498 1942 67                         FCB     OP_PULU         ; 37
+1499 1943 00                         FCB     OP_INV          ; 38
+1500 1944 6f                         FCB     OP_RTS          ; 39
+1501 1945 01                         FCB     OP_ABX          ; 3A
+1502 1946 6e                         FCB     OP_RTI          ; 3B
+1503 1947 30                         FCB     OP_CWAI         ; 3C
+1504 1948 5c                         FCB     OP_MUL          ; 3D
+1505 1949 00                         FCB     OP_INV          ; 3E
+1506 194a 7d                         FCB     OP_SWI          ; 3F
+1507                         
+1508 194b 5e                         FCB     OP_NEGA         ; 40
+1509 194c 00                         FCB     OP_INV          ; 41
+1510 194d 00                         FCB     OP_INV          ; 42
+1511 194e 2d                         FCB     OP_COMA         ; 43
+1512 194f 5a                         FCB     OP_LSRA         ; 44
+1513 1950 00                         FCB     OP_INV          ; 45
+1514 1951 6c                         FCB     OP_RORA         ; 46
+1515 1952 0e                         FCB     OP_ASRA         ; 47
+1516 1953 0b                         FCB     OP_ASLA         ; 48
+1517 1954 69                         FCB     OP_ROLA         ; 49
+1518 1955 33                         FCB     OP_DECA         ; 4A
+1519 1956 00                         FCB     OP_INV          ; 4B
+1520 1957 39                         FCB     OP_INCA         ; 4C
+1521 1958 83                         FCB     OP_TSTA         ; 4D
+1522 1959 00                         FCB     OP_INV          ; 4E
+1523 195a 24                         FCB     OP_CLRA         ; 4F
+1524                         
+1525 195b 5f                         FCB     OP_NEGB         ; 50
+1526 195c 00                         FCB     OP_INV          ; 51
+1527 195d 00                         FCB     OP_INV          ; 52
+1528 195e 2e                         FCB     OP_COMB         ; 53
+1529 195f 5b                         FCB     OP_LSRB         ; 54
+1530 1960 00                         FCB     OP_INV          ; 55
+1531 1961 6d                         FCB     OP_RORB         ; 56
+1532 1962 0f                         FCB     OP_ASRB         ; 57
+1533 1963 0c                         FCB     OP_ASLB         ; 58
+1534 1964 6a                         FCB     OP_ROLB         ; 59
+1535 1965 34                         FCB     OP_DECB         ; 5A
+1536 1966 00                         FCB     OP_INV          ; 5B
+1537 1967 3a                         FCB     OP_INCB         ; 5C
+1538 1968 84                         FCB     OP_TSTB         ; 5D
+1539 1969 00                         FCB     OP_INV          ; 5E
+1540 196a 25                         FCB     OP_CLRB         ; 5F
+1541                         
+1542 196b 5d                         FCB     OP_NEG          ; 60
+1543 196c 00                         FCB     OP_INV          ; 61
+1544 196d 00                         FCB     OP_INV          ; 62
+1545 196e 2f                         FCB     OP_COM          ; 63
+1546 196f 59                         FCB     OP_LSR          ; 64
+1547 1970 00                         FCB     OP_INV          ; 65
+1548 1971 6b                         FCB     OP_ROR          ; 66
+1549 1972 0d                         FCB     OP_ASR          ; 67
+1550 1973 0a                         FCB     OP_ASL          ; 68
+1551 1974 68                         FCB     OP_ROL          ; 69
+1552 1975 32                         FCB     OP_DEC          ; 6A
+1553 1976 00                         FCB     OP_INV          ; 6B
+1554 1977 38                         FCB     OP_INC          ; 6C
+1555 1978 82                         FCB     OP_TST          ; 6D
+1556 1979 3b                         FCB     OP_JMP          ; 6E
+1557 197a 23                         FCB     OP_CLR          ; 6F
+1558                         
+1559 197b 5d                         FCB     OP_NEG          ; 70
+1560 197c 00                         FCB     OP_INV          ; 71
+1561 197d 00                         FCB     OP_INV          ; 72
+1562 197e 2f                         FCB     OP_COM          ; 73
+1563 197f 59                         FCB     OP_LSR          ; 74
+1564 1980 00                         FCB     OP_INV          ; 75
+1565 1981 6b                         FCB     OP_ROR          ; 76
+1566 1982 0d                         FCB     OP_ASR          ; 77
+1567 1983 0a                         FCB     OP_ASL          ; 78
+1568 1984 68                         FCB     OP_ROL          ; 79
+1569 1985 32                         FCB     OP_DEC          ; 7A
+1570 1986 00                         FCB     OP_INV          ; 7B
+1571 1987 38                         FCB     OP_INC          ; 7C
+1572 1988 82                         FCB     OP_TST          ; 7D
+1573 1989 3b                         FCB     OP_JMP          ; 7E
+1574 198a 23                         FCB     OP_CLR          ; 7F
+1575                         
+1576 198b 7a                         FCB     OP_SUBA         ; 80
+1577 198c 26                         FCB     OP_CMPA         ; 81
+1578 198d 70                         FCB     OP_SBCA         ; 82
+1579 198e 7c                         FCB     OP_SUBD         ; 83
+1580 198f 07                         FCB     OP_ANDA         ; 84
+1581 1990 16                         FCB     OP_BITA         ; 85
+1582 1991 4e                         FCB     OP_LDA          ; 86
+1583 1992 00                         FCB     OP_INV          ; 87
+1584 1993 35                         FCB     OP_EORA         ; 88
+1585 1994 02                         FCB     OP_ADCA         ; 89
+1586 1995 61                         FCB     OP_ORA          ; 8A
+1587 1996 04                         FCB     OP_ADDA         ; 8B
+1588 1997 2b                         FCB     OP_CMPX         ; 8C
+1589 1998 20                         FCB     OP_BSR          ; 8D
+1590 1999 53                         FCB     OP_LDX          ; 8E
+1591 199a 00                         FCB     OP_INV          ; 8F
+1592                         
+1593 199b 7a                         FCB     OP_SUBA         ; 90
+1594 199c 26                         FCB     OP_CMPA         ; 91
+1595 199d 70                         FCB     OP_SBCA         ; 92
+1596 199e 7c                         FCB     OP_SUBD         ; 93
+1597 199f 07                         FCB     OP_ANDA         ; 94
+1598 19a0 16                         FCB     OP_BITA         ; 95
+1599 19a1 4e                         FCB     OP_LDA          ; 96
+1600 19a2 73                         FCB     OP_STA          ; 97
+1601 19a3 35                         FCB     OP_EORA         ; 98
+1602 19a4 02                         FCB     OP_ADCA         ; 99
+1603 19a5 61                         FCB     OP_ORA          ; 9A
+1604 19a6 04                         FCB     OP_ADDA         ; 9B
+1605 19a7 2b                         FCB     OP_CMPX         ; 9C
+1606 19a8 3c                         FCB     OP_JSR          ; 9D
+1607 19a9 53                         FCB     OP_LDX          ; 9E
+1608 19aa 78                         FCB     OP_STX          ; 9F
+1609                         
+1610 19ab 7a                         FCB     OP_SUBA         ; A0
+1611 19ac 26                         FCB     OP_CMPA         ; A1
+1612 19ad 70                         FCB     OP_SBCA         ; A2
+1613 19ae 7c                         FCB     OP_SUBD         ; A3
+1614 19af 07                         FCB     OP_ANDA         ; A4
+1615 19b0 16                         FCB     OP_BITA         ; A5
+1616 19b1 4e                         FCB     OP_LDA          ; A6
+1617 19b2 73                         FCB     OP_STA          ; A7
+1618 19b3 35                         FCB     OP_EORA         ; A8
+1619 19b4 02                         FCB     OP_ADCA         ; A9
+1620 19b5 61                         FCB     OP_ORA          ; AA
+1621 19b6 04                         FCB     OP_ADDA         ; AB
+1622 19b7 2b                         FCB     OP_CMPX         ; AC
+1623 19b8 3c                         FCB     OP_JSR          ; AD
+1624 19b9 53                         FCB     OP_LDX          ; AE
+1625 19ba 78                         FCB     OP_STX          ; AF
+1626                         
+1627 19bb 7a                         FCB     OP_SUBA         ; B0
+1628 19bc 26                         FCB     OP_CMPA         ; B1
+1629 19bd 70                         FCB     OP_SBCA         ; B2
+1630 19be 7c                         FCB     OP_SUBD         ; B3
+1631 19bf 07                         FCB     OP_ANDA         ; B4
+1632 19c0 16                         FCB     OP_BITA         ; B5
+1633 19c1 4e                         FCB     OP_LDA          ; B6
+1634 19c2 73                         FCB     OP_STA          ; B7
+1635 19c3 35                         FCB     OP_EORA         ; B8
+1636 19c4 02                         FCB     OP_ADCA         ; B9
+1637 19c5 61                         FCB     OP_ORA          ; BA
+1638 19c6 04                         FCB     OP_ADDA         ; BB
+1639 19c7 2b                         FCB     OP_CMPX         ; BC
+1640 19c8 3c                         FCB     OP_JSR          ; BD
+1641 19c9 53                         FCB     OP_LDX          ; BE
+1642 19ca 78                         FCB     OP_STX          ; BF
+1643                         
+1644 19cb 7b                         FCB     OP_SUBB         ; C0
+1645 19cc 27                         FCB     OP_CMPB         ; C1
+1646 19cd 71                         FCB     OP_SBCB         ; C2
+1647 19ce 06                         FCB     OP_ADDD         ; C3
+1648 19cf 08                         FCB     OP_ANDB         ; C4
+1649 19d0 17                         FCB     OP_BITB         ; C5
+1650 19d1 4f                         FCB     OP_LDB          ; C6
+1651 19d2 00                         FCB     OP_INV          ; C7
+1652 19d3 36                         FCB     OP_EORB         ; C8
+1653 19d4 03                         FCB     OP_ADCB         ; C9
+1654 19d5 62                         FCB     OP_ORB          ; CA
+1655 19d6 05                         FCB     OP_ADDB         ; CB
+1656 19d7 50                         FCB     OP_LDD          ; CC
+1657 19d8 00                         FCB     OP_INV          ; CD
+1658 19d9 52                         FCB     OP_LDU          ; CE
+1659 19da 00                         FCB     OP_INV          ; CF
+1660                         
+1661 19db 7b                         FCB     OP_SUBB         ; D0
+1662 19dc 27                         FCB     OP_CMPB         ; D1
+1663 19dd 71                         FCB     OP_SBCB         ; D2
+1664 19de 06                         FCB     OP_ADDD         ; D3
+1665 19df 08                         FCB     OP_ANDB         ; D4
+1666 19e0 17                         FCB     OP_BITB         ; D5
+1667 19e1 4f                         FCB     OP_LDB          ; D6
+1668 19e2 74                         FCB     OP_STB          ; D7
+1669 19e3 36                         FCB     OP_EORB         ; D8
+1670 19e4 03                         FCB     OP_ADCB         ; D9
+1671 19e5 62                         FCB     OP_ORB          ; DA
+1672 19e6 05                         FCB     OP_ADDB         ; DB
+1673 19e7 50                         FCB     OP_LDD          ; DC
+1674 19e8 75                         FCB     OP_STD          ; DD
+1675 19e9 52                         FCB     OP_LDU          ; DE
+1676 19ea 77                         FCB     OP_STU          ; DF
+1677                         
+1678 19eb 7b                         FCB     OP_SUBB         ; E0
+1679 19ec 27                         FCB     OP_CMPB         ; E1
+1680 19ed 71                         FCB     OP_SBCB         ; E2
+1681 19ee 06                         FCB     OP_ADDD         ; E3
+1682 19ef 08                         FCB     OP_ANDB         ; E4
+1683 19f0 17                         FCB     OP_BITB         ; E5
+1684 19f1 4f                         FCB     OP_LDB          ; E6
+1685 19f2 74                         FCB     OP_STB          ; E7
+1686 19f3 36                         FCB     OP_EORB         ; E8
+1687 19f4 03                         FCB     OP_ADCB         ; E9
+1688 19f5 62                         FCB     OP_ORB          ; EA
+1689 19f6 05                         FCB     OP_ADDB         ; EB
+1690 19f7 50                         FCB     OP_LDD          ; EC
+1691 19f8 75                         FCB     OP_STD          ; ED
+1692 19f9 52                         FCB     OP_LDU          ; EE
+1693 19fa 77                         FCB     OP_STU          ; EF
+1694                         
+1695 19fb 7b                         FCB     OP_SUBB         ; F0
+1696 19fc 27                         FCB     OP_CMPB         ; F1
+1697 19fd 71                         FCB     OP_SBCB         ; F2
+1698 19fe 06                         FCB     OP_ADDD         ; F3
+1699 19ff 08                         FCB     OP_ANDB         ; F4
+1700 1a00 17                         FCB     OP_BITB         ; F5
+1701 1a01 4f                         FCB     OP_LDB          ; F6
+1702 1a02 74                         FCB     OP_STB          ; F7
+1703 1a03 36                         FCB     OP_EORB         ; F8
+1704 1a04 03                         FCB     OP_ADCB         ; F9
+1705 1a05 62                         FCB     OP_ORB          ; FA
+1706 1a06 05                         FCB     OP_ADDB         ; FB
+1707 1a07 50                         FCB     OP_LDD          ; FC
+1708 1a08 75                         FCB     OP_STD          ; FD
+1709 1a09 52                         FCB     OP_LDU          ; FE
+1710 1a0a 77                         FCB     OP_STU          ; FF
+1711                         
+1712                         ; Table of addressing modes. Listed in order,indexed by op code.
+1713                         MODES
+1714 1a0b 04                         FCB     AM_DIRECT       ; 00
+1715 1a0c 00                         FCB     AM_INVALID      ; 01
+1716 1a0d 00                         FCB     AM_INVALID      ; 02
+1717 1a0e 04                         FCB     AM_DIRECT       ; 03
+1718 1a0f 04                         FCB     AM_DIRECT       ; 04
+1719 1a10 00                         FCB     AM_INVALID      ; 05
+1720 1a11 04                         FCB     AM_DIRECT       ; 06
+1721 1a12 04                         FCB     AM_DIRECT       ; 07
+1722 1a13 04                         FCB     AM_DIRECT       ; 08
+1723 1a14 04                         FCB     AM_DIRECT       ; 09
+1724 1a15 04                         FCB     AM_DIRECT       ; 0A
+1725 1a16 00                         FCB     AM_INVALID      ; 0B
+1726 1a17 04                         FCB     AM_DIRECT       ; 0C
+1727 1a18 04                         FCB     AM_DIRECT       ; 0D
+1728 1a19 04                         FCB     AM_DIRECT       ; 0E
+1729 1a1a 04                         FCB     AM_DIRECT       ; 0F
+1730                         
+1731 1a1b 00                         FCB     AM_INVALID      ; 10 Page 2 extended opcodes (see other table)
+1732 1a1c 00                         FCB     AM_INVALID      ; 11 Page 3 extended opcodes (see other table)
+1733 1a1d 01                         FCB     AM_INHERENT     ; 12
+1734 1a1e 01                         FCB     AM_INHERENT     ; 13
+1735 1a1f 00                         FCB     AM_INVALID      ; 14
+1736 1a20 00                         FCB     AM_INVALID      ; 15
+1737 1a21 07                         FCB     AM_RELATIVE16   ; 16
+1738 1a22 07                         FCB     AM_RELATIVE16   ; 17
+1739 1a23 00                         FCB     AM_INVALID      ; 18
+1740 1a24 01                         FCB     AM_INHERENT     ; 19
+1741 1a25 02                         FCB     AM_IMMEDIATE8   ; 1A
+1742 1a26 00                         FCB     AM_INVALID      ; 1B
+1743 1a27 02                         FCB     AM_IMMEDIATE8   ; 1C
+1744 1a28 01                         FCB     AM_INHERENT     ; 1D
+1745 1a29 02                         FCB     AM_IMMEDIATE8   ; 1E
+1746 1a2a 02                         FCB     AM_IMMEDIATE8   ; 1F
+1747                         
+1748 1a2b 06                         FCB     AM_RELATIVE8    ; 20
+1749 1a2c 06                         FCB     AM_RELATIVE8    ; 21
+1750 1a2d 06                         FCB     AM_RELATIVE8    ; 22
+1751 1a2e 06                         FCB     AM_RELATIVE8    ; 23
+1752 1a2f 06                         FCB     AM_RELATIVE8    ; 24
+1753 1a30 06                         FCB     AM_RELATIVE8    ; 25
+1754 1a31 06                         FCB     AM_RELATIVE8    ; 26
+1755 1a32 06                         FCB     AM_RELATIVE8    ; 27
+1756 1a33 06                         FCB     AM_RELATIVE8    ; 28
+1757 1a34 06                         FCB     AM_RELATIVE8    ; 29
+1758 1a35 06                         FCB     AM_RELATIVE8    ; 2A
+1759 1a36 06                         FCB     AM_RELATIVE8    ; 2B
+1760 1a37 06                         FCB     AM_RELATIVE8    ; 2C
+1761 1a38 06                         FCB     AM_RELATIVE8    ; 2D
+1762 1a39 06                         FCB     AM_RELATIVE8    ; 2E
+1763 1a3a 06                         FCB     AM_RELATIVE8    ; 2F
+1764                         
+1765 1a3b 08                         FCB     AM_INDEXED      ; 30
+1766 1a3c 08                         FCB     AM_INDEXED      ; 31
+1767 1a3d 08                         FCB     AM_INDEXED      ; 32
+1768 1a3e 08                         FCB     AM_INDEXED      ; 33
+1769 1a3f 02                         FCB     AM_IMMEDIATE8   ; 34
+1770 1a40 02                         FCB     AM_IMMEDIATE8   ; 35
+1771 1a41 02                         FCB     AM_IMMEDIATE8   ; 36
+1772 1a42 02                         FCB     AM_IMMEDIATE8   ; 37
+1773 1a43 00                         FCB     AM_INVALID      ; 38
+1774 1a44 01                         FCB     AM_INHERENT     ; 39
+1775 1a45 01                         FCB     AM_INHERENT     ; 3A
+1776 1a46 01                         FCB     AM_INHERENT     ; 3B
+1777 1a47 02                         FCB     AM_IMMEDIATE8   ; 3C
+1778 1a48 01                         FCB     AM_INHERENT     ; 3D
+1779 1a49 00                         FCB     AM_INVALID      ; 3E
+1780 1a4a 01                         FCB     AM_INHERENT     ; 3F
+1781                         
+1782 1a4b 01                         FCB     AM_INHERENT     ; 40
+1783 1a4c 00                         FCB     AM_INVALID      ; 41
+1784 1a4d 00                         FCB     AM_INVALID      ; 42
+1785 1a4e 01                         FCB     AM_INHERENT     ; 43
+1786 1a4f 01                         FCB     AM_INHERENT     ; 44
+1787 1a50 00                         FCB     AM_INVALID      ; 45
+1788 1a51 01                         FCB     AM_INHERENT     ; 46
+1789 1a52 01                         FCB     AM_INHERENT     ; 47
+1790 1a53 01                         FCB     AM_INHERENT     ; 48
+1791 1a54 01                         FCB     AM_INHERENT     ; 49
+1792 1a55 01                         FCB     AM_INHERENT     ; 4A
+1793 1a56 00                         FCB     AM_INVALID      ; 4B
+1794 1a57 01                         FCB     AM_INHERENT     ; 4C
+1795 1a58 01                         FCB     AM_INHERENT     ; 4D
+1796 1a59 00                         FCB     AM_INVALID      ; 4E
+1797 1a5a 01                         FCB     AM_INHERENT     ; 4F
+1798                         
+1799 1a5b 01                         FCB     AM_INHERENT     ; 50
+1800 1a5c 00                         FCB     AM_INVALID      ; 51
+1801 1a5d 00                         FCB     AM_INVALID      ; 52
+1802 1a5e 01                         FCB     AM_INHERENT     ; 53
+1803 1a5f 01                         FCB     AM_INHERENT     ; 54
+1804 1a60 00                         FCB     AM_INVALID      ; 55
+1805 1a61 01                         FCB     AM_INHERENT     ; 56
+1806 1a62 01                         FCB     AM_INHERENT     ; 57
+1807 1a63 01                         FCB     AM_INHERENT     ; 58
+1808 1a64 01                         FCB     AM_INHERENT     ; 59
+1809 1a65 01                         FCB     AM_INHERENT     ; 5A
+1810 1a66 00                         FCB     AM_INVALID      ; 5B
+1811 1a67 01                         FCB     AM_INHERENT     ; 5C
+1812 1a68 01                         FCB     AM_INHERENT     ; 5D
+1813 1a69 00                         FCB     AM_INVALID      ; 5E
+1814 1a6a 01                         FCB     AM_INHERENT     ; 5F
+1815                         
+1816 1a6b 08                         FCB     AM_INDEXED      ; 60
+1817 1a6c 00                         FCB     AM_INVALID      ; 61
+1818 1a6d 00                         FCB     AM_INVALID      ; 62
+1819 1a6e 08                         FCB     AM_INDEXED      ; 63
+1820 1a6f 08                         FCB     AM_INDEXED      ; 64
+1821 1a70 00                         FCB     AM_INVALID      ; 65
+1822 1a71 08                         FCB     AM_INDEXED      ; 66
+1823 1a72 08                         FCB     AM_INDEXED      ; 67
+1824 1a73 08                         FCB     AM_INDEXED      ; 68
+1825 1a74 08                         FCB     AM_INDEXED      ; 69
+1826 1a75 08                         FCB     AM_INDEXED      ; 6A
+1827 1a76 00                         FCB     AM_INVALID      ; 6B
+1828 1a77 08                         FCB     AM_INDEXED      ; 6C
+1829 1a78 08                         FCB     AM_INDEXED      ; 6D
+1830 1a79 08                         FCB     AM_INDEXED      ; 6E
+1831 1a7a 08                         FCB     AM_INDEXED      ; 6F
+1832                         
+1833 1a7b 05                         FCB     AM_EXTENDED     ; 70
+1834 1a7c 00                         FCB     AM_INVALID      ; 71
+1835 1a7d 00                         FCB     AM_INVALID      ; 72
+1836 1a7e 05                         FCB     AM_EXTENDED     ; 73
+1837 1a7f 05                         FCB     AM_EXTENDED     ; 74
+1838 1a80 00                         FCB     AM_INVALID      ; 75
+1839 1a81 05                         FCB     AM_EXTENDED     ; 76
+1840 1a82 05                         FCB     AM_EXTENDED     ; 77
+1841 1a83 05                         FCB     AM_EXTENDED     ; 78
+1842 1a84 05                         FCB     AM_EXTENDED     ; 79
+1843 1a85 05                         FCB     AM_EXTENDED     ; 7A
+1844 1a86 00                         FCB     AM_INVALID      ; 7B
+1845 1a87 05                         FCB     AM_EXTENDED     ; 7C
+1846 1a88 05                         FCB     AM_EXTENDED     ; 7D
+1847 1a89 05                         FCB     AM_EXTENDED     ; 7E
+1848 1a8a 05                         FCB     AM_EXTENDED     ; 7F
+1849                         
+1850 1a8b 02                         FCB     AM_IMMEDIATE8   ; 80
+1851 1a8c 02                         FCB     AM_IMMEDIATE8   ; 81
+1852 1a8d 02                         FCB     AM_IMMEDIATE8   ; 82
+1853 1a8e 03                         FCB     AM_IMMEDIATE16  ; 83
+1854 1a8f 02                         FCB     AM_IMMEDIATE8   ; 84
+1855 1a90 02                         FCB     AM_IMMEDIATE8   ; 85
+1856 1a91 02                         FCB     AM_IMMEDIATE8   ; 86
+1857 1a92 00                         FCB     AM_INVALID      ; 87
+1858 1a93 02                         FCB     AM_IMMEDIATE8   ; 88
+1859 1a94 02                         FCB     AM_IMMEDIATE8   ; 89
+1860 1a95 02                         FCB     AM_IMMEDIATE8   ; 8A
+1861 1a96 02                         FCB     AM_IMMEDIATE8   ; 8B
+1862 1a97 03                         FCB     AM_IMMEDIATE16  ; 8C
+1863 1a98 06                         FCB     AM_RELATIVE8    ; 8D
+1864 1a99 03                         FCB     AM_IMMEDIATE16  ; 8E
+1865 1a9a 00                         FCB     AM_INVALID      ; 8F
+1866                         
+1867 1a9b 04                         FCB     AM_DIRECT       ; 90
+1868 1a9c 04                         FCB     AM_DIRECT       ; 91
+1869 1a9d 04                         FCB     AM_DIRECT       ; 92
+1870 1a9e 04                         FCB     AM_DIRECT       ; 93
+1871 1a9f 04                         FCB     AM_DIRECT       ; 94
+1872 1aa0 04                         FCB     AM_DIRECT       ; 95
+1873 1aa1 04                         FCB     AM_DIRECT       ; 96
+1874 1aa2 04                         FCB     AM_DIRECT       ; 97
+1875 1aa3 04                         FCB     AM_DIRECT       ; 98
+1876 1aa4 04                         FCB     AM_DIRECT       ; 99
+1877 1aa5 04                         FCB     AM_DIRECT       ; 9A
+1878 1aa6 04                         FCB     AM_DIRECT       ; 9B
+1879 1aa7 04                         FCB     AM_DIRECT       ; 9C
+1880 1aa8 04                         FCB     AM_DIRECT       ; 9D
+1881 1aa9 04                         FCB     AM_DIRECT       ; 9E
+1882 1aaa 04                         FCB     AM_DIRECT       ; 9F
+1883                         
+1884 1aab 08                         FCB     AM_INDEXED      ; A0
+1885 1aac 08                         FCB     AM_INDEXED      ; A1
+1886 1aad 08                         FCB     AM_INDEXED      ; A2
+1887 1aae 08                         FCB     AM_INDEXED      ; A3
+1888 1aaf 08                         FCB     AM_INDEXED      ; A4
+1889 1ab0 08                         FCB     AM_INDEXED      ; A5
+1890 1ab1 08                         FCB     AM_INDEXED      ; A6
+1891 1ab2 08                         FCB     AM_INDEXED      ; A7
+1892 1ab3 08                         FCB     AM_INDEXED      ; A8
+1893 1ab4 08                         FCB     AM_INDEXED      ; A9
+1894 1ab5 08                         FCB     AM_INDEXED      ; AA
+1895 1ab6 08                         FCB     AM_INDEXED      ; AB
+1896 1ab7 08                         FCB     AM_INDEXED      ; AC
+1897 1ab8 08                         FCB     AM_INDEXED      ; AD
+1898 1ab9 08                         FCB     AM_INDEXED      ; AE
+1899 1aba 08                         FCB     AM_INDEXED      ; AF
+1900                         
+1901 1abb 05                         FCB     AM_EXTENDED     ; B0
+1902 1abc 05                         FCB     AM_EXTENDED     ; B1
+1903 1abd 05                         FCB     AM_EXTENDED     ; B2
+1904 1abe 05                         FCB     AM_EXTENDED     ; B3
+1905 1abf 05                         FCB     AM_EXTENDED     ; B4
+1906 1ac0 05                         FCB     AM_EXTENDED     ; B5
+1907 1ac1 05                         FCB     AM_EXTENDED     ; B6
+1908 1ac2 05                         FCB     AM_EXTENDED     ; B7
+1909 1ac3 05                         FCB     AM_EXTENDED     ; B8
+1910 1ac4 05                         FCB     AM_EXTENDED     ; B9
+1911 1ac5 05                         FCB     AM_EXTENDED     ; BA
+1912 1ac6 05                         FCB     AM_EXTENDED     ; BB
+1913 1ac7 05                         FCB     AM_EXTENDED     ; BC
+1914 1ac8 05                         FCB     AM_EXTENDED     ; BD
+1915 1ac9 05                         FCB     AM_EXTENDED     ; BE
+1916 1aca 05                         FCB     AM_EXTENDED     ; BF
+1917                         
+1918 1acb 02                         FCB     AM_IMMEDIATE8   ; C0
+1919 1acc 02                         FCB     AM_IMMEDIATE8   ; C1
+1920 1acd 02                         FCB     AM_IMMEDIATE8   ; C2
+1921 1ace 03                         FCB     AM_IMMEDIATE16  ; C3
+1922 1acf 02                         FCB     AM_IMMEDIATE8   ; C4
+1923 1ad0 02                         FCB     AM_IMMEDIATE8   ; C5
+1924 1ad1 02                         FCB     AM_IMMEDIATE8   ; C6
+1925 1ad2 00                         FCB     AM_INVALID      ; C7
+1926 1ad3 02                         FCB     AM_IMMEDIATE8   ; C8
+1927 1ad4 02                         FCB     AM_IMMEDIATE8   ; C9
+1928 1ad5 02                         FCB     AM_IMMEDIATE8   ; CA
+1929 1ad6 02                         FCB     AM_IMMEDIATE8   ; CB
+1930 1ad7 03                         FCB     AM_IMMEDIATE16  ; CC
+1931 1ad8 01                         FCB     AM_INHERENT     ; CD
+1932 1ad9 03                         FCB     AM_IMMEDIATE16  ; CE
+1933 1ada 00                         FCB     AM_INVALID      ; CF
+1934                         
+1935 1adb 04                         FCB     AM_DIRECT       ; D0
+1936 1adc 04                         FCB     AM_DIRECT       ; D1
+1937 1add 04                         FCB     AM_DIRECT       ; D2
+1938 1ade 04                         FCB     AM_DIRECT       ; D3
+1939 1adf 04                         FCB     AM_DIRECT       ; D4
+1940 1ae0 04                         FCB     AM_DIRECT       ; D5
+1941 1ae1 04                         FCB     AM_DIRECT       ; D6
+1942 1ae2 04                         FCB     AM_DIRECT       ; D7
+1943 1ae3 04                         FCB     AM_DIRECT       ; D8
+1944 1ae4 04                         FCB     AM_DIRECT       ; D9
+1945 1ae5 04                         FCB     AM_DIRECT       ; DA
+1946 1ae6 04                         FCB     AM_DIRECT       ; DB
+1947 1ae7 04                         FCB     AM_DIRECT       ; DC
+1948 1ae8 04                         FCB     AM_DIRECT       ; DD
+1949 1ae9 04                         FCB     AM_DIRECT       ; DE
+1950 1aea 04                         FCB     AM_DIRECT       ; DF
+1951                         
+1952 1aeb 08                         FCB     AM_INDEXED      ; E0
+1953 1aec 08                         FCB     AM_INDEXED      ; E1
+1954 1aed 08                         FCB     AM_INDEXED      ; E2
+1955 1aee 08                         FCB     AM_INDEXED      ; E3
+1956 1aef 08                         FCB     AM_INDEXED      ; E4
+1957 1af0 08                         FCB     AM_INDEXED      ; E5
+1958 1af1 08                         FCB     AM_INDEXED      ; E6
+1959 1af2 08                         FCB     AM_INDEXED      ; E7
+1960 1af3 08                         FCB     AM_INDEXED      ; E8
+1961 1af4 08                         FCB     AM_INDEXED      ; E9
+1962 1af5 08                         FCB     AM_INDEXED      ; EA
+1963 1af6 08                         FCB     AM_INDEXED      ; EB
+1964 1af7 08                         FCB     AM_INDEXED      ; EC
+1965 1af8 08                         FCB     AM_INDEXED      ; ED
+1966 1af9 08                         FCB     AM_INDEXED      ; EE
+1967 1afa 08                         FCB     AM_INDEXED      ; EF
+1968                         
+1969 1afb 05                         FCB     AM_EXTENDED     ; F0
+1970 1afc 05                         FCB     AM_EXTENDED     ; F1
+1971 1afd 05                         FCB     AM_EXTENDED     ; F2
+1972 1afe 05                         FCB     AM_EXTENDED     ; F3
+1973 1aff 05                         FCB     AM_EXTENDED     ; F4
+1974 1b00 05                         FCB     AM_EXTENDED     ; F5
+1975 1b01 05                         FCB     AM_EXTENDED     ; F6
+1976 1b02 05                         FCB     AM_EXTENDED     ; F7
+1977 1b03 05                         FCB     AM_EXTENDED     ; F8
+1978 1b04 05                         FCB     AM_EXTENDED     ; F9
+1979 1b05 05                         FCB     AM_EXTENDED     ; FA
+1980 1b06 05                         FCB     AM_EXTENDED     ; FB
+1981 1b07 05                         FCB     AM_EXTENDED     ; FC
+1982 1b08 05                         FCB     AM_EXTENDED     ; FD
+1983 1b09 05                         FCB     AM_EXTENDED     ; FE
+1984 1b0a 05                         FCB     AM_EXTENDED     ; FF
+1985                         
+1986                         ; Special table for page 2 instructions prefixed by $10.
+1987                         ; Format: opcode (less 10), instruction, addressing mode
+1988                         
+1989                         PAGE2
+1990 1b0b 21 4a 07                   FCB     $21,OP_LBRN,AM_RELATIVE16
+1991 1b0e 22 42 07                   FCB     $22,OP_LBHI,AM_RELATIVE16
+1992 1b11 23 44 07                   FCB     $23,OP_LBLS,AM_RELATIVE16
+1993 1b14 24 3d 07                   FCB     $24,OP_LBCC,AM_RELATIVE16
+1994 1b17 25 3e 07                   FCB     $25,OP_LBCS,AM_RELATIVE16
+1995 1b1a 26 47 07                   FCB     $26,OP_LBNE,AM_RELATIVE16
+1996 1b1d 27 3f 07                   FCB     $27,OP_LBEQ,AM_RELATIVE16
+1997 1b20 28 4c 07                   FCB     $28,OP_LBVC,AM_RELATIVE16
+1998 1b23 29 4d 07                   FCB     $29,OP_LBVS,AM_RELATIVE16
+1999 1b26 2a 48 07                   FCB     $2A,OP_LBPL,AM_RELATIVE16
+2000 1b29 2b 46 07                   FCB     $2B,OP_LBMI,AM_RELATIVE16
+2001 1b2c 2c 40 07                   FCB     $2C,OP_LBGE,AM_RELATIVE16
+2002 1b2f 2d 45 07                   FCB     $2D,OP_LBLT,AM_RELATIVE16
+2003 1b32 2e 41 07                   FCB     $2E,OP_LBGT,AM_RELATIVE16
+2004 1b35 2f 43 07                   FCB     $2F,OP_LBLE,AM_RELATIVE16
+2005 1b38 3f 7e 01                   FCB     $3F,OP_SWI2,AM_INHERENT
+2006 1b3b 83 28 03                   FCB     $83,OP_CMPD,AM_IMMEDIATE16
+2007 1b3e 8c 2c 03                   FCB     $8C,OP_CMPY,AM_IMMEDIATE16
+2008 1b41 8e 54 03                   FCB     $8E,OP_LDY,AM_IMMEDIATE16
+2009 1b44 93 28 04                   FCB     $93,OP_CMPD,AM_DIRECT
+2010 1b47 9c 2c 04                   FCB     $9C,OP_CMPY,AM_DIRECT
+2011 1b4a 9e 54 04                   FCB     $9E,OP_LDY,AM_DIRECT
+2012 1b4d 9d 79 04                   FCB     $9D,OP_STY,AM_DIRECT
+2013 1b50 a3 28 08                   FCB     $A3,OP_CMPD,AM_INDEXED
+2014 1b53 ac 2c 08                   FCB     $AC,OP_CMPY,AM_INDEXED
+2015 1b56 ae 54 08                   FCB     $AE,OP_LDY,AM_INDEXED
+2016 1b59 af 79 08                   FCB     $AF,OP_STY,AM_INDEXED
+2017 1b5c b3 28 05                   FCB     $B3,OP_CMPD,AM_EXTENDED
+2018 1b5f bc 2c 05                   FCB     $BC,OP_CMPY,AM_EXTENDED
+2019 1b62 be 54 05                   FCB     $BE,OP_LDY,AM_EXTENDED
+2020 1b65 bf 79 05                   FCB     $BF,OP_STY,AM_EXTENDED
+2021 1b68 ce 51 03                   FCB     $CE,OP_LDS,AM_IMMEDIATE16
+2022 1b6b de 51 04                   FCB     $DE,OP_LDS,AM_DIRECT
+2023 1b6e dd 76 04                   FCB     $DD,OP_STS,AM_DIRECT
+2024 1b71 ee 51 08                   FCB     $EE,OP_LDS,AM_INDEXED
+2025 1b74 ef 76 08                   FCB     $EF,OP_STS,AM_INDEXED
+2026 1b77 fe 51 05                   FCB     $FE,OP_LDS,AM_EXTENDED
+2027 1b7a ff 76 05                   FCB     $FF,OP_STS,AM_EXTENDED
+2028 1b7d 00                         FCB     0                             ; indicates end of table
+2029                         
+2030                         ; Special table for page 3 instructions prefixed by $11.
+2031                         ; Same format as table above.
+2032                         
+2033                         PAGE3
+2034 1b7e 3f 7f 01                   FCB     $3F,OP_SWI3,AM_INHERENT
+2035 1b81 83 2a 03                   FCB     $83,OP_CMPU,AM_IMMEDIATE16
+2036 1b84 8c 29 03                   FCB     $8C,OP_CMPS,AM_IMMEDIATE16
+2037 1b87 93 2a 04                   FCB     $93,OP_CMPU,AM_DIRECT
+2038 1b8a 9c 29 04                   FCB     $9C,OP_CMPS,AM_DIRECT
+2039 1b8d a3 2a 08                   FCB     $A3,OP_CMPU,AM_INDEXED
+2040 1b90 ac 29 08                   FCB     $AC,OP_CMPS,AM_INDEXED
+2041 1b93 b3 2a 05                   FCB     $B3,OP_CMPU,AM_EXTENDED
+2042 1b96 bc 29 05                   FCB     $BC,OP_CMPS,AM_EXTENDED
+2043 1b99 00                         FCB     0                             ; indicates end of table
+2044                         
+2045                         ; Display strings. Should be terminated in EOT character.
+2046                         
+2047 1b9a 3b 20 49 4e 56 41  MSG1    FCC     "; INVALID"
+     4c 49 44
+2048 1ba3 04                         FCB     EOT
+2049                         
+2050 1ba4 50 52 45 53 53 20  MSG2    FCC     "PRESS <SPACE> TO CONTINUE, <Q> TO QUIT "
+     3c 53 50 41 43 45
+     3e 20 54 4f 20 43
+     4f 4e 54 49 4e 55
+     45 2c 20 3c 51 3e
+     20 54 4f 20 51 55
+     49 54 20
+2051 1bcb 04                         FCB     EOT
+2052                         
+2053 1bcc 50 43 52           MSG3    FCC     "PCR"
+2054 1bcf 04                         FCB     EOT

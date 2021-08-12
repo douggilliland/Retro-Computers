@@ -1,0 +1,260 @@
+0001                         ; This is a port of the 6800 version of Woz Mon to my 6809-based Single
+0002                         ; Board Computer. It was converted to 6809 instructions as well as
+0003                         ; ported to use the 6850 ACIA for input/output.
+0004                         
+0005                         ; The original 6800 port came from here: https://pastebin.com/TSM2DdRL
+0006                         
+0007                         ; Note: The code internally converts all characters to high ASCII (bit
+0008                         ; 7 = 1) because the Apple 1 used this format and the program logic is
+0009                         ; dependent on it in several places.
+0010                         
+0011                         ; The code is not quite small enough to fit in 256 bytes as the
+0012                         ; original 6502 and 6800 versions did.
+0013                         
+0014                         ;***********************************************************************
+0015                         
+0016                         ; This is a rewrite of the Apple 1 monitor to run on an MC6800
+0017                         ; microprocessor, rather than the MCS6502 microprocessor that
+0018                         ; was standard.  This source code will assemble with the
+0019                         ; AS Macro Assembler; with minor changes it should assemble
+0020                         ; with any MC6800 assembler.
+0021                         
+0022                         ; Copyright 2011 Eric Smith <eric@brouhaha.com>
+0023                         ;
+0024                         ; This program is free software; you can redistribute and/or modify it
+0025                         ; under the terms of the GNU General Public License version 3 as
+0026                         ; published by the Free Software Foundation.
+0027                         ;
+0028                         ; This program is distributed in the hope that it will be useful, but
+0029                         ; WITHOUT ANY WARRANTY; without even the implied warranty of
+0030                         ; MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+0031                         ; General Public License for more details.
+0032                         ;
+0033                         ; The text of the license may be found online at:
+0034                         ;     http://www.brouhaha.com/~eric/software/GPLv3
+0035                         ; or:
+0036                         ;     http://www.gnu.org/licenses/gpl-3.0.txt
+0037                         
+0038 008d                    cr          equ  $8d        ; Carriage return
+0039 008a                    lf          equ  $8a        ; Line feed
+0040 009b                    esc         equ  $9b        ; Escape
+0041                         
+0042 0024                    xam         equ  $0024      ; two bytes
+0043 0026                    st          equ  $0026      ; two bytes
+0044 0028                    h           equ  $0028
+0045 0029                    l           equ  $0029
+0046                         
+0047 002b                    mode        equ  $002b
+0048 002c                    ysav        equ  $002c      ; two bytes
+0049 002e                    inptr       equ  $002e      ; two bytes
+0050                         
+0051 0200                    in          equ  $0200
+0052                         
+0053 a000                    aciac       equ  $a000      ; 6850 ACIA status/control register
+0054 a001                    aciad       equ  $a001      ; 6850 ACIA data register
+0055                         
+0056                         ; Use this line to run from RAM
+0057                         ;           org  $1000
+0058                         
+0059                         ; Use these lines to run from a 16K ROM
+0060 c000                                org  $c000
+0061 c000 ff ff ff ff ff ff              fill $ff,$fee0-*
+     ff ff ff ff ff ff
+     ff ff ff ff ff ff
+     ff ff ff ff ff ff
+     ff ff ff ff ff ff
+     ff ff ff ff ff ff
+     ff ff ff ff ff ff
+     ff ff ff ff ff ff
+     ff ff ff ff ff ff
+     ff ff ff ff ff ff
+     ff ff ff ff
+0062                         
+0063                         
+0064 fee0 86 03              reset:      lda  #3         ; Reset ACIA
+0065 fee2 b7 a0 00                       sta  aciac
+0066 fee5 86 15                          lda  #$15       ; Control register setting
+0067 fee7 b7 a0 00                       sta  aciac      ; Initialize ACIA to 8 bits and no parity
+0068                         
+0069 feea 10 ce 01 ff                    lds  #$01ff     ; On the 6502, the monitor didn't initialize the
+0070                                                     ;  stack pointer, which was OK because it was
+0071                                                     ;  guaranteed to be somewhere in page 1. Not so
+0072                                                     ;  on the 6800!
+0073                                                     ; Ideally, I'd take advantage of the stack
+0074                                                     ;  starting right before the input buffer to
+0075                                                     ;  save a few bytes, but I haven't yet figured
+0076                                                     ;  out how to do it.
+0077                         
+0078 feee 20 0d                          bra  escape
+0079                         
+0080                         ; Get a line of input from the keyboard, echoing to display.
+0081                         ; Normally enter at escape or getline.
+0082                         
+0083 fef0 81 df              notcr:      cmpa #$df       ; "_"?  [NB back arrow]
+0084 fef2 27 1d                          beq  backspace  ; Yes.
+0085 fef4 81 9b                          cmpa #esc       ; ESC?
+0086 fef6 27 05                          beq  escape     ; Yes.
+0087 fef8 30 01                          leax 1,x        ; Advance text index.
+0088 fefa 5c                             incb
+0089 fefb 2a 19                          bpl  nextchar   ; Auto ESC if > 127.
+0090                         
+0091 fefd 86 dc              escape:     lda  #$dc       ; "\".
+0092 feff bd ff 9b                       jsr  echo       ; Output it.
+0093                         
+0094 ff02 86 8d              getline:    lda  #cr        ; CR.
+0095 ff04 bd ff 9b                       jsr  echo       ; Output it.
+0096 ff07 86 8a                          lda  #lf
+0097 ff09 bd ff 9b                       jsr  echo       ; Output it.
+0098 ff0c 8e 02 01                       ldx  #in+1      ; Initiallize [sic] text index.
+0099 ff0f c6 01                          ldb  #1
+0100 ff11 30 1f              backspace:  leax -1,x       ; Back up text index.
+0101 ff13 5a                             decb
+0102 ff14 2b ec                          bmi  getline    ; Beyond start of line, reinitialize.
+0103                         
+0104 ff16 b6 a0 00           nextchar:   lda  aciac      ; Key ready?
+0105 ff19 85 01                          bita #$01
+0106 ff1b 27 f9                          beq  nextchar   ; Loop until ready.
+0107 ff1d b6 a0 01                       lda  aciad      ; Load character.
+0108 ff20 8a 80                          ora  #$80       ; Convert to high ASCII.
+0109 ff22 a7 84                          sta  ,x         ; Add to text buffer.
+0110 ff24 8d 75                          bsr  echo       ; Display character.
+0111 ff26 81 8d                          cmpa #cr        ; CR?
+0112 ff28 26 c6                          bne  notcr      ; No.
+0113                         
+0114                         ; Process an input line.
+0115                         
+0116 ff2a 8e 02 ff           ret:        ldx  #in+256-1  ; Reset text index to in-1, +256 so that
+0117                                                     ;  'inc inptr+1' will result in $0200.
+0118 ff2d 9f 2e                          stx  inptr
+0119 ff2f 4f                             clra            ; For XAM mode. 0->B.
+0120                         
+0121 ff30 48                 setblok:    asla            ; Leaves $56 if setting BLOCK XAM mode.
+0122 ff31 97 2b              setmode:    sta  mode       ; $00 = XAM, $BA = STOR, $56 = BLOK XAM.
+0123 ff33 0c 2f              blskip:     inc  inptr+1    ; Advance text index.
+0124 ff35 9e 2e              nextitem:   ldx  inptr
+0125 ff37 a6 84                          lda  ,x         ; Get character.
+0126 ff39 81 8d                          cmpa #cr        ; CR?
+0127 ff3b 27 c5                          beq  getline    ; Yes, done this line.
+0128 ff3d 81 ae                          cmpa #$ae       ; "."?
+0129 ff3f 27 ef                          beq  setblok    ; Set BLOCK XAM mode.
+0130 ff41 23 f0                          bls  blskip     ; Skip delimiter.
+0131 ff43 81 ba                          cmpa #$ba       ; ":"?
+0132 ff45 27 ea                          beq  setmode    ; Yes, set STOR mode.
+0133 ff47 81 d2                          cmpa #$d2       ; "R"?
+0134 ff49 27 5f                          beq  run        ; Yes, run user program.
+0135 ff4b 0f 29                          clr  l          ; $00->L.
+0136 ff4d 0f 28                          clr  h          ;  and H.
+0137 ff4f 9f 2c                          stx  ysav       ; Save Y for comparison.
+0138                         
+0139 ff51 9e 2e              nexthex:    ldx  inptr
+0140 ff53 a6 84                          lda  ,x         ; Get character for hex test.
+0141 ff55 88 b0                          eora #$b0       ; Map digits to $0-9.
+0142 ff57 81 09                          cmpa #$09       ; Digit?
+0143 ff59 23 06                          bls  dig        ; Yes.
+0144 ff5b 8b 89                          adda #$89       ; Map letter "A"-"F" to $FA-FF.
+0145 ff5d 81 f9                          cmpa #$f9       ; Hex letter?
+0146 ff5f 23 12                          bls  nothex     ; No, character not hex.
+0147                         
+0148 ff61 48                 dig:        asla            ; Hex digit to MSD of A.
+0149 ff62 48                             asla
+0150 ff63 48                             asla
+0151 ff64 48                             asla
+0152                         
+0153 ff65 c6 04                          ldb  #$04       ; Shift count.
+0154 ff67 48                 hexshift:   asla            ; Hex digit left, MSB to carry.
+0155 ff68 09 29                          rol  l          ; Rotate into LSD.
+0156 ff6a 09 28                          rol  h          ; Rotate into MSD's.
+0157 ff6c 5a                             decb            ; Done 4 shifts?
+0158 ff6d 26 f8                          bne  hexshift   ; No, loop.
+0159                         
+0160 ff6f 0c 2f                          inc  inptr+1    ; Advance text index.
+0161 ff71 20 de                          bra  nexthex    ; Always taken. Check next character for hex.
+0162                         
+0163 ff73 9c 2c              nothex:     cpx  ysav       ; Check if L, H empty (no hex digits).
+0164 ff75 27 86                          beq  escape     ; Yes, generate ESC sequence.
+0165 ff77 0d 2b                          tst  mode       ; Test MODE byte.
+0166 ff79 2a 33                          bpl  notstor    ; B6=0 for STOR, 1 for XAM and BLOCK XAM
+0167                         
+0168                         ; STOR mode
+0169 ff7b 9e 26                          ldx  st
+0170 ff7d 96 29                          lda  l          ; LSD's of hex data.
+0171 ff7f a7 84                          sta  ,x         ; Store at current 'store index'.
+0172 ff81 30 01                          leax 1,x
+0173 ff83 9f 26                          stx  st
+0174 ff85 20 ae              tonextitem: bra  nextitem   ; Get next command item.
+0175                         
+0176 ff87 34 02              prbyte:     pshs a          ; Save A for LSD.
+0177 ff89 44                             lsra
+0178 ff8a 44                             lsra
+0179 ff8b 44                             lsra            ; MSD to LSD position.
+0180 ff8c 44                             lsra
+0181 ff8d 8d 02                          bsr  prhex      ; Output hex digit.
+0182 ff8f 35 02                          puls a          ; Restore A.
+0183 ff91 84 0f              prhex:      anda #$0f       ; Mask LSD for hex print.
+0184 ff93 8a b0                          ora  #$b0       ; Add "0".
+0185 ff95 81 b9                          cmpa #$b9       ; Digit?
+0186 ff97 23 02                          bls  echo       ; Yes, output it.
+0187 ff99 8b 07                          adda #$07       ; Add offset for letter.
+0188                         
+0189 ff9b f6 a0 00           echo:       ldb  aciac
+0190 ff9e c5 02                          bitb #$02       ; bit (B2) cleared yet?
+0191 ffa0 27 f9                          beq  echo       ; No, wait for display.
+0192 ffa2 84 7f                          anda #$7F       ; Convert to low ASCII.
+0193 ffa4 b7 a0 01                       sta  aciad      ; Output character.
+0194 ffa7 8a 80                          ora #$80        ; Convert back to high ASCII.
+0195 ffa9 39                             rts             ; Return.
+0196                         
+0197 ffaa 9e 24              run:        ldx  xam
+0198 ffac 6e 84                          jmp  ,x         ; Run at current XAM index.
+0199                         
+0200 ffae 26 27              notstor:    bne  xamnext    ; mode = $00 for XAM, $56 for BLOCK XAM.
+0201                         
+0202 ffb0 9e 28                          ldx  h          ; Copy hex data to
+0203 ffb2 9f 26                          stx  st         ;  'store index'.
+0204 ffb4 9f 24                          stx  xam        ; And to 'XAM index'.
+0205 ffb6 4f                             clra            ; set Z flag to force following branch.
+0206                         
+0207 ffb7 26 14              nxtprnt:    bne  prdata     ; NE means no address to print.
+0208 ffb9 86 8d                          lda  #cr        ; CR.
+0209 ffbb 8d de                          bsr  echo       ; Output it.
+0210 ffbd 86 8a                          lda  #lf        ; LF.
+0211 ffbf 8d da                          bsr  echo       ; Output it.
+0212 ffc1 96 24                          lda  xam        ; 'Examine index' high-order byte.
+0213 ffc3 8d c2                          bsr  prbyte     ; Output it in hex format.
+0214 ffc5 96 25                          lda  xam+1      ; Low-order 'Examine index' byte.
+0215 ffc7 8d be                          bsr  prbyte     ; Output it in hex format.
+0216 ffc9 86 ba                          lda  #$ba       ; ":".
+0217 ffcb 8d ce                          bsr  echo       ; Output it.
+0218                         
+0219 ffcd 86 a0              prdata:     lda  #$a0       ; Blank.
+0220 ffcf 8d ca                          bsr  echo       ; Output it.
+0221                         
+0222 ffd1 9e 24                          ldx  xam
+0223 ffd3 a6 84                          lda  ,x         ; Get data byte at 'examine index'.
+0224 ffd5 8d b0                          bsr  prbyte     ; Output it in hex format.
+0225                         
+0226 ffd7 0f 2b              xamnext:    clr  mode       ; 0->MODE (XAM mode).
+0227 ffd9 9e 24                          ldx  xam        ; Compare 'examine index' to hex data.
+0228 ffdb 9c 28                          cpx  h
+0229 ffdd 27 a6                          beq  tonextitem ; Not less, so more data to output.
+0230 ffdf 30 01                          leax 1,x
+0231 ffe1 9f 24                          stx  xam
+0232 ffe3 96 25                          lda  xam+1      ; Check low-order 'examine index' byte
+0233 ffe5 84 07                          anda #$07       ; For MOD 8 = 0
+0234 ffe7 20 ce                          bra  nxtprnt    ; always taken
+0235                         
+0236                         ; Below is only needed if you want to run from ROM as a standalone
+0237                         ; monitor.
+0238                         
+0239 ffe9 ff ff ff ff ff ff              fill $ff, $fff0-*
+     ff
+0240                         ;           org  $fff0      ; vector table
+0241                         
+0242 fff0 00 00                          fdb  $0000      ; Reserved
+0243 fff2 00 00                          fdb  $0000      ; SWI3
+0244 fff4 00 00                          fdb  $0000      ; SWI2
+0245 fff6 00 00                          fdb  $0000      ; FIRQ
+0246 fff8 00 00                          fdb  $0000      ; IRQ
+0247 fffa 00 00                          fdb  $0000      ; SWI
+0248 fffc 00 00                          fdb  $0000      ; NMI
+0249 fffe fe e0                          fdb  reset      ; RESET

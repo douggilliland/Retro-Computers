@@ -1,0 +1,99 @@
+0001                         ; Interrupt example 1.
+0002                         ; Example of sending characters in an interrupt-driven fashion.
+0003                         ;
+0004                         ; Uses a 6850 ACIA which must have its INT* line connnected to the
+0005                         ; CPU/IRQ line.
+0006                         
+0007                         ; Equates
+0008                         
+0009 7f00                    intvec  equ  $7f00              ; Address of IRQ handler in MONDEB.
+0010 a000                    aciac   equ  $a000              ; 6850 ACIA status/control register.
+0011 a001                    aciad   equ  $a001              ; 6850 ACIA data register.
+0012 0000                    eos     equ  $00                ; End of string character (NULL).
+0013 000d                    cr      equ  $0d                ; Carriage return.
+0014 000a                    nl      equ  $0a                : Newline.
+0015                         
+0016                         ; Main program
+0017                         
+0018 1000                            org     $1000
+0019                         
+0020                         ; Disable interrupts to start.
+0021                         
+0022 1000 1a 10              start   orcc    #%00010000      ; SEI (mask interrupts).
+0023                         
+0024                         ; Set up ACIA control register to send interrupts when TDRE true.
+0025                         ; Receive interrupt disabled. Output /RTS=low and enable Tx Interrupt.
+0026                         ; Data format 8N1. CLK/16
+0027                         
+0028 1002 86 03                      lda     #3              ; Reset ACIA
+0029 1004 b7 a0 00                   sta     aciac
+0030 1007 86 35                      lda     #%00110101      ; Control register setting.
+0031 1009 b7 a0 00                   sta     aciac           ; Initialize ACIA to 8 bits and no parity.
+0032                         
+0033                         ; Set IRQ vector to call our handler routine.
+0034                         
+0035 100c 8e 10 1d                   ldx     #handler        ; This only works with MONDEB monitor.
+0036 100f bf 7f 00                   stx     intvec
+0037                         
+0038                         ; Buffer contains string to send.
+0039                         ; Initialize bufptr to point to start of string.
+0040                         
+0041 1012 8e 20 04                   ldx     #buffer
+0042 1015 bf 20 00                   stx     bufptr
+0043                         
+0044                         ; Run CWAI # to enable interrupts
+0045                         ; Loop back forever
+0046                         
+0047                         ;forever cwai    #%11101111      ; Enable IRQ
+0048                         ;        bra     forever
+0049                         
+0050                         ; Alternative code to above. Enable interrupts and perform SYNC.
+0051                         
+0052 1018 1c ef                      andcc   #%11101111      ; CLI (enable IRQ)
+0053 101a 13                 forever sync
+0054 101b 20 fd                      bra     forever
+0055                         
+0056                         ; Third option to above. Run code to increment a 16-bit value in a
+0057                         ; loop. Gets interrupted to output characters to ACIA.
+0058                         
+0059                         ;        ldx     #0              ; Initialize counter to $0000
+0060                         ;        stx     counter
+0061                         ;        andcc   #%11101111      ; CLI (enable IRQ)
+0062                         ;forever ldx     counter         ; Increment 16-bit counter
+0063                         ;        leax    1,x
+0064                         ;        stx     counter
+0065                         ;        bra     forever
+0066                         
+0067                         ; IRQ Handler:
+0068                         
+0069                         ; If next character (pointed to by bufptr) is not a null:
+0070                         ;   Write next character (pointed to by bufptr) to ACIA data register
+0071                         ;   Increment bufptr to point to next address.
+0072                         ; Return from interrupt.
+0073                         
+0074                         
+0075 101d a6 9f 20 00        handler lda    [bufptr]        ; Get character.
+0076 1021 81 00                      cmpa   #eos            ; End of string character?
+0077 1023 27 0b                      beq    done            ; Branch to return if end of string.
+0078 1025 b7 a0 01                   sta    aciad           ; Write to ACIA (also clears interrupt).
+0079 1028 be 20 00                   ldx    bufptr          ; Get buffer pointer.
+0080 102b 30 01                      leax   1,x             ; Do 16-bit increment.
+0081 102d bf 20 00                   stx    bufptr          ; Save it.
+0082 1030 3b                 done    rti                    ; Return from interrupt.
+0083                         
+0084                         ; Data
+0085                         
+0086 2000                            org     $2000
+0087 2000                    bufptr  rmb     2               ; Pointer to next available point in data buffer
+0088 2002                    counter rmb     2               ; 16-bit counter
+0089 2004 54 68 69 73 20 69  buffer  fcc     "This is a test of interrupt driven serial output." ; Data buffer
+     73 20 61 20 74 65
+     73 74 20 6f 66 20
+     69 6e 74 65 72 72
+     75 70 74 20 64 72
+     69 76 65 6e 20 73
+     65 72 69 61 6c 20
+     6f 75 74 70 75 74
+     2e
+0090 2035 0d 0a                      fcb     cr,nl
+0091 2037 00                         fcb     eos             ; End of string indicator
