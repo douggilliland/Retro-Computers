@@ -1,11 +1,11 @@
-/* hello.c example	*/
-/* conio.h docs - Not sure how well it matches	*/
-/* 	https://digitalmars.com/rtl/conio.html		*/
+/* hello.c example																				*/
+/* conio.h docs - Not sure how well it matches													*/
+/* 	https://digitalmars.com/rtl/conio.html														*/
 /* Commands are																					*/
-/* mnt - mount the SD card, load/parse the boot record 											*/
-/* dir - fetch the directory from the SD card and display to the screen, starts in root folder	*/
-/* cd - change directory																		*/
-/* ld - load a file from the SD card															*/
+/* Mnt - mount the SD card, load/parse the boot record 											*/
+/* Dir - fetch the directory from the SD card and display to the screen, starts in root folder	*/
+/* Cd - change directory																		*/
+/* Ld - load a file from the SD card															*/
 
 #include <conio.h>	/* Console I/O	*/
 #include <stdlib.h>

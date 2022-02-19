@@ -1,10 +1,11 @@
 /* OSISDOS.c - Minimal Operating System for OSI C1P/SuperBoard ][ 	*/
 /* SDHC card based disk operating system							*/
+/* FAT32 formatted card makes it easy to transfer files from PC		*/
 /* 8KB Microsoft BASIC-In-ROM has I/O support routines				*/
 /* CEGMON has various hooks to the I/O in BASIC						*/
 /* Uses Banked SRAM from $E000-$EFFF to buffer SD card data.		*/
 /* Intended to fit within a small ROM space below CEGMON			*/
-/*	Target ROM space goes from $F100-$F7FF (1.75kb)					*/
+/* Target ROM space goes from $F100-$F7FF (1.75kb)					*/
 /*																	*/
 /* Compiled using CC65 toolchain 									*/
 
@@ -12,13 +13,13 @@
 Memory Map
 	$0000-$9FFF - SRAM (40KB)
 	$A000-$BFFF - Microsoft BASIC-in-ROM (8KB)
-		$D000-$D3FF - 1KB Display RAM
-		$DC00 - PS/2 Keyboard
-		$E000-$EFFF - Bank Selectable SRAM (not detectable as BASIC RAM)
-		$F000-$FFFF - CEGMON Monitor ROM 4K
-		$F000-$F001 - ACIA (UART) 61440-61441 dec
-		$F002 - J6 I/O Connector 61442 dec
-		$F003 - J8 I/O Connector 61443 dec
+	$D000-$D3FF - 1KB Display RAM
+	$DC00 - PS/2 Keyboard
+	$E000-$EFFF - Bank Selectable SRAM (not detectable as BASIC RAM)
+	$F000-$FFFF - CEGMON Monitor ROM 4K
+	$F000-$F001 - ACIA (UART) 61440-61441 dec
+	$F002 - J6 I/O Connector 61442 dec
+	$F003 - J8 I/O Connector 61443 dec
  	$F004 - LEDS 61444 dec
 		d0-d1 LEDs are on the FPGA card
  	$F005 - Bank Select Register 61445 dec
