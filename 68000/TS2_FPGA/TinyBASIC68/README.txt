@@ -4,7 +4,7 @@
 
 
 
-                  Tiny BASIC Comes to the 68000
+                               Tiny BASIC Comes to the 68000
 
                                      by Gordon Brandly
                                         R. R. 2
@@ -14,12 +14,12 @@
 
      Remember  the good old days?   When the 8080  microprocessor reigned  supreme,  8K of memory cost an arm and a leg,  ah yes...   
 Welì the years went by,  microcomputers got bigger, software grew more  sophisticated,  and prices went up.   This is just fine  of  
-course,  if you can afford the higher prices.  The less fortunate among us, however, must build or buy smaller 16-bit "educational¢  
+course,  if you can afford the higher prices. The less fortunate among us, however, must build or buy smaller 16-bit "educational¢  
 systems.   This is fine too,  if you don't mind having hardly any software.   This is the just the sort of situation that gave rise  
-to Dr.  Dobb's Journaì in the 'good old days'.  The solution back then  was  to  publish a tiny BASIC  interpreter  that  could  be  
-adapted  to  just  about any  8080  microcomputer  around.   This solution  worked  fabulously and gave many a hobby  computer  its  
+to Dr.  Dobb's Journaì in the 'good old days'. The solution back then  was  to  publish a tiny BASIC  interpreter  that  could  be  
+adapted  to  just  about any  8080  microcomputer  around. This solution  worked  fabulously and gave many a hobby  computer  its  
 first  taste of usefuì software.   Well,  if the solution  worked once, why not again?  I therefore decided to produce a tiny BASIC  
-interpreter  for  alì  of  you who have  relatively  smalì  68000 systems  such as the Motorola Education Computer Board,  the  EMÓ  
+interpreter  for  alì  of  you who have  relatively  smalì 68000 systems  such as the Motorola Education Computer Board,  the  EMÓ  
 68000 board, etc.
      To produce this BASIC I took one of the most successfuì 8080 Tiny  BASICs,  Lé Chen Wang's Palo Alto Tiny BASIC (published  in  
 the  May 197¶ Dr.  Dobb's Journal© and translated it  into  68000 code.   I  then  added  a few features and optimized the  code  a  
