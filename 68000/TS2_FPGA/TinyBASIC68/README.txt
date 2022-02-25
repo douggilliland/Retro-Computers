@@ -1,6 +1,6 @@
-     The following is the originaì manuscript for the article 'Tiny BASIC comes to the 68000' published in 
-     the February 198µ issue of Dr. Dobbs's Journal. This  manuscript is copyright (c© 198´ by Gordon Brandly and 
-     is distributed with the permission of Gordon Brandly and Dr. Dobb's Journal.
+The following is the originaì manuscript for the article 'Tiny BASIC comes to the 68000' published in 
+the February 198µ issue of Dr. Dobbs's Journal. This  manuscript is copyright (c© 198´ by Gordon Brandly and 
+is distributed with the permission of Gordon Brandly and Dr. Dobb's Journal.
 
 
 
