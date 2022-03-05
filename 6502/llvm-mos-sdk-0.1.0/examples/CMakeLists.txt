@@ -1,0 +1,6 @@
+llvm_mos_sdk_add_example_executable(hello-putchar hello-putchar.c)
+llvm_mos_sdk_add_example_executable(hello-printf hello-printf.c)
+llvm_mos_sdk_add_example_executable(hello-malloc hello-malloc.c)
+llvm_mos_sdk_add_example_executable(hello-new hello-new.cc)
+llvm_mos_sdk_add_example_executable(init-functions init-functions.cc)
+llvm_mos_sdk_add_example_executable(hello-getchar hello-getchar.c)

@@ -1,0 +1,24 @@
+llvm_mos_sdk_install(FILES
+  _exit.S
+  alloca.h
+  climits
+  cstdarg
+  cstddef
+  cstdint
+  cstdio
+  cstdlib
+  ctype.h
+  exception
+  init_stack.S
+  initializer_list
+  inttypes.h
+  new
+  setjmp.h
+  start.S
+  stdio.h
+  stdlib.h
+  string.h
+  type_traits
+  typeinfo
+  zero_bss.S
+  )

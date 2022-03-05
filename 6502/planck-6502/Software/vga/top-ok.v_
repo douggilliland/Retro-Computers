@@ -1,0 +1,551 @@
+//------------------------------------------------------------------
+//-- Hello world example
+//-- Turn on all the leds
+//-- This example has been tested on the following boards:
+//--   * Lattice icestick
+//--   * Icezum alhambra (https://github.com/FPGAwars/icezum)
+//------------------------------------------------------------------
+
+
+
+module vga (
+    output VSYNC,
+    output HSYNC,
+    //output OE,
+    output reg [2:0] red,
+    output reg [2:0] green,
+    output reg [1:0] blue,
+    output reg [2:0] led,
+    output DIR,
+    input CLK_12M,
+    input CLK_CPU,
+    input RW,
+    input EN,
+    input [2:0] REG,
+    input [7:0] DATA
+);
+    //assign OE = 1;
+// Input                   Input/output
+// OE      DIR             An      Bn
+// L       L               A = B   input
+// L       H               input   B = A
+// H       X               Z       Z
+    // DIR only goes low when reading and enabled
+    assign DIR = 1; //(EN | ~RW);
+
+    `define CTRL_REG 3'd0       // Formatted as follows |INCR_NEG|INCR_4|INCR_3|INCR_2|INCR_1|INCR_0|MODE_1|MODE_0|  default to LORES
+    `define ADDR_LOW_REG 3'd1   // also contains the increment ||||ADDR4|ADDR_3|ADDR_2|ADDR_1|ADDR_0|
+    `define ADDR_HIGH_REG 3'd2
+    `define DATA_REG 3'd3
+    `define IEN_REG 3'd4    // formatted as follows |VSYNC| | | | | | |HSYNC|
+    `define INTR_REG 3'd5   // formatted as follows |VSYNC| | | | | | |HSYNC|
+    `define HSCROLL_REG 3'd6    // Scrolls one column in character mode and one pixel in pixel mode - negative is left, positive is right
+    `define VSCROLL_REG 3'd7    // Scrolls one line in character mode and one pixel in pixel mode - negative is down, positive is up
+
+    `define SAVE_STATE_INIT 2'd0
+    `define SAVE_STATE_SAVE 2'd1
+    `define SAVE_STATE_INCREMENT 2'd2
+    `define SAVE_STATE_WAIT 2'd3
+
+    `define READ_STATE_INIT 2'd0
+    `define READ_STATE_READ 2'd1
+    `define READ_STATE_INCREMENT 2'd2
+    `define READ_STATE_WAIT 2'd3
+
+    `define MODE_LORES 2'd0;
+    `define MODE_HIRES 2'd1;
+
+    localparam H_RES_FULL = 799;
+    localparam V_RES_FULL = 524;
+    localparam H_RES = 640;
+    localparam V_RES = 480;
+    localparam V_CHAR_HIRES = 60;
+    localparam H_CHAR_HIRES = 80;
+    localparam V_CHAR_LORES = 30;
+    localparam H_CHAR_LORES = 40;
+
+    localparam RAM_SIZE = 'h1800;// + 'h400;
+    localparam SCREEN_CHARS = 'h1D4B;
+
+    reg [1:0]   mode;
+    reg [7:0]   ien_reg;
+    reg [7:0]   intr_reg;
+    reg [3:0]   increment_reg;
+    reg         increment_neg;
+    reg [7:0]   hscroll_reg;
+    reg [7:0]   vscroll_reg;
+    reg [13:0]  address_reg;
+    wire [13:0]  char_address_reg = (address_reg >= RAM_SIZE) ? (address_reg - RAM_SIZE) : 14'h0;
+
+    wire [7:0] increment = (increment_reg == 0) ? 0 : ((increment_reg <= 8) ? (1 << (increment_reg-1)) : 
+    ((increment_reg == 9) ? 3 : 
+    ((increment_reg == 10) ? 10 : 
+    ((increment_reg == 11) ? H_CHAR_LORES : 
+    ((increment_reg == 12) ? H_CHAR_HIRES : 
+    ((increment_reg == 13) ? H_CHAR_HIRES*2 : 
+    ((increment_reg == 14) ? H_CHAR_LORES*3 : H_CHAR_HIRES*3
+    )))))));
+
+
+   //assign DATA = (!EN && RW) ? data_out : 8'bzzzzzzzz;
+
+    reg [7:0] data_out;
+
+    parameter MEM_INIT_FILE = "char_data.mem";
+
+    reg [7:0] character_rom['h400-1:0];
+    reg [7:0] character_ram['h400-1:0];
+    reg [7:0] fb0[RAM_SIZE-1:0];
+
+    //wire CLK_12M;
+
+// SB_HFOSC #(
+//   .CLKHF_DIV("0b10")
+// ) hfosc (
+//   .CLKHFPU(1'b1),
+//   .CLKHFEN(1'b1),
+//   .CLKHF(CLK_12M)
+// ); 
+
+    reg [7:0] bgcolor;
+    reg [7:0] fgcolor;
+
+    // integer i;
+    // initial begin
+    //     address_reg <= 0;
+    //     fb0[0] <= 8'h41;
+    //     fb0[1] <= 8'h42;
+    //     for (i = 2; i < RAM_SIZE; i = i + 1) begin
+    //         fb0[i] <= 8'h20;
+    //         //fb1[i] <= 8'h20;
+    //     end
+    // end
+
+    reg RESET;
+
+    initial begin
+        RESET <= 1;
+        if (MEM_INIT_FILE != "") begin
+            $readmemh(MEM_INIT_FILE, character_rom);
+            //$readmemh(MEM_INIT_FILE, character_ram);
+        end
+    end
+
+    initial begin
+        CLK_PIX <= 1'b0;
+        RESET <= 1'b0;
+        save_data <= 1'b0;
+        address_reg <= 0;
+        show_cursor <= 0;
+        cursor_counter <= 0;
+        fgcolor <= 8'h00;
+        bgcolor <= 8'hFF;
+        led <= 3'b111;
+        save_state <= `SAVE_STATE_INIT;
+        read_state <= `READ_STATE_INIT;
+        read_data <= 1'b0;
+        read_reg <= 3'd0;
+        //read_reg <= `CTRL_REG;
+        mode <= 1;
+        increment_reg <= 1;
+        increment_neg <= 0;
+        data_out <= 8'h41;
+        vscroll_reg <= 0;
+        // next_fb0_char = 0;
+        // second_fb0_char = 0;
+        // fb0_char = 0;
+        // cur_char = 0;
+        //char_data_line = 0;
+    end
+
+    wire CLK;
+
+    wire enabled = ~EN;
+    wire write = ~RW;
+
+    wire CLK_FAST;
+    reg CLK_PIX;
+    wire locked;
+
+    pll mypll(.clock_in(CLK_12M), .clock_out(CLK_FAST), .locked(locked), .reset(~RESET));
+    ////////
+    // make a simple blink circuit
+    ////////
+
+    // keep track of time and location in blink_pattern
+    reg fast_counter = 1'b0;
+
+    wire DE;
+    wire [9:0] XPOS;
+    wire [9:0] YPOS;
+
+    reg [6:0] cursor_counter;
+    reg show_cursor;
+
+
+    // increment the blink_counter every clock
+    always @(posedge CLK_FAST) begin
+        fast_counter <= ~fast_counter;
+        if (fast_counter == 1'b1) begin
+            CLK_PIX <= ~CLK_PIX; 
+        end
+    end
+
+    // reg cc;
+
+    display_timings timings (.vsync(VSYNC), .hsync(HSYNC), .clk_pix(CLK_PIX), .de(DE), .sx(XPOS), .sy(YPOS), .rst(RESET));
+
+    // always @(posedge VSYNC) begin
+    //     cc <= ~cc;
+    // end
+    always @(posedge VSYNC) begin
+        cursor_counter <= cursor_counter + 1;
+        if  (cursor_counter == 0) begin
+            show_cursor <= ~show_cursor;
+        end
+    end
+    
+
+    // TRY WITH DOUBLE BUFFER INSTEAD OF FIFO
+    // Maybe with SPRAM
+
+    // Now it is true that for the ice40 BRAM there needs to be two clock cycles between setting the address and reading the byte, but we can already set the new address in the next cycle, allowing us to read a byte every clock cycle once we set the initial address. 
+    // https://fpga.michelanders.nl/2020/02/ice40-bram-spram-access-need-for-speed.html
+
+    reg [2:0] tmp_command;
+    reg [7:0] tmp_data;
+    reg [2:0] command_reg;
+    reg [7:0] command_data;
+
+    reg [2:0] read_reg;
+
+    // always @(posedge CLK_12M) begin
+        
+    // end
+
+
+    // always @(posedge CLK_12M) begin
+    //     if ((EN == 1'b0) && (RW == 1'b1) && (read_data == 1'b0)) begin
+    //         read_data <= 1'b1;
+    //         read_reg <= REG;
+    //     end
+    //     else begin
+    //         //led <= 3'd7;
+    //         read_data <= 1'b0;
+    //         //read_reg <= 1'b0;
+    //     end
+    // end
+
+    always @(negedge CLK_CPU) begin
+        
+        if ((EN == 1'b0) && (RW == 1'b0) && (save_data == 1'b0)) begin
+            // tmp_command <= REG;
+            // tmp_data <= DATA;
+            command_reg <= REG;
+            command_data <= DATA;
+            save_data <= 1'b1;
+        end
+        else begin
+            //led <= 3'd7;
+            save_data <= 1'b0;
+        end
+    end
+
+    // reg old_phi2;
+
+    reg save_data;
+    reg [1:0] save_state;
+    reg read_data;
+    reg [1:0] read_state;
+
+
+
+    reg [7:0] ram_char;
+    reg [7:0] rom_char;
+    reg [7:0] cur_char;
+    reg [7:0] fb0_char;
+    reg [7:0] next_fb0_char;
+    reg [7:0] second_fb0_char;
+    // reg [7:0] fb1_char;
+
+    // reg [7:0] ram_data;
+
+    // reg get_state;
+
+    //wire [7:0] char_data_line = character_rom[((cur_char & 8'h7F) << 3) + (YPOS & 8'h7)];
+    //wire [7:0] char_data_line = (cur_char < 8'h80) ? character_rom[((cur_char & 8'h7F) << 3) + (YPOS & 8'h7)] : (DE ? character_ram[((cur_char & 8'h7F) << 3) + (YPOS & 8'h7)] : 8'h0);
+    
+
+    reg [12:0] copy_addr;
+
+    reg current_fb;
+
+    //wire [12:0] char_add = (YPOS >> 3)* H_CHAR_HIRES +(XPOS >> 3);
+
+    //wire [12:0] ram_add = DE ? char_add : copy_addr;
+    //reg [12:0] ram_add;
+
+    // RAM address to get character from
+    wire [6:0] line = (YPOS >> 3);
+    wire [6:0] char = ((XPOS+2) >> 3);
+    wire [12:0] next_line_addr = (YPOS > V_RES) ? 0 : ((line + 1) * H_CHAR_HIRES);
+    wire [12:0] this_line_addr = ((line * H_CHAR_HIRES) + char);
+    wire [12:0] ram_add = DE ? this_line_addr : next_line_addr;
+
+    wire [3:0] mp0 = (YPOS > V_RES) ? 0 : ((YPOS+8) & 8'h7);
+    wire [3:0] mp = DE ? (YPOS & 8'h7) : mp0;
+
+
+   //wire save = (enabled == 1'b1) && (write == 1'b1) && (save_data == 1'b0);
+    reg [7:0] tmp_data_out;
+
+    reg [7:0] char_data_line;
+    reg [7:0] next_char_data_line;
+    
+
+    always @(posedge CLK_FAST) begin
+        //data_out <= 8'h41;
+        // second_fb0_char <= next_fb0_char;
+        // fb0_char <= second_fb0_char;
+        
+        if ((save_state != `SAVE_STATE_SAVE) || (command_reg != `DATA_REG) || ((save_data == 1'b0) && (read_data == 1'b0))) begin
+            // TODO if ram_add == address_reg, show cursor for half the time
+            // Box character is 8
+            cur_char <= (show_cursor && (ram_add == address_reg)) ? 8 : fb0_char;
+            // ram_char <= character_ram[((cur_char & 8'h7F) << 3) + (YPOS & 8'h7)];
+            // rom_char <= character_rom[((cur_char & 8'h7F) << 3) + (YPOS & 8'h7)];
+        end
+
+        //fb0_char <= fb0[ram_add];
+
+        if ((read_data == 1'b0) || (read_reg != `DATA_REG) || (address_reg >= 'h1FFE)) begin
+            fb0_char <= fb0[ram_add];
+        end
+        // else begin
+        //     fb0_char <= fb0[address_reg];
+        //     // ram_char <= character_ram[char_address_reg];
+        //     // rom_char <= character_rom[char_address_reg];
+        // end
+        next_char_data_line <= character_rom[((cur_char & 8'h7F) << 3) | (YPOS & 8'h7)];
+
+        char_data_line <= next_char_data_line;
+        //char_data_line <= character_rom[((cur_char & 8'h7F) << 3) + (YPOS & 8'h7)];
+
+
+        // case (read_state)
+        // `READ_STATE_INIT:
+        // begin
+        //     if ((read_data == 1'b1) && (save_data == 1'b0)) begin
+        //         read_state <= `READ_STATE_READ;
+        //     end
+        //     else begin
+        //         read_state <= `READ_STATE_INIT;
+        //     end
+        // end
+        // `READ_STATE_READ:
+        // begin
+        //     case (read_reg)
+        //     `CTRL_REG:
+        //     begin
+        //         data_out[1:0] <= mode;
+        //         data_out[6:2] <= increment_reg;
+        //         data_out[7] <= increment_neg;
+        //         read_state <= `READ_STATE_WAIT;
+        //     end
+        //     `DATA_REG:
+        //     begin
+        //         if (address_reg < 'h1FFE) begin
+        //             data_out <= fb0_char;
+        //         end
+        //         else if (address_reg < 'h2000) begin
+        //             if (address_reg == 'h1FFE) begin
+        //                 data_out <= bgcolor;
+        //             end
+        //             else begin
+        //                 data_out <= fgcolor;
+        //             end
+        //         end
+        //         else begin
+        //             data_out <= ram_char;
+        //         end
+        //         read_state <= `READ_STATE_INCREMENT;
+        //     end
+        //     `ADDR_LOW_REG:
+        //     begin
+        //         data_out <= address_reg[5:0];
+        //         read_state <= `READ_STATE_WAIT;
+        //     end
+        //     `ADDR_HIGH_REG:
+        //     begin
+        //         data_out <= address_reg[13:6];
+        //         read_state <= `READ_STATE_WAIT;
+        //     end
+        //     default:
+        //     begin
+        //         read_state <= `READ_STATE_WAIT;
+        //     end
+        //     endcase
+        // end
+        // `READ_STATE_INCREMENT:
+        // begin
+        //     if (increment_neg == 1'b0) begin
+        //         address_reg <= address_reg + increment;
+        //         if (address_reg >= RAM_SIZE) begin
+        //             address_reg <= 0;
+        //         end
+        //     end else begin
+        //         address_reg <= address_reg - increment;
+        //         if (address_reg == 0) begin
+        //             address_reg <= RAM_SIZE - 1;
+        //         end
+        //     end
+        //     read_state <= `READ_STATE_WAIT;
+        // end
+        // `READ_STATE_WAIT:
+        // begin
+        //     if (read_data == 1'b0) begin
+        //         read_state <= `READ_STATE_INIT;
+        //     end
+        //     else begin
+        //         read_state <= `READ_STATE_WAIT;
+        //     end
+        // end
+        // default:
+        // begin
+        //     read_state <= `READ_STATE_INIT;
+        // end
+        // endcase
+
+        
+        
+
+        case(save_state)
+        `SAVE_STATE_INIT:
+        begin
+            if ((save_data == 1'b1) && (read_data ==1'b0)) begin
+                save_state <= `SAVE_STATE_SAVE;
+                //led <= 3'b011;
+            end
+            else begin
+                save_state <= `SAVE_STATE_INIT;
+                //led <= 3'b111;
+            end
+            //led <= 3'b111;
+        end
+        `SAVE_STATE_SAVE:
+        begin
+            case (command_reg)
+            `CTRL_REG:
+            begin
+                mode <= command_data[1:0];
+                increment_reg <= command_data[6:2];
+                increment_neg <= command_data[7];
+                save_state <= `SAVE_STATE_WAIT;
+            end
+            `DATA_REG:
+            begin
+                if (address_reg == 'h1FFE) begin
+                    bgcolor <= command_data;
+                end
+                // if (address_reg == 'h1FFF) begin
+                //     fgcolor <= command_data;
+                // end
+                // else if (address_reg < SCREEN_CHARS) begin
+                    fb0[address_reg] <= command_data;
+                // end
+                // else begin
+                //     fgcolor <= command_data;
+                //     //character_ram[char_address_reg] <= command_data;
+                // end
+                save_state <= `SAVE_STATE_INCREMENT;
+            end
+            `ADDR_LOW_REG:
+            begin
+                address_reg[5:0] <= command_data[5:0];
+                save_state <= `SAVE_STATE_WAIT;
+
+                //led <= 3'b101;      //green
+            end
+            `ADDR_HIGH_REG:
+            begin
+                address_reg[13:6] <= command_data;
+                save_state <= `SAVE_STATE_WAIT;
+
+                //led <= 3'b100;      //green
+            end
+            default:
+            begin
+                save_state <= `SAVE_STATE_WAIT;
+            end
+            endcase
+        end
+        
+        `SAVE_STATE_INCREMENT:
+        begin
+            if (increment_neg == 1'b0) begin
+                if (address_reg < RAM_SIZE) begin
+                    address_reg <= address_reg + increment;
+                end
+                else begin
+                    address_reg <= (address_reg + increment) - RAM_SIZE;
+                end
+            end else begin
+                if (address_reg <= increment) begin
+                    address_reg <= address_reg + RAM_SIZE - increment;
+                end
+                else begin
+                    address_reg <= address_reg - increment;
+                end
+            end
+
+            save_state <= `SAVE_STATE_WAIT;
+        end
+        `SAVE_STATE_WAIT:
+        begin
+            if (save_data == 1'b0) begin
+                save_state <= `SAVE_STATE_INIT;
+            end
+            else begin
+                save_state <= `SAVE_STATE_WAIT;
+            end
+        end
+        default:
+        begin
+            save_state <= `SAVE_STATE_INIT;
+        end
+        endcase
+
+
+
+
+    end
+
+    wire cur_px = (char_data_line >> (XPOS & 8'h7)) & 1'b1;
+
+
+
+    // always @(posedge CLK_FAST) begin
+    // //     //ram_add <= (YPOS >> 3)* H_CHAR_HIRES +(XPOS >> 3);
+    //     //if (DE) begin
+    //         //cur_char <= /*current_fb ? fb1_char : */fb0_char;
+    //         // next_char_data_line <= character_rom[((cur_char & 8'h7F) << 3) + (YPOS & 8'h7)];
+    //         // char_data_line <= next_char_data_line;
+    // //         //ram_char <= character_ram[((fb0_char & 8'h7F) << 3) + (YPOS & 8'h7)];
+    //     //end
+    // end
+
+    always @(posedge CLK_PIX) begin
+        
+        red   = (DE == 1'b1) ? (cur_px ? fgcolor[7:5] : bgcolor[7:5]) : 3'h0;
+        green = (DE == 1'b1) ? (cur_px ? fgcolor[4:2] : bgcolor[4:2]) : 3'h0;
+        blue  = (DE == 1'b1) ? (cur_px ? fgcolor[1:0] : bgcolor[1:0]) : 2'h0;
+
+        // red   = (DE == 1'b1) ? (XPOS[2:0]) : 3'h0;
+        // green = (DE == 1'b1) ? (XPOS[5:3])  : 3'h0;
+        // blue  = (DE == 1'b1) ? (XPOS[7:6]) : 2'h0;
+        // if ((YPOS == V_RES) && (XPOS == 1'b0)) begin
+        //     current_fb <= ~current_fb;
+        // end
+    end
+    
+endmodule

@@ -1,0 +1,81 @@
+name: Package
+concurrency: sdk-package
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+  repository_dispatch:
+jobs:
+  package:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [windows-latest, macos-latest, ubuntu-latest]
+    steps:
+      - name: Install Ubuntu build dependencies.
+        if: startsWith(matrix.os, 'ubuntu')
+        run: sudo apt-get -y install ninja-build
+      - name: Install Windows build dependencies.
+        if: startsWith(matrix.os, 'windows')
+        run: choco install curl ninja
+      - name: Install MacOS tools
+        if: startsWith(matrix.os, 'macos')
+        run: brew update && brew install ninja
+
+      - name: Check out the SDK.
+        uses: actions/checkout@v2
+
+      - name: Fetch the latest Ubuntu llvm-mos release.
+        if: startsWith(matrix.os, 'ubuntu')
+        run: |
+          curl -LO https://github.com/llvm-mos/llvm-mos/releases/download/llvm-mos-linux-main/llvm-mos-linux-main.tar.xz
+          tar -xvf llvm-mos-linux-main.tar.xz
+      - name: Fetch the latest Windows llvm-mos release.
+        if: startsWith(matrix.os, 'windows')
+        run: |
+          curl -LO https://github.com/llvm-mos/llvm-mos/releases/download/llvm-mos-windows-main/llvm-mos-windows-main.7z
+          7z x llvm-mos-windows-main.7z
+      - name: Fetch the latest Mac llvm-mos release.
+        if: startsWith(matrix.os, 'macos')
+        run: |
+          curl -LO https://github.com/llvm-mos/llvm-mos/releases/download/llvm-mos-darwin-main/llvm-mos-darwin-main.tar.xz
+          tar -xvf llvm-mos-darwin-main.tar.xz
+
+      - name: Build the SDK.
+        run: |
+          mkdir build
+          cd build
+          cmake -DCMAKE_INSTALL_PREFIX=${{github.workspace}}/llvm-mos -G "Ninja" ..
+          ninja install
+
+      - name: Archive the Linux SDK.
+        if: startsWith(matrix.os, 'ubuntu')
+        run: tar -cJvf llvm-mos-linux.tar.xz llvm-mos
+      - name: Archive the Windows SDK.
+        if: startsWith(matrix.os, 'windows')
+        run: 7z a llvm-mos-windows.7z llvm-mos
+      - name: Archive the Mac OS SDK.
+        if: startsWith(matrix.os, 'macos')
+        run: tar -cJvf llvm-mos-macos.tar.xz llvm-mos
+
+  upload:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Upload the Linux SDK.
+        uses: softprops/action-gh-release@v1
+        with:
+          name: Prerelease SDK
+          body: Prerelease llvm-mos SDK.
+          tag_name: prerelease
+          files: |
+            llvm-mos-linux.tar.xz
+            llvm-mos-windows.7z
+            llvm-mos-macos.tar.xz
+          prerelease: true
+      - name: Dispatch Test Suite
+        uses: llvm-mos/repository-dispatch@v1
+        with:
+          token: ${{ secrets.TEST_SUITE_ACCESS_TOKEN }}
+          repository: llvm-mos/llvm-test-suite
+          event-type: on-sdk-update
+          client-payload: '{"head_commit": ${{ toJSON(github.event.head_commit) }}}'
