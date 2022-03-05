@@ -1,5 +1,7 @@
 # Planck computer
 
+https://gitlab.com/planck-6502/planck-6502
+
 # An open hardware, extensible 65c02 based computer
 
 ![General view](docs/img/1.jpg)
