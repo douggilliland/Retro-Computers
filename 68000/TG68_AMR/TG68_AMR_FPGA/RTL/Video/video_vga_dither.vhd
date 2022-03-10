@@ -4,7 +4,7 @@ use IEEE.numeric_std.ALL;
 
 entity video_vga_dither is
 	generic (
-		outbits : integer :=4
+		outbits : integer := 6
 	);
 	port (
 		clk : in std_logic;

@@ -54,9 +54,9 @@ entity C4BoardToplevel is
 		o_sdram_udqm	: out std_logic;
 
 		-- VGA
-		o_vga_red 		: out unsigned(4 downto 0);
-		o_vga_green 	: out unsigned(5 downto 0);
-		o_vga_blue 		: out unsigned(4 downto 0);
+		o_vga_red 		: out unsigned(1 downto 0);
+		o_vga_green 	: out unsigned(1 downto 0);
+		o_vga_blue 		: out unsigned(1 downto 0);
 		o_vga_hsync 	: buffer std_logic;
 		o_vga_vsync 	: buffer std_logic;
 
@@ -113,9 +113,9 @@ signal w_disk_led			: unsigned(5 downto 0);
 signal w_net_led			: unsigned(5 downto 0);
 signal w_odd_led			: unsigned(5 downto 0);
 
-signal w_vga_dith_r		: unsigned(5 downto 0);
-signal w_vga_dith_g		: unsigned(5 downto 0);
-signal w_vga_dith_b		: unsigned(5 downto 0);
+signal w_vga_dith_r		: unsigned(1 downto 0);
+signal w_vga_dith_g		: unsigned(1 downto 0);
+signal w_vga_dith_b		: unsigned(1 downto 0);
 
 signal w_vga_r 			: unsigned(7 downto 0);
 signal w_vga_g				: unsigned(7 downto 0);
@@ -140,9 +140,9 @@ END COMPONENT;
 
 begin
 
-	o_vga_red	<= w_vga_dith_r(5 downto 1);
-	o_vga_green	<= w_vga_dith_g(5 downto 0);
-	o_vga_blue	<= w_vga_dith_b(5 downto 1);
+	o_vga_red	<= w_vga_dith_r;
+	o_vga_green	<= w_vga_dith_g;
+	o_vga_blue	<= w_vga_dith_b;
 
 	w_power_led(5 downto 2)	<= unsigned(w_debugvalue(15 downto 12));
 	w_disk_led(5 downto 2)	<= unsigned(w_debugvalue(11 downto 8));
@@ -189,7 +189,7 @@ begin
 
 	mydither : entity work.video_vga_dither
 		generic map(
-			outbits => 6
+			outbits => 2
 		)
 		port map (
 			clk		=> w_clk_fast,
