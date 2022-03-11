@@ -82,6 +82,13 @@ entity C4BoardToplevel is
 		sd_mosi			: out std_logic;
 		sd_clk			: out std_logic;
 		
+		-- SRAM not used
+		io_sramData 	: inout	std_logic_vector(7 downto 0);
+		o_sramAddress	: out		std_logic_vector(19 downto 0) := x"00000";
+		o_n_sRamWE		: out		std_logic := '1';
+		o_n_sRamCS		: out		std_logic := '1';
+		o_n_sRamOE 		: out		std_logic := '1';
+		
 		-- Power and LEDs (wired to J1 pins 3-...)
 		power_button 	: in std_logic;
 		power_hold 		: out std_logic := '1';
