@@ -667,5 +667,4 @@ mysdram : entity work.sdram
 		audio_r => audio_r
 	);
 
-	
 end architecture;

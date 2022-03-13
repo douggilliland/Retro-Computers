@@ -6,13 +6,19 @@
 --
 -- Features
 --		68000 Core
---		SDRAM support
---		VGA Framebuffer
+--		32MB SDRAM
+--			support for Main Memory and Frame buffer
+--		VGA Framebuffer supports various screen resolutions
 --		PS/2 Keyboard and Mouse support
---		SD Card support
--- Runs on 
--- FPGA card is EP4CE15 Cyclone IV FPGA
---		http://land-boards.com/blwiki/index.php?title=QMTECH_EP4CE15_Standalone_Board
+--		USB-Serial port
+--			115.200 baud
+--		Stereo Audio (External via J1)
+--		SD Card support (External via J1)
+--		SRAM (not used but pulled to inactive)
+-- Runs on FPGA card is 5CEFA2F23I7 Cyclone V FPGA
+--		http://land-boards.com/blwiki/index.php?title=QM_Tech_Cyclone_V_FPGA_Board
+--	Multicomp in a Box
+--		http://land-boards.com/blwiki/index.php?title=Multicomp_in_a_Box
 --
 -- Memory Map
 --		0x00000000-0x0000ffff = ROM 
@@ -53,7 +59,7 @@ entity C4BoardToplevel is
 		o_sdram_ldqm	: out std_logic;
 		o_sdram_udqm	: out std_logic;
 
-		-- VGA
+		-- VGA 2:2:2 R:G:B
 		o_vga_red 		: out unsigned(1 downto 0);
 		o_vga_green 	: out unsigned(1 downto 0);
 		o_vga_blue 		: out unsigned(1 downto 0);
@@ -120,21 +126,15 @@ signal w_disk_led			: unsigned(5 downto 0);
 signal w_net_led			: unsigned(5 downto 0);
 signal w_odd_led			: unsigned(5 downto 0);
 
-signal w_vga_dith_r		: unsigned(1 downto 0);
-signal w_vga_dith_g		: unsigned(1 downto 0);
-signal w_vga_dith_b		: unsigned(1 downto 0);
-
 signal w_vga_r 			: unsigned(7 downto 0);
 signal w_vga_g				: unsigned(7 downto 0);
 signal w_vga_b				: unsigned(7 downto 0);
-signal w_vga_hsync 		: std_logic;
-signal w_vga_vsync 		: std_logic;
 signal w_vga_window 		: std_logic;
 
 signal w_audio_l 			: signed(15 downto 0);
 signal w_audio_r 			: signed(15 downto 0);
 
--- Sigma Delta audio
+-- Sigma Delta audio output
 COMPONENT hybrid_pwm_sd
 	PORT
 	(
@@ -146,10 +146,6 @@ COMPONENT hybrid_pwm_sd
 END COMPONENT;
 
 begin
-
-	o_vga_red	<= w_vga_dith_r;
-	o_vga_green	<= w_vga_dith_g;
-	o_vga_blue	<= w_vga_dith_b;
 
 	w_power_led(5 downto 2)	<= unsigned(w_debugvalue(15 downto 12));
 	w_disk_led(5 downto 2)	<= unsigned(w_debugvalue(11 downto 8));
@@ -206,13 +202,13 @@ begin
 			iRed		=> w_vga_r,
 			iGreen	=> w_vga_g,
 			iBlue		=> w_vga_b,
-			oRed		=> w_vga_dith_r,
-			oGreen	=> w_vga_dith_g,
-			oBlue		=> w_vga_dith_b
+			oRed		=> o_vga_red,
+			oGreen	=> o_vga_green,
+			oBlue		=> o_vga_blue
 		);
 
-	o_vga_hsync <= w_vga_hsync;
-	o_vga_vsync <= w_vga_vsync;
+--	o_vga_hsync <= w_vga_hsync;
+--	o_vga_vsync <= w_vga_vsync;
 	
 	tg68tst : entity work.VirtualToplevel
 		generic map (
@@ -243,8 +239,8 @@ begin
 			vga_red		=> w_vga_r,
 			vga_green	=> w_vga_g,
 			vga_blue		=> w_vga_b,
-			vga_hsync => w_vga_hsync,
-			vga_vsync => w_vga_vsync,
+			vga_hsync => o_vga_hsync,
+			vga_vsync => o_vga_vsync,
 			
 			vga_window => w_vga_window,
 
