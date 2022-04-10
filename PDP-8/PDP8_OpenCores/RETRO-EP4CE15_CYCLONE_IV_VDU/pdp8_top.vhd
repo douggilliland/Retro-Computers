@@ -76,7 +76,7 @@ ENTITY pdp8_top is
 		
 		-- Switches/pushbuttons (Land Boards PDP-8 Front Panel)
 		i_SW12_SS		: in STD_LOGIC_VECTOR(11 downto 0);		-- 12 Slide switches
-		i_DISP_PB		: in std_logic;		-- 12 LEDs display select button selects source
+		i_DISP_PB		: in std_logic;		-- Display select button selects source for 12 LEDs
 		i_STEP_PB		: in std_logic;		-- Single Step pushbutton 
 		i_LDPC_PB		: in std_logic;		-- Load PC pushbutton
 		i_DEP_PB			: in std_logic;		-- Deposit pushbutton

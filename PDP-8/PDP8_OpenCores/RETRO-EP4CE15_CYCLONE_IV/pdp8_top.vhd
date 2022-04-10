@@ -148,7 +148,8 @@ END pdp8_top;
 	-- Front Panel SWitch debouncing
 	signal dig_counter	: std_logic_vector (19 downto 0) := (others => '0');
 	signal dispstep 		: std_logic;
-	signal pulse50ms		: std_logic;
+--	signal pulse50ms		: std_logic;
+	signal pulse20ms		: std_logic;
 	signal rst_out			: std_logic;   --! Reset line output to PDP-8
 	signal disp_out		: std_logic;   --! Disp select line output to PDP-8
 
@@ -187,7 +188,7 @@ begin
 	debounceReset : entity work.debounceSW
 	port map (
 		i_CLOCK_50	=> CLOCK_50,
-		i_slowCLK	=> pulse50ms,
+		i_slowCLK	=> pulse20ms,
 		i_PinIn		=> reset_n,
 		o_PinOut		=> rst_out
 	);
@@ -198,7 +199,7 @@ begin
 	debounceExamine : entity work.debounceSW
 	port map (
 		i_CLOCK_50	=> CLOCK_50,
-		i_slowCLK	=> pulse50ms,
+		i_slowCLK	=> pulse20ms,
 		i_PinIn		=> examinePB,
 		o_PinOut		=> swCNTL.exam
 	);
@@ -209,7 +210,7 @@ begin
 	debounceDeposit : entity work.debounceSW
 	port map (
 		i_CLOCK_50	=> CLOCK_50,
-		i_slowCLK	=> pulse50ms,
+		i_slowCLK	=> pulse20ms,
 		i_PinIn		=> depPB,
 		o_PinOut		=> swCNTL.dep
 	);
@@ -220,7 +221,7 @@ begin
 	debounceLoadAC : entity work.debounceSW
 	port map (
 		i_CLOCK_50	=> CLOCK_50,
-		i_slowCLK	=> pulse50ms,
+		i_slowCLK	=> pulse20ms,
 		i_PinIn		=> ldPCPB,
 		o_PinOut		=> swCNTL.loadADDR
 	);
@@ -231,7 +232,7 @@ begin
 	debounceStep : entity work.debounceSW
 	port map (
 		i_CLOCK_50	=> CLOCK_50,
-		i_slowCLK	=> pulse50ms,
+		i_slowCLK	=> pulse20ms,
 		i_PinIn		=> stepPB,
 		o_PinOut		=> swCNTL.step
 	);
@@ -242,7 +243,7 @@ begin
 	debounceDispSel : entity work.debounceSW
 	port map (
 		i_CLOCK_50	=> CLOCK_50,
-		i_slowCLK	=> pulse50ms,
+		i_slowCLK	=> pulse20ms,
 		i_PinIn		=> dispPB,
 		o_PinOut		=> dispstep
 	);
