@@ -1,0 +1,60 @@
+module.exports = {
+    extends: [
+        'eslint:recommended',
+        'plugin:@typescript-eslint/recommended', // Uses the recommended rules from @typescript-eslint/eslint-plugin
+        'airbnb-base',
+        'prettier',
+    ],
+    env: {
+        browser: true,
+        jest: true,
+        node: true,
+        es6: true,
+    },
+    parser: '@typescript-eslint/parser',
+    parserOptions: {
+        ecmaVersion: 2017,
+        sourceType: 'module',
+        ecmaFeatures: {
+            jsx: true,
+        },
+    },
+    plugins: ['@typescript-eslint/eslint-plugin'],
+    globals: {
+        process: true,
+    },
+    settings: {
+        react: {
+            version: 'detect',
+        },
+    },
+    rules: {
+        indent: ['error', 4],
+        '@typescript-eslint/camelcase': 0,
+        '@typescript-eslint/explicit-function-return-type': 0,
+        '@typescript-eslint/no-empty-function': 0,
+        '@typescript-eslint/no-explicit-any': 0,
+        '@typescript-eslint/no-unused-vars': [1, { args: 'all', argsIgnorePattern: '^_' }],
+        '@typescript-eslint/no-non-null-assertion': 0,
+        'array-element-newline': 0,
+        'consistent-return': 0,
+        'func-names': 0,
+        'import/extensions': 0,
+        'import/no-extraneous-dependencies': 0,
+        'import/no-mutable-exports': 0,
+        'import/no-unresolved': 0,
+        'import/prefer-default-export': 0,
+        'max-lines': ['error', { max: 500, skipComments: true }],
+        'no-alert': 0,
+        'no-bitwise': 0,
+        'no-console': 0,
+        'no-nested-ternary': 0,
+        'no-plusplus': 0,
+        'no-restricted-globals': 0,
+        'no-restricted-syntax': 0,
+        'no-unused-vars': ['error', { argsIgnorePattern: '^_' }],
+        'no-use-before-define': 0,
+        'prefer-destructuring': 0,
+        quotes: ['error', 'single'],
+    },
+};
