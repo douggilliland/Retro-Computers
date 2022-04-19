@@ -33,6 +33,7 @@ entity top is
 		i_SS			: in std_logic_vector(8 downto 1);
 		i_PB			: in std_logic_vector(8 downto 1);
 		o_LED			: OUT std_logic_vector(8 downto 1);
+		
 		-- VGA (2:2:2)
       vgar			: out std_logic_vector(1 downto 0);
       vgag			: out std_logic_vector(1 downto 0);
