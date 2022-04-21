@@ -1,9 +1,32 @@
 -- PDP-11/70 build
 --
---	http://land-boards.com/blwiki/index.php?title=PDP-11_ON_RETRO-EP4CE15
--- Wiki page: http://land-boards.com/blwiki/index.php?title=PDP-11_ON_RETRO-EP4CE15
---	Front Panel: http://land-boards.com/blwiki/index.php?title=LEDS-SWITCHES-2
---	Hackaday page - https://hackaday.io/project/179642-pdp-11-on-a-fpga
+--	Wiki page:
+--		http://land-boards.com/blwiki/index.php?title=PDP-11_ON_RETRO-EP4CE15
+--	Front Panel:
+--		http://land-boards.com/blwiki/index.php?title=LEDS-SWITCHES-2
+--	Hackaday page:
+--		https://hackaday.io/project/179642-pdp-11-on-a-fpga
+--
+--	Front Panel
+--		D1 - RL drive selected LED
+--		D2 - RK drive selected LED
+--		D3 - RH drive selected LED
+--		D4 - Read LED
+--		D5 - Write LED
+--		D6 - Fetch LED
+--		D7 - Power LED
+--		SS1 - Select RL drive
+--		SS2 - Select RK drive
+--		SS3 - Select RH drive
+--		SS4 - Select K11 Console selected
+--		PB8 - Reset
+--	
+--	SD Card
+--	Serial port
+--		9600/8/n/1
+--	VGA video
+--	PS/2 keyboard
+--	SDRAM for program store
 --
 -- Copyright (c) 2008-2021 Sytse van Slooten
 --
