@@ -1,0 +1,3285 @@
+AS02 Assembler for M6802 [1.42].                                     Page    1
+----------------------------- fig-FORTH_6800.asm -----------------------------
+
+3129 lines read, no errors in pass 1.
+                        ; fig-FORTH FOR 6800
+                        ; ASSEMBLY SOURCE LISTING
+                        ;
+                        ; RELEASE 1
+                        ; MAY 1979
+                        ; WITH COMPILER SECURITY
+                        ; AND VARIABLE LENGTH NAMES
+                        ;
+                        ; This public domain publication is provided
+                        ; through the courtesy of:
+                        ; FORTH INTEREST GROUP (fig)
+                        ;
+                        ; P.O. Box 8231 - San Jose, CA 95155 - (408) 277-0668
+                        ; Further distribution must include this notice.
+                        ;
+                        ; Copyright:FORTH Interest Group
+                        ;
+                        ; === FORTH-6800 06-06-79 21:OO
+                        ;
+                        ; This listing is in the PUBLIC DOMAIN and 
+                        ; may be freely copied or published with the
+                        ; restriction that a credit line is printed
+                        ; with the material, crediting the
+                        ; authors and the FORTH INTEREST GROUP.
+                        ;
+                        ; === by Dave Lion,
+                        ; ===  with help from
+                        ; === Bob Smith,
+                        ; === LaFarr Stuart,
+                        ; === The Forth Interest Group
+                        ; === PO Box 1105
+                        ; === San Carlos, CA 94070
+                        ; ===  and
+                        ; === Unbounded computing
+                        ; === 1134-K Aster Ave.
+                        ; === Sunnyvale, CA 94086
+                        ;
+                        ;  This version was developed on an AMI EVK 300 PROTO
+                        ;  system using an ACIA for the I/O. All terminal 1/0
+                        ;  is done in three subroutines:
+                        ;   PEMIT  ( word # 182 )
+                        ;   PKEY   (        183 )
+                        ;   PQTERM (        184 )
+                        ;
+                        ;  The FORTH words for disc related I/O follow the mod
+                        ;  of the FORTH Interest Group, but have not been
+                        ;  tested using a real disc.
+                        ;
+                        ;  Addresses in this implementation reflect the fact t
+                        ;  on the development system, it was convenient to
+                        ;  write-protect memory at hex 1000, and leave the fir
+                        ;  4K bytes write-enabled. As a consequence, code from
+                        ;  location $1000 to lable ZZZZ could be put in ROM.
+                        ;  Minor deviations from the model were made in the
+                        ;  initialization and words ?STACK and FORGET
+                        ;  in order to do this.
+                        ;
+                        ; smp, June 2018
+                        ; Modified to assemble properly with the AS02 6800 cro
+                        ; Modified to operate on Corsham Technologies 6800 sys
+                        
+AS02 Assembler for M6802 [1.42].                                     Page    2
+----------------------------- fig-FORTH_6800.asm -----------------------------
+
+0004 =                  NBLK	equ	4		;# of disc buffer blocks for virtual memor
+3210 =                  MEMEND	equ	132*NBLK+$3000	;end of ram
+                        
+                        ;  each block is 132 bytes in size,
+                        ;  holding 128 characters
+                        
+7bff =                  MEMTOP	equ	$7BFF	;32K system absolute end of RAM with 
+8004 =                  ACIAC	equ	$8004	;Corsham Technologies ACIA control add
+8005 =                  ACIAD	equ	ACIAC+1	;Corsham Technologies ACIA data addr
+                        
+                        ;  MEMORY MAP for this 16K system:
+                        ;  (positioned so that systems with 4k byte write-
+                        ;   protected segments can write protect FORTH)
+                        ;
+                        ; addr		contents		pointer	init by
+                        ; ****	*******************************	*******	*******
+                        ; 7FFF						HI
+                        ;	substitute for disc mass memory
+                        ; 3210						LO,MEMEND
+                        ; 320F
+                        ; 	4 buffer sectors of VIRTUAL MEMORY
+                        ; 3000						FIRST
+                        ;
+                        ; >>>>>> memory from here up must be RAM <<<<<<
+                        ;
+                        ; 27FF
+                        ; 	6k of romable "FORTH"		<== IP	ABORT
+                        ;					<== W
+                        ;	the VIRTUAL FORTH MACHINE
+                        ;
+                        ; 1004 <<< WARM START ENTRY >>>
+                        ; 1000 <<< COLD START ENTRY >>>
+                        ;
+                        ; >>>>>> memory from here down must be RAM <<<<<<
+                        ;
+                        ;  FFE	RETURN STACK base		<== RP	RINIT
+                        ;
+                        ;  FB4
+                        ;	INPUT LINE BUFFER
+                        ;	holds up to 132 characters
+                        ;	and is scanned upward by IN
+                        ;	starting at TIB
+                        ;  F30					<== IN	TIB
+                        ;  F2F	DATA STACK			<== SP	SP0,SINIT
+                        ;    |	grows downward from F2F
+                        ;    v
+                        ;    ^
+                        ;    |
+                        ;    I	DICTIONARY grows upward
+                        ; 
+                        ;  183	end of ram-dictionary.		<== DP	DPINIT
+                        ;	"TASK"
+                        ;
+                        ;  150	"FORTH" (a word)		<=, <== CONTEXT
+                        ;					  `==== CURRENT
+                        ;  148	start of ram-dictionary.
+                        ;
+                        ;  100	user #l table of variables	<= UP	DPINIT
+                        ;   F0	registers & pointers for the virtual machine
+                        ; 	scratch area used by various words
+                        ;   E0	lowest address used by FORTH
+                        ;
+AS02 Assembler for M6802 [1.42].                                     Page    3
+----------------------------- fig-FORTH_6800.asm -----------------------------
+
+                        ; 0000
+                        ;
+                        ;**
+                        ;
+                        ; CONVENTIONS USED IN THIS PROGRAM ARE AS FOLLOWS :
+                        ;
+                        ; IP points to the current instruction (pre-increment 
+                        ; RP points to second free byte (first free word) in r
+                        ; SP (hardware SP) points to first free byte in data s
+                        ;
+                        ;	when A and B hold one 16 bit FORTH data word,
+                        ;	A contains the high byte, B, the low byte.
+                        ;**
+                        
+00e0 =                  	org	$E0	;variables
+                        
+00e0 : 00000000000000.. N	rmb	10	;used as scratch by (FIND),ENCLOSE,CMOVE,EMIT
+                        ;                              SP@,SWAP,DOES>,COLD
+                        
+                        ;	These locations are used by the TRACE routine :
+                        
+00ea : 00               TRLIM	rmb	1	;the count for tracing without user interv
+00eb : 00               TRACEM	rmb	1	;non-zero = trace mode
+00ec : 0000             BRKPT	rmb	2	;the breakpoint address at which
+                        ;               	 the program will go into trace mode
+00ee : 0000             VECT	rmb	2	;vector to machine code
+                        ;               	 (only needed if the TRACE routine is
+                        
+                        ;	Registers used by the FORTH virtual machine:
+                        ;	Starting at $OOFO:
+                        
+00f0 : 0000             W	rmb	2	;the instruction register points to 6800 code
+00f2 : 0000             IP	rmb	2	;the instruction pointer points to pointer to
+00f4 : 0000             RP	rmb	2	;the return stack pointer
+00f6 : 0000             UP	rmb	2	;the pointer to base of current user's 'USER'
+                        ;           		 (altered during multi-tasking)
+                        
+                        ;	This system is shown with one user, but additional u
+                        ;	may be added by allocating additional user tables:
+                        ;	UORIG2 rmb 64 data table for user #2
+                        ;
+                        ;	Some of this stuff gets initialized during
+                        ;	COLD start and WARM start:
+                        ; 	[ names correspond to FORTH words of similar (no X)
+                        
+0100 =                  	org	$100
+                        
+0100 : 000000000000     UORIG	rmb	6	;3 reserved variables
+0106 : 0000             XSPZER	rmb	2	;initial top of data stack for this user
+0108 : 0000             XRZERO	rmb	2	;initial top of return stack
+010a : 0000             XTIB	rmb	2	;start of terminal input buffer
+010c : 0000             XWIDTH	rmb	2	;name field width
+010e : 0000             XWARN	rmb	2	;warning message mode (0 = no disc)
+0110 : 0000             XFENCE	rmb	2	;fence for FORGET
+0112 : 0000             XDP	rmb	2	;dictionary pointer
+0114 : 0000             XVOCL	rmb	2	;vocabulary linking
+0116 : 0000             XBLK	rmb	2	;disc block being accessed
+0118 : 0000             XIN	rmb	2	;scan pointer into the block
+011a : 0000             XOUT	rmb	2	;cursor position
+011c : 0000             XSCR	rmb	2	;disc screen being accessed (O=terminal)
+011e : 0000             XOFSET	rmb	2	;disc sector offset for multi-disc
+0120 : 0000             XCONT	rmb	2	;last word in primary search vocabulary
+AS02 Assembler for M6802 [1.42].                                     Page    4
+----------------------------- fig-FORTH_6800.asm -----------------------------
+
+0122 : 0000             XCURR	rmb	2	;last word in extensible vocabulary
+0124 : 0000             XSTATE	rmb	2	;flag for 'interpret' or 'COMPILE' modes
+0126 : 0000             XBASE	rmb	2	;number base for I/O numeric conversion
+0128 : 0000             XDPL	rmb	2	;DECIMAl point place
+012a : 0000             XFLD	rmb	2	
+012c : 0000             XCSP	rmb	2	;current stack position, for COMPILE checks
+012e : 0000             XRNUM	rmb	2	
+0130 : 0000             XHLD	rmb	2	
+0132 : 0000             XDELAY	rmb	2	;carriage return delay count
+0134 : 0000             XCOLUM	rmb	2	;carriage width
+0136 : 0000             IOSTAT	rmb	2	;last acia status from write/read
+0138 : 0000             	rmb	2	;(4 spares!)
+013a : 0000             	rmb	2	
+013c : 0000             	rmb	2	
+013e : 0000             	rmb	2	
+                        
+                        ;
+                        ;   end of user table, start of common system variable
+                        ;
+                        
+0140 : 0000             XUSE	rmb	2
+0142 : 0000             XPREV	rmb	2
+0144 : 00000000         	rmb	4	;(spares)
+                        
+                        ;  These things, up through the lable 'REND', are over
+                        ;  at time of cold load and should have the same conte
+                        ;  as shown here:
+                        
+0148 : c5               	fcb	$C5	;immediate
+0149 : 464f5254         	fcc	"FORT"	;fcc	4,FORTH
+014d : c8               	fcb	$C8
+014e : 2745             	fdb	NOOP-7
+0150 : 19f51f1181a00178 FORTH	fdb	DODOES,DOVOC,$81A0,TASK-7
+0158 : 0000             	fdb	0
+                        
+015a : 28432920466f72.. 	fcc	"(C) Forth Interest Group, 1979"
+                        
+0178 : 84               	fcb	$84
+0179 : 544153           	fcc	"TAS"	;fcc	3,TASK
+017c : cb               	fcb	$CB
+017d : 0148             	fdb	FORTH-8
+017f : 15251367         TASK	fdb	DOCOL,SEMIS
+                        
+0183 =                  REND	equ	*	;(first empty location in dictionary)
+                        
+                        ;    The FORTH program (address $1000 to $27FF) is wri
+                        ;    so that it can be in a ROM, or write-protected if
+                        
+1000 =                  	org	$1000
+                        
+                        ; ######>> screen 3 <<
+                        ;
+                        ;**************************
+                        ;*  C O L D   E N T R Y  **
+                        ;**************************
+1000 : 01               ORIG	nop
+1001 : 7e1f9b           	jmp	CENT
+                        ;**************************
+                        ;*  W A R M   E N T R Y  **
+                        ;**************************
+1004 : 01               	nop
+1005 : 7e1fcb           	jmp	WENT	;warm-start code, keeps current dictionary i
+AS02 Assembler for M6802 [1.42].                                     Page    5
+----------------------------- fig-FORTH_6800.asm -----------------------------
+
+                        
+                        ;
+                        ;*************** startup parmeters *****************
+                        ;
+1008 : 68000000         	fdb	$6800,0000	;cpu & revision
+100c : 0000             	fdb	0	;topmost word in FORTH vocabulary
+100e : 007f             BACKSP	fdb	$7F	;backspace character for editing
+1010 : 0100             UPINIT	fdb	UORIG	;initial user area
+1012 : 0f30             SINIT	fdb	ORIG-$D0	;initial top of data stack
+1014 : 0ffe             RINIT	fdb	ORIG-2	;initial top of return stack
+1016 : 0f30             	fdb	ORIG-$D0	;terminal input buffer
+1018 : 001f             	fdb	31	;initial name field width
+101a : 0000             	fdb	0	;initial warning mode (0 = no disc)
+101c : 0183             FENCIN	fdb	REND	;initial fence
+101e : 0183             DPINIT	fdb	REND	;cold start value for DP
+1020 : 0158             VOCINT	fdb	FORTH+8	
+1022 : 0084             COLINT	fdb	132	;initial terminal carriage width
+1024 : 0004             DELINT	fdb	4	;initial carriage return delay
+                        ;
+                        ;***************************************************
+                        ;
+                        
+                        ;
+                        ; ######>> screen 13 <<
+1026 : 32               PULABX	pula		;24 cycles until 'NEXT'
+1027 : 33               	pulb
+1028 : a700             STABX	sta	0,x	;16 cycles until 'NEXT'
+102a : e701             	stb	1,x
+102c : 2006             	bra	NEXT
+102e : a600             GETX	lda	0,x	;18 cycles until 'NEXT'
+1030 : e601             	ldb	1,x
+1032 : 37               PUSHBA	pshb		;8 cycles until 'NEXT'
+1033 : 36               	psha
+                        ;
+                        ; "NEXT" takes 38 cycles if TRACE is removed,
+                        ; and 95 cycles if NOT tracing.
+                        ;
+                        
+                        ; = = = = t h e   v i r t u a l  m a c h i n e = = = =
+                        ;
+1034 : def2             NEXT	ldx	IP
+1036 : 08               	inx		;pre-increment mode
+1037 : 08               	inx
+1038 : dff2             	stx	IP
+103a : ee00             NEXT2	ldx	0,x	;get W which points to CFA of word to be
+103c : dff0             NEXT3	stx	W
+103e : ee00             	ldx	0,x	;get VECT which points to executable code
+                        ;
+                        ; The next instruction could be patched to jmp TRACE
+                        ; if a TRACE routine is available:
+                        ;
+1040 : 6e00             	jmp	0,x
+1042 : 01               	nop
+                        ;	jmp	TRACE	;(an alternate for the above)
+                        ;
+                        ; = = = = = = = = = = = = = = = = = = = = = = = = = = 
+                        
+                        ;
+                        ; ======>>  1  <<
+1043 : 83               	fcb	$83
+1044 : 4c49             	fcc	"LI"	;fcc	2,LIT	;NOTE: this is different from LIT
+1046 : d4               	fcb	$D4
+AS02 Assembler for M6802 [1.42].                                     Page    6
+----------------------------- fig-FORTH_6800.asm -----------------------------
+
+1047 : 0000             	fdb	0	;link of zero to terminate dictionary scan
+1049 : 104b             LIT	fdb	*+2
+104b : def2             	ldx	IP
+104d : 08               	inx
+104e : 08               	inx
+104f : dff2             	stx	IP
+1051 : a600             	lda	0,x
+1053 : e601             	ldb	1,x
+1055 : 20db             	jmp	PUSHBA
+1057 : 01               	nop		;to compensate for assembler substituting BRA
+                        ;
+                        ; ######>> screen 14 <<
+                        ; ======>>  2  <<
+1058 : 105a             CLITER	fdb	*+2	;(this is an invisible word, with no he
+105a : def2             	ldx	IP
+105c : 08               	inx
+105d : dff2             	stx	IP
+105f : 4f               	clra
+1060 : e601             	ldb	1,x
+1062 : 20ce             	jmp	PUSHBA
+1064 : 01               	nop		;to compensate for assembler substituting BRA
+                        ;
+                        ; ======>>  3  <<
+1065 : 87               	fcb	$87
+1066 : 455845435554     	fcc	"EXECUT"	;fcc	6,EXECUTE
+106c : c5               	fcb	$C5
+106d : 1043             	fdb	LIT-6
+106f : 1071             EXEC	fdb	*+2
+1071 : 30               	tsx
+1072 : ee00             	ldx	0,x	;get code field address (CFA)
+1074 : 31               	ins		;pop stack
+1075 : 31               	ins
+1076 : 20c4             	jmp	NEXT3
+1078 : 01               	nop		;to compensate for assembler substituting BRA
+                        ;
+                        ; ######>> screen 15 <<
+                        ; ======>>  4  <<
+1079 : 86               	fcb	$86
+107a : 4252414e43       	fcc	"BRANC"	;fcc	5,BRANCH
+107f : c8               	fcb	$C8
+1080 : 1065             	fdb	EXEC-10
+1082 : 1097             BRAN	fdb	ZBYES	;Go steal code in ZBRANCH
+                        ;
+                        ; ======>>  5  <<
+1084 : 87               	fcb	$87
+1085 : 304252414e43     	fcc	"0BRANC"	;fcc	6,0BRANCH
+108b : c8               	fcb	$C8
+108c : 1079             	fdb	BRAN-9
+108e : 1090             ZBRAN	fdb	*+2
+1090 : 32               	pula
+1091 : 33               	pulb
+1092 : 1b               	aba
+1093 : 2613             	bne	ZBNO
+1095 : 2511             	bcs	ZBNO
+1097 : def2             ZBYES	ldx	IP	;Note: code is shared with BRANCH, (+LOOP
+1099 : e603             	ldb	3,x
+109b : a602             	lda	2,x
+109d : dbf3             	addb	IP+1
+109f : 99f2             	adca	IP
+10a1 : d7f3             	stb	IP+1
+10a3 : 97f2             	sta	IP
+10a5 : 208d             	jmp	NEXT
+AS02 Assembler for M6802 [1.42].                                     Page    7
+----------------------------- fig-FORTH_6800.asm -----------------------------
+
+10a7 : 01               	nop		;to compensate for assembler substituting BRA
+10a8 : def2             ZBNO	ldx	IP	;no branch. This code is shared with (+LOO
+10aa : 08               	inx		;jump over branch delta
+10ab : 08               	inx
+10ac : dff2             	stx	IP
+10ae : 2084             	jmp	NEXT
+10b0 : 01               	nop		;to compensate for assembler substituting BRA
+                        ;
+                        ; ######>> screen 16 <<
+                        ; ======>>  6  <<
+10b1 : 86               	fcb	$86
+10b2 : 284c4f4f50       	fcc	"(LOOP"	;fcc	5,(LOOP)
+10b7 : a9               	fcb	$A9
+10b8 : 1084             	fdb	ZBRAN-10
+10ba : 10bc             XLOOP	fdb	*+2
+10bc : 4f               	clra
+10bd : c601             	ldb	#1	;get set to increment counter by 1
+10bf : 200e             	bra	XPLOP2	;go steal other guy's code!
+                        ;
+                        ; ======>>  7  <<
+10c1 : 87               	fcb	$87
+10c2 : 282b4c4f4f50     	fcc	"(+LOOP"	;fcc	6,(+LOOP)
+10c8 : a9               	fcb	$A9
+10c9 : 10b1             	fdb	XLOOP-9
+10cb : 10cd             XPLOOP	fdb *+2		;Note: +LOOP has an un-signed loop cou
+10cd : 32               	pula		;get increment
+10ce : 33               	pulb
+10cf : 4d               XPLOP2	tsta
+10d0 : 2a16             	bpl	XPLOF	;forward looping
+10d2 : 8d09             	bsr	XPLOPS
+10d4 : 0d               	sec
+10d5 : e205             	sbcb	5,x
+10d7 : a204             	sbca	4,x
+10d9 : 2abc             	bpl	ZBYES
+10db : 2013             	bra	XPLONO	;fall through
+                        ;
+                        ; the subroutine :
+10dd : def4             XPLOPS	ldx	RP
+10df : eb03             	addb	3,x	;add it to counter
+10e1 : a902             	adca	2,x
+10e3 : e703             	stb	3,x	;store new counter value
+10e5 : a702             	sta	2,x
+10e7 : 39               	rts
+                        ;
+10e8 : 8df3             XPLOF	bsr	XPLOPS
+10ea : e005             	subb	5,x
+10ec : a204             	sbca	4,x
+10ee : 2ba7             	bmi	ZBYES
+                        ;
+10f0 : 08               XPLONO	inx		;done, don't branch back
+10f1 : 08               	inx
+10f2 : 08               	inx
+10f3 : 08               	inx
+10f4 : dff4             	stx	RP
+10f6 : 20b0             	bra	ZBNO	;use ZBRAN to skip over unused delta
+                        ;
+                        ; ######>> screen 17 <<
+                        ; ======>>  8  <<
+10f8 : 84               	fcb	$84
+10f9 : 28444f           	fcc	"(DO"	;fcc	3,(DO)
+10fc : a9               	fcb	$A9
+10fd : 10c1             	fdb	XPLOOP-10
+AS02 Assembler for M6802 [1.42].                                     Page    8
+----------------------------- fig-FORTH_6800.asm -----------------------------
+
+10ff : 1101             XDO	fdb	*+2	;This is the RUNTIME DO, not the COMPILING
+1101 : def4             	ldx	RP
+1103 : 09               	dex
+1104 : 09               	dex
+1105 : 09               	dex
+1106 : 09               	dex
+1107 : dff4             	stx	RP
+1109 : 32               	pula
+110a : 33               	pulb
+110b : a702             	sta	2,x
+110d : e703             	stb	3,x
+110f : 32               	pula
+1110 : 33               	pulb
+1111 : a704             	sta	4,x
+1113 : e705             	stb	5,x
+1115 : 7e1034           	jmp	NEXT
+                        ;
+                        ; ======>>  9  <<
+1118 : 81               	fcb	$81	; I
+1119 : c9               	fcb	$C9
+111a : 10f8             	fdb	XDO-7	
+111c : 111e             I	fdb	*+2
+111e : def4             	ldx	RP
+1120 : 08               	inx
+1121 : 08               	inx
+1122 : 7e102e           	jmp	GETX
+                        ;
+                        ; ######>> screen 18 <<
+                        ; ======>>  10  <<
+1125 : 85               	fcb	$85
+1126 : 44494749         	fcc	"DIGI"	;fcc	4,DIGIT
+112a : d4               	fcb	$D4
+112b : 1118             	fdb	I-4
+112d : 112f             DIGIT	fdb	*+2	;NOTE: legal input range is 0-9, A-Z
+112f : 30               	tsx
+1130 : a603             	lda	3,x
+1132 : 8030             	suba	#$30	;ascii zero
+1134 : 2b1b             	bmi	DIGIT2	;IF LESS THAN '0', ILLEGAL
+1136 : 810a             	cmpa	#$A
+1138 : 2b0a             	bmi	DIGIT0	;IF '9' OR LESS
+113a : 8111             	cmpa	#$11
+113c : 2b13             	bmi	DIGIT2	;if less than 'A'
+113e : 812b             	cmpa	#$2B
+1140 : 2a0f             	bpl	DIGIT2	;if greater than 'Z'
+1142 : 8007             	suba	#7	;translate 'A' thru 'F'
+1144 : a101             DIGIT0	cmpa	1,x
+1146 : 2a09             	bpl	DIGIT2	;if not less than the base
+1148 : c601             	ldb	#1	;set flag
+114a : a703             	sta	3,x	;store digit
+114c : e701             DIGIT1	stb	1,x	;store the flag
+114e : 7e1034           	jmp	NEXT
+1151 : 5f               DIGIT2	clrb
+1152 : 31               	ins
+1153 : 31               	ins		;pop bottom number
+1154 : 30               	tsx
+1155 : e700             	stb	0,x	;make sure both bytes are 00
+1157 : 20f3             	bra	DIGIT1
+                        ;
+                        ; ######>> screen 19 <<
+                        ;
+                        ; The word format in the dictionary is:
+                        ;
+AS02 Assembler for M6802 [1.42].                                     Page    9
+----------------------------- fig-FORTH_6800.asm -----------------------------
+
+                        ; char-count + $80	;lowest address
+                        ; char 1
+                        ; char 2
+                        ; 
+                        ; char n  + $80
+                        ; link high byte \___point to previous word
+                        ; link low  byte /
+                        ; CFA  high byte \___point to 6800 code
+                        ; CFA  low  byte /
+                        ; parameter fields
+                        ;    "
+                        ;    "
+                        ;    "
+                        ;
+                        ; ======>>  11  <<
+1159 : 86               	fcb	$86
+115a : 2846494e44       	fcc	"(FIND"	;fcc	5,(FIND)
+115f : a9               	fcb	$A9
+1160 : 1125             	fdb	DIGIT-8
+1162 : 1164             PFIND	fdb	*+2
+1164 : 01               	nop
+1165 : 01               	nop
+00e0 =                  PD	equ	N	;ptr to dict word being checked
+00e2 =                  PA0	equ	N+2
+00e4 =                  PA	equ	N+4
+00e6 =                  PC	equ	N+6
+1166 : ce00e0           	ldx	#PD
+1169 : c604             	ldb	#4
+116b : 32               PFIND0	pula		;loop to get arguments
+116c : a700             	sta	0,x
+116e : 08               	inx
+116f : 5a               	decb
+1170 : 26f9             	bne	PFIND0
+                        ;
+1172 : dee0             	ldx	PD
+1174 : e600             PFIND1	ldb	0,x	;get count dict count
+1176 : d7e6             	stb	PC
+1178 : c43f             	andb	#$3F
+117a : 08               	inx
+117b : dfe0             	stx	PD	;update PD
+117d : dee2             	ldx	PA0
+117f : a600             	lda	0,x	;get count from arg
+1181 : 08               	inx
+1182 : dfe4             	stx	PA	;initialize PA
+1184 : 11               	cba		;compare lengths
+1185 : 2622             	bne	PFIND4
+1187 : dee4             PFIND2	ldx	PA
+1189 : a600             	lda	0,x
+118b : 08               	inx
+118c : dfe4             	stx	PA
+118e : dee0             	ldx	PD
+1190 : e600             	ldb	0,x
+1192 : 08               	inx
+1193 : dfe0             	stx	PD
+1195 : 5d               	tstb		;is dict entry neg. ?
+1196 : 2a0e             	bpl	PFIND8
+1198 : c47f             	andb	#$7F	;clear sign
+119a : 11               	cba
+119b : 2715             	beq	FOUND
+119d : ee00             PFIND3	ldx	0,x	;get new link
+119f : 26d3             	bne	PFIND1	;continue if link not=0
+                        ;
+AS02 Assembler for M6802 [1.42].                                     Page   10
+----------------------------- fig-FORTH_6800.asm -----------------------------
+
+                        ;	not found :
+                        ;
+11a1 : 4f               	clra
+11a2 : 5f               	clrb
+11a3 : 7e1032           	jmp	PUSHBA
+11a6 : 11               PFIND8	cba
+11a7 : 27de             	beq	PFIND2
+11a9 : dee0             PFIND4	ldx	PD
+11ab : e600             PFIND9	ldb	0,x	;scan forward to end of this name
+11ad : 08               	inx
+11ae : 2afb             	bpl	PFIND9
+11b0 : 20eb             	bra	PFIND3
+                        ;
+                        ;	found :
+                        ;
+11b2 : 96e0             FOUND	lda	PD	;compute CFA
+11b4 : d6e1             	ldb	PD+1
+11b6 : cb04             	addb	#4
+11b8 : 8900             	adca	#0
+11ba : 37               	pshb
+11bb : 36               	psha
+11bc : 96e6             	lda	PC
+11be : 36               	psha
+11bf : 4f               	clra
+11c0 : 36               	psha
+11c1 : c601             	ldb	#1
+11c3 : 7e1032           	jmp	PUSHBA
+                        ;
+11c6 : 36               	psha
+11c7 : 4f               	clra
+11c8 : 36               	psha
+11c9 : c601             	ldb	#1
+11cb : 7e1032           	jmp	PUSHBA
+                        ;
+                        ; ######>> screen 20 <<
+                        ; ======>>  12  <<
+11ce : 87               	fcb	$87
+11cf : 454e434c4f53     	fcc	"ENCLOS"	;fcc	6,ENCLOSE
+11d5 : c5               	fcb 	$C5
+11d6 : 1159             	fdb	PFIND-9
+                        ; NOTE :
+                        ; FC means offset (bytes) to First Character of next w
+                        ; EW  "     "   to End of Word
+                        ; NC  "     "   to Next Character to start next enclos
+11d8 : 11da             ENCLOS	fdb	*+2
+11da : 31               	ins
+11db : 33               	pulb		;now, get the low byte, for an 8-bit delimiter
+11dc : 30               	tsx
+11dd : ee00             	ldx	0,x
+11df : 7f00e0           	clr	N
+                        ;	wait for a non-delimiter or a NUL
+11e2 : a600             ENCL2	lda	0,x
+11e4 : 2724             	beq	ENCL6
+11e6 : 11               	cba		;CHECK FOR DELIM
+11e7 : 2606             	bne	ENCL3
+11e9 : 08               	inx
+11ea : 7c00e0           	inc	N
+11ed : 20f3             	bra	ENCL2
+                        ;	found first character. Push FC
+11ef : 96e0             ENCL3	lda	N	;found first char.
+11f1 : 36               	psha
+11f2 : 4f               	clra
+AS02 Assembler for M6802 [1.42].                                     Page   11
+----------------------------- fig-FORTH_6800.asm -----------------------------
+
+11f3 : 36               	psha
+                        ;	wait for a delimiter or a NUL
+11f4 : a600             ENCL4	lda	0,x
+11f6 : 2719             	beq	ENCL7
+11f8 : 11               	cba		;check for delim.
+11f9 : 2706             	beq	ENCL5
+11fb : 08               	inx
+11fc : 7c00e0           	inc	N
+11ff : 20f3             	bra	ENCL4
+                        ;	found EW. Push it
+1201 : d6e0             ENCL5	ldb	N
+1203 : 4f               	clra
+1204 : 37               	pshb
+1205 : 36               	psha
+                        ;	advance and push NC
+1206 : 5c               	incb
+1207 : 7e1032           	jmp	PUSHBA
+                        ;	found NUL before non-delimiter, therefore there is n
+120a : d6e0             ENCL6	ldb	N	;found NUL
+120c : 37               	pshb
+120d : 36               	psha
+120e : 5c               	incb
+120f : 2002             	bra	ENCL7+2	
+                        ;	found NUL following the word instead of SPACE
+1211 : d6e0             ENCL7	ldb	N
+1213 : 37               	pshb		;save EW
+1214 : 36               	psha
+1215 : d6e0             ENCL8	ldb	N	;save NC
+1217 : 7e1032           	jmp	PUSHBA
+                        ;
+                        ; ######>> screen 21 <<
+                        ; The next 4 words call system dependant I/O routines
+                        ; which are listed after word "-->" ( lable: "arrow" )
+                        ; in the dictionary.
+                        ;
+                        ; ======>>  13  <<
+121a : 84               	fcb	$84
+121b : 454d49           	fcc	"EMI"	;fcc	3,EMIT
+121e : d4               	fcb	$D4
+121f : 11ce             	fdb	ENCLOS-10
+1221 : 1223             EMIT	fdb	*+2
+1223 : 32               	pula
+1224 : 32               	pula
+1225 : bd2305           	jsr	PEMIT
+1228 : def6             	ldx	UP
+122a : 6c1b             	inc	XOUT+1-UORIG,x
+122c : 2602             	bne	*+4
+122e : 6c1a             	inc	XOUT-UORIG,x
+1230 : 7e1034           	jmp	NEXT
+                        ;
+                        ; ======>>  14  <<
+1233 : 83               	fcb	$83
+1234 : 4b45             	fcc	"KE"	;fcc	2,KEY
+1236 : d9               	fcb	$D9
+1237 : 121a             	fdb	EMIT-7
+1239 : 123b             KEY	fdb	*+2
+123b : bd231c           	jsr	PKEY
+123e : 36               	psha
+123f : 4f               	clra
+1240 : 36               	psha
+1241 : 7e1034           	jmp	NEXT
+                        ;
+AS02 Assembler for M6802 [1.42].                                     Page   12
+----------------------------- fig-FORTH_6800.asm -----------------------------
+
+                        ; ======>>  15  <<
+1244 : 89               	fcb	$89
+1245 : 3f5445524d494e41 	fcc	"?TERMINA"	;fcc	8,?TERMINAL
+124d : cc               	fcb	$CC
+124e : 1233             	fdb	KEY-6
+1250 : 1252             QTERM	fdb	*+2
+1252 : bd2334           	jsr	PQTER
+1255 : 5f               	clrb
+1256 : 7e1032           	jmp	PUSHBA	;stack the flag
+                        ;
+                        ; ======>>  16  <<
+1259 : 82               	fcb	$82
+125a : 43               	fcc	"C"	;fcc	1,CR
+125b : d2               	fcb	$D2
+125c : 1244             	fdb	QTERM-12
+125e : 1260             CR	fdb	*+2
+1260 : bd2341           	jsr	PCR
+1263 : 7e1034           	jmp	NEXT
+                        ;
+                        ; ######>> screen 22 <<
+                        ; ======>>  17  <<
+1266 : 85               	fcb	$85
+1267 : 434d4f56         	fcc	"CMOV"	;fcc	4,CMOVE	;source, destination, count
+126b : c5               	fcb	$C5
+126c : 1259             	fdb	CR-5
+126e : 1270             CMOVE	fdb	*+2	;takes ( 43+47*count cycles )
+1270 : ce00e0           	ldx	#N
+1273 : c606             	ldb	#6
+1275 : 32               CMOV1	pula
+1276 : a700             	sta	0,x	;move parameters to scratch area
+1278 : 08               	inx
+1279 : 5a               	decb
+127a : 26f9             	bne	CMOV1
+127c : 96e0             CMOV2	lda	N
+127e : d6e1             	ldb	N+1
+1280 : c001             	subb	#1
+1282 : 8200             	sbca	#0
+1284 : 97e0             	sta	N
+1286 : d7e1             	stb	N+1
+1288 : 2510             	bcs	CMOV3
+128a : dee4             	ldx	N+4
+128c : a600             	lda	0,x
+128e : 08               	inx
+128f : dfe4             	stx	N+4
+1291 : dee2             	ldx	N+2
+1293 : a700             	sta	0,x
+1295 : 08               	inx
+1296 : dfe2             	stx	N+2
+1298 : 20e2             	bra	CMOV2
+129a : 7e1034           CMOV3	jmp	NEXT
+                        ;
+                        ; ######>> screen 23 <<
+                        ; ======>>  18  <<
+129d : 82               	fcb	$82
+129e : 55               	fcc	"U"	;fcc	1,U*
+129f : aa               	fcb	$AA
+12a0 : 1266             	fdb	CMOVE-8
+12a2 : 12a4             USTAR	fdb	*+2
+12a4 : 8d05             	bsr	USTARS
+12a6 : 31               	ins
+12a7 : 31               	ins
+12a8 : 7e1032           	jmp	PUSHBA
+AS02 Assembler for M6802 [1.42].                                     Page   13
+----------------------------- fig-FORTH_6800.asm -----------------------------
+
+                        ;
+                        ; The following is a subroutine which 
+                        ; multiplies top 2 words on stack,
+                        ; leaving 32-bit result:  high order word in A,B
+                        ; low order word in 2nd word of stack.
+                        ;
+12ab : 8610             USTARS	lda	#16	;bits/word counter
+12ad : 36               	psha
+12ae : 4f               	clra
+12af : 5f               	clrb
+12b0 : 30               	tsx
+12b1 : 6605             USTAR2	ror	5,x	;shift multiplier
+12b3 : 6606             	ror	6,x
+12b5 : 6a00             	dec	0,x	;done?
+12b7 : 2b0a             	bmi	USTAR4
+12b9 : 2404             	bcc	USTAR3
+12bb : eb04             	addb	4,x
+12bd : a903             	adca	3,x
+12bf : 46               USTAR3	rora
+12c0 : 56               	rorb		;shift result
+12c1 : 20ee             	bra	USTAR2
+12c3 : 31               USTAR4	ins		;dump counter
+12c4 : 39               	rts
+                        ;
+                        ; ######>> screen 24 <<
+                        ; ======>>  19  <<
+12c5 : 82               	fcb	$82
+12c6 : 55               	fcc	"U"	;fcc	1,U/
+12c7 : af               	fcb	$AF
+12c8 : 129d             	fdb	USTAR-5
+12ca : 12cc             USLASH	fdb	*+2
+12cc : 8611             	lda	#17
+12ce : 36               	psha
+12cf : 30               	tsx
+12d0 : a603             	lda	3,x
+12d2 : e604             	ldb	4,x
+12d4 : a101             USL1	cmpa	1,x
+12d6 : 2209             	bhi	USL3
+12d8 : 2504             	bcs	USL2
+12da : e102             	cmpb	2,x
+12dc : 2403             	bcc	USL3
+12de : 0c               USL2	clc
+12df : 2005             	bra	USL4
+12e1 : e002             USL3	subb	2,x
+12e3 : a201             	sbca	1,x
+12e5 : 0d               	sec
+12e6 : 6906             USL4	rol	6,x
+12e8 : 6905             	rol	5,x
+12ea : 6a00             	dec	0,x
+12ec : 2706             	beq	USL5
+12ee : 59               	rolb
+12ef : 49               	rola
+12f0 : 24e2             	bcc	USL1
+12f2 : 20ed             	bra	USL3
+12f4 : 31               USL5	ins
+12f5 : 31               	ins
+12f6 : 31               	ins
+12f7 : 31               	ins
+12f8 : 31               	ins
+12f9 : 7e147e           	jmp	SWAP+4	;reverse quotient & remainder
+                        ;
+                        ; ######>> screen 25 <<
+AS02 Assembler for M6802 [1.42].                                     Page   14
+----------------------------- fig-FORTH_6800.asm -----------------------------
+
+                        ; ======>>  20  <<
+12fc : 83               	fcb	$83
+12fd : 414e             	fcc	"AN"	;fcc	2,AND
+12ff : c4               	fcb	$C4
+1300 : 12c5             	fdb	USLASH-5
+1302 : 1304             AND	fdb	*+2
+1304 : 32               	pula
+1305 : 33               	pulb
+1306 : 30               	tsx
+1307 : e401             	andb	1,x
+1309 : a400             	anda	0,x
+130b : 7e1028           	jmp	STABX
+                        ;
+                        ; ======>>  21  <<
+130e : 82               	fcb	$82
+130f : 4f               	fcc	"O"	;fcc	1,OR
+1310 : d2               	fcb	$D2
+1311 : 12fc             	fdb	AND-6
+1313 : 1315             OR	fdb	*+2
+1315 : 32               	pula
+1316 : 33               	pulb
+1317 : 30               	tsx
+1318 : ea01             	orab	1,x
+131a : aa00             	oraa	0,x
+131c : 7e1028           	jmp	STABX
+                        ;	
+                        ; ======>>  22  <<
+131f : 83               	fcb	$83
+1320 : 584f             	fcc	"XO"	;fcc	2,XOR
+1322 : d2               	fcb	$D2
+1323 : 130e             	fdb	OR-5
+1325 : 1327             XOR	fdb	*+2
+1327 : 32               	pula
+1328 : 33               	pulb
+1329 : 30               	tsx
+132a : e801             	eorb	1,x
+132c : a800             	eora	0,x
+132e : 7e1028           	jmp	STABX
+                        ;
+                        ; ######>> screen 26 <<
+                        ; ======>>  23  <<
+1331 : 83               	fcb	$83
+1332 : 5350             	fcc	"SP"	;fcc	2,SP@
+1334 : c0               	fcb	$C0
+1335 : 131f             	fdb	XOR-6
+1337 : 1339             SPAT	fdb	*+2
+1339 : 30               	tsx
+133a : dfe0             	stx	N	;scratch area
+133c : ce00e0           	ldx	#N
+133f : 7e102e           	jmp	GETX
+                        ;
+                        ; ======>>  24  <<
+1342 : 83               	fcb	$83
+1343 : 5350             	fcc	"SP"	;fcc	2,SP!
+1345 : a1               	fcb	$A1
+1346 : 1331             	fdb	SPAT-6
+1348 : 134a             SPSTOR	fdb	*+2
+134a : def6             	ldx	UP
+134c : ee06             	ldx	XSPZER-UORIG,x
+134e : 35               	txs		;watch it ! X and S are not EQUAL.
+134f : 7e1034           	jmp	NEXT
+                        ;
+AS02 Assembler for M6802 [1.42].                                     Page   15
+----------------------------- fig-FORTH_6800.asm -----------------------------
+
+                        ; ======>>  25  <<
+1352 : 83               	fcb	$83
+1353 : 5250             	fcc	"RP"	;fcc	2,RP!
+1355 : a1               	fcb	$A1
+1356 : 1342             	fdb	SPSTOR-6
+1358 : 135a             RPSTOR	fdb	*+2
+135a : fe1014           	ldx	RINIT	;initialize from rom constant
+135d : dff4             	stx	RP
+135f : 7e1034           	jmp	NEXT
+                        ;
+                        ; ======>>  26  <<
+1362 : 82               	fcb	$82
+1363 : 3b               	fcc	";"	;fcc	1,;S
+1364 : d3               	fcb	$D3
+1365 : 1352             	fdb	RPSTOR-6
+1367 : 1369             SEMIS	fdb	*+2
+1369 : def4             	ldx	RP
+136b : 08               	inx
+136c : 08               	inx
+136d : dff4             	stx	RP
+136f : ee00             	ldx	0,x	;get address we have just finished.
+1371 : 7e1036           	jmp	NEXT+2	;increment the return address & do next wo
+                        ;
+                        ; ######>> screen 27 <<
+                        ; ======>>  27  <<
+1374 : 85               	fcb	$85
+1375 : 4c454156         	fcc	"LEAV"	;fcc	4,LEAVE
+1379 : c5               	fcb	$C5
+137a : 1362             	fdb	SEMIS-5
+137c : 137e             LEAVE	fdb	*+2
+137e : def4             	ldx	RP
+1380 : a602             	lda	2,x
+1382 : e603             	ldb	3,x
+1384 : a704             	sta	4,x
+1386 : e705             	stb	5,x
+1388 : 7e1034           	jmp	NEXT
+                        ;
+                        ; ======>>  28  <<
+138b : 82               	fcb	$82
+138c : 3e               	fcc	">"	;fcc	1,>R
+138d : d2               	fcb	$D2
+138e : 1374             	fdb	LEAVE-8
+1390 : 1392             TOR	fdb	*+2
+1392 : def4             	ldx	RP
+1394 : 09               	dex
+1395 : 09               	dex
+1396 : dff4             	stx	RP
+1398 : 32               	pula
+1399 : 33               	pulb
+139a : a702             	sta	2,x
+139c : e703             	stb	3,x
+139e : 7e1034           	jmp	NEXT
+                        ;
+                        ; ======>>  29  <<
+13a1 : 82               	fcb	$82
+13a2 : 52               	fcc	"R"	;fcc	1,R>
+13a3 : be               	fcb	$BE
+13a4 : 138b             	fdb	TOR-5
+13a6 : 13a8             FROMR	fdb	*+2
+13a8 : def4             	ldx	RP
+13aa : a602             	lda	2,x
+13ac : e603             	ldb	3,x
+AS02 Assembler for M6802 [1.42].                                     Page   16
+----------------------------- fig-FORTH_6800.asm -----------------------------
+
+13ae : 08               	inx
+13af : 08               	inx
+13b0 : dff4             	stx	RP
+13b2 : 7e1032           	jmp	PUSHBA
+                        ;
+                        ; ======>>  30  <<
+13b5 : 81               	fcb	$81	; R
+13b6 : d2               	fcb	$D2
+13b7 : 13a1             	fdb	FROMR-5
+13b9 : 13bb             R	fdb	*+2
+13bb : def4             	ldx	RP
+13bd : 08               	inx
+13be : 08               	inx
+13bf : 7e102e           	jmp	GETX
+                        ;
+                        ; ######>> screen 28 <<
+                        ; ======>>  31  <<
+13c2 : 82               	fcb	$82
+13c3 : 30               	fcc	"0"	;fcc	1,0=
+13c4 : bd               	fcb	$BD
+13c5 : 13b5             	fdb	R-4
+13c7 : 13c9             ZEQU	fdb	*+2
+13c9 : 30               	tsx
+13ca : 4f               	clra
+13cb : 5f               	clrb
+13cc : ee00             	ldx	0,x
+13ce : 2601             	bne	ZEQU2
+13d0 : 5c               	incb
+13d1 : 30               ZEQU2	tsx
+13d2 : 7e1028           	jmp	STABX
+                        ;
+                        ; ======>>  32  <<
+13d5 : 82               	fcb	$82
+13d6 : 30               	fcc	"0"	;fcc	1,0<
+13d7 : bc               	fcb	$BC
+13d8 : 13c2             	fdb	ZEQU-5
+13da : 13dc             ZLESS	fdb	*+2
+13dc : 30               	tsx
+13dd : 8680             	lda	#$80	;check the sign bit
+13df : a400             	anda	0,x
+13e1 : 2706             	beq	ZLESS2
+13e3 : 4f               	clra		;if neg.
+13e4 : c601             	ldb	#1
+13e6 : 7e1028           	jmp	STABX
+13e9 : 5f               ZLESS2	clrb
+13ea : 7e1028           	jmp	STABX
+                        ;
+                        ; ######>> screen 29 <<
+                        ; ======>>  33  <<
+13ed : 81               	fcb	$81	;'+'
+13ee : ab               	fcb	$AB
+13ef : 13d5             	fdb	ZLESS-5
+13f1 : 13f3             PLUS	fdb	*+2
+13f3 : 32               	pula
+13f4 : 33               	pulb
+13f5 : 30               	tsx
+13f6 : eb01             	addb	1,x
+13f8 : a900             	adca	0,x
+13fa : 7e1028           	jmp	STABX
+                        ;
+                        ; ======>>  34  <<
+13fd : 82               	fcb	$82
+AS02 Assembler for M6802 [1.42].                                     Page   17
+----------------------------- fig-FORTH_6800.asm -----------------------------
+
+13fe : 44               	fcc	"D"	;fcc	1,D+
+13ff : ab               	fcb	$AB
+1400 : 13ed             	fdb	PLUS-4
+1402 : 1404             DPLUS	fdb	*+2
+1404 : 30               	tsx
+1405 : 0c               	clc
+1406 : c604             	ldb	#4
+1408 : a603             DPLUS2	lda	3,x
+140a : a907             	adca	7,x
+140c : a707             	sta	7,x
+140e : 09               	dex
+140f : 5a               	decb
+1410 : 26f6             	bne	DPLUS2
+1412 : 31               	ins
+1413 : 31               	ins
+1414 : 31               	ins
+1415 : 31               	ins
+1416 : 7e1034           	jmp	NEXT
+                        ;
+                        ; ======>>  35  <<
+1419 : 85               	fcb	$85
+141a : 4d494e55         	fcc	"MINU"	;fcc	4,MINUS
+141e : d3               	fcb	$D3
+141f : 13fd             	fdb	DPLUS-5
+1421 : 1423             MINUS	fdb	*+2
+1423 : 30               	tsx
+1424 : 6001             	neg	1,x
+1426 : 2504             	bcs	MINUS2	;BCS to match original 1979 listing
+1428 : 6000             	neg	0,x
+142a : 2002             	bra	MINUS3
+142c : 6300             MINUS2	com	0,x
+142e : 7e1034           MINUS3	jmp	NEXT
+                        ;
+                        ; ======>>  36  <<
+1431 : 86               	fcb	$86
+1432 : 444d494e55       	fcc	"DMINU"	;fcc	5,DMINUS
+1437 : d3               	fcb	$D3
+1438 : 1419             	fdb	MINUS-8
+143a : 143c             DMINUS	fdb	*+2
+143c : 30               	tsx
+143d : 6300             	com	0,x
+143f : 6301             	com	1,x
+1441 : 6302             	com	2,x
+1443 : 6003             	neg	3,x
+1445 : 260a             	bne	DMINX
+1447 : 6c02             	inc	2,x
+1449 : 2606             	bne	DMINX
+144b : 6c01             	inc	1,x
+144d : 2602             	bne	DMINX
+144f : 6c00             	inc	0,x
+1451 : 7e1034           DMINX	jmp	NEXT
+                        ;
+                        ; ######>> screen 30 <<
+                        ; ======>>  37  <<
+1454 : 84               	fcb	$84
+1455 : 4f5645           	fcc	"OVE"	;fcc	3,OVER
+1458 : d2               	fcb	$D2
+1459 : 1431             	fdb	DMINUS-9
+145b : 145d             OVER	fdb	*+2
+145d : 30               	tsx
+145e : a602             	lda	2,x
+1460 : e603             	ldb	3,x
+AS02 Assembler for M6802 [1.42].                                     Page   18
+----------------------------- fig-FORTH_6800.asm -----------------------------
+
+1462 : 7e1032           	jmp	PUSHBA
+                        ;
+                        ; ======>>  38  <<
+1465 : 84               	fcb	$84
+1466 : 44524f           	fcc	"DRO"	;fcc	3,DROP
+1469 : d0               	fcb	$D0
+146a : 1454             	fdb	OVER-7
+146c : 146e             DROP	fdb	*+2
+146e : 31               	ins
+146f : 31               	ins
+1470 : 7e1034           	jmp	NEXT
+                        ;
+                        ; ======>>  39  <<
+1473 : 84               	fcb	$84
+1474 : 535741           	fcc	"SWA"	;fcc	3,SWAP
+1477 : d0               	fcb	$D0
+1478 : 1465             	fdb	DROP-7
+147a : 147c             SWAP	fdb	*+2
+147c : 32               	pula
+147d : 33               	pulb
+147e : 30               	tsx
+147f : ee00             	ldx	0,x
+1481 : 31               	ins
+1482 : 31               	ins
+1483 : 37               	pshb
+1484 : 36               	psha
+1485 : dfe0             	stx	N
+1487 : ce00e0           	ldx	#N
+148a : 7e102e           	jmp	GETX
+                        ;
+                        ; ======>>  40  <<
+148d : 83               	fcb	$83
+148e : 4455             	fcc	"DU"	;fcc	2,DUP
+1490 : d0               	fcb	$D0
+1491 : 1473             	fdb	SWAP-7
+1493 : 1495             DUP	fdb	*+2
+1495 : 32               	pula
+1496 : 33               	pulb
+1497 : 37               	pshb
+1498 : 36               	psha
+1499 : 7e1032           	jmp PUSHBA
+                        ;
+                        ; ######>> screen 31 <<
+                        ; ======>>  41  <<
+149c : 82               	fcb	$82
+149d : 2b               	fcc	"+"	;fcc	1,+!
+149e : a1               	fcb	$A1
+149f : 148d             	fdb	DUP-6
+14a1 : 14a3             PSTORE	fdb	*+2
+14a3 : 30               	tsx
+14a4 : ee00             	ldx	0,x
+14a6 : 31               	ins
+14a7 : 31               	ins
+14a8 : 32               	pula		;get stack data
+14a9 : 33               	pulb
+14aa : eb01             	addb	1,x	;add & store low byte
+14ac : e701             	stb	1,x
+14ae : a900             	adca	0,x	;add & store hi byte
+14b0 : a700             	sta	0,x
+14b2 : 7e1034           	jmp	NEXT
+                        ;
+                        ; ======>>  42  <<
+AS02 Assembler for M6802 [1.42].                                     Page   19
+----------------------------- fig-FORTH_6800.asm -----------------------------
+
+14b5 : 86               	fcb	$86
+14b6 : 544f47474c       	fcc	"TOGGL"	;fcc	5,TOGGLE
+14bb : c5               	fcb	$C5
+14bc : 149c             	fdb	PSTORE-5
+14be : 1525145b14df13.. TOGGLE	fdb	DOCOL,OVER,CAT,XOR,SWAP,CSTORE
+14ca : 1367             	fdb	SEMIS
+                        ;
+                        ; ######>> screen 32 <<
+                        ; ======>>  43  <<
+14cc : 81               	fcb	$81	; @
+14cd : c0               	fcb	$C0
+14ce : 14b5             	fdb	TOGGLE-9
+14d0 : 14d2             AT	fdb	*+2
+14d2 : 30               	tsx
+14d3 : ee00             	ldx	0,x	;get address
+14d5 : 31               	ins
+14d6 : 31               	ins
+14d7 : 7e102e           	jmp	GETX
+                        ;
+                        ; ======>>  44  <<
+14da : 82               	fcb	$82
+14db : 43               	fcc	"C"	;fcc	1,C@
+14dc : c0               	fcb	$C0
+14dd : 14cc             	fdb	AT-4
+14df : 14e1             CAT	fdb	*+2
+14e1 : 30               	tsx
+14e2 : ee00             	ldx	0,x
+14e4 : 4f               	clra
+14e5 : e600             	ldb	0,x
+14e7 : 31               	ins
+14e8 : 31               	ins
+14e9 : 7e1032           	jmp	PUSHBA
+                        ;
+                        ; ======>>  45  <<
+14ec : 81               	fcb	$81
+14ed : a1               	fcb	$A1
+14ee : 14da             	fdb	CAT-5
+14f0 : 14f2             STORE	fdb	*+2
+14f2 : 30               	tsx
+14f3 : ee00             	ldx	0,x	;get address
+14f5 : 31               	ins
+14f6 : 31               	ins
+14f7 : 7e1026           	jmp	PULABX
+                        ;
+                        ; ======>>  46  <<
+14fa : 82               	fcb	$82
+14fb : 43               	fcc	"C"	;fcc	1,C!
+14fc : a1               	fcb	$A1
+14fd : 14ec             	fdb	STORE-4
+14ff : 1501             CSTORE	fdb	*+2
+1501 : 30               	tsx
+1502 : ee00             	ldx	0,x	;get address
+1504 : 31               	ins
+1505 : 31               	ins
+1506 : 31               	ins
+1507 : 33               	pulb
+1508 : e700             	stb	0,x
+150a : 7e1034           	jmp	NEXT
+                        ;
+                        ; ######>> screen 33 <<
+                        ; ======>>  47  <<
+150d : c1               	fcb	$C1	;immediate
+AS02 Assembler for M6802 [1.42].                                     Page   20
+----------------------------- fig-FORTH_6800.asm -----------------------------
+
+150e : ba               	fcb	$BA
+150f : 14fa             	fdb	CSTORE-5
+1511 : 152518d5189116.. COLON	fdb	DOCOL,QEXEC,SCSP,CURENT,AT,CONTXT,STORE
+151f : 1dd61956         	fdb	CREATE,RBRAK
+1523 : 19a5             	fdb	PSCODE
+                        
+                        ; Here is the IP pusher for allowing
+                        ; nested words in the virtual machine:
+                        ; ( ;S is the equivalent un-nester )
+                        
+1525 : def4             DOCOL	ldx	RP	;make room in the stack
+1527 : 09               	dex
+1528 : 09               	dex
+1529 : dff4             	stx	RP
+152b : 96f2             	lda	IP
+152d : d6f3             	ldb	IP+1	
+152f : a702             	sta	2,x	;Store address of the high level word
+1531 : e703             	stb	3,x	;that we are starting to execute
+1533 : def0             	ldx	W	;Get first sub-word of that definition
+1535 : 7e1036           	jmp	NEXT+2	;and execute it
+                        ;
+                        ; ======>>  48  <<
+1538 : c1               	fcb	$C1	;imnediate code
+1539 : bb               	fcb	$BB
+153a : 150d             	fdb	COLON-4
+153c : 152518fd193213.. SEMI	fdb	DOCOL,QCSP,COMPIL,SEMIS,SMUDGE,LBRAK
+1548 : 1367             	fdb	SEMIS
+                        ;
+                        ; ######>> screen 34 <<
+                        ; ======>>  49  <<
+154a : 88               	fcb	$88
+154b : 434f4e5354414e   	fcc	"CONSTAN"	;fcc	7,CONSTANT
+1552 : d4               	fcb	$D4
+1553 : 1538             	fdb	SEMI-4
+1555 : 15251dd6196a17.. CON	fdb	DOCOL,CREATE,SMUDGE,COMMA,PSCODE
+155f : def0             DOCON	ldx	W
+1561 : a602             	lda	2,x	
+1563 : e603             	ldb	3,x	;A & B now contain the constant
+1565 : 7e1032           	jmp	PUSHBA
+                        ;
+                        ; ======>>  50  <<
+1568 : 88               	fcb	$88
+1569 : 5641524941424c   	fcc	"VARIABL"	;fcc	7,VARIABLE
+1570 : c5               	fcb	$C5
+1571 : 154a             	fdb	CON-11
+1573 : 1525155519a5     VAR	fdb	DOCOL,CON,PSCODE
+1579 : 96f0             DOVAR	lda	W
+157b : d6f1             	ldb	W+1
+157d : cb02             	addb	#2
+157f : 8900             	adca	#0	;A,B now contain the address of the variable
+1581 : 7e1032           	jmp	PUSHBA
+                        ;
+                        ; ======>>  51  <<
+1584 : 84               	fcb	$84
+1585 : 555345           	fcc	"USE"	;fcc	3,USER
+1588 : d2               	fcb	$D2
+1589 : 1568             	fdb	VAR-11
+158b : 1525155519a5     USER	fdb	DOCOL,CON,PSCODE
+1591 : def0             DOUSER	ldx	W	;get offset  into user's table
+1593 : a602             	lda	2,x
+1595 : e603             	ldb	3,x
+1597 : dbf7             	addb	UP+1	;add to users base address
+AS02 Assembler for M6802 [1.42].                                     Page   21
+----------------------------- fig-FORTH_6800.asm -----------------------------
+
+1599 : 99f6             	adca	UP
+159b : 7e1032           	jmp	PUSHBA	;push address of user's variable
+                        ;
+                        ; ######>> screen 35 <<
+                        ; ======>>  52  <<
+159e : 81               	fcb	$81
+159f : b0               	fcb	$B0	; 0
+15a0 : 1584             	fdb	USER-7
+15a2 : 155f             ZERO	fdb	DOCON
+15a4 : 0000             	fdb	0000
+                        ;
+                        ; ======>>  53  <<
+15a6 : 81               	fcb	$81
+15a7 : b1               	fcb	$B1	; 1
+15a8 : 159e             	fdb	ZERO-4
+15aa : 155f             ONE	fdb	DOCON
+15ac : 0001             	fdb	1
+                        ;
+                        ; ======>>  54  <<
+15ae : 81               	fcb	$81
+15af : b2               	fcb	$B2	; 2
+15b0 : 15a6             	fdb	ONE-4
+15b2 : 155f             TWO	fdb	DOCON
+15b4 : 0002             	fdb	2
+                        ;
+                        ; ======>>  55  <<
+15b6 : 81               	fcb	$81
+15b7 : b3               	fcb	$B3	; 3
+15b8 : 15ae             	fdb	TWO-4
+15ba : 155f             THREE	fdb	DOCON
+15bc : 0003             	fdb	3
+                        ;
+                        ; ======>>  56  <<
+15be : 82               	fcb	$82
+15bf : 42               	fcc	"B"	;fcc	1,BL
+15c0 : cc               	fcb	$CC
+15c1 : 15b6             	fdb	THREE-4
+15c3 : 155f             BL	fdb	DOCON	;ascii blank
+15c5 : 0020             	fdb	$20
+                        ;
+                        ; ======>>  57  <<
+15c7 : 85               	fcb	$85
+15c8 : 46495253         	fcc	"FIRS"	;fcc	4,FIRST
+15cc : d4               	fcb	$D4
+15cd : 15be             	fdb	BL-5
+15cf : 155f             FIRST	fdb	DOCON
+15d1 : 3000             	fdb	MEMEND-528	;(132 * NBLK)
+                        ;
+                        ; ======>>  58  <<
+15d3 : 85               	fcb	$85
+15d4 : 4c494d49         	fcc	"LIMI"	;fcc	4,LIMIT	;(the end of memory +1)
+15d8 : d4               	fcb	$D4
+15d9 : 15c7             	fdb	FIRST-8
+15db : 155f             LIMIT	fdb	DOCON
+15dd : 3210             	fdb	MEMEND
+                        ;
+                        ; ======>>  59  <<
+15df : 85               	fcb	$85
+15e0 : 422f4255         	fcc	"B/BU"	;fcc	4,B/BUF	;(bytes/buffer)
+15e4 : c6               	fcb	$C6
+15e5 : 15d3             	fdb	LIMIT-8
+15e7 : 155f             BBUF	fdb	DOCON
+AS02 Assembler for M6802 [1.42].                                     Page   22
+----------------------------- fig-FORTH_6800.asm -----------------------------
+
+15e9 : 0080             	fdb	128
+                        ;
+                        ; ======>>  60  <<
+15eb : 85               	fcb	$85
+15ec : 422f5343         	fcc	"B/SC"	;fcc	4,B/SCR	;(blocks/screen)
+15f0 : d2               	fcb	$D2
+15f1 : 15df             	fdb	BBUF-8
+15f3 : 155f             BSCR	fdb	DOCON
+15f5 : 0008             	fdb	8
+                        ;	blocks/screen = 1024 / "B/BUF" = 8
+                        ;
+                        ; ======>>  61  <<
+15f7 : 87               	fcb	$87
+15f8 : 2b4f52494749     	fcc	"+ORIGI"	;fcc	6,+ORIGIN
+15fe : ce               	fcb	$CE
+15ff : 15eb             	fdb	BSCR-8
+1601 : 15251049100013f1 PORIG	fdb	DOCOL,LIT,ORIG,PLUS
+1609 : 1367             	fdb	SEMIS
+                        ;
+                        ; ######>> screen 36 <<
+                        ; ======>>  62  <<
+160b : 82               	fcb	$82
+160c : 53               	fcc	"S"	;fcc	1,S0
+160d : b0               	fcb	$B0
+160e : 15f7             	fdb	PORIG-10
+1610 : 1591             SZERO	fdb	DOUSER
+1612 : 0006             	fdb	XSPZER-UORIG
+                        ;
+                        ; ======>>  63  <<
+1614 : 82               	fcb	$82
+1615 : 52               	fcc	"R"	;fcc	1,R0
+1616 : b0               	fcb	$B0
+1617 : 160b             	fdb	SZERO-5
+1619 : 1591             RZERO	fdb	DOUSER
+161b : 0008             	fdb	XRZERO-UORIG
+                        ;
+                        ; ======>>  64  <<
+161d : 83               	fcb	$83
+161e : 5449             	fcc	"TI"	;fcc	2,TIB
+1620 : c2               	fcb	$C2
+1621 : 1614             	fdb	RZERO-5
+1623 : 1591             TIB	fdb	DOUSER
+1625 : 000a             	fdb	XTIB-UORIG
+                        ;
+                        ; ======>>  65  <<
+1627 : 85               	fcb	$85
+1628 : 57494454         	fcc	"WIDT"	;fcc	4,WIDTH
+162c : c8               	fcb	$C8
+162d : 161d             	fdb	TIB-6
+162f : 1591             WIDTH	fdb	DOUSER
+1631 : 000c             	fdb	XWIDTH-UORIG
+                        ;
+                        ; ======>>  66  <<
+1633 : 87               	fcb	$87
+1634 : 5741524e494e     	fcc	"WARNIN"	;fcc	6,WARNING
+163a : c7               	fcb	$C7
+163b : 1627             	fdb	WIDTH-8
+163d : 1591             WARN	fdb	DOUSER
+163f : 000e             	fdb	XWARN-UORIG
+                        ;
+                        ; ======>>  67  <<
+1641 : 85               	fcb	$85
+AS02 Assembler for M6802 [1.42].                                     Page   23
+----------------------------- fig-FORTH_6800.asm -----------------------------
+
+1642 : 46454e43         	fcc	"FENC"	;fcc	4,FENCE
+1646 : c5               	fcb	$C5
+1647 : 1633             	fdb	WARN-10
+1649 : 1591             FENCE	fdb	DOUSER
+164b : 0010             	fdb	XFENCE-UORIG
+                        ;
+                        ; ======>>  68  <<
+164d : 82               	fcb	$82
+164e : 44               	fcc	"D"	;fcc	1,DP	;points to first free byte at end o
+164f : d0               	fcb	$D0
+1650 : 1641             	fdb	FENCE-8
+1652 : 1591             DP	fdb	DOUSER
+1654 : 0012             	fdb	XDP-UORIG
+                        ;
+                        ; ======>>  68.5  <<
+1656 : 88               	fcb	$88
+1657 : 564f432d4c494e   	fcc	"VOC-LIN"	;fcc	7,VOC-LINK
+165e : cb               	fcb	$CB
+165f : 164d             	fdb	DP-5
+1661 : 1591             VOCLIN	fdb	DOUSER
+1663 : 0014             	fdb	XVOCL-UORIG
+                        ;
+                        ; ======>>  69  <<
+1665 : 83               	fcb	$83
+1666 : 424c             	fcc	"BL"	;fcc	2,BLK
+1668 : cb               	fcb	$CB
+1669 : 1656             	fdb	VOCLIN-11
+166b : 1591             BLK	fdb	DOUSER
+166d : 0016             	fdb	XBLK-UORIG
+                        ;
+                        ; ======>>  70  <<
+166f : 82               	fcb	$82
+1670 : 49               	fcc	"I"	;fcc	1,IN	;scan pointer for input line buffer
+1671 : ce               	fcb	$CE
+1672 : 1665             	fdb	BLK-6
+1674 : 1591             IN	fdb	DOUSER
+1676 : 0018             	fdb	XIN-UORIG
+                        ;
+                        ; ======>>  71  <<
+1678 : 83               	fcb	$83
+1679 : 4f55             	fcc	"OU"	;fcc	2,OUT
+167b : d4               	fcb	$D4
+167c : 166f             	fdb	IN-5
+167e : 1591             OUT	fdb	DOUSER
+1680 : 001a             	fdb	XOUT-UORIG
+                        ;
+                        ; ======>>  72  <<
+1682 : 83               	fcb	$83
+1683 : 5343             	fcc	"SC"	;fcc	2,SCR
+1685 : d2               	fcb	$D2
+1686 : 1678             	fdb	OUT-6
+1688 : 1591             SCR	fdb	DOUSER
+168a : 001c             	fdb	XSCR-UORIG
+                        ;
+                        ; ######>> screen 37 <<
+                        ; ======>>  73  <<
+168c : 86               	fcb	$86
+168d : 4f46465345       	fcc	"OFFSE"	;fcc	5,OFFSET
+1692 : d4               	fcb	$D4
+1693 : 1682             	fdb	SCR-6
+1695 : 1591             OFSET	fdb	DOUSER
+1697 : 001e             	fdb	XOFSET-UORIG
+AS02 Assembler for M6802 [1.42].                                     Page   24
+----------------------------- fig-FORTH_6800.asm -----------------------------
+
+                        ;
+                        ; ======>>  74  <<
+1699 : 87               	fcb	$87
+169a : 434f4e544558     	fcc	"CONTEX"	;fcc	6,CONTEXT	;points to pointer to voc
+16a0 : d4               	fcb	$D4
+16a1 : 168c             	fdb	OFSET-9
+16a3 : 1591             CONTXT	fdb	DOUSER
+16a5 : 0020             	fdb	XCONT-UORIG
+                        ;
+                        ; ======>>  75  <<
+16a7 : 87               	fcb	$87
+16a8 : 43555252454e     	fcc	"CURREN"	;fcc	6,CURRENT	;points to pointer to voc
+16ae : d4               	fcb	$D4
+16af : 1699             	fdb	CONTXT-10
+16b1 : 1591             CURENT	fdb	DOUSER
+16b3 : 0022             	fdb	XCURR-UORIG
+                        ;
+                        ; ======>>  76  <<
+16b5 : 85               	fcb	$85
+16b6 : 53544154         	fcc	"STAT"	;fcc	4,STATE	;1 if COMPILing, 0 if not
+16ba : c5               	fcb	$C5
+16bb : 16a7             	fdb	CURENT-10
+16bd : 1591             STATE	fdb	DOUSER
+16bf : 0024             	fdb	XSTATE-UORIG
+                        ;
+                        ; ======>>  77  <<
+16c1 : 84               	fcb	$84
+16c2 : 424153           	fcc	"BAS"	;fcc	3,BASE	;number base for all input & ou
+16c5 : c5               	fcb	$C5
+16c6 : 16b5             	fdb	STATE-8
+16c8 : 1591             BASE	fdb	DOUSER
+16ca : 0026             	fdb	XBASE-UORIG
+                        ;
+                        ; ======>>  78  <<
+16cc : 83               	fcb	$83
+16cd : 4450             	fcc	"DP"	;fcc	2,DPL
+16cf : cc               	fcb	$CC
+16d0 : 16c1             	fdb	BASE-7
+16d2 : 1591             DPL	fdb	DOUSER
+16d4 : 0028             	fdb	XDPL-UORIG
+                        ;
+                        ; ======>>  79  <<
+16d6 : 83               	fcb	$83
+16d7 : 464c             	fcc	"FL"	;fcc	2,FLD
+16d9 : c4               	fcb	$C4
+16da : 16cc             	fdb	DPL-6
+16dc : 1591             FLD	fdb	DOUSER
+16de : 002a             	fdb	XFLD-UORIG
+                        ;
+                        ; ======>>  80  <<
+16e0 : 83               	fcb	$83
+16e1 : 4353             	fcc	"CS"	;fcc	2,CSP
+16e3 : d0               	fcb	$D0
+16e4 : 16d6             	fdb	FLD-6
+16e6 : 1591             CSP	fdb	DOUSER
+16e8 : 002c             	fdb	XCSP-UORIG
+                        ;
+                        ; ======>>  81  <<
+16ea : 82               	fcb	$82
+16eb : 52               	fcc	"R"	;fcc	1,R#
+16ec : a3               	fcb	$A3
+16ed : 16e0             	fdb	CSP-6
+AS02 Assembler for M6802 [1.42].                                     Page   25
+----------------------------- fig-FORTH_6800.asm -----------------------------
+
+16ef : 1591             RNUM	fdb	DOUSER
+16f1 : 002e             	fdb	XRNUM-UORIG
+                        ;
+                        ; ======>>  82  <<
+16f3 : 83               	fcb	$83
+16f4 : 484c             	fcc	"HL"	;fcc	2,HLD
+16f6 : c4               	fcb	$C4
+16f7 : 16ea             	fdb	RNUM-5
+16f9 : 155f             HLD	fdb	DOCON
+16fb : 0130             	fdb	XHLD
+                        ;
+                        ; ======>>  82.5  <<== SPECIAL
+16fd : 87               	fcb	$87
+16fe : 434f4c554d4e     	fcc	"COLUMN"	;fcc	6,COLUMNS	;line width of terminal
+1704 : d3               	fcb	$D3
+1705 : 16f3             	fdb	HLD-6
+1707 : 1591             COLUMS	fdb	DOUSER
+1709 : 0034             	fdb	XCOLUM-UORIG
+                        ;
+                        ; ######>> screen 38 <<
+                        ; ======>>  83  <<
+170b : 82               	fcb	$82
+170c : 31               	fcc	"1"	;fcc	1,1+
+170d : ab               	fcb	$AB
+170e : 16fd             	fdb	COLUMS-10
+1710 : 152515aa13f1     ONEP	fdb	DOCOL,ONE,PLUS
+1716 : 1367             	fdb	SEMIS
+                        ;
+                        ; ======>>  84  <<
+1718 : 82               	fcb	$82
+1719 : 32               	fcc	"2"	;fcc	1,2+
+171a : ab               	fcb	$AB
+171b : 170b             	fdb	ONEP-5
+171d : 152515b213f1     TWOP	fdb	DOCOL,TWO,PLUS
+1723 : 1367             	fdb	SEMIS
+                        ;
+                        ; ======>>  85  <<
+1725 : 84               	fcb	$84
+1726 : 484552           	fcc	"HER"	;fcc	3,HERE
+1729 : c5               	fcb	$C5
+172a : 1718             	fdb	TWOP-5
+172c : 1525165214d0     HERE	fdb	DOCOL,DP,AT
+1732 : 1367             	fdb	SEMIS
+                        ;
+                        ; ======>>  86  <<
+1734 : 85               	fcb	$85
+1735 : 414c4c4f         	fcc	"ALLO"	;fcc	4,ALLOT
+1739 : d4               	fcb	$D4
+173a : 1725             	fdb	HERE-7
+173c : 1525165214a1     ALLOT	fdb	DOCOL,DP,PSTORE
+1742 : 1367             	fdb	SEMIS
+                        ;
+                        ; ======>>  87  <<
+1744 : 81               	fcb	$81	; , (comma)
+1745 : ac               	fcb	$AC
+1746 : 1734             	fdb	ALLOT-8
+1748 : 1525172c14f015.. COMMA	fdb	DOCOL,HERE,STORE,TWO,ALLOT
+1752 : 1367             	fdb	SEMIS
+                        ;
+                        ; ======>>  88  <<
+1754 : 82               	fcb	$82
+1755 : 43               	fcc	"C"	;fcc	1,C,
+AS02 Assembler for M6802 [1.42].                                     Page   26
+----------------------------- fig-FORTH_6800.asm -----------------------------
+
+1756 : ac               	fcb	$AC
+1757 : 1744             	fdb	COMMA-4
+1759 : 1525172c14ff15.. CCOMM	fdb	DOCOL,HERE,CSTORE,ONE,ALLOT
+1763 : 1367             	fdb	SEMIS
+                        ;
+                        ; ======>>  89  <<
+1765 : 81               	fcb	$81	; -
+1766 : ad               	fcb	$AD
+1767 : 1754             	fdb	CCOMM-5
+1769 : 1525142113f1     SUB	fdb	DOCOL,MINUS,PLUS
+176f : 1367             	fdb	SEMIS
+                        ;
+                        ; ======>>  90  <<
+1771 : 81               	fcb	$81	; =
+1772 : bd               	fcb	$BD
+1773 : 1765             	fdb	SUB-4
+1775 : 1525176913c7     EQUAL	fdb	DOCOL,SUB,ZEQU
+177b : 1367             	fdb	SEMIS
+                        ;
+                        ; ======>>  91  <<
+177d : 81               	fcb	$81	; <
+177e : bc               	fcb	$BC	
+177f : 1771             	fdb	EQUAL-4
+1781 : 1783             LESS	fdb	*+2
+1783 : 32               	pula
+1784 : 33               	pulb
+1785 : 30               	tsx
+1786 : a100             	cmpa	0,x
+1788 : 31               	ins
+1789 : 2e09             	bgt	LESST
+178b : 2604             	bne	LESSF
+178d : e101             	cmpb	1,x
+178f : 2203             	bhi	LESST
+1791 : 5f               LESSF	clrb
+1792 : 2002             	bra	LESSX
+1794 : c601             LESST	ldb	#1
+1796 : 4f               LESSX	clra
+1797 : 31               	ins
+1798 : 7e1032           	jmp	PUSHBA
+                        ;
+                        ; ======>>  92  <<
+179b : 81               	fcb	$81	; >
+179c : be               	fcb	$BE
+179d : 177d             	fdb	LESS-4
+179f : 1525147a1781     GREAT	fdb	DOCOL,SWAP,LESS
+17a5 : 1367             	fdb	SEMIS
+                        ;
+                        ; ======>>  93  <<
+17a7 : 83               	fcb	$83
+17a8 : 524f             	fcc	"RO"	;fcc	2,ROT
+17aa : d4               	fcb	$D4
+17ab : 179b             	fdb	GREAT-4
+17ad : 15251390147a13.. ROT	fdb	DOCOL,TOR,SWAP,FROMR,SWAP
+17b7 : 1367             	fdb	SEMIS
+                        ;
+                        ; ======>>  94  <<
+17b9 : 85               	fcb	$85
+17ba : 53504143         	fcc	"SPAC"	;fcc	4,SPACE
+17be : c5               	fcb	$C5
+17bf : 17a7             	fdb	ROT-6
+17c1 : 152515c31221     SPACE	fdb	DOCOL,BL,EMIT
+17c7 : 1367             	fdb	SEMIS
+AS02 Assembler for M6802 [1.42].                                     Page   27
+----------------------------- fig-FORTH_6800.asm -----------------------------
+
+                        ;
+                        ; ======>>  95  <<
+17c9 : 83               	fcb	$83
+17ca : 4d49             	fcc	"MI"	;fcc	2,MIN
+17cc : ce               	fcb	$CE
+17cd : 17b9             	fdb	SPACE-8
+17cf : 1525145b145b17.. MIN	fdb	DOCOL,OVER,OVER,GREAT,ZBRAN
+17d9 : 0004             	fdb	MIN2-*
+17db : 147a             	fdb	SWAP
+17dd : 146c             MIN2	fdb	DROP
+17df : 1367             	fdb	SEMIS
+                        ;
+                        ; ======>>  96  <<
+17e1 : 83               	fcb	$83
+17e2 : 4d41             	fcc	"MA"	;fcc	2,MAX
+17e4 : d8               	fcb	$D8
+17e5 : 17c9             	fdb	MIN-6
+17e7 : 1525145b145b17.. MAX	fdb	DOCOL,OVER,OVER,LESS,ZBRAN
+17f1 : 0004             	fdb	MAX2-*
+17f3 : 147a             	fdb	SWAP
+17f5 : 146c             MAX2	fdb	DROP
+17f7 : 1367             	fdb	SEMIS
+                        ;
+                        ; ======>>  97  <<
+17f9 : 84               	fcb	$84
+17fa : 2d4455           	fcc	"-DU"	;fcc	3,-DUP
+17fd : d0               	fcb	$D0
+17fe : 17e1             	fdb	MAX-6
+1800 : 15251493108e     DDUP	fdb	DOCOL,DUP,ZBRAN
+1806 : 0004             	fdb	DDUP2-*
+1808 : 1493             	fdb	DUP
+180a : 1367             DDUP2	fdb	SEMIS
+                        ;
+                        ; ######>> screen 39 <<
+                        ; ======>>  98  <<
+180c : 88               	fcb	$88
+180d : 54524156455253   	fcc	"TRAVERS"	;fcc	7,TRAVERSE
+1814 : c5               	fcb	$C5
+1815 : 17f9             	fdb	DDUP-7
+1817 : 1525147a         TRAV	fdb	DOCOL,SWAP
+181b : 145b13f11058     TRAV2	fdb	OVER,PLUS,CLITER
+1821 : 7f               	fcb	$7F
+1822 : 145b14df1781108e 	fdb	OVER,CAT,LESS,ZBRAN
+182a : fff1             	fdb	TRAV2-*
+182c : 147a146c         	fdb	SWAP,DROP
+1830 : 1367             	fdb	SEMIS
+                        ;
+                        ; ======>>  99  <<
+1832 : 86               	fcb	$86
+1833 : 4c41544553       	fcc	"LATES"	;fcc	5,LATEST
+1838 : d4               	fcb	$D4
+1839 : 180c             	fdb	TRAV-11
+183b : 152516b114d014d0 LATEST	fdb	DOCOL,CURENT,AT,AT
+1843 : 1367             	fdb	SEMIS
+                        ;
+                        ; ======>>  100  <<
+1845 : 83               	fcb	$83
+1846 : 4c46             	fcc	"LF"	;fcc	2,LFA
+1848 : c1               	fcb	$C1
+1849 : 1832             	fdb	LATEST-9
+184b : 15251058         LFA	fdb	DOCOL,CLITER
+184f : 04               	fcb	4
+AS02 Assembler for M6802 [1.42].                                     Page   28
+----------------------------- fig-FORTH_6800.asm -----------------------------
+
+1850 : 1769             	fdb	SUB
+1852 : 1367             	fdb	SEMIS
+                        ;
+                        ; ======>>  101  <<
+1854 : 83               	fcb	$83
+1855 : 4346             	fcc	"CF"	;fcc	2,CFA
+1857 : c1               	fcb	$C1
+1858 : 1845             	fdb	LFA-6
+185a : 152515b21769     CFA	fdb	DOCOL,TWO,SUB
+1860 : 1367             	fdb	SEMIS
+                        ;
+                        ; ======>>  102  <<
+1862 : 83               	fcb	$83
+1863 : 4e46             	fcc	"NF"	;fcc	2,NFA
+1865 : c1               	fcb	$C1
+1866 : 1854             	fdb	CFA-6
+1868 : 15251058         NFA	fdb	DOCOL,CLITER
+186c : 05               	fcb	5
+186d : 176915aa14211817 	fdb	SUB,ONE,MINUS,TRAV
+1875 : 1367             	fdb	SEMIS
+                        ;
+                        ; ======>>  103  <<
+1877 : 83               	fcb	$83
+1878 : 5046             	fcc	"PF"	;fcc	2,PFA
+187a : c1               	fcb	$C1
+187b : 1862             	fdb	NFA-6
+187d : 152515aa18171058 PFA	fdb	DOCOL,ONE,TRAV,CLITER
+1885 : 05               	fcb	5
+1886 : 13f1             	fdb	PLUS
+1888 : 1367             	fdb	SEMIS
+                        ;
+                        ; ######>> screen 40 <<
+                        ; ======>>  104  <<
+188a : 84               	fcb	$84
+188b : 214353           	fcc	"!CS"	;fcc	3,!CSP
+188e : d0               	fcb	$D0
+188f : 1877             	fdb	PFA-6
+1891 : 1525133716e614f0 SCSP	fdb	DOCOL,SPAT,CSP,STORE
+1899 : 1367             	fdb	SEMIS
+                        ;
+                        ; ======>>  105  <<
+189b : 86               	fcb	$86
+189c : 3f4552524f       	fcc	"?ERRO"	;fcc	5,?ERROR
+18a1 : d2               	fcb	$D2
+18a2 : 188a             	fdb	SCSP-7
+18a4 : 1525147a108e     QERR	fdb	DOCOL,SWAP,ZBRAN
+18aa : 0008             	fdb	QERR2-*
+18ac : 1d711082         	fdb	ERROR,BRAN
+18b0 : 0004             	fdb	QERR3-*
+18b2 : 146c             QERR2	fdb	DROP
+18b4 : 1367             QERR3	fdb	SEMIS
+                        ;	
+                        ; ======>>  106  <<
+18b6 : 85               	fcb	$85
+18b7 : 3f434f4d         	fcc	"?COM"	;fcc	4,?COMP
+18bb : d0               	fcb	$D0
+18bc : 189b             	fdb	QERR-9
+18be : 152516bd14d013.. QCOMP	fdb	DOCOL,STATE,AT,ZEQU,CLITER
+18c8 : 11               	fcb	$11
+18c9 : 18a4             	fdb	QERR
+18cb : 1367             	fdb	SEMIS
+                        ;
+AS02 Assembler for M6802 [1.42].                                     Page   29
+----------------------------- fig-FORTH_6800.asm -----------------------------
+
+                        ; ======>>  107  <<
+18cd : 85               	fcb	$85
+18ce : 3f455845         	fcc	"?EXE"	;fcc	4,?EXEC
+18d2 : c3               	fcb	$C3
+18d3 : 18b6             	fdb	QCOMP-8
+18d5 : 152516bd14d01058 QEXEC	fdb	DOCOL,STATE,AT,CLITER
+18dd : 12               	fcb	$12
+18de : 18a4             	fdb	QERR
+18e0 : 1367             	fdb	SEMIS
+                        ;
+                        ; ======>>  108  <<
+18e2 : 86               	fcb	$86
+18e3 : 3f50414952       	fcc	"?PAIR"	;fcc	5,?PAIRS
+18e8 : d3               	fcb	$D3
+18e9 : 18cd             	fdb	QEXEC-8
+18eb : 152517691058     QPAIRS	fdb	DOCOL,SUB,CLITER
+18f1 : 13               	fcb	$13
+18f2 : 18a4             	fdb	QERR
+18f4 : 1367             	fdb	SEMIS
+                        ;
+                        ; ======>>  109  <<
+18f6 : 84               	fcb	$84
+18f7 : 3f4353           	fcc	"?CS"	;fcc	3,?CSP
+18fa : d0               	fcb	$D0
+18fb : 18e2             	fdb	QPAIRS-9
+18fd : 1525133716e614.. QCSP	fdb	DOCOL,SPAT,CSP,AT,SUB,CLITER
+1909 : 14               	fcb	$14
+190a : 18a4             	fdb	QERR
+190c : 1367             	fdb	SEMIS
+                        ;
+                        ; ======>>  110  <<
+190e : 88               	fcb	$88
+190f : 3f4c4f4144494e   	fcc	"?LOADIN"	;fcc	7,?LOADING
+1916 : c7               	fcb	$C7
+1917 : 18f6             	fdb	QCSP-7
+1919 : 1525166b14d013.. QLOAD	fdb	DOCOL,BLK,AT,ZEQU,CLITER
+1923 : 16               	fcb	$16
+1924 : 18a4             	fdb	QERR
+1926 : 1367             	fdb	SEMIS
+                        ;
+                        ; ######>> screen 41 <<
+                        ; ======>>  111  <<
+1928 : 87               	fcb	$87
+1929 : 434f4d50494c     	fcc	"COMPIL"	;fcc	6,COMPILE
+192f : c5               	fcb	$C5
+1930 : 190e             	fdb	QLOAD-11
+1932 : 152518be13a617.. COMPIL	fdb	DOCOL,QCOMP,FROMR,TWOP,DUP,TOR,AT,COMMA
+1942 : 1367             	fdb	SEMIS
+                        ;
+                        ; ======>>  112  <<
+1944 : c1               	fcb	$C1	; [	immediate
+1945 : db               	fcb	$DB
+1946 : 1928             	fdb	COMPIL-10
+1948 : 152515a216bd14f0 LBRAK	fdb	DOCOL,ZERO,STATE,STORE
+1950 : 1367             	fdb	SEMIS
+                        ;
+                        ; ======>>  113  <<
+1952 : 81               	fcb	$81	; ]
+1953 : dd               	fcb	$DD
+1954 : 1944             	fdb	LBRAK-4
+1956 : 15251058         RBRAK	fdb	DOCOL,CLITER
+195a : c0               	fcb	$C0
+AS02 Assembler for M6802 [1.42].                                     Page   30
+----------------------------- fig-FORTH_6800.asm -----------------------------
+
+195b : 16bd14f0         	fdb	STATE,STORE
+195f : 1367             	fdb	SEMIS
+                        ;
+                        ; ======>>  114  <<
+1961 : 86               	fcb	$86
+1962 : 534d554447       	fcc	"SMUDG"	;fcc	5,SMUDGE
+1967 : c5               	fcb	$C5
+1968 : 1952             	fdb	RBRAK-4
+196a : 1525183b1058     SMUDGE	fdb	DOCOL,LATEST,CLITER
+1970 : 20               	fcb	$20
+1971 : 14be             	fdb	TOGGLE
+1973 : 1367             	fdb	SEMIS
+                        ;
+                        ; ======>>  115  <<
+1975 : 83               	fcb	$83
+1976 : 4845             	fcc	"HE"	;fcc	2,HEX
+1978 : d8               	fcb	$D8
+1979 : 1961             	fdb	SMUDGE-9
+197b : 1525             HEX	fdb	DOCOL
+197d : 1058             	fdb	CLITER
+197f : 10               	fcb	16
+1980 : 16c814f0         	fdb	BASE,STORE
+1984 : 1367             	fdb	SEMIS
+                        ;
+                        ; ======>>  116  <<
+1986 : 87               	fcb	$87
+1987 : 444543494d41     	fcc	"DECIMA"	;fcc	6,DECIMAL
+198d : cc               	fcb	$CC
+198e : 1975             	fdb	HEX-6
+1990 : 1525             DEC	fdb	DOCOL
+1992 : 1058             	fdb	CLITER
+1994 : 0a               	fcb	10	;note: hex "A"
+1995 : 16c814f0         	fdb	BASE,STORE
+1999 : 1367             	fdb	SEMIS
+                        ;
+                        ; ######>> screen 42 <<
+                        ; ======>>  117  <<
+199b : 87               	fcb	$87
+199c : 283a434f4445     	fcc	"(:CODE"	;fcc	6,(;CODE)
+19a2 : a9               	fcb	$A9
+19a3 : 1986             	fdb	DEC-10
+19a5 : 152513a6171d18.. PSCODE	fdb	DOCOL,FROMR,TWOP,LATEST,PFA,CFA,STORE
+19b3 : 1367             	fdb	SEMIS
+                        ;
+                        ; ======>>  118  <<
+19b5 : c5               	fcb	$C5	;immediate
+19b6 : 3b434f44         	fcc	";COD"	;fcc	4,;CODE
+19ba : c5               	fcb	$C5
+19bb : 199b             	fdb	PSCODE-10
+19bd : 152518fd193219.. SEMIC	fdb	DOCOL,QCSP,COMPIL,PSCODE,SMUDGE,LBRAK,QSTACK
+19cb : 1367             	fdb	SEMIS
+                        ; note: "QSTACK" will be replaced by "ASSEMBLER" later
+                        ;
+                        ; ######>> screen 43 <<
+                        ; ======>>  119  <<
+19cd : 87               	fcb	$87
+19ce : 3c4255494c44     	fcc	"<BUILD"	;fcc	6,<BUILDS
+19d4 : d3               	fcb	$D3
+19d5 : 19b5             	fdb	SEMIC-8
+19d7 : 152515a21555     BUILDS	fdb	DOCOL,ZERO,CON
+19dd : 1367             	fdb	SEMIS
+                        ;
+AS02 Assembler for M6802 [1.42].                                     Page   31
+----------------------------- fig-FORTH_6800.asm -----------------------------
+
+                        ; ======>>  120  <<
+19df : 85               	fcb	$85
+19e0 : 444f4553         	fcc	"DOES"	;fcc	4,DOES>
+19e4 : be               	fcb	$BE
+19e5 : 19cd             	fdb	BUILDS-10
+19e7 : 152513a6171d18.. DOES	fdb	DOCOL,FROMR,TWOP,LATEST,PFA,STORE
+19f3 : 19a5             	fdb	PSCODE
+19f5 : 96f2             DODOES	lda	IP
+19f7 : d6f3             	ldb	IP+1
+19f9 : def4             	ldx	RP	;make room on return stack
+19fb : 09               	dex
+19fc : 09               	dex
+19fd : dff4             	stx	RP
+19ff : a702             	sta 	2,x	;push return address
+1a01 : e703             	stb	3,x
+1a03 : def0             	ldx	W	;get addr of pointer to run-time code
+1a05 : 08               	inx
+1a06 : 08               	inx
+1a07 : dfe0             	stx	N	;stash it in scratch area
+1a09 : ee00             	ldx	0,x	;get new IP
+1a0b : dff2             	stx	IP
+1a0d : 4f               	clra		;get address of parameter
+1a0e : c602             	ldb	#2
+1a10 : dbe1             	addb	N+1
+1a12 : 99e0             	adca	N
+1a14 : 37               	pshb		;and push it on data stack
+1a15 : 36               	psha
+1a16 : 7e103a           	jmp	NEXT2
+                        ;
+                        ; ######>> screen 44 <<
+                        ; ======>>  121  <<
+1a19 : 85               	fcb	$85
+1a1a : 434f554e         	fcc	"COUN"	;fcc	4,COUNT
+1a1e : d4               	fcb	$D4
+1a1f : 19df             	fdb	DOES-8
+1a21 : 15251493171014.. COUNT	fdb	DOCOL,DUP,ONEP,SWAP,CAT
+1a2b : 1367             	fdb	SEMIS
+                        ;
+                        ; ======>>  122  <<
+1a2d : 84               	fcb	$84
+1a2e : 545950           	fcc	"TYP"	;fcc	3,TYPE
+1a31 : c5               	fcb	$C5
+1a32 : 1a19             	fdb	COUNT-8
+1a34 : 15251800108e     TYPE	fdb	DOCOL,DDUP,ZBRAN
+1a3a : 001d             	fdb	TYPE3-*
+1a3c : 145b13f1147a10ff 	fdb	OVER,PLUS,SWAP,XDO
+                        ;
+                        ;TYPE2	fdb	I,CAT,EMIT,XLOOP
+                        ;
+1a44 : 111c14df1058     TYPE2	fdb	I,CAT,CLITER	;fix to make VLIST
+1a4a : 7f               	fcb	$7F		;type all the characters
+1a4b : 1302122110ba     	fdb	AND,EMIT,XLOOP	;in the words
+                        ;
+1a51 : fff3             	fdb	TYPE2-*
+1a53 : 1082             	fdb	BRAN
+1a55 : 0004             	fdb	TYPE4-*
+1a57 : 146c             TYPE3	fdb	DROP
+1a59 : 1367             TYPE4	fdb	SEMIS
+                        ;
+                        ; ======>>  123  <<
+1a5b : 89               	fcb	$89
+1a5c : 2d545241494c494e 	fcc	"-TRAILIN"	;fcc	8,-TRAILING
+AS02 Assembler for M6802 [1.42].                                     Page   32
+----------------------------- fig-FORTH_6800.asm -----------------------------
+
+1a64 : c7               	fcb	$C7
+1a65 : 1a2d             	fdb	TYPE-7
+1a67 : 1525149315a210ff DTRAIL	fdb	DOCOL,DUP,ZERO,XDO
+1a6f : 145b145b13f115.. DTRAL2	fdb	OVER,OVER,PLUS,ONE,SUB,CAT,BL
+1a7d : 1769108e         	fdb	SUB,ZBRAN
+1a81 : 0008             	fdb	DTRAL3-*
+1a83 : 137c1082         	fdb	LEAVE,BRAN
+1a87 : 0006             	fdb	DTRAL4-*
+1a89 : 15aa1769         DTRAL3	fdb	ONE,SUB
+1a8d : 10ba             DTRAL4	fdb	XLOOP
+1a8f : ffe0             	fdb	DTRAL2-*
+1a91 : 1367             	fdb	SEMIS
+                        ;
+                        ; ======>>  124  <<
+1a93 : 84               	fcb	$84
+1a94 : 282e22           	db	$28,$2E,$22	;fcc	3,(.")
+1a97 : a9               	fcb	$A9
+1a98 : 1a5b             	fdb	DTRAIL-12
+1a9a : 152513b9171d1a.. PDOTQ	fdb	DOCOL,R,TWOP,COUNT,DUP,ONEP
+1aa6 : 13a613f113901a34 	fdb	FROMR,PLUS,TOR,TYPE
+1aae : 1367             	fdb	SEMIS
+                        ;
+                        ; ======>>  125  <<
+1ab0 : c2               	fcb	$C2	;immediate
+1ab1 : 2e               	fcc	"."	;fcc	1,."
+1ab2 : a2               	fcb	$A2
+1ab3 : 1a93             	fdb	PDOTQ-7
+1ab5 : 1525             DOTQ	fdb	DOCOL
+1ab7 : 1058             	fdb	CLITER
+1ab9 : 22               	fcb	$22	;ascii quote
+1aba : 16bd14d0108e     	fdb	STATE,AT,ZBRAN
+1ac0 : 0014             	fdb	DOTQ1-*
+1ac2 : 19321a9a1c46     	fdb	COMPIL,PDOTQ,WORD
+1ac8 : 172c14df171017.. 	fdb	HERE,CAT,ONEP,ALLOT,BRAN
+1ad2 : 000a             	fdb	DOTQ2-*
+1ad4 : 1c46172c1a211a34 DOTQ1	fdb	WORD,HERE,COUNT,TYPE
+1adc : 1367             DOTQ2	fdb	SEMIS
+                        ;
+                        ; ######>> screen 45 <<
+                        ; ======>>  126  <<== MACHINE DEPENDENT
+1ade : 86               	fcb	$86
+1adf : 3f53544143       	fcc	"?STAC"	;fcc	5,?STACK
+1ae4 : cb               	fcb	$CB
+1ae5 : 1ab0             	fdb	DOTQ-5
+1ae7 : 15251058         QSTACK	fdb	DOCOL,CLITER
+1aeb : 12               	fcb	$12
+1aec : 160114d015b217.. 	fdb	PORIG,AT,TWO,SUB,SPAT,LESS,ONE
+1afa : 18a4             	fdb	QERR
+                        ; prints 'empty stack'
+                        ;
+1afc : 1337             QSTAC2	fdb	SPAT
+                        ; Here, we compare with a value at least 128
+                        ; higher than dict. ptr. (DP)
+1afe : 172c1058         	fdb	HERE,CLITER
+1b02 : 80               	fcb	$80
+1b03 : 13f11781108e     	fdb	PLUS,LESS,ZBRAN
+1b09 : 0006             	fdb	QSTAC3-*
+1b0b : 15b2             	fdb	TWO
+1b0d : 18a4             	fdb	QERR
+                        ; prints 'full stack'
+                        ;
+1b0f : 1367             QSTAC3	fdb	SEMIS
+AS02 Assembler for M6802 [1.42].                                     Page   33
+----------------------------- fig-FORTH_6800.asm -----------------------------
+
+                        ;
+                        ; ======>>  127  <<	this word's function
+                        ;	    		is done by ?STACK in this version
+                        ;	fcb	$85
+                        ;	fcc	"?FRE"	;fcc	4,?FREE
+                        ;	fcb	$C5
+                        ;	fdb	QSTACK-9
+                        ;QFREE	fdb	DOCOL,SPAT,HERE,CLITER
+                        ;	fcb	$80
+                        ;	fdb	PLUS,LESS,TWO,QERR,SEMIS
+                        ;
+                        ; ######>> screen 46 <<
+                        ; ======>>  128  <<
+1b11 : 86               	fcb	$86
+1b12 : 4558504543       	fcc	"EXPEC"	;fcc	5,EXPECT
+1b17 : d4               	fcb	$D4
+1b18 : 1ade             	fdb	QSTACK-9
+1b1a : 1525145b13f114.. EXPECT	fdb	DOCOL,OVER,PLUS,OVER,XDO
+1b24 : 123914931058     EXPEC2	fdb	KEY,DUP,CLITER
+1b2a : 0e               	fcb	$0E
+1b2b : 160114d01775108e 	fdb	PORIG,AT,EQUAL,ZBRAN
+1b33 : 001f             	fdb	EXPEC3-*
+1b35 : 146c1058         	fdb	DROP,CLITER
+1b39 : 08               	fcb	8	;(backspace character to emit)
+1b3a : 145b111c177514.. 	fdb	OVER,I,EQUAL,DUP,FROMR,TWO,SUB,PLUS
+1b4a : 139017691082     	fdb	TOR,SUB,BRAN
+1b50 : 0027             	fdb	EXPEC6-*
+1b52 : 14931058         EXPEC3	fdb	DUP,CLITER
+1b56 : 0d               	fcb	$D	;(carriage return)
+1b57 : 1775108e         	fdb	EQUAL,ZBRAN
+1b5b : 000e             	fdb	EXPEC4-*
+1b5d : 137c146c15c315.. 	fdb	LEAVE,DROP,BL,ZERO,BRAN
+1b67 : 0004             	fdb	EXPEC5-*
+1b69 : 1493             EXPEC4	fdb	DUP
+1b6b : 111c14ff15a211.. EXPEC5	fdb	I,CSTORE,ZERO,I,ONEP,STORE
+1b77 : 122110ba         EXPEC6	fdb	EMIT,XLOOP
+1b7b : ffa9             	fdb	EXPEC2-*
+1b7d : 146c             	fdb	DROP
+1b7f : 1367             	fdb	SEMIS
+                        ;
+                        ; ======>>  129  <<
+1b81 : 85               	fcb	$85
+1b82 : 51554552         	fcc	"QUER"	;fcc	4,QUERY
+1b86 : d9               	fcb	$D9
+1b87 : 1b11             	fdb	EXPECT-9
+1b89 : 1525162314d01707 QUERY	fdb	DOCOL,TIB,AT,COLUMS
+1b91 : 14d01b1a15a216.. 	fdb	AT,EXPECT,ZERO,IN,STORE
+1b9b : 1367             	fdb	SEMIS
+                        ;
+                        ; ======>>  130  <<
+1b9d : c1               	fcb	$C1	;immediate	< carriage return >
+1b9e : 80               	fcb	$80
+1b9f : 1b81             	fdb	QUERY-8
+1ba1 : 1525166b14d0108e NULL	fdb	DOCOL,BLK,AT,ZBRAN
+1ba9 : 0026             	fdb	NULL2-*
+1bab : 15aa166b14a1     	fdb	ONE,BLK,PSTORE
+1bb1 : 15a2167414f016.. 	fdb	ZERO,IN,STORE,BLK,AT,BSCR,MOD
+1bbf : 13c7             	fdb	ZEQU
+                        ;     check for end of screen
+1bc1 : 108e             	fdb	ZBRAN
+1bc3 : 0008             	fdb	NULL1-*
+1bc5 : 18d513a6146c     	fdb	QEXEC,FROMR,DROP
+AS02 Assembler for M6802 [1.42].                                     Page   34
+----------------------------- fig-FORTH_6800.asm -----------------------------
+
+1bcb : 1082             NULL1	fdb	BRAN
+1bcd : 0006             	fdb	NULL3-*
+1bcf : 13a6146c         NULL2	fdb	FROMR,DROP
+1bd3 : 1367             NULL3	fdb	SEMIS
+                        ;
+                        ; ######>> screen 47 <<
+                        ; ======>>  133  <<
+1bd5 : 84               	fcb	$84
+1bd6 : 46494c           	fcc	"FIL"	;fcc	3,FILL
+1bd9 : cc               	fcb	$CC
+1bda : 1b9d             	fdb	NULL-4
+1bdc : 1525147a139014.. FILL	fdb	DOCOL,SWAP,TOR,OVER,CSTORE,DUP,ONEP
+1bea : 13a615aa1769126e 	fdb	FROMR,ONE,SUB,CMOVE
+1bf2 : 1367             	fdb	SEMIS
+                        ;
+                        ; ======>>  134  <<
+1bf4 : 85               	fcb	$85
+1bf5 : 45524153         	fcc	"ERAS"	;fcc	4,ERASE
+1bf9 : c5               	fcb	$C5
+1bfa : 1bd5             	fdb	FILL-7
+1bfc : 152515a21bdc     ERASE	fdb	DOCOL,ZERO,FILL
+1c02 : 1367             	fdb	SEMIS
+                        ;
+                        ; ======>>  135  <<
+1c04 : 86               	fcb	$86
+1c05 : 424c414e4b       	fcc	"BLANK"	;fcc	5,BLANKS
+1c0a : d3               	fcb	$D3
+1c0b : 1bf4             	fdb	ERASE-8
+1c0d : 152515c31bdc     BLANKS	fdb	DOCOL,BL,FILL
+1c13 : 1367             	fdb	SEMIS
+                        ;
+                        ; ======>>  136  <<
+1c15 : 84               	fcb	$84
+1c16 : 484f4c           	fcc	"HOL"	;fcc	3,HOLD
+1c19 : c4               	fcb	$C4
+1c1a : 1c04             	fdb	BLANKS-9
+1c1c : 15251049ffff16.. HOLD	fdb	DOCOL,LIT,$FFFF,HLD,PSTORE,HLD,AT,CSTORE
+1c2c : 1367             	fdb	SEMIS
+                        ;
+                        ; ======>>  137  <<
+1c2e : 83               	fcb	$83
+1c2f : 5041             	fcc	"PA"	;fcc	2,PAD
+1c31 : c4               	fcb	$C4
+1c32 : 1c15             	fdb	HOLD-7
+1c34 : 1525172c1058     PAD	fdb	DOCOL,HERE,CLITER
+1c3a : 44               	fcb	$44
+1c3b : 13f1             	fdb	PLUS
+1c3d : 1367             	fdb	SEMIS
+                        ;
+                        ; ######>> screen 48 <<
+                        ; ======>>  138  <<
+1c3f : 84               	fcb	$84
+1c40 : 574f52           	fcc	"WOR"	;fcc	3,WORD
+1c43 : c4               	fcb	$C4
+1c44 : 1c2e             	fdb	PAD-6
+1c46 : 1525166b14d0108e WORD	fdb	DOCOL,BLK,AT,ZBRAN
+1c4e : 000c             	fdb	WORD2-*
+1c50 : 166b14d021e71082 	fdb	BLK,AT,BLOCK,BRAN
+1c58 : 0006             	fdb	WORD3-*
+1c5a : 162314d0         WORD2	fdb	TIB,AT
+1c5e : 167414d013f114.. WORD3	fdb	IN,AT,PLUS,SWAP,ENCLOS,HERE,CLITER
+1c6c : 22               	fcb	34
+AS02 Assembler for M6802 [1.42].                                     Page   35
+----------------------------- fig-FORTH_6800.asm -----------------------------
+
+1c6d : 1c0d167414a114.. 	fdb	BLANKS,IN,PSTORE,OVER,SUB,TOR,R,HERE
+1c7d : 14ff13f1172c17.. 	fdb	CSTORE,PLUS,HERE,ONEP,FROMR,CMOVE
+1c89 : 1367             	fdb	SEMIS
+                        ;
+                        ; ######>> screen 49 <<
+                        ; ======>>  139  <<
+1c8b : 88               	fcb	$88
+1c8c : 284e554d424552   	fcc	"(NUMBER"	;fcc	7,(NUMBER)
+1c93 : a9               	fcb	$A9
+1c94 : 1c3f             	fdb	WORD-7
+1c96 : 1525             PNUMB	fdb	DOCOL
+1c98 : 17101493139014.. PNUMB2	fdb	ONEP,DUP,TOR,CAT,BASE,AT,DIGIT,ZBRAN
+1ca8 : 002c             	fdb	PNUMB4-*
+1caa : 147a16c814d012.. 	fdb	SWAP,BASE,AT,USTAR,DROP,ROT,BASE
+1cb8 : 14d012a2140216.. 	fdb	AT,USTAR,DPLUS,DPL,AT,ONEP,ZBRAN
+1cc6 : 0008             	fdb	PNUMB3-*
+1cc8 : 15aa16d214a1     	fdb	ONE,DPL,PSTORE
+1cce : 13a61082         PNUMB3	fdb	FROMR,BRAN
+1cd2 : ffc6             	fdb	PNUMB2-*
+1cd4 : 13a6             PNUMB4	fdb	FROMR
+1cd6 : 1367             	fdb	SEMIS
+                        ;
+                        ; ======>>  140  <<
+1cd8 : 86               	fcb	$86
+1cd9 : 4e554d4245       	fcc	"NUMBE"	;fcc	5,NUMBER
+1cde : d2               	fcb	$D2
+1cdf : 1c8b             	fdb	PNUMB-11
+1ce1 : 152515a215a217.. NUMB	fdb	DOCOL,ZERO,ZERO,ROT,DUP,ONEP,CAT,CLITER
+1cf1 : 2d               	fcc	"-"	;minus sign
+1cf2 : 17751493139013.. 	fdb	EQUAL,DUP,TOR,PLUS,LIT,$FFFF
+1cfe : 16d214f01c9614.. NUMB1	fdb	DPL,STORE,PNUMB,DUP,CAT,BL,SUB
+1d0c : 108e             	fdb	ZBRAN
+1d0e : 0015             	fdb	NUMB2-*
+1d10 : 149314df1058     	fdb	DUP,CAT,CLITER
+1d16 : 2e               	fcc	"."
+1d17 : 176915a218a415.. 	fdb	SUB,ZERO,QERR,ZERO,BRAN
+1d21 : ffdd             	fdb	NUMB1-*
+1d23 : 146c13a6108e     NUMB2	fdb	DROP,FROMR,ZBRAN
+1d29 : 0004             	fdb	NUMB3-*
+1d2b : 143a             	fdb	DMINUS
+1d2d : 1367             NUMB3	fdb	SEMIS
+                        ;
+                        ; ======>>  141  <<
+1d2f : 85               	fcb	$85
+1d30 : 2d46494e         	fcc	"-FIN"	;fcc	4,-FIND
+1d34 : c4               	fcb	$C4
+1d35 : 1cd8             	fdb	NUMB-9
+1d37 : 152515c31c4617.. DFIND	fdb	DOCOL,BL,WORD,HERE,CONTXT,AT,AT
+1d45 : 1162149313c7108e 	fdb	PFIND,DUP,ZEQU,ZBRAN
+1d4d : 000a             	fdb	DFIND2-*
+1d4f : 146c172c183b1162 	fdb	DROP,HERE,LATEST,PFIND
+1d57 : 1367             DFIND2	fdb	SEMIS
+                        ;
+                        ; ######>> screen 50 <<
+                        ; ======>>  142  <<
+1d59 : 87               	fcb	$87
+1d5a : 2841424f5254     	fcc	"(ABORT"	;fcc	6,(ABORT)
+1d60 : a9               	fcb	$A9
+1d61 : 1d2f             	fdb	DFIND-8
+1d63 : 15251f75         PABORT	fdb	DOCOL,ABORT
+1d67 : 1367             	fdb	SEMIS
+                        ;
+AS02 Assembler for M6802 [1.42].                                     Page   36
+----------------------------- fig-FORTH_6800.asm -----------------------------
+
+                        ; ======>>  143  <<
+1d69 : 85               	fcb	$85
+1d6a : 4552524f         	fcc	"ERRO"	;fcc	4,ERROR
+1d6e : d2               	fcb	$D2
+1d6f : 1d59             	fdb	PABORT-10
+1d71 : 1525163d14d013da ERROR	fdb	DOCOL,WARN,AT,ZLESS
+1d79 : 108e             	fdb	ZBRAN
+                        ; note: WARNING is -1 to abort, 0 to print ERROR #
+                        ; and 1 to print ERROR message from disc
+1d7b : 0004             	fdb	ERROR2-*
+1d7d : 1d63             	fdb	PABORT
+1d7f : 172c1a211a341a9a ERROR2	fdb	HERE,COUNT,TYPE,PDOTQ
+1d87 : 0407             	fcb	4,7	;(bell)
+1d89 : 203f20           	fcc	" ? "
+1d8c : 22801348167414.. 	fdb	MESS,SPSTOR,IN,AT,BLK,AT,QUIT
+1d9a : 1367             	fdb	SEMIS
+                        ;
+                        ; ======>>  144  <<
+1d9c : 83               	fcb	$83
+1d9d : 4944             	fcc	"ID"	;fcc	2,ID.
+1d9f : ae               	fcb	$AE
+1da0 : 1d69             	fdb	ERROR-8
+1da2 : 15251c341058     IDDOT	fdb	DOCOL,PAD,CLITER
+1da8 : 20               	fcb	32
+1da9 : 1058             	fdb	CLITER
+1dab : 5f               	fcb	$5F	;(underline)
+1dac : 1bdc1493187d18.. 	fdb	FILL,DUP,PFA,LFA,OVER,SUB,PAD
+1dba : 147a126e1c341a.. 	fdb	SWAP,CMOVE,PAD,COUNT,CLITER
+1dc4 : 1f               	fcb	31
+1dc5 : 13021a3417c1     	fdb	AND,TYPE,SPACE
+1dcb : 1367             	fdb	SEMIS
+                        ;
+                        ; ######>> screen 51 <<
+                        ; ======>>  145  <<
+1dcd : 86               	fcb	$86
+1dce : 4352454154       	fcc	"CREAT"	;fcc	5,CREATE
+1dd3 : c5               	fcb	$C5
+1dd4 : 1d9c             	fdb	IDDOT-6
+1dd6 : 15251d37108e     CREATE	fdb	DOCOL,DFIND,ZBRAN
+1ddc : 001a             	fdb	CREAT2-*
+1dde : 146c1a9a         	fdb	DROP,PDOTQ
+1de2 : 08               	fcb	8
+1de3 : 07               	fcb	7	;(bel)
+1de4 : 72656465663a20   	fcc	"redef: "
+1deb : 18681da21058     	fdb	NFA,IDDOT,CLITER
+1df1 : 04               	fcb	4
+1df2 : 228017c1         	fdb	MESS,SPACE
+1df6 : 172c149314df16.. CREAT2	fdb	HERE,DUP,CAT,WIDTH,AT,MIN
+1e02 : 1710173c14931058 	fdb	ONEP,ALLOT,DUP,CLITER
+1e0a : a0               	fcb	$A0
+1e0b : 14be172c15aa17.. 	fdb	TOGGLE,HERE,ONE,SUB,CLITER
+1e15 : 80               	fcb	$80
+1e16 : 14be183b174816.. 	fdb	TOGGLE,LATEST,COMMA,CURENT,AT,STORE
+1e22 : 172c171d1748     	fdb	HERE,TWOP,COMMA
+1e28 : 1367             	fdb	SEMIS
+                        ;
+                        ; ######>> screen 52 <<
+                        ; ======>>  146  <<
+1e2a : c9               	fcb	$C9	;immediate
+1e2b : 5b434f4d50494c45 	fcc	"[COMPILE"	;fcc	8,[COMPILE]
+1e33 : dd               	fcb	$DD
+1e34 : 1dcd             	fdb	CREATE-9
+AS02 Assembler for M6802 [1.42].                                     Page   37
+----------------------------- fig-FORTH_6800.asm -----------------------------
+
+1e36 : 15251d3713c715.. BcomP	fdb	DOCOL,DFIND,ZEQU,ZERO,QERR,DROP,CFA,COMMA
+1e46 : 1367             	fdb	SEMIS
+                        ;
+                        ; ======>>  147  <<
+1e48 : c7               	fcb	$C7	;immediate
+1e49 : 4c4954455241     	fcc	"LITERA"	;fcc	6,LITERAL
+1e4f : cc               	fcb	$CC
+1e50 : 1e2a             	fdb	BcomP-12
+1e52 : 152516bd14d0108e LITER	fdb	DOCOL,STATE,AT,ZBRAN
+1e5a : 0008             	fdb	LITER2-*
+1e5c : 193210491748     	fdb	COMPIL,LIT,COMMA
+1e62 : 1367             LITER2	fdb	SEMIS
+                        ;
+                        ; ======>>  148  <<
+1e64 : c8               	fcb	$C8	;immediate
+1e65 : 444c4954455241   	fcc	"DLITERA"	;fcc	7,DLITERAL
+1e6c : cc               	fcb	$CC
+1e6d : 1e48             	fdb	LITER-10
+1e6f : 152516bd14d0108e DLITER	fdb	DOCOL,STATE,AT,ZBRAN
+1e77 : 0008             	fdb	DLITE2-*
+1e79 : 147a1e521e52     	fdb	SWAP,LITER,LITER
+1e7f : 1367             DLITE2	fdb	SEMIS
+                        ;
+                        ; ######>> screen 53 <<
+                        ; ======>>  149  <<
+1e81 : 89               	fcb	$89
+1e82 : 494e544552505245 	fcc	"INTERPRE"	;fcc	8,INTERPRET
+1e8a : d4               	fcb	$D4
+1e8b : 1e64             	fdb	DLITER-11
+1e8d : 1525             INTERP	fdb	DOCOL
+1e8f : 1d37108e         INTER2	fdb	DFIND,ZBRAN
+1e93 : 001c             	fdb	INTER5-*
+1e95 : 16bd14d01781     	fdb	STATE,AT,LESS
+1e9b : 108e             	fdb	ZBRAN
+1e9d : 000a             	fdb	INTER3-*
+1e9f : 185a17481082     	fdb	CFA,COMMA,BRAN
+1ea5 : 0006             	fdb	INTER4-*
+1ea7 : 185a106f         INTER3	fdb	CFA,EXEC
+1eab : 1082             INTER4	fdb	BRAN
+1ead : 001a             	fdb	INTER7-*
+1eaf : 172c1ce116d214.. INTER5	fdb	HERE,NUMB,DPL,AT,ONEP,ZBRAN
+1ebb : 0008             	fdb	INTER6-*
+1ebd : 1e6f1082         	fdb	DLITER,BRAN
+1ec1 : 0006             	fdb	INTER7-*
+1ec3 : 146c1e52         INTER6	fdb	DROP,LITER
+1ec7 : 1ae71082         INTER7	fdb	QSTACK,BRAN
+1ecb : ffc4             	fdb	INTER2-*
+                        ;	fdb	SEMIS	;never executed
+                        ;
+                        ; ######>> screen 54 <<
+                        ; ======>>  150  <<
+1ecd : 89               	fcb	$89
+1ece : 494d4d4544494154 	fcc	"IMMEDIAT"	;fcc	8,IMMEDIATE
+1ed6 : c5               	fcb	$C5
+1ed7 : 1e81             	fdb	INTERP-12
+1ed9 : 1525183b1058     IMMED	fdb	DOCOL,LATEST,CLITER
+1edf : 40               	fcb	$40
+1ee0 : 14be             	fdb	TOGGLE
+1ee2 : 1367             	fdb	SEMIS
+                        ;
+                        ; ======>>  151  <<
+1ee4 : 8a               	fcb	$8A
+AS02 Assembler for M6802 [1.42].                                     Page   38
+----------------------------- fig-FORTH_6800.asm -----------------------------
+
+1ee5 : 564f434142554c.. 	fcc	"VOCABULAR"	;fcc	9,VOCABULARY
+1eee : d9               	fcb	$D9
+1eef : 1ecd             	fdb	IMMED-12
+1ef1 : 152519d7104981.. VOCAB	fdb	DOCOL,BUILDS,LIT,$81A0,COMMA,CURENT,AT,CFA
+1f01 : 1748172c166114.. 	fdb	COMMA,HERE,VOCLIN,AT,COMMA,VOCLIN,STORE,DOES
+1f11 : 171d16a314f0     DOVOC	fdb	TWOP,CONTXT,STORE
+1f17 : 1367             	fdb	SEMIS
+                        ;
+                        ; ======>>  152  <<
+                        ;
+                        ; Note: FORTH does not go here in the rom-able diction
+                        ;       since FORTH is a type of variable.
+                        ;
+                        ;
+                        ; ======>>  153  <<
+1f19 : 8b               	fcb	$8B
+1f1a : 444546494e4954.. 	fcc	"DEFINITION"	;fcc	10,DEFINITIONS
+1f24 : d3               	fcb	$D3
+1f25 : 1ee4             	fdb	VOCAB-13
+1f27 : 152516a314d016.. DEFIN	fdb	DOCOL,CONTXT,AT,CURENT,STORE
+1f31 : 1367             	fdb	SEMIS
+                        ;
+                        ; ======>>  154  <<
+1f33 : c1               	fcb	$C1	;immediate	(
+1f34 : a8               	fcb	$A8
+1f35 : 1f19             	fdb	DEFIN-14
+1f37 : 15251058         PAREN	fdb	DOCOL,CLITER
+1f3b : 29               	fcc	")"
+1f3c : 1c46             	fdb	WORD
+1f3e : 1367             	fdb	SEMIS
+                        ;
+                        ; ######>> screen 55 <<
+                        ; ======>>  155  <<
+1f40 : 84               	fcb	$84
+1f41 : 515549           	fcc	"QUI"	;fcc	3,QUIT
+1f44 : d4               	fcb	$D4
+1f45 : 1f33             	fdb	PAREN-4
+1f47 : 152515a2166b14f0 QUIT	fdb	DOCOL,ZERO,BLK,STORE
+1f4f : 1948             	fdb	LBRAK
+                        ;
+                        ;  Here is the outer interpreter
+                        ;  which gets a line of input, does it, prints " OK"
+                        ;  then repeats :
+                        ;
+1f51 : 1358125e1b891e.. QUIT2	fdb	RPSTOR,CR,QUERY,INTERP,STATE,AT,ZEQU
+1f5f : 108e             	fdb	ZBRAN
+1f61 : 0008             	fdb	QUIT3-*
+1f63 : 1a9a             	fdb	PDOTQ
+1f65 : 03               	fcb	3
+1f66 : 204f4b           	fcc	" OK"	;fcc	3, OK
+1f69 : 1082             QUIT3	fdb	BRAN
+1f6b : ffe6             	fdb	QUIT2-*
+                        ;	fdb	SEMIS	;(never executed)
+                        ;
+                        ; ======>>  156  <<
+1f6d : 85               	fcb	$85
+1f6e : 41424f52         	fcc	"ABOR"	;fcc	4,ABORT
+1f72 : d4               	fcb	$D4
+1f73 : 1f40             	fdb	QUIT-7
+1f75 : 1525134819901a.. ABORT	fdb	DOCOL,SPSTOR,DEC,QSTACK,DRZERO,CR,PDOTQ
+1f83 : 08               	fcb	8
+1f84 : 466f7274682d3638 	fcc	"Forth-68"
+AS02 Assembler for M6802 [1.42].                                     Page   39
+----------------------------- fig-FORTH_6800.asm -----------------------------
+
+1f8c : 01501f27         	fdb	FORTH,DEFIN
+1f90 : 1f47             	fdb	QUIT
+                        ;	fdb	SEMIS	;never executed
+                        ;
+                        ; ######>> screen 56 <<
+                        ; bootstrap code... moves rom contents to ram :
+                        ; ======>>  157  <<
+1f92 : 84               	fcb	$84
+1f93 : 434f4c           	fcc	"COL"	;fcc	3,COLD
+1f96 : c4               	fcb	$C4
+1f97 : 1f6d             	fdb	ABORT-8
+1f99 : 1f9b             COLD	fdb	*+2
+1f9b : 8e0182           CENT	lds	#REND-1	;top of destination
+1f9e : ce203a           	ldx	#ERAM	;top of stuff to move
+1fa1 : 09               COLD2	dex
+1fa2 : a600             	lda	0,x
+1fa4 : 36               	psha		;move TASK & FORTH to ram
+1fa5 : 8c1ff7           	cpx	#RAM
+1fa8 : 26f7             	bne	COLD2
+                        ;
+1faa : 8e010f           	lds	#XFENCE-1	;put stack at a safe place for now
+1fad : fe1022           	ldx	COLINT
+1fb0 : ff0134           	stx	XCOLUM
+1fb3 : fe1024           	ldx	DELINT
+1fb6 : ff0132           	stx	XDELAY
+1fb9 : fe1020           	ldx	VOCINT
+1fbc : ff0114           	stx	XVOCL
+1fbf : fe101e           	ldx	DPINIT
+1fc2 : ff0112           	stx	XDP
+1fc5 : fe101c           	ldx	FENCIN
+1fc8 : ff0110           	stx	XFENCE
+                        ;
+1fcb : 8e010f           WENT	lds	#XFENCE-1	;top of destination
+1fce : ce101c           	ldx	#FENCIN		;top of stuff to move
+1fd1 : 09               WARM2	dex
+1fd2 : a600             	lda	0,x
+1fd4 : 36               	psha
+1fd5 : 8c1012           	cpx	#SINIT
+1fd8 : 26f7             	bne	WARM2
+                        ;
+1fda : be1012           	lds	SINIT
+1fdd : fe1010           	ldx	UPINIT
+1fe0 : dff6             	stx	UP		;init user ram pointer
+1fe2 : ce1f75           	ldx	#ABORT
+1fe5 : dff2             	stx	IP
+1fe7 : 01               	nop		;Here is a place to jump to special user
+1fe8 : 01               	nop		;initializations such as I/0 interrups
+1fe9 : 01               	nop
+                        ;
+                        ; For systems with TRACE:
+1fea : ce0000           	ldx	#00
+1fed : dfea             	stx	TRLIM	;clear trace mode
+1fef : ce0000           	ldx	#0
+1ff2 : dfec             	stx	BRKPT	;clear breakpoint address
+1ff4 : 7e135a           	jmp	RPSTOR+2 ;start the virtual machine running !
+                        ;
+                        ; Here is the stuff that gets copied to ram :
+                        ; at address $140:
+                        ;
+1ff7 : 3000300000000000 RAM	fdb	$3000,$3000,0,0
+                        ;
+                        ; ======>>  (152)  <<
+AS02 Assembler for M6802 [1.42].                                     Page   40
+----------------------------- fig-FORTH_6800.asm -----------------------------
+
+1fff : c5               	fcb	$C5	;immediate
+2000 : 464f5254         	fcc	"FORT"	;fcc	4,FORTH
+2004 : c8               	fcb	$C8
+2005 : 2745             	fdb	NOOP-7
+2007 : 19f51f1181a00178 RFORTH	fdb	DODOES,DOVOC,$81A0,TASK-7
+200f : 0000             	fdb	0
+2011 : 28432920466f72.. 	fcc	"(C) Forth Interest Group, 1979"
+202f : 84               	fcb	$84
+2030 : 544153           	fcc	"TAS"	;fcc	3,TASK
+2033 : cb               	fcb	$CB
+2034 : 0148             	fdb	FORTH-8
+2036 : 15251367         RTASK	fdb	DOCOL,SEMIS
+203a : 4461766964204c.. ERAM	fcc	"David Lion"	
+                        ;
+                        ; ######>> screen 57 <<
+                        ; ======>>  158  <<
+2044 : 84               	fcb	$84
+2045 : 532d3e           	fcc	"S->"	;fcc	3,S->D
+2048 : c4               	fcb	$C4
+2049 : 1f92             	fdb	COLD-7
+204b : 1525149313da1421 STOD	fdb	DOCOL,DUP,ZLESS,MINUS
+2053 : 1367             	fdb	SEMIS
+                        ;
+                        ; ======>>  159  <<
+2055 : 81               	fcb	$81	; *
+2056 : aa               	fcb	$AA
+2057 : 2044             	fdb	STOD-7
+2059 : 205b             STAR	fdb	*+2
+205b : bd12ab           	jsr	USTARS
+205e : 31               	ins
+205f : 31               	ins
+2060 : 7e1034           	jmp	NEXT
+                        ;
+                        ; ======>>  160  <<
+2063 : 84               	fcb	$84
+2064 : 2f4d4f           	fcc	"/MO"	;fcc	3,/MOD
+2067 : c4               	fcb	$C4
+2068 : 2055             	fdb	STAR-4
+206a : 15251390204b13.. SLMOD	fdb	DOCOL,TOR,STOD,FROMR,USLASH
+2074 : 1367             	fdb	SEMIS
+                        ;
+                        ; ======>>  161  <<
+2076 : 81               	fcb	$81	; /
+2077 : af               	fcb	$AF
+2078 : 2063             	fdb	SLMOD-7
+207a : 1525206a147a146c SLASH	fdb	DOCOL,SLMOD,SWAP,DROP
+2082 : 1367             	fdb	SEMIS
+                        ;
+                        ; ======>>  162  <<
+2084 : 83               	fcb	$83
+2085 : 4d4f             	fcc	"MO"	;fcc	2,MOD
+2087 : c4               	fcb	$C4
+2088 : 2076             	fdb	SLASH-4
+208a : 1525206a146c     MOD	fdb	DOCOL,SLMOD,DROP
+2090 : 1367             	fdb	SEMIS
+                        ;
+                        ; ======>>  163  <<
+2092 : 85               	fcb	$85
+2093 : 2a2f4d4f         	fcc	"*/MO"	;fcc	4,*/MOD
+2097 : c4               	fcb	$C4
+2098 : 2084             	fdb	MOD-6
+209a : 1525139012a213.. SSMOD	fdb	DOCOL,TOR,USTAR,FROMR,USLASH
+AS02 Assembler for M6802 [1.42].                                     Page   41
+----------------------------- fig-FORTH_6800.asm -----------------------------
+
+20a4 : 1367             	fdb	SEMIS
+                        ;
+                        ; ======>>  164  <<
+20a6 : 82               	fcb	$82
+20a7 : 2a               	fcc	"*"	;fcc	1,*/
+20a8 : af               	fcb	$AF
+20a9 : 2092             	fdb	SSMOD-8
+20ab : 1525209a147a146c SSLASH	fdb	DOCOL,SSMOD,SWAP,DROP
+20b3 : 1367             	fdb	SEMIS
+                        ;
+                        ; ======>>  165  <<
+20b5 : 85               	fcb	$85
+20b6 : 4d2f4d4f         	fcc	"M/MO"	;fcc	4,M/MOD
+20ba : c4               	fcb	$C4
+20bb : 20a6             	fdb	SSLASH-5
+20bd : 1525139015a213.. MSMOD	fdb	DOCOL,TOR,ZERO,R,USLASH
+20c7 : 13a6147a139012.. 	fdb	FROMR,SWAP,TOR,USLASH,FROMR
+20d1 : 1367             	fdb	SEMIS
+                        ;
+                        ; ======>>  166  <<
+20d3 : 83               	fcb	$83
+20d4 : 4142             	fcc	"AB"	;fcc	2,ABS
+20d6 : d3               	fcb	$D3
+20d7 : 20b5             	fdb	MSMOD-8
+20d9 : 1525149313da108e ABS	fdb	DOCOL,DUP,ZLESS,ZBRAN
+20e1 : 0004             	fdb	ABS2-*
+20e3 : 1421             	fdb	MINUS
+20e5 : 1367             ABS2	fdb	SEMIS
+                        ;
+                        ; ======>>  167  <<
+20e7 : 84               	fcb	$84
+20e8 : 444142           	fcc	"DAB"	;fcc	3,DABS
+20eb : d3               	fcb	$D3
+20ec : 20d3             	fdb	ABS-6
+20ee : 1525149313da108e DABS	fdb	DOCOL,DUP,ZLESS,ZBRAN
+20f6 : 0004             	fdb	DABS2-*
+20f8 : 143a             	fdb	DMINUS
+20fa : 1367             DABS2	fdb	SEMIS
+                        ;
+                        ; ######>> screen 58 <<
+                        ; Disc primatives :
+                        ; ======>>  168  <<
+20fc : 83               	fcb	$83
+20fd : 5553             	fcc	"US"	;fcc	2,USE
+20ff : c5               	fcb	$C5
+2100 : 20e7             	fdb	DABS-7
+2102 : 155f             USE	fdb	DOCON
+2104 : 0140             	fdb	XUSE
+                        ;
+                        ; ======>>  169  <<
+2106 : 84               	fcb	$84
+2107 : 505245           	fcc	"PRE"	;fcc	3,PREV
+210a : d6               	fcb	$D6
+210b : 20fc             	fdb	USE-6
+210d : 155f             PREV	fdb	DOCON
+210f : 0142             	fdb	XPREV
+                        ;
+                        ; ======>>  170  <<
+2111 : 84               	fcb	$84
+2112 : 2b4255           	fcc	"+BU"	;fcc	3,+BUF
+2115 : c6               	fcb	$C6
+2116 : 2106             	fdb	PREV-7
+AS02 Assembler for M6802 [1.42].                                     Page   42
+----------------------------- fig-FORTH_6800.asm -----------------------------
+
+2118 : 15251058         PBUF	fdb	DOCOL,CLITER
+211c : 84               	fcb	$84
+211d : 13f1149315db17.. 	fdb	PLUS,DUP,LIMIT,EQUAL,ZBRAN
+2127 : 0006             	fdb	PBUF2-*
+2129 : 146c15cf         	fdb	DROP,FIRST
+212d : 1493210d14d01769 PBUF2	fdb	DUP,PREV,AT,SUB
+2135 : 1367             	fdb	SEMIS
+                        ;
+                        ; ======>>  171  <<
+2137 : 86               	fcb	$86
+2138 : 5550444154       	fcc	"UPDAT"	;fcc	5,UPDATE
+213d : c5               	fcb	$C5
+213e : 2111             	fdb	PBUF-7
+2140 : 1525210d14d014.. UPDATE	fdb	DOCOL,PREV,AT,AT,LIT,$8000,OR,PREV,AT,STORE
+2154 : 1367             	fdb	SEMIS
+                        ;
+                        ; ======>>  172  <<
+2156 : 8d               	fcb	$8D
+2157 : 454d5054592d42.. 	fcc	"EMPTY-BUFFER"	;fcc	12,EMPTY-BUFFERS
+2163 : d3               	fcb	$D3
+2164 : 2137             	fdb	UPDATE-9
+2166 : 152515cf15db14.. MTBUF	fdb	DOCOL,FIRST,LIMIT,OVER,SUB,ERASE
+2172 : 1367             	fdb	SEMIS
+                        ;
+                        ; ======>>  173  <<
+2174 : 83               	fcb	$83
+2175 : 4452             	fcc	"DR"	;fcc	2,DR0
+2177 : b0               	fcb	$B0
+2178 : 2156             	fdb	MTBUF-16
+217a : 152515a2169514f0 DRZERO	fdb	DOCOL,ZERO,OFSET,STORE
+2182 : 1367             	fdb	SEMIS
+                        ;
+                        ; ======>>  174  <<== system dependant word
+2184 : 83               	fcb	$83
+2185 : 4452             	fcc	"DR"	;fcc	2,DR1
+2187 : b1               	fcb	$B1
+2188 : 2174             	fdb	DRZERO-6
+218a : 1525104907d016.. DRONE	fdb	DOCOL,LIT,$07D0,OFSET,STORE
+2194 : 1367             	fdb	SEMIS
+                        ;
+                        ; ######>> screen 59 <<
+                        ; ======>>  175  <<
+2196 : 86               	fcb	$86
+2197 : 4255464645       	fcc	"BUFFE"	;fcc	5,BUFFER
+219c : d2               	fcb	$D2
+219d : 2184             	fdb	DRONE-6
+219f : 1525210214d014.. BUFFER	fdb	DOCOL,USE,AT,DUP,TOR
+21a9 : 2118108e         BUFFR2	fdb	PBUF,ZBRAN
+21ad : fffc             	fdb	BUFFR2-*
+21af : 210214f013b914.. 	fdb	USE,STORE,R,AT,ZLESS
+21b9 : 108e             	fdb	ZBRAN
+21bb : 0014             	fdb	BUFFR3-*
+21bd : 13b9171d13b914.. 	fdb	R,TWOP,R,AT,LIT,$7FFF,AND,ZERO,RW
+21cf : 13b914f013b921.. BUFFR3	fdb	R,STORE,R,PREV,STORE,FROMR,TWOP
+21dd : 1367             	fdb	SEMIS
+                        ;
+                        ; ######>> screen 60 <<
+                        ; ======>>  176  <<
+21df : 85               	fcb	$85
+21e0 : 424c4f43         	fcc	"BLOC"	;fcc	4,BLOCK
+21e4 : cb               	fcb	$CB
+21e5 : 2196             	fdb	BUFFER-9
+AS02 Assembler for M6802 [1.42].                                     Page   43
+----------------------------- fig-FORTH_6800.asm -----------------------------
+
+21e7 : 1525169514d013.. BLOCK	fdb	DOCOL,OFSET,AT,PLUS,TOR
+21f1 : 210d14d0149314.. 	fdb	PREV,AT,DUP,AT,R,SUB,DUP,PLUS,ZBRAN
+2203 : 0034             	fdb	BLOCK5-*
+2205 : 211813c7108e     BLOCK3	fdb	PBUF,ZEQU,ZBRAN
+220b : 0014             	fdb	BLOCK4-*
+220d : 146c13b9219f14.. 	fdb	DROP,R,BUFFER,DUP,R,ONE,RW,TWO,SUB
+221f : 149314d013b917.. BLOCK4	fdb	DUP,AT,R,SUB,DUP,PLUS,ZEQU,ZBRAN
+222f : ffd6             	fdb	BLOCK3-*
+2231 : 1493210d14f0     	fdb	DUP,PREV,STORE
+2237 : 13a6146c171d     BLOCK5	fdb	FROMR,DROP,TWOP
+223d : 1367             	fdb	SEMIS
+                        ;
+                        ; ######>> screen 61 <<
+                        ; ======>>  177  <<
+223f : 86               	fcb	$86
+2240 : 284c494e45       	fcc	"(LINE"	;fcc	5,(LINE)
+2245 : a9               	fcb	$A9
+2246 : 21df             	fdb	BLOCK-8
+2248 : 152513901058     PLINE	fdb	DOCOL,TOR,CLITER
+224e : 40               	fcb	$40
+224f : 15e7209a13a615.. 	fdb	BBUF,SSMOD,FROMR,BSCR,STAR,PLUS,BLOCK,PLUS,CLITER
+2261 : 40               	fcb	$40
+2262 : 1367             	fdb	SEMIS
+                        ;
+                        ; ======>>  178  <<
+2264 : 85               	fcb	$85
+2265 : 2e4c494e         	fcc	".LIN"	;fcc	4,.LINE
+2269 : c5               	fcb	$C5
+226a : 223f             	fdb	PLINE-9
+226c : 152522481a671a34 DLINE	fdb	DOCOL,PLINE,DTRAIL,TYPE
+2274 : 1367             	fdb	SEMIS
+                        ;
+                        ; ======>>  179  <<
+2276 : 87               	fcb	$87
+2277 : 4d4553534147     	fcc	"MESSAG"	;fcc	6,MESSAGE
+227d : c5               	fcb	$C5
+227e : 2264             	fdb	DLINE-8
+2280 : 1525163d14d0108e MESS	fdb	DOCOL,WARN,AT,ZBRAN
+2288 : 001b             	fdb	MESS3-*
+228a : 1800108e         	fdb	DDUP,ZBRAN
+228e : 0015             	fdb	MESS3-*
+2290 : 1058             	fdb	CLITER
+2292 : 04               	fcb	4
+2293 : 169514d015f320.. 	fdb	OFSET,AT,BSCR,SLASH,SUB,DLINE,BRAN
+22a1 : 000d             	fdb	MESS4-*
+22a3 : 1a9a             MESS3	fdb	PDOTQ
+22a5 : 06               	fcb	6
+22a6 : 657272202320     	fcc	"err # "	;fcc	6,err # 
+22ac : 2639             	fdb	DOT
+22ae : 1367             MESS4	fdb	SEMIS
+                        ;
+                        ; ======>>  180  <<
+22b0 : 84               	fcb	$84
+22b1 : 4c4f41           	fcc	"LOA"	;fcc	3,LOAD	;input:scr #
+22b4 : c4               	fcb	$C4
+22b5 : 2276             	fdb	MESS-10
+22b7 : 1525166b14d013.. LOAD	fdb	DOCOL,BLK,AT,TOR,IN,AT,TOR,ZERO,IN,STORE
+22cb : 15f32059166b14f0 	fdb	BSCR,STAR,BLK,STORE
+22d3 : 1e8d13a6167414.. 	fdb	INTERP,FROMR,IN,STORE,FROMR,BLK,STORE
+22e1 : 1367             	fdb	SEMIS
+                        ;
+                        ; ======>>  181  <<
+AS02 Assembler for M6802 [1.42].                                     Page   44
+----------------------------- fig-FORTH_6800.asm -----------------------------
+
+22e3 : c3               	fcb	$C3
+22e4 : 2d2d             	fcc	"--"	;fcc	2,-->
+22e6 : be               	fcb	$BE
+22e7 : 22b0             	fdb	LOAD-7
+22e9 : 1525191915a216.. ARROW	fdb	DOCOL,QLOAD,ZERO,IN,STORE,BSCR
+22f5 : 166b14d0145b20.. 	fdb	BLK,AT,OVER,MOD,SUB,BLK,PSTORE
+2303 : 1367             	fdb	SEMIS
+                        ;
+                        ;
+                        ; ######>> screen 63 <<
+                        ;    The next 4 subroutines are machine dependent, and
+                        ;    called by words 13 through 16 in the dictionary.
+                        ;
+                        ;
+                        ; ======>>  182  << code for EMIT
+2305 : d7e0             PEMIT	stb	N	;save B
+2307 : dfe1             	stx	N+1	;save X
+2309 : f68004           	ldb	ACIAC
+230c : c502             	bitb	#2	;check ready bit
+230e : 27f9             	beq	PEMIT+4	;if not ready for more data
+2310 : b78005           	sta	ACIAD
+2313 : def6             	ldx	UP
+2315 : e736             	stb	IOSTAT-UORIG,x
+2317 : d6e0             	ldb	N	;recover B & X
+2319 : dee1             	ldx	N+1
+231b : 39               	rts		;only A register may change
+                        
+                        ;PEMIT	jmp	$E1D1	;for MIKBUG
+                        ;  PEMIT	fcb	$3F,$11,$39	;for PROTO
+                        ;  PEMIT	jmp	$D286 ;for Smoke Signal DOS
+                        ;
+                        ; ======>>  183  << code for KEY
+231c : d7e0             PKEY	stb	N
+231e : dfe1             	stx	N+1
+2320 : f68004           	ldb	ACIAC
+2323 : 57               	asrb
+2324 : 24fa             	bcc	PKEY+4	;no incoming data yet
+2326 : b68005           	lda	ACIAD
+2329 : 847f             	anda	#$7F	;strip parity bit
+232b : def6             	ldx	UP
+232d : e737             	stb	IOSTAT+1-UORIG,x
+232f : d6e0             	ldb	N
+2331 : dee1             	ldx	N+1
+2333 : 39               	rts
+                        	
+                        ;PKEY	jmp	$E1AC	;for MIKBUG
+                        ;  PKEY	fcb	$3F,$14,$39	;for PROTO
+                        ;  PKEY	jmp	$D289 ;for Smoke Signal DOS
+                        ;
+                        ; ######>> screen 64 <<
+                        ; ======>>  184  << code for ?TERMINAL
+2334 : b68004           PQTER	lda	ACIAC	;Test for 'break'  condition
+2337 : 8411             	anda	#$11	;mask framing ERROR bit and
+                        ;			 input buffer full
+2339 : 2705             	beq	PQTER2
+233b : b68005           	lda	ACIAD	;clear input buffer
+233e : 8601             	lda	#01
+2340 : 39               PQTER2	rts
+                        ;
+                        ; ======>>  185  << code for CR
+2341 : 860d             PCR	lda	#$D	;carriage return
+2343 : 8dc0             	bsr	PEMIT
+AS02 Assembler for M6802 [1.42].                                     Page   45
+----------------------------- fig-FORTH_6800.asm -----------------------------
+
+2345 : 860a             	lda	#$A	;line feed
+2347 : 8dbc             	bsr	PEMIT
+2349 : 867f             	lda	#$7F	;rubout
+234b : def6             	ldx	UP
+234d : e633             	ldb	XDELAY+1-UORIG,x
+234f : 5a               PCR2	decb
+2350 : 2bee             	bmi	PQTER2	;return if minus
+2352 : 37               	pshb		;save counter
+2353 : 8db0             	bsr	PEMIT	;print RUBOUTs to delay.....
+2355 : 33               	pulb
+2356 : 20f7             	bra	PCR2	;repeat
+                        ;
+                        ; ######>> screen 66 <<
+                        ; ======>>  187  <<
+2358 : 85               	fcb	$85
+2359 : 3f444953         	fcc	"?DIS"	;fcc	4,?DISC
+235d : c3               	fcb	$C3
+235e : 22e3             	fdb	ARROW-6
+2360 : 2362             QDISC	fdb	*+2
+2362 : 7e1034           	jmp	NEXT
+                        ;
+                        ; ######>> screen 67 <<
+                        ; ======>>  189  <<
+2365 : 8b               	fcb	$8B
+2366 : 424c4f434b5f57.. 	fcc	"BLOCK_WRIT"	;fcc	10,BLOCK-WRITE
+2370 : c5               	fcb	$C5
+2371 : 2358             	fdb	QDISC-8
+2373 : 2375             BWRITE	fdb	*+2
+2375 : 7e1034           	jmp	NEXT
+                        ;
+                        ; ######>> screen 68 <<
+                        ; ======>>  190  <<
+2378 : 8a               	fcb	$8A
+2379 : 424c4f434b5f52.. 	fcc	"BLOCK_REA"	;fcc	9,BLOCK-READ
+2382 : c4               	fcb	$C4
+2383 : 2365             	fdb	BWRITE-14
+2385 : 2387             BREAD	fdb	*+2
+2387 : 7e1034           	jmp	NEXT
+                        ;
+                        ; The next 3 words are written to create a substitute 
+                        ; mass memory,located between $3210 & $7BFF in ram.
+                        ;
+                        ; ======>>  190.1  <<
+238a : 82               	fcb	$82
+238b : 4c               	fcc	"L"	;fcc	1,LO
+238c : cf               	fcb	$CF
+238d : 2378             	fdb	BREAD-13
+238f : 155f             LO	fdb	DOCON
+2391 : 3210             	fdb	MEMEND	;a system dependent equate at front
+                        ;
+                        ; ======>>  190.2  <<
+2393 : 82               	fcb	$82
+2394 : 48               	fcc	"H"	;fcc	1,HI
+2395 : c9               	fcb	$C9
+2396 : 238a             	fdb	LO-5
+2398 : 155f             HI	fdb	DOCON
+239a : 7bff             	fdb	MEMTOP	;($7BFF in this version)
+                        ;
+                        ; ######>> screen 69 <<
+                        ; ======>>  191  <<
+239c : 83               	fcb	$83
+239d : 522f             	fcc	"R/"	;fcc	2,R/W
+AS02 Assembler for M6802 [1.42].                                     Page   46
+----------------------------- fig-FORTH_6800.asm -----------------------------
+
+239f : d7               	fcb	$D7
+23a0 : 2393             	fdb	HI-5
+23a2 : 1525139015e720.. RW	fdb	DOCOL,TOR,BBUF,STAR,LO,PLUS,DUP,HI,GREAT,ZBRAN
+23b6 : 000f             	fdb	RW2-*
+23b8 : 1a9a             	fdb	PDOTQ
+23ba : 08               	fcb	8
+23bb : 2052616e6765203b 	fcc	" Range ;"	;fcc	8, Range ;?
+23c3 : 1f47             	fdb	QUIT
+23c5 : 13a6108e         RW2	fdb	FROMR,ZBRAN
+23c9 : 0004             	fdb	RW3-*
+23cb : 147a             	fdb	SWAP
+23cd : 15e7126e         RW3	fdb	BBUF,CMOVE
+23d1 : 1367             	fdb	SEMIS
+                        ;
+                        ; ######>> screen 72 <<
+                        ; ======>>  192  <<
+23d3 : c1               	fcb	$C1	;immediate
+23d4 : a7               	fcb	$A7	; ' (tick)
+23d5 : 239c             	fdb	RW-6
+23d7 : 15251d3713c715.. TICK	fdb	DOCOL,DFIND,ZEQU,ZERO,QERR,DROP,LITER
+23e5 : 1367             	fdb	SEMIS
+                        ;
+                        ; ======>>  193  <<
+23e7 : 86               	fcb	$86
+23e8 : 464f524745       	fcc	"FORGE"	;fcc	5,FORGET
+23ed : d4               	fcb	$D4
+23ee : 23d3             	fdb	TICK-4
+23f0 : 152516b114d016.. FORGET	fdb	DOCOL,CURENT,AT,CONTXT,AT,SUB,CLITER
+23fe : 18               	fcb	$18
+23ff : 18a423d7149316.. 	fdb	QERR,TICK,DUP,FENCE,AT,LESS,CLITER
+240d : 15               	fcb	$15
+240e : 18a4149315a216.. 	fdb	QERR,DUP,ZERO,PORIG,GREAT,CLITER
+241a : 15               	fcb	$15
+241b : 18a41493186816.. 	fdb	QERR,DUP,NFA,DP,STORE,LFA,AT,CONTXT,AT,STORE
+242f : 1367             	fdb	SEMIS
+                        ;
+                        ; ######>> screen 73 <<
+                        ; ======>>  194  <<
+2431 : 84               	fcb	$84
+2432 : 424143           	fcc	"BAC"	;fcc	3,BACK
+2435 : cb               	fcb	$CB
+2436 : 23e7             	fdb	FORGET-9
+2438 : 1525172c17691748 BACK	fdb	DOCOL,HERE,SUB,COMMA
+2440 : 1367             	fdb	SEMIS
+                        ;
+                        ; ======>>  195  <<
+2442 : c5               	fcb	$C5
+2443 : 42454749         	fcc	"BEGI"	;fcc	4,BEGIN
+2447 : ce               	fcb	$CE
+2448 : 2431             	fdb	BACK-7
+244a : 152518be172c15aa BEGIN	fdb	DOCOL,QCOMP,HERE,ONE
+2452 : 1367             	fdb	SEMIS
+                        ;
+                        ; ======>>  196  <<
+2454 : c5               	fcb	$C5
+2455 : 454e4449         	fcc	"ENDI"	;fcc	4,ENDIF
+2459 : c6               	fcb	$C6
+245a : 2442             	fdb	BEGIN-8
+245c : 152518be15b218.. ENDIF	fdb	DOCOL,QCOMP,TWO,QPAIRS,HERE
+2466 : 145b1769147a14f0 	fdb	OVER,SUB,SWAP,STORE
+246e : 1367             	fdb	SEMIS
+                        ;
+AS02 Assembler for M6802 [1.42].                                     Page   47
+----------------------------- fig-FORTH_6800.asm -----------------------------
+
+                        ; ======>>  197  <<
+2470 : c4               	fcb	$C4
+2471 : 544845           	fcc	"THE"	;fcc	3,THEN
+2474 : ce               	fcb	$CE
+2475 : 2454             	fdb	ENDIF-8
+2477 : 1525245c         THEN	fdb	DOCOL,ENDIF
+247b : 1367             	fdb	SEMIS
+                        ;
+                        ; ======>>  198  <<
+247d : c2               	fcb	$C2
+247e : 44               	fcc	"D"	;fcc	1,DO
+247f : cf               	fcb	$CF
+2480 : 2470             	fdb	THEN-7
+2482 : 1525193210ff17.. DO	fdb	DOCOL,COMPIL,XDO,HERE,THREE
+248c : 1367             	fdb	SEMIS
+                        ;
+                        ; ======>>  199  <<
+248e : c4               	fcb	$C4
+248f : 4c4f4f           	fcc	"LOO"	;fcc	3,LOOP
+2492 : d0               	fcb	$D0
+2493 : 247d             	fdb	DO-5
+2495 : 152515ba18eb19.. LOOP	fdb	DOCOL,THREE,QPAIRS,COMPIL,XLOOP,BACK
+24a1 : 1367             	fdb	SEMIS
+                        ;
+                        ; ======>>  200  <<
+24a3 : c5               	fcb	$C5
+24a4 : 2b4c4f4f         	fcc	"+LOO"	;fcc	4,+LOOP
+24a8 : d0               	fcb	$D0
+24a9 : 248e             	fdb	LOOP-7
+24ab : 152515ba18eb19.. PLOOP	fdb	DOCOL,THREE,QPAIRS,COMPIL,XPLOOP,BACK
+24b7 : 1367             	fdb	SEMIS
+                        ;
+                        ; ======>>  201  <<
+24b9 : c5               	fcb	$C5
+24ba : 554e5449         	fcc	"UNTI"	;fcc	4,UNTIL	;(same as END)
+24be : cc               	fcb	$CC
+24bf : 24a3             	fdb	PLOOP-8
+24c1 : 152515aa18eb19.. UNTIL	fdb	DOCOL,ONE,QPAIRS,COMPIL,ZBRAN,BACK
+24cd : 1367             	fdb	SEMIS
+                        ;
+                        ; ######>> screen 74 <<
+                        ; ======>>  202  <<
+24cf : c3               	fcb	$C3
+24d0 : 454e             	fcc	"EN"	;fcc	2,END
+24d2 : c4               	fcb	$C4
+24d3 : 24b9             	fdb	UNTIL-8
+24d5 : 152524c1         END	fdb	DOCOL,UNTIL
+24d9 : 1367             	fdb	SEMIS
+                        ;
+                        ; ======>>  203  <<
+24db : c5               	fcb	$C5
+24dc : 41474149         	fcc	"AGAI"	;fcc	4,AGAIN
+24e0 : ce               	fcb	$CE
+24e1 : 24cf             	fdb	END-6
+24e3 : 152515aa18eb19.. AGAIN	fdb	DOCOL,ONE,QPAIRS,COMPIL,BRAN,BACK
+24ef : 1367             	fdb	SEMIS
+                        ;
+                        ; ======>>  204  <<
+24f1 : c6               	fcb	$C6
+24f2 : 5245504541       	fcc	"REPEA"	;fcc	5,REPEAT
+24f7 : d4               	fcb	$D4
+24f8 : 24db             	fdb	AGAIN-8
+AS02 Assembler for M6802 [1.42].                                     Page   48
+----------------------------- fig-FORTH_6800.asm -----------------------------
+
+24fa : 15251390139024.. REPEAT	fdb	DOCOL,TOR,TOR,AGAIN,FROMR,FROMR
+2506 : 15b21769245c     	fdb	TWO,SUB,ENDIF
+250c : 1367             	fdb	SEMIS
+                        ;
+                        ; ======>>  205  <<
+250e : c2               	fcb	$C2
+250f : 49               	fcc	"I"	;fcc	1,IF
+2510 : c6               	fcb	$C6
+2511 : 24f1             	fdb	REPEAT-9
+2513 : 15251932108e17.. IF	fdb	DOCOL,COMPIL,ZBRAN,HERE,ZERO,COMMA,TWO
+2521 : 1367             	fdb	SEMIS
+                        ;
+                        ; ======>>  206  <<
+2523 : c4               	fcb	$C4
+2524 : 454c53           	fcc	"ELS"	;fcc	3,ELSE
+2527 : c5               	fcb	$C5
+2528 : 250e             	fdb	IF-5
+252a : 152515b218eb19.. ELSE	fdb	DOCOL,TWO,QPAIRS,COMPIL,BRAN,HERE
+2536 : 15a21748147a15.. 	fdb	ZERO,COMMA,SWAP,TWO,ENDIF,TWO
+2542 : 1367             	fdb	SEMIS
+                        ;
+                        ; ======>>  207  <<
+2544 : c5               	fcb	$C5
+2545 : 5748494c         	fcc	"WHIL"	;fcc	4,WHILE
+2549 : c5               	fcb	$C5
+254a : 2523             	fdb	ELSE-7
+254c : 15252513171d     WHILE	fdb	DOCOL,IF,TWOP
+2552 : 1367             	fdb	SEMIS
+                        ;
+                        ; ######>> screen 75 <<
+                        ; ======>>  208  <<
+2554 : 86               	fcb	$86
+2555 : 5350414345       	fcc	"SPACE"	;fcc	5,SPACES
+255a : d3               	fcb	$D3
+255b : 2544             	fdb	WHILE-8
+255d : 152515a217e718.. SPACES	fdb	DOCOL,ZERO,MAX,DDUP,ZBRAN
+2567 : 000c             	fdb	SPACE3-*
+2569 : 15a210ff         	fdb	ZERO,XDO
+256d : 17c110ba         SPACE2	fdb	SPACE,XLOOP
+2571 : fffc             	fdb	SPACE2-*
+2573 : 1367             SPACE3	fdb	SEMIS
+                        ;
+                        ; ======>>  209  <<
+2575 : 82               	fcb	$82
+2576 : 3c               	fcc	"<"	;fcc	1,<#
+2577 : a3               	fcb	$A3
+2578 : 2554             	fdb	SPACES-9
+257a : 15251c3416f914f0 BDIGS	fdb	DOCOL,PAD,HLD,STORE
+2582 : 1367             	fdb	SEMIS
+                        ;
+                        ; ======>>  210  <<
+2584 : 82               	fcb	$82
+2585 : 23               	fcc	"#"	;fcc	1,#>
+2586 : be               	fcb	$BE
+2587 : 2575             	fdb	BDIGS-5
+2589 : 1525146c146c16.. EDIGS	fdb	DOCOL,DROP,DROP,HLD,AT,PAD,OVER,SUB
+2599 : 1367             	fdb	SEMIS
+                        ;
+                        ; ======>>  211  <<
+259b : 84               	fcb	$84
+259c : 534947           	fcc	"SIG"	;fcc	3,SIGN
+259f : ce               	fcb	$CE
+AS02 Assembler for M6802 [1.42].                                     Page   49
+----------------------------- fig-FORTH_6800.asm -----------------------------
+
+25a0 : 2584             	fdb	EDIGS-5
+25a2 : 152517ad13da108e SIGN	fdb	DOCOL,ROT,ZLESS,ZBRAN
+25aa : 0007              	fdb	SIGN2-*
+25ac : 1058              	fdb	CLITER
+25ae : 2d                	fcc	"-"	
+25af : 1c1c              	fdb	HOLD
+25b1 : 1367             SIGN2	fdb	SEMIS
+                        ;
+                        ; ======>>  212  <<
+25b3 : 81               	fcb	$81	; #
+25b4 : a3               	fcb	$A3
+25b5 : 259b             	fdb	SIGN-7
+25b7 : 152516c814d020.. DIG	fdb	DOCOL,BASE,AT,MSMOD,ROT,CLITER
+25c3 : 09               	fcb	9
+25c4 : 145b1781108e     	fdb	OVER,LESS,ZBRAN
+25ca : 0007             	fdb	DIG2-*
+25cc : 1058             	fdb	CLITER
+25ce : 07               	fcb	7
+25cf : 13f1             	fdb	PLUS
+25d1 : 1058             DIG2	fdb	CLITER
+25d3 : 30               	fcc	"0"	;ascii zero
+25d4 : 13f11c1c         	fdb	PLUS,HOLD
+25d8 : 1367             	fdb	SEMIS
+                        ;
+                        ; ======>>  213  <<
+25da : 82               	fcb	$82
+25db : 23               	fcc	"#"	;fcc	1,#S
+25dc : d3               	fcb	$D3
+25dd : 25b3             	fdb	DIG-4
+25df : 1525             DIGS	fdb	DOCOL
+25e1 : 25b7145b145b13.. DIGS2	fdb	DIG,OVER,OVER,OR,ZEQU,ZBRAN
+25ed : fff4             	fdb	DIGS2-*
+25ef : 1367             	fdb	SEMIS
+                        ;
+                        ; ######>> screen 76 <<
+                        ; ======>>  214  <<
+25f1 : 82               	fcb	$82
+25f2 : 2e               	fcc	"."	;fcc	1,.R
+25f3 : d2               	fcb	$D2
+25f4 : 25da             	fdb	DIGS-5
+25f6 : 15251390204b13.. DOTR	fdb	DOCOL,TOR,STOD,FROMR,DDOTR
+2600 : 1367             	fdb	SEMIS
+                        ;
+                        ; ======>>  215  <<
+2602 : 83               	fcb	$83
+2603 : 442e             	fcc	"D."	;fcc	2,D.R
+2605 : d2               	fcb	$D2
+2606 : 25f1             	fdb	DOTR-5
+2608 : 15251390147a14.. DDOTR	fdb	DOCOL,TOR,SWAP,OVER,DABS,BDIGS,DIGS,SIGN
+2618 : 258913a6145b17.. 	fdb	EDIGS,FROMR,OVER,SUB,SPACES,TYPE
+2624 : 1367             	fdb	SEMIS
+                        ;
+                        ; ======>>  216  <<
+2626 : 82               	fcb	$82
+2627 : 44               	fcc	"D"	;fcc	1,D.
+2628 : ae               	fcb	$AE
+2629 : 2602             	fdb	DDOTR-6
+262b : 152515a2260817c1 DDOT	fdb	DOCOL,ZERO,DDOTR,SPACE
+2633 : 1367             	fdb	SEMIS
+                        ;
+                        ; ======>>  217  <<
+2635 : 81               	fcb	$81	; .
+AS02 Assembler for M6802 [1.42].                                     Page   50
+----------------------------- fig-FORTH_6800.asm -----------------------------
+
+2636 : ae               	fcb	$AE
+2637 : 2626             	fdb	DDOT-5
+2639 : 1525204b262b     DOT	fdb	DOCOL,STOD,DDOT
+263f : 1367             	fdb	SEMIS
+                        ;
+                        ; ======>>  218  <<
+2641 : 81               	fcb	$81	; ?
+2642 : bf               	fcb	$BF
+2643 : 2635             	fdb	DOT-4
+2645 : 152514d02639     QUEST	fdb	DOCOL,AT,DOT
+264b : 1367             	fdb	SEMIS
+                        ;
+                        ; ######>> screen 77 <<
+                        ; ======>>  219  <<
+264d : 84               	fcb	$84
+264e : 4c4953           	fcc	"LIS"	;fcc	3,LIST
+2651 : d4               	fcb	$D4
+2652 : 2641             	fdb	QUEST-4
+2654 : 15251990125e14.. LIST	fdb	DOCOL,DEC,CR,DUP,SCR,STORE,PDOTQ
+2662 : 06               	fcb	6
+2663 : 534352202320     	fcc	"SCR # "
+2669 : 26391058         	fdb	DOT,CLITER
+266d : 10               	fcb	$10
+266e : 15a210ff         	fdb	ZERO,XDO
+2672 : 125e111c15ba     LIST2	fdb	CR,I,THREE
+2678 : 25f617c1111c16.. 	fdb	DOTR,SPACE,I,SCR,AT,DLINE,XLOOP
+2686 : ffec             	fdb	LIST2-*
+2688 : 125e             	fdb	CR
+268a : 1367             	fdb	SEMIS
+                        ;
+                        ; ======>>  220  <<
+268c : 85               	fcb	$85
+268d : 494e4445         	fcc	"INDE"	;fcc	4,INDEX
+2691 : d8               	fcb	$D8
+2692 : 264d             	fdb	LIST-7
+2694 : 1525125e171014.. INDEX	fdb	DOCOL,CR,ONEP,SWAP,XDO
+269e : 125e111c15ba     INDEX2	fdb	CR,I,THREE
+26a4 : 25f617c115a211.. 	fdb	DOTR,SPACE,ZERO,I,DLINE
+26ae : 1250108e         	fdb	QTERM,ZBRAN
+26b2 : 0004             	fdb	INDEX3-*
+26b4 : 137c             	fdb	LEAVE
+26b6 : 10ba             INDEX3	fdb	XLOOP
+26b8 : ffe6             	fdb	INDEX2-*
+26ba : 1367             	fdb	SEMIS
+                        ;
+                        ; ======>>  221  <<
+26bc : 85               	fcb	$85
+26bd : 54524941         	fcc	"TRIA"	;fcc	4,TRIAD
+26c1 : c4               	fcb	$C4
+26c2 : 268c             	fdb	INDEX-8
+26c4 : 152515ba207a15.. TRIAD	fdb	DOCOL,THREE,SLASH,THREE,STAR
+26ce : 15ba145b13f114.. 	fdb	THREE,OVER,PLUS,SWAP,XDO
+26d8 : 125e111c         TRIAD2	fdb	CR,I
+26dc : 26541250108e     	fdb	LIST,QTERM,ZBRAN
+26e2 : 0004             	fdb	TRIAD3-*
+26e4 : 137c             	fdb	LEAVE
+26e6 : 10ba             TRIAD3	fdb	XLOOP
+26e8 : fff0             	fdb	TRIAD2-*
+26ea : 125e1058         	fdb	CR,CLITER
+26ee : 0f               	fcb	$0F
+26ef : 2280125e         	fdb	MESS,CR
+26f3 : 1367             	fdb	SEMIS
+AS02 Assembler for M6802 [1.42].                                     Page   51
+----------------------------- fig-FORTH_6800.asm -----------------------------
+
+                        ;
+                        ; ######>> screen 78 <<
+                        ; ======>>  222  <<
+26f5 : 85               	fcb	$85
+26f6 : 564c4953         	fcc	"VLIS"	;fcc	4,VLIST
+26fa : d4               	fcb	$D4
+26fb : 26bc             	fdb	TRIAD-8
+26fd : 15251058         VLIST	fdb	DOCOL,CLITER
+2701 : 80               	fcb	$80
+2702 : 167e14f016a314.. 	fdb	OUT,STORE,CONTXT,AT,AT
+270c : 167e14d0170714.. VLIST1	fdb	OUT,AT,COLUMS,AT,CLITER
+2716 : 20               	fcb	32
+2717 : 1769179f108e     	fdb	SUB,GREAT,ZBRAN
+271d : 000a             	fdb	VLIST2-*
+271f : 125e15a2167e14f0 	fdb	CR,ZERO,OUT,STORE
+2727 : 14931da217c117.. VLIST2	fdb	DUP,IDDOT,SPACE,SPACE,PFA,LFA,AT
+2735 : 149313c7125013.. 	fdb	DUP,ZEQU,QTERM,OR,ZBRAN
+273f : ffcd             	fdb	VLIST1-*
+2741 : 146c             	fdb	DROP
+2743 : 1367             	fdb	SEMIS
+                        ;
+                        ; ======>>  XX  <<
+2745 : 84               	fcb	$84
+2746 : 4e4f4f           	fcc	"NOO"	;fcc	3,NOOP
+2749 : d0               	fcb	$D0
+274a : 26f5             	fdb	VLIST-8
+274c : 1034             NOOP	fdb	NEXT	;a useful no-op
+274e : 00000000000000.. ZZZZ	fdb	0,0,0,0,0,0,0,0	;end of rom program
+                        ;
+                        ;	END
+                        ;
+No errors in pass 2.

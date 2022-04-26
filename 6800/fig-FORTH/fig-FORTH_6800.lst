@@ -1,0 +1,3699 @@
+                        ; fig-FORLABTH FORLAB 6800
+                        ; ASSEMBLY SOURCE LISTING
+                        ;
+                        ; RELEASE 1
+                        ; MAY 1979
+                        ; WITH COMPILER SECURITY
+                        ; ANDLAB VARIABLE LENGTH NAMES
+                        ;
+                        ; This public domain publication is provided
+                        ; through the courtesy of:
+                        ; FORLABTH INTEREST GROUP (fig)
+                        ;
+                        ; P.O. Box 8231 - San Jose, CA 95155 - (408) 277-0668
+                        ; Further distribution must include this notice.
+                        ;
+                        ; Copyright:FORLABTH Interest Group
+                        ;
+                        ; === FORLABTH-6800 06-06-79 21:OO
+                        ;
+                        ; This listing is in the PUBLIC DOMAIN and 
+                        ; may be freely copied or published with the
+                        ; restriction that a credit line is printed
+                        ; with the material, crediting the
+                        ; authors and the FORLABTH INTEREST GROUP.
+                        ;
+                        ; === by Dave Lion,
+                        ; ===  with help from
+                        ; === Bob Smith,
+                        ; === LaFarr Stuart,
+                        ; === The Forth Interest Group
+                        ; === PO Box 1105
+                        ; === San Carlos, CA 94070
+                        ; ===  and
+                        ; === Unbounded computing
+                        ; === 1134-K Aster Ave.
+                        ; === Sunnyvale, CA 94086
+                        ;
+                        ;  This version was developed on an AMI EVK 300 PROTO
+                        ;  system using an ACIA for the I/O. All terminal 1/0
+                        ;  is done in three subroutines:
+                        ;   PEMIT  ( word # 182 )
+                        ;   PKEY   (        183 )
+                        ;   PQTERM (        184 )
+                        ;
+                        ;  The FORLABTH words for disc related I/O follow the model
+                        ;  of the FORLABTH Interest Group, but have not been
+                        ;  tested using a real disc.
+                        ;
+                        ;  Addresses in this implementation reflect the fact that,
+                        ;  on the development system, it was convenient to
+                        ;  write-protect memory at hex 1000, and leave the first
+                        ;  4K bytes write-enabled. As a consequence, code from
+                        ;  location $1000 to lable ZZZZ could be put in ROM.
+                        ;  Minor deviations from the model were made in the
+                        ;  initialization and words ?STACK and FORLABGET
+                        ;  in order to do this.
+                        ;
+                        ; smp, June 2018
+                        ; Modified to assemble properly with the AS02 6800 cross-assembler
+                        ; Modified to operate on Corsham Technologies 6800 system (SWTPC replica)
+                        
+   0004                 NBLK	equ	4		;# of disc buffer blocks for virtual memory
+   3210                 MEMEND	equ	132*NBLK+$3000	;end of ram
+                        
+                        ;  each block is 132 bytes in size,
+                        ;  holding 128 characters
+                        
+   7bff                 MEMTOP	equ	$7BFF	;32K system absolute end of RAM with 1K spare
+   fc18                 ACIAC	equ	$FC18	;Corsham Technologies ACIA control address
+   fc19                 ACIAD	equ	ACIAC+1	;Corsham Technologies ACIA data address
+                        
+                        ;  MEMORLABY MAP for this 16K system:
+                        ;  (positioned so that systems with 4k byte write-
+                        ;   protected segments can write protect FORLABTH)
+                        ;
+                        ; addr		contents		pointer	init by
+                        ; ****	*******************************	*******	*******
+                        ; 7FFF						HI
+                        ;	substitute for disc mass memory
+                        ; 3210						LO,MEMEND
+                        ; 320F
+                        ; 	4 buffer sectors of VIRTUAL MEMORLABY
+                        ; 3000						FIRST
+                        ;
+                        ; >>>>>> memory from here up must be RAM <<<<<<
+                        ;
+                        ; 27FF
+                        ; 	6k of romable "FORLABTH"		<== IP	ABORLABT
+                        ;					<== W
+                        ;	the VIRTUAL FORLABTH MACHINE
+                        ;
+                        ; 1004 <<< WARM START ENTRY >>>
+                        ; 1000 <<< COLD START ENTRY >>>
+                        ;
+                        ; >>>>>> memory from here down must be RAM <<<<<<
+                        ;
+                        ;  FFE	RETURN STACK base		<== RP	RINIT
+                        ;
+                        ;  FB4
+                        ;	INPUT LINE BUFFER
+                        ;	holds up to 132 characters
+                        ;	and is scanned upward by IN
+                        ;	sta a rting at TIB
+                        ;  F30					<== IN	TIB
+                        ;  F2F	DATA STACK			<== SP	SP0,SINIT
+                        ;    |	grows downward from F2F
+                        ;    v
+                        ;    ^
+                        ;    |
+                        ;    I	DICTIONARY grows upward
+                        ; 
+                        ;  183	end of ram-dictionary.		<== DP	DPINIT
+                        ;	"TASK"
+                        ;
+                        ;  150	"FORLABTH" (a word)		<=, <== CONTEXT
+                        ;					  `==== CURRENT
+                        ;  148	sta a rt of ram-dictionary.
+                        ;
+                        ;  100	user #l table of variables	<= UP	DPINIT
+                        ;   F0	registers & pointers for the virtual machine
+                        ; 	scratch area used by various words
+                        ;   E0	lowest address used by FORLABTH
+                        ;
+                        ; 0000
+                        ;
+                        ;**
+                        ;
+                        ; CONVENTIONS USED IN THIS PROGRAM ARE AS FOLLOWS :
+                        ;
+                        ; IP points to the current instruction (pre-increment mode)
+                        ; RP points to second free byte (first free word) in return sta a ck
+                        ; SP (hardware SP) points to first free byte in data sta a ck
+                        ;
+                        ;	when A and B hold one 16 bit FORLABTH data word,
+                        ;	A contains the high byte, B, the low byte.
+                        ;**
+                        
+   00e0                 	org	$E0	;variables
+                        
+   00e0                 N	rmb	10	;used as scratch by (FIND),ENCLOSE,CMOVE,EMIT,KEY,
+                        ;                              SP@,SWAP,DOES>,COLD
+                        
+                        ;	These locations are used by the TRACE routine :
+                        
+   00ea                 TRLIM	rmb	1	;the count for tracing without user intervention
+   00eb                 TRACEM	rmb	1	;non-zero = trace mode
+   00ec                 BRKPT	rmb	2	;the breakpoint address at which
+                        ;               	 the program will go into trace mode
+   00ee                 VECT	rmb	2	;vector to machine code
+                        ;               	 (only needed if the TRACE routine is resident)
+                        
+                        ;	Registers used by the FORLABTH virtual machine:
+                        ;	Starting at $OOFO:
+                        
+   00f0                 W	rmb	2	;the instruction register points to 6800 code
+   00f2                 IP	rmb	2	;the instruction pointer points to pointer to 6800 code
+   00f4                 RP	rmb	2	;the return sta a ck pointer
+   00f6                 UP	rmb	2	;the pointer to base of current user's 'USER' table
+                        ;           		 (altered during multi-tasking)
+                        
+                        ;	This system is shown with one user, but additional users
+                        ;	may be added by allocating additional user tables:
+                        ;	UORLABIG2 rmb 64 data table for user #2
+                        ;
+                        ;	Some of this stuff gets initialized during
+                        ;	COLD sta a rt and WARM sta a rt:
+                        ; 	[ names correspond to FORLABTH words of similar (no X) name ]
+                        
+   0100                 	org	$100
+                        
+   0100                 UORLABIG	rmb	6	;3 reserved variables
+   0106                 XSPZER	rmb	2	;initial top of data sta a ck for this user
+   0108                 XRZERO	rmb	2	;initial top of return sta a ck
+   010a                 XTIB	rmb	2	;sta a rt of terminal input buffer
+   010c                 XWIDTH	rmb	2	;name field width
+   010e                 XWARN	rmb	2	;warning message mode (0 = no disc)
+   0110                 XFENCE	rmb	2	;fence for FORLABGET
+   0112                 XDP	rmb	2	;dictionary pointer
+   0114                 XVOCL	rmb	2	;vocabulary linking
+   0116                 XBLK	rmb	2	;disc block being accessed
+   0118                 XIN	rmb	2	;scan pointer into the block
+   011a                 XOUT	rmb	2	;cursor position
+   011c                 XSCR	rmb	2	;disc screen being accessed (O=terminal)
+   011e                 XOFSET	rmb	2	;disc sector offset for multi-disc
+   0120                 XCONT	rmb	2	;last word in primary search vocabulary
+   0122                 XCURR	rmb	2	;last word in extensible vocabulary
+   0124                 XSTATE	rmb	2	;flag for 'interpret' or 'COMPILE' modes
+   0126                 XBASE	rmb	2	;number base for I/O numeric conversion
+   0128                 XDPL	rmb	2	;DECIMAl point place
+   012a                 XFLD	rmb	2	
+   012c                 XCSP	rmb	2	;current sta a ck position, for COMPILE checks
+   012e                 XRNUM	rmb	2	
+   0130                 XHLD	rmb	2	
+   0132                 XDELAY	rmb	2	;carriage return delay count
+   0134                 XCOLUM	rmb	2	;carriage width
+   0136                 IOSTAT	rmb	2	;last acia sta a tus from write/read
+   0138                 	rmb	2	;(4 spares!)
+   013a                 	rmb	2	
+   013c                 	rmb	2	
+   013e                 	rmb	2	
+                        
+                        ;
+                        ;   end of user table, sta a rt of common system variables
+                        ;
+                        
+   0140                 XUSE	rmb	2
+   0142                 XPREV	rmb	2
+   0144                 	rmb	4	;(spares)
+                        
+                        ;  These things, up through the lable 'REND', are overwritten
+                        ;  at time of cold load and should have the same contents
+                        ;  as shown here:
+                        
+   0148   c5            	fcb	$C5	;immediate
+   0149   46 4f 52 4c   	fcc	"FORLABT"	;fcc	4,FORLABTH
+   014d   41 42 54      
+   0150   c8            	fcb	$C8
+   0151   27 5c         	fdb	NOOP-7
+   0153   19 fd 1f 1f   FORLABTH	fdb	DODOES,DOVOC,$81A0,TASK-7
+   0157   81 a0 01 7b   
+   015b   00 00         	fdb	0
+                        
+   015d   28 43 29 20   	fcc	"(C) Forth Interest Group, 1979"
+   0161   46 6f 72 74   
+   0165   68 20 49 6e   
+   0169   74 65 72 65   
+   016d   73 74 20 47   
+   0171   72 6f 75 70   
+   0175   2c 20 31 39   
+   0179   37 39         
+                        
+   017b   84            	fcb	$84
+   017c   54 41 53      	fcc	"TAS"	;fcc	3,TASK
+   017f   cb            	fcb	$CB
+   0180   01 4b         	fdb	FORLABTH-8
+   0182   15 2a 13 6c   TASK	fdb	DOCOL,SEMIS
+                        
+   0186                 REND	equ	*	;(first empty location in dictionary)
+                        
+                        ;    The FORLABTH program (address $1000 to $27FF) is written
+                        ;    so that it can be in a ROM, or write-protected if desired
+                        
+   1000                 	org	$1000
+                        
+                        ; ######>> screen 3 <<
+                        ;
+                        ;**************************
+                        ;*  C O L D   E N T R Y  **
+                        ;**************************
+   1000   01            ORLABIG	nop
+   1001   7e 1f ac      	jmp	CENT
+                        ;**************************
+                        ;*  W A R M   E N T R Y  **
+                        ;**************************
+   1004   01            	nop
+   1005   7e 1f dc      	jmp	WENT	;warm-sta a rt code, keeps current dictionary intact
+                        
+                        ;
+                        ;*************** sta a rtup parmeters *****************
+                        ;
+   1008   68 00 00 00   	fdb	$6800,0000	;cpu & revision
+   100c   00 00         	fdb	0	;topmost word in FORLABTH vocabulary
+   100e   00 7f         BACKSP	fdb	$7F	;backspace character for editing
+   1010   01 00         UPINIT	fdb	UORLABIG	;initial user area
+   1012   0f 30         SINIT	fdb	ORLABIG-$D0	;initial top of data sta a ck
+   1014   0f fe         RINIT	fdb	ORLABIG-2	;initial top of return sta a ck
+   1016   0f 30         	fdb	ORLABIG-$D0	;terminal input buffer
+   1018   00 1f         	fdb	31	;initial name field width
+   101a   00 00         	fdb	0	;initial warning mode (0 = no disc)
+   101c   01 86         FENCIN	fdb	REND	;initial fence
+   101e   01 86         DPINIT	fdb	REND	;cold sta a rt value for DP
+   1020   01 5b         VOCINT	fdb	FORLABTH+8	
+   1022   00 84         COLINT	fdb	132	;initial terminal carriage width
+   1024   00 04         DELINT	fdb	4	;initial carriage return delay
+                        ;
+                        ;***************************************************
+                        ;
+                        
+                        ;
+                        ; ######>> screen 13 <<
+   1026   32            PULABX	pula		;24 cycles until 'NEXT'
+   1027   33            	pulb
+   1028   a7 00         STABX	sta a 0,x	;16 cycles until 'NEXT'
+   102a   e7 01         	sta  b	1,x
+   102c   20 06         	bra	NEXT
+   102e   a6 00         GETX	lda a	0,x	;18 cycles until 'NEXT'
+   1030   e6 01         	lda b	1,x
+   1032   37            PUSHBA	pshb		;8 cycles until 'NEXT'
+   1033   36            	psha
+                        ;
+                        ; "NEXT" takes 38 cycles if TRACE is removed,
+                        ; and 95 cycles if NOT tracing.
+                        ;
+                        
+                        ; = = = = t h e   v i r t u a l  m a c h i n e = = = =
+                        ;
+   1034   de f2         NEXT	ldx	IP
+   1036   08            	inx		;pre-increment mode
+   1037   08            	inx
+   1038   df f2         	stx	IP
+   103a   ee 00         NEXT2	ldx	0,x	;get W which points to CFA of word to be done
+   103c   df f0         NEXT3	stx	W
+   103e   ee 00         	ldx	0,x	;get VECT which points to executable code
+                        ;
+                        ; The next instruction could be patched to jmp TRACE
+                        ; if a TRACE routine is available:
+                        ;
+   1040   6e 00         	jmp	0,x
+   1042   01            	nop
+                        ;	jmp	TRACE	;(an alternate for the above)
+                        ;
+                        ; = = = = = = = = = = = = = = = = = = = = = = = = = = =
+                        
+                        ;
+                        ; ======>>  1  <<
+   1043   83            	fcb	$83
+   1044   4c 49         	fcc	"LI"	;fcc	2,LIT	;NOTE: this is different from LITERAL
+   1046   d4            	fcb	$D4
+   1047   00 00         	fdb	0	;link of zero to terminate dictionary scan
+   1049   10 4b         LIT	fdb	*+2
+   104b   de f2         	ldx	IP
+   104d   08            	inx
+   104e   08            	inx
+   104f   df f2         	stx	IP
+   1051   a6 00         	lda a	0,x
+   1053   e6 01         	lda b	1,x
+   1055   7e 10 32      	jmp	PUSHBA
+   1058   01            	nop		;to compensate for assembler substituting BRA
+                        ;
+                        ; ######>> screen 14 <<
+                        ; ======>>  2  <<
+   1059   10 5b         CLITER	fdb	*+2	;(this is an invisible word, with no header)
+   105b   de f2         	ldx	IP
+   105d   08            	inx
+   105e   df f2         	stx	IP
+   1060   4f            	clra
+   1061   e6 01         	lda b	1,x
+   1063   7e 10 32      	jmp	PUSHBA
+   1066   01            	nop		;to compensate for assembler substituting BRA
+                        ;
+                        ; ======>>  3  <<
+   1067   87            	fcb	$87
+   1068   45 58 45 43   	fcc	"EXECUT"	;fcc	6,EXECUTE
+   106c   55 54         
+   106e   c5            	fcb	$C5
+   106f   10 43         	fdb	LIT-6
+   1071   10 73         EXEC	fdb	*+2
+   1073   30            	tsx
+   1074   ee 00         	ldx	0,x	;get code field address (CFA)
+   1076   31            	ins		;pop sta a ck
+   1077   31            	ins
+   1078   7e 10 3c      	jmp	NEXT3
+   107b   01            	nop		;to compensate for assembler substituting BRA
+                        ;
+                        ; ######>> screen 15 <<
+                        ; ======>>  4  <<
+   107c   86            	fcb	$86
+   107d   42 52 41 4e   	fcc	"BRANC"	;fcc	5,BRANCH
+   1081   43            
+   1082   c8            	fcb	$C8
+   1083   10 67         	fdb	EXEC-10
+   1085   10 9a         BRAN	fdb	ZBYES	;Go steal code in ZBRANCH
+                        ;
+                        ; ======>>  5  <<
+   1087   87            	fcb	$87
+   1088   30 42 52 41   	fcc	"0BRANC"	;fcc	6,0BRANCH
+   108c   4e 43         
+   108e   c8            	fcb	$C8
+   108f   10 7c         	fdb	BRAN-9
+   1091   10 93         ZBRAN	fdb	*+2
+   1093   32            	pula
+   1094   33            	pulb
+   1095   1b            	aba
+   1096   26 14         	bne	ZBNO
+   1098   25 12         	bcs	ZBNO
+   109a   de f2         ZBYES	ldx	IP	;Note: code is shared with BRANCH, (+LOOP), (LOOP)
+   109c   e6 03         	lda b	3,x
+   109e   a6 02         	lda	a 2,x
+   10a0   db f3         	addb	IP+1
+   10a2   99 f2         	adca	IP
+   10a4   d7 f3         	sta b	IP+1
+   10a6   97 f2         	sta a 	IP
+   10a8   7e 10 34      	jmp	NEXT
+   10ab   01            	nop		;to compensate for assembler substituting BRA
+   10ac   de f2         ZBNO	ldx	IP	;no branch. This code is shared with (+LOOP), (LOOP).
+   10ae   08            	inx		;jump over branch delta
+   10af   08            	inx
+   10b0   df f2         	stx	IP
+   10b2   7e 10 34      	jmp	NEXT
+   10b5   01            	nop		;to compensate for assembler substituting BRA
+                        ;
+                        ; ######>> screen 16 <<
+                        ; ======>>  6  <<
+   10b6   86            	fcb	$86
+   10b7   28 4c 4f 4f   	fcc	"(LOOP"	;fcc	5,(LOOP)
+   10bb   50            
+   10bc   a9            	fcb	$A9
+   10bd   10 87         	fdb	ZBRAN-10
+   10bf   10 c1         XLOOP	fdb	*+2
+   10c1   4f            	clra
+   10c2   c6 01         	lda b	#1	;get set to increment counter by 1
+   10c4   20 0e         	bra	XPLOP2	;go steal other guy's code!
+                        ;
+                        ; ======>>  7  <<
+   10c6   87            	fcb	$87
+   10c7   28 2b 4c 4f   	fcc	"(+LOOP"	;fcc	6,(+LOOP)
+   10cb   4f 50         
+   10cd   a9            	fcb	$A9
+   10ce   10 b6         	fdb	XLOOP-9
+   10d0   10 d2         XPLOOP	fdb *+2		;Note: +LOOP has an un-signed loop counter
+   10d2   32            	pula		;get increment
+   10d3   33            	pulb
+   10d4   4d            XPLOP2	tst a 
+   10d5   2a 16         	bpl	XPLOF	;forward looping
+   10d7   8d 09         	bsr	XPLOPS
+   10d9   0d            	sec
+   10da   e2 05         	sbcb	5,x
+   10dc   a2 04         	sbca	4,x
+   10de   2a ba         	bpl	ZBYES
+   10e0   20 13         	bra	XPLONO	;fall through
+                        ;
+                        ; the subroutine :
+   10e2   de f4         XPLOPS	ldx	RP
+   10e4   eb 03         	addb	3,x	;add it to counter
+   10e6   a9 02         	adca	2,x
+   10e8   e7 03         	sta b	3,x	;store new counter value
+   10ea   a7 02         	sta a 	2,x
+   10ec   39            	rts
+                        ;
+   10ed   8d f3         XPLOF	bsr	XPLOPS
+   10ef   e0 05         	subb	5,x
+   10f1   a2 04         	sbca	4,x
+   10f3   2b a5         	bmi	ZBYES
+                        ;
+   10f5   08            XPLONO	inx		;done, don't branch back
+   10f6   08            	inx
+   10f7   08            	inx
+   10f8   08            	inx
+   10f9   df f4         	stx	RP
+   10fb   20 af         	bra	ZBNO	;use ZBRAN to skip over unused delta
+                        ;
+                        ; ######>> screen 17 <<
+                        ; ======>>  8  <<
+   10fd   84            	fcb	$84
+   10fe   28 44 4f      	fcc	"(DO"	;fcc	3,(DO)
+   1101   a9            	fcb	$A9
+   1102   10 c6         	fdb	XPLOOP-10
+   1104   11 06         XDO	fdb	*+2	;This is the RUNTIME DO, not the COMPILING DO
+   1106   de f4         	ldx	RP
+   1108   09            	dex
+   1109   09            	dex
+   110a   09            	dex
+   110b   09            	dex
+   110c   df f4         	stx	RP
+   110e   32            	pula
+   110f   33            	pulb
+   1110   a7 02         	sta a 	2,x
+   1112   e7 03         	sta b	3,x
+   1114   32            	pula
+   1115   33            	pulb
+   1116   a7 04         	sta a 	4,x
+   1118   e7 05         	sta b	5,x
+   111a   7e 10 34      	jmp	NEXT
+                        ;
+                        ; ======>>  9  <<
+   111d   81            	fcb	$81	; I
+   111e   c9            	fcb	$C9
+   111f   10 fd         	fdb	XDO-7	
+   1121   11 23         I	fdb	*+2
+   1123   de f4         	ldx	RP
+   1125   08            	inx
+   1126   08            	inx
+   1127   7e 10 2e      	jmp	GETX
+                        ;
+                        ; ######>> screen 18 <<
+                        ; ======>>  10  <<
+   112a   85            	fcb	$85
+   112b   44 49 47 49   	fcc	"DIGI"	;fcc	4,DIGIT
+   112f   d4            	fcb	$D4
+   1130   11 1d         	fdb	I-4
+   1132   11 34         DIGIT	fdb	*+2	;NOTE: legal input range is 0-9, A-Z
+   1134   30            	tsx
+   1135   a6 03         	lda	a 3,x
+   1137   80 30         	suba	#$30	;ascii zero
+   1139   2b 1b         	bmi	DIGIT2	;IF LESS THAN '0', ILLEGAL
+   113b   81 0a         	cmpa	#$A
+   113d   2b 0a         	bmi	DIGIT0	;IF '9' ORLAB LESS
+   113f   81 11         	cmpa	#$11
+   1141   2b 13         	bmi	DIGIT2	;if less than 'A'
+   1143   81 2b         	cmpa	#$2B
+   1145   2a 0f         	bpl	DIGIT2	;if greater than 'Z'
+   1147   80 07         	suba	#7	;translate 'A' thru 'F'
+   1149   a1 01         DIGIT0	cmpa	1,x
+   114b   2a 09         	bpl	DIGIT2	;if not less than the base
+   114d   c6 01         	lda b	#1	;set flag
+   114f   a7 03         	sta a 	3,x	;store digit
+   1151   e7 01         DIGIT1	sta b	1,x	;store the flag
+   1153   7e 10 34      	jmp	NEXT
+   1156   5f            DIGIT2	clrb
+   1157   31            	ins
+   1158   31            	ins		;pop bottom number
+   1159   30            	tsx
+   115a   e7 00         	sta b	0,x	;make sure both bytes are 00
+   115c   20 f3         	bra	DIGIT1
+                        ;
+                        ; ######>> screen 19 <<
+                        ;
+                        ; The word format in the dictionary is:
+                        ;
+                        ; char-count + $80	;lowest address
+                        ; char 1
+                        ; char 2
+                        ; 
+                        ; char n  + $80
+                        ; link high byte \___point to previous word
+                        ; link low  byte /
+                        ; CFA  high byte \___point to 6800 code
+                        ; CFA  low  byte /
+                        ; parameter fields
+                        ;    "
+                        ;    "
+                        ;    "
+                        ;
+                        ; ======>>  11  <<
+   115e   86            	fcb	$86
+   115f   28 46 49 4e   	fcc	"(FIND"	;fcc	5,(FIND)
+   1163   44            
+   1164   a9            	fcb	$A9
+   1165   11 2a         	fdb	DIGIT-8
+   1167   11 69         PFIND	fdb	*+2
+   1169   01            	nop
+   116a   01            	nop
+   00e0                 PD	equ	N	;ptr to dict word being checked
+   00e2                 PA0	equ	N+2
+   00e4                 PA	equ	N+4
+   00e6                 PC	equ	N+6
+   116b   ce 00 e0      	ldx	#PD
+   116e   c6 04         	lda b	#4
+   1170   32            PFIND0	pula		;loop to get arguments
+   1171   a7 00         	sta a 	0,x
+   1173   08            	inx
+   1174   5a            	decb
+   1175   26 f9         	bne	PFIND0
+                        ;
+   1177   de e0         	ldx	PD
+   1179   e6 00         PFIND1	lda b	0,x	;get count dict count
+   117b   d7 e6         	sta b	PC
+   117d   c4 3f         	andb	#$3F
+   117f   08            	inx
+   1180   df e0         	stx	PD	;update PD
+   1182   de e2         	ldx	PA0
+   1184   a6 00         	lda	a 0,x	;get count from arg
+   1186   08            	inx
+   1187   df e4         	stx	PA	;initialize PA
+   1189   11            	cba		;compare lengths
+   118a   26 22         	bne	PFIND4
+   118c   de e4         PFIND2	ldx	PA
+   118e   a6 00         	lda a	0,x
+   1190   08            	inx
+   1191   df e4         	stx	PA
+   1193   de e0         	ldx	PD
+   1195   e6 00         	lda b	0,x
+   1197   08            	inx
+   1198   df e0         	stx	PD
+   119a   5d            	tst b		;is dict entry neg. ?
+   119b   2a 0e         	bpl	PFIND8
+   119d   c4 7f         	andb	#$7F	;clear sign
+   119f   11            	cba
+   11a0   27 15         	beq	FOUND
+   11a2   ee 00         PFIND3	ldx	0,x	;get new link
+   11a4   26 d3         	bne	PFIND1	;continue if link not=0
+                        ;
+                        ;	not found :
+                        ;
+   11a6   4f            	clra
+   11a7   5f            	clrb
+   11a8   7e 10 32      	jmp	PUSHBA
+   11ab   11            PFIND8	cba
+   11ac   27 de         	beq	PFIND2
+   11ae   de e0         PFIND4	ldx	PD
+   11b0   e6 00         PFIND9	lda b	0,x	;scan forward to end of this name
+   11b2   08            	inx
+   11b3   2a fb         	bpl	PFIND9
+   11b5   20 eb         	bra	PFIND3
+                        ;
+                        ;	found :
+                        ;
+   11b7   96 e0         FOUND	lda a	PD	;compute CFA
+   11b9   d6 e1         	lda b	PD+1
+   11bb   cb 04         	addb	#4
+   11bd   89 00         	adca	#0
+   11bf   37            	pshb
+   11c0   36            	psha
+   11c1   96 e6         	lda a	PC
+   11c3   36            	psha
+   11c4   4f            	clra
+   11c5   36            	psha
+   11c6   c6 01         	lda b	#1
+   11c8   7e 10 32      	jmp	PUSHBA
+                        ;
+   11cb   36            	psha
+   11cc   4f            	clra
+   11cd   36            	psha
+   11ce   c6 01         	lda b	#1
+   11d0   7e 10 32      	jmp	PUSHBA
+                        ;
+                        ; ######>> screen 20 <<
+                        ; ======>>  12  <<
+   11d3   87            	fcb	$87
+   11d4   45 4e 43 4c   	fcc	"ENCLOS"	;fcc	6,ENCLOSE
+   11d8   4f 53         
+   11da   c5            	fcb 	$C5
+   11db   11 5e         	fdb	PFIND-9
+                        ; NOTE :
+                        ; FC means offset (bytes) to First Character of next word
+                        ; EW  "     "   to End of Word
+                        ; NC  "     "   to Next Character to sta a rt next enclose at
+   11dd   11 df         ENCLOS	fdb	*+2
+   11df   31            	ins
+   11e0   33            	pulb		;now, get the low byte, for an 8-bit delimiter
+   11e1   30            	tsx
+   11e2   ee 00         	ldx	0,x
+   11e4   7f 00 e0      	clr	N
+                        ;	wait for a non-delimiter or a NUL
+   11e7   a6 00         ENCL2	lda a 0,x
+   11e9   27 24         	beq	ENCL6
+   11eb   11            	cba		;CHECK FORLAB DELIM
+   11ec   26 06         	bne	ENCL3
+   11ee   08            	inx
+   11ef   7c 00 e0      	inc	N
+   11f2   20 f3         	bra	ENCL2
+                        ;	found first character. Push FC
+   11f4   96 e0         ENCL3	lda a	N	;found first char.
+   11f6   36            	psha
+   11f7   4f            	clra
+   11f8   36            	psha
+                        ;	wait for a delimiter or a NUL
+   11f9   a6 00         ENCL4	lda a 0,x
+   11fb   27 19         	beq	ENCL7
+   11fd   11            	cba		;check for delim.
+   11fe   27 06         	beq	ENCL5
+   1200   08            	inx
+   1201   7c 00 e0      	inc	N
+   1204   20 f3         	bra	ENCL4
+                        ;	found EW. Push it
+   1206   d6 e0         ENCL5	lda b	N
+   1208   4f            	clra
+   1209   37            	pshb
+   120a   36            	psha
+                        ;	advance and push NC
+   120b   5c            	incb
+   120c   7e 10 32      	jmp	PUSHBA
+                        ;	found NUL before non-delimiter, therefore there is no word
+   120f   d6 e0         ENCL6	lda b	N	;found NUL
+   1211   37            	pshb
+   1212   36            	psha
+   1213   5c            	incb
+   1214   20 02         	bra	ENCL7+2	
+                        ;	found NUL following the word instead of SPACE
+   1216   d6 e0         ENCL7	lda b	N
+   1218   37            	pshb		;save EW
+   1219   36            	psha
+   121a   d6 e0         ENCL8	lda b	N	;save NC
+   121c   7e 10 32      	jmp	PUSHBA
+                        ;
+                        ; ######>> screen 21 <<
+                        ; The next 4 words call system dependant I/O routines
+                        ; which are listed after word "-->" ( lable: "arrow" )
+                        ; in the dictionary.
+                        ;
+                        ; ======>>  13  <<
+   121f   84            	fcb	$84
+   1220   45 4d 49      	fcc	"EMI"	;fcc	3,EMIT
+   1223   d4            	fcb	$D4
+   1224   11 d3         	fdb	ENCLOS-10
+   1226   12 28         EMIT	fdb	*+2
+   1228   32            	pula
+   1229   32            	pula
+   122a   bd 23 19      	jsr	PEMIT
+   122d   de f6         	ldx	UP
+   122f   6c 1b         	inc	XOUT+1-UORLABIG,x
+   1231   26 02         	bne	*+4
+   1233   6c 1a         	inc	XOUT-UORLABIG,x
+   1235   7e 10 34      	jmp	NEXT
+                        ;
+                        ; ======>>  14  <<
+   1238   83            	fcb	$83
+   1239   4b 45         	fcc	"KE"	;fcc	2,KEY
+   123b   d9            	fcb	$D9
+   123c   12 1f         	fdb	EMIT-7
+   123e   12 40         KEY	fdb	*+2
+   1240   bd 23 30      	jsr	PKEY
+   1243   36            	psha
+   1244   4f            	clra
+   1245   36            	psha
+   1246   7e 10 34      	jmp	NEXT
+                        ;
+                        ; ======>>  15  <<
+   1249   89            	fcb	$89
+   124a   3f 54 45 52   	fcc	"?TERMINA"	;fcc	8,?TERMINAL
+   124e   4d 49 4e 41   
+   1252   cc            	fcb	$CC
+   1253   12 38         	fdb	KEY-6
+   1255   12 57         QTERM	fdb	*+2
+   1257   bd 23 48      	jsr	PQTER
+   125a   5f            	clrb
+   125b   7e 10 32      	jmp	PUSHBA	;sta a ck the flag
+                        ;
+                        ; ======>>  16  <<
+   125e   82            	fcb	$82
+   125f   43            	fcc	"C"	;fcc	1,CR
+   1260   d2            	fcb	$D2
+   1261   12 49         	fdb	QTERM-12
+   1263   12 65         CR	fdb	*+2
+   1265   bd 23 55      	jsr	PCR
+   1268   7e 10 34      	jmp	NEXT
+                        ;
+                        ; ######>> screen 22 <<
+                        ; ======>>  17  <<
+   126b   85            	fcb	$85
+   126c   43 4d 4f 56   	fcc	"CMOV"	;fcc	4,CMOVE	;source, destination, count
+   1270   c5            	fcb	$C5
+   1271   12 5e         	fdb	CR-5
+   1273   12 75         CMOVE	fdb	*+2	;takes ( 43+47*count cycles )
+   1275   ce 00 e0      	ldx	#N
+   1278   c6 06         	lda b	#6
+   127a   32            CMOV1	pula
+   127b   a7 00         	sta a 	0,x	;move parameters to scratch area
+   127d   08            	inx
+   127e   5a            	decb
+   127f   26 f9         	bne	CMOV1
+   1281   96 e0         CMOV2	lda	a N
+   1283   d6 e1         	lda b	N+1
+   1285   c0 01         	subb	#1
+   1287   82 00         	sbca	#0
+   1289   97 e0         	sta a 	N
+   128b   d7 e1         	sta b	N+1
+   128d   25 10         	bcs	CMOV3
+   128f   de e4         	ldx	N+4
+   1291   a6 00         	lda a 0,x
+   1293   08            	inx
+   1294   df e4         	stx	N+4
+   1296   de e2         	ldx	N+2
+   1298   a7 00         	sta a 	0,x
+   129a   08            	inx
+   129b   df e2         	stx	N+2
+   129d   20 e2         	bra	CMOV2
+   129f   7e 10 34      CMOV3	jmp	NEXT
+                        ;
+                        ; ######>> screen 23 <<
+                        ; ======>>  18  <<
+   12a2   82            	fcb	$82
+   12a3   55            	fcc	"U"	;fcc	1,U*
+   12a4   aa            	fcb	$AA
+   12a5   12 6b         	fdb	CMOVE-8
+   12a7   12 a9         USTAR	fdb	*+2
+   12a9   8d 05         	bsr	USTARS
+   12ab   31            	ins
+   12ac   31            	ins
+   12ad   7e 10 32      	jmp	PUSHBA
+                        ;
+                        ; The following is a subroutine which 
+                        ; multiplies top 2 words on sta a ck,
+                        ; leaving 32-bit result:  high order word in A,B
+                        ; low order word in 2nd word of sta a ck.
+                        ;
+   12b0   86 10         USTARS	lda	a #16	;bits/word counter
+   12b2   36            	psha
+   12b3   4f            	clra
+   12b4   5f            	clrb
+   12b5   30            	tsx
+   12b6   66 05         USTAR2	ror	5,x	;shift multiplier
+   12b8   66 06         	ror	6,x
+   12ba   6a 00         	dec	0,x	;done?
+   12bc   2b 0a         	bmi	USTAR4
+   12be   24 04         	bcc	USTAR3
+   12c0   eb 04         	addb	4,x
+   12c2   a9 03         	adca	3,x
+   12c4   46            USTAR3	rora
+   12c5   56            	rorb		;shift result
+   12c6   20 ee         	bra	USTAR2
+   12c8   31            USTAR4	ins		;dump counter
+   12c9   39            	rts
+                        ;
+                        ; ######>> screen 24 <<
+                        ; ======>>  19  <<
+   12ca   82            	fcb	$82
+   12cb   55            	fcc	"U"	;fcc	1,U/
+   12cc   af            	fcb	$AF
+   12cd   12 a2         	fdb	USTAR-5
+   12cf   12 d1         USLASH	fdb	*+2
+   12d1   86 11         	lda a #17
+   12d3   36            	psha
+   12d4   30            	tsx
+   12d5   a6 03         	lda a	3,x
+   12d7   e6 04         	lda b	4,x
+   12d9   a1 01         USL1	cmpa	1,x
+   12db   22 09         	bhi	USL3
+   12dd   25 04         	bcs	USL2
+   12df   e1 02         	cmpb	2,x
+   12e1   24 03         	bcc	USL3
+   12e3   0c            USL2	clc
+   12e4   20 05         	bra	USL4
+   12e6   e0 02         USL3	subb	2,x
+   12e8   a2 01         	sbca	1,x
+   12ea   0d            	sec
+   12eb   69 06         USL4	rol	6,x
+   12ed   69 05         	rol	5,x
+   12ef   6a 00         	dec	0,x
+   12f1   27 06         	beq	USL5
+   12f3   59            	rolb
+   12f4   49            	rola
+   12f5   24 e2         	bcc	USL1
+   12f7   20 ed         	bra	USL3
+   12f9   31            USL5	ins
+   12fa   31            	ins
+   12fb   31            	ins
+   12fc   31            	ins
+   12fd   31            	ins
+   12fe   7e 14 83      	jmp	SWAP+4	;reverse quotient & remainder
+                        ;
+                        ; ######>> screen 25 <<
+                        ; ======>>  20  <<
+   1301   83            	fcb	$83
+   1302   41 4e         	fcc	"AN"	;fcc	2,ANDLAB
+   1304   c4            	fcb	$C4
+   1305   12 ca         	fdb	USLASH-5
+   1307   13 09         ANDLAB	fdb	*+2
+   1309   32            	pula
+   130a   33            	pulb
+   130b   30            	tsx
+   130c   e4 01         	andb	1,x
+   130e   a4 00         	anda	0,x
+   1310   7e 10 28      	jmp	STABX
+                        ;
+                        ; ======>>  21  <<
+   1313   82            	fcb	$82
+   1314   4f            	fcc	"O"	;fcc	1,ORLAB
+   1315   d2            	fcb	$D2
+   1316   13 01         	fdb	ANDLAB-6
+   1318   13 1a         ORLAB	fdb	*+2
+   131a   32            	pula
+   131b   33            	pulb
+   131c   30            	tsx
+   131d   ea 01         	orab	1,x
+   131f   aa 00         	oraa	0,x
+   1321   7e 10 28      	jmp	STABX
+                        ;	
+                        ; ======>>  22  <<
+   1324   83            	fcb	$83
+   1325   58 4f         	fcc	"XO"	;fcc	2,XORLAB
+   1327   d2            	fcb	$D2
+   1328   13 13         	fdb	ORLAB-5
+   132a   13 2c         XORLAB	fdb	*+2
+   132c   32            	pula
+   132d   33            	pulb
+   132e   30            	tsx
+   132f   e8 01         	eorb	1,x
+   1331   a8 00         	eora	0,x
+   1333   7e 10 28      	jmp	STABX
+                        ;
+                        ; ######>> screen 26 <<
+                        ; ======>>  23  <<
+   1336   83            	fcb	$83
+   1337   53 50         	fcc	"SP"	;fcc	2,SP@
+   1339   c0            	fcb	$C0
+   133a   13 24         	fdb	XORLAB-6
+   133c   13 3e         SPAT	fdb	*+2
+   133e   30            	tsx
+   133f   df e0         	stx	N	;scratch area
+   1341   ce 00 e0      	ldx	#N
+   1344   7e 10 2e      	jmp	GETX
+                        ;
+                        ; ======>>  24  <<
+   1347   83            	fcb	$83
+   1348   53 50         	fcc	"SP"	;fcc	2,SP!
+   134a   a1            	fcb	$A1
+   134b   13 36         	fdb	SPAT-6
+   134d   13 4f         SPSTORLAB	fdb	*+2
+   134f   de f6         	ldx	UP
+   1351   ee 06         	ldx	XSPZER-UORLABIG,x
+   1353   35            	txs		;watch it ! X and S are not EQUAL.
+   1354   7e 10 34      	jmp	NEXT
+                        ;
+                        ; ======>>  25  <<
+   1357   83            	fcb	$83
+   1358   52 50         	fcc	"RP"	;fcc	2,RP!
+   135a   a1            	fcb	$A1
+   135b   13 47         	fdb	SPSTORLAB-6
+   135d   13 5f         RPSTORLAB	fdb	*+2
+   135f   fe 10 14      	ldx	RINIT	;initialize from rom consta a nt
+   1362   df f4         	stx	RP
+   1364   7e 10 34      	jmp	NEXT
+                        ;
+                        ; ======>>  26  <<
+   1367   82            	fcb	$82
+   1368   3b            	fcc	";"	;fcc	1,;S
+   1369   d3            	fcb	$D3
+   136a   13 57         	fdb	RPSTORLAB-6
+   136c   13 6e         SEMIS	fdb	*+2
+   136e   de f4         	ldx	RP
+   1370   08            	inx
+   1371   08            	inx
+   1372   df f4         	stx	RP
+   1374   ee 00         	ldx	0,x	;get address we have just finished.
+   1376   7e 10 36      	jmp	NEXT+2	;increment the return address & do next word
+                        ;
+                        ; ######>> screen 27 <<
+                        ; ======>>  27  <<
+   1379   85            	fcb	$85
+   137a   4c 45 41 56   	fcc	"LEAV"	;fcc	4,LEAVE
+   137e   c5            	fcb	$C5
+   137f   13 67         	fdb	SEMIS-5
+   1381   13 83         LEAVE	fdb	*+2
+   1383   de f4         	ldx	RP
+   1385   a6 02         	lda	a 2,x
+   1387   e6 03         	lda b	3,x
+   1389   a7 04         	sta a 	4,x
+   138b   e7 05         	sta b	5,x
+   138d   7e 10 34      	jmp	NEXT
+                        ;
+                        ; ======>>  28  <<
+   1390   82            	fcb	$82
+   1391   3e            	fcc	">"	;fcc	1,>R
+   1392   d2            	fcb	$D2
+   1393   13 79         	fdb	LEAVE-8
+   1395   13 97         TORLAB	fdb	*+2
+   1397   de f4         	ldx	RP
+   1399   09            	dex
+   139a   09            	dex
+   139b   df f4         	stx	RP
+   139d   32            	pula
+   139e   33            	pulb
+   139f   a7 02         	sta a 	2,x
+   13a1   e7 03         	sta b	3,x
+   13a3   7e 10 34      	jmp	NEXT
+                        ;
+                        ; ======>>  29  <<
+   13a6   82            	fcb	$82
+   13a7   52            	fcc	"R"	;fcc	1,R>
+   13a8   be            	fcb	$BE
+   13a9   13 90         	fdb	TORLAB-5
+   13ab   13 ad         FROMR	fdb	*+2
+   13ad   de f4         	ldx	RP
+   13af   a6 02         	lda	a 2,x
+   13b1   e6 03         	lda b	3,x
+   13b3   08            	inx
+   13b4   08            	inx
+   13b5   df f4         	stx	RP
+   13b7   7e 10 32      	jmp	PUSHBA
+                        ;
+                        ; ======>>  30  <<
+   13ba   81            	fcb	$81	; R
+   13bb   d2            	fcb	$D2
+   13bc   13 a6         	fdb	FROMR-5
+   13be   13 c0         R	fdb	*+2
+   13c0   de f4         	ldx	RP
+   13c2   08            	inx
+   13c3   08            	inx
+   13c4   7e 10 2e      	jmp	GETX
+                        ;
+                        ; ######>> screen 28 <<
+                        ; ======>>  31  <<
+   13c7   82            	fcb	$82
+   13c8   30            	fcc	"0"	;fcc	1,0=
+   13c9   bd            	fcb	$BD
+   13ca   13 ba         	fdb	R-4
+   13cc   13 ce         ZEQU	fdb	*+2
+   13ce   30            	tsx
+   13cf   4f            	clra
+   13d0   5f            	clrb
+   13d1   ee 00         	ldx	0,x
+   13d3   26 01         	bne	ZEQU2
+   13d5   5c            	incb
+   13d6   30            ZEQU2	tsx
+   13d7   7e 10 28      	jmp	STABX
+                        ;
+                        ; ======>>  32  <<
+   13da   82            	fcb	$82
+   13db   30            	fcc	"0"	;fcc	1,0<
+   13dc   bc            	fcb	$BC
+   13dd   13 c7         	fdb	ZEQU-5
+   13df   13 e1         ZLESS	fdb	*+2
+   13e1   30            	tsx
+   13e2   86 80         	lda a #$80	;check the sign bit
+   13e4   a4 00         	anda	0,x
+   13e6   27 06         	beq	ZLESS2
+   13e8   4f            	clra		;if neg.
+   13e9   c6 01         	lda b	#1
+   13eb   7e 10 28      	jmp	STABX
+   13ee   5f            ZLESS2	clrb
+   13ef   7e 10 28      	jmp	STABX
+                        ;
+                        ; ######>> screen 29 <<
+                        ; ======>>  33  <<
+   13f2   81            	fcb	$81	;'+'
+   13f3   ab            	fcb	$AB
+   13f4   13 da         	fdb	ZLESS-5
+   13f6   13 f8         PLUS	fdb	*+2
+   13f8   32            	pula
+   13f9   33            	pulb
+   13fa   30            	tsx
+   13fb   eb 01         	addb	1,x
+   13fd   a9 00         	adca	0,x
+   13ff   7e 10 28      	jmp	STABX
+                        ;
+                        ; ======>>  34  <<
+   1402   82            	fcb	$82
+   1403   44            	fcc	"D"	;fcc	1,D+
+   1404   ab            	fcb	$AB
+   1405   13 f2         	fdb	PLUS-4
+   1407   14 09         DPLUS	fdb	*+2
+   1409   30            	tsx
+   140a   0c            	clc
+   140b   c6 04         	lda b	#4
+   140d   a6 03         DPLUS2	lda a	3,x
+   140f   a9 07         	adca	7,x
+   1411   a7 07         	sta a 	7,x
+   1413   09            	dex
+   1414   5a            	decb
+   1415   26 f6         	bne	DPLUS2
+   1417   31            	ins
+   1418   31            	ins
+   1419   31            	ins
+   141a   31            	ins
+   141b   7e 10 34      	jmp	NEXT
+                        ;
+                        ; ======>>  35  <<
+   141e   85            	fcb	$85
+   141f   4d 49 4e 55   	fcc	"MINU"	;fcc	4,MINUS
+   1423   d3            	fcb	$D3
+   1424   14 02         	fdb	DPLUS-5
+   1426   14 28         MINUS	fdb	*+2
+   1428   30            	tsx
+   1429   60 01         	neg	1,x
+   142b   25 04         	bcs	MINUS2	;BCS to match original 1979 listing
+   142d   60 00         	neg	0,x
+   142f   20 02         	bra	MINUS3
+   1431   63 00         MINUS2	com	0,x
+   1433   7e 10 34      MINUS3	jmp	NEXT
+                        ;
+                        ; ======>>  36  <<
+   1436   86            	fcb	$86
+   1437   44 4d 49 4e   	fcc	"DMINU"	;fcc	5,DMINUS
+   143b   55            
+   143c   d3            	fcb	$D3
+   143d   14 1e         	fdb	MINUS-8
+   143f   14 41         DMINUS	fdb	*+2
+   1441   30            	tsx
+   1442   63 00         	com	0,x
+   1444   63 01         	com	1,x
+   1446   63 02         	com	2,x
+   1448   60 03         	neg	3,x
+   144a   26 0a         	bne	DMINX
+   144c   6c 02         	inc	2,x
+   144e   26 06         	bne	DMINX
+   1450   6c 01         	inc	1,x
+   1452   26 02         	bne	DMINX
+   1454   6c 00         	inc	0,x
+   1456   7e 10 34      DMINX	jmp	NEXT
+                        ;
+                        ; ######>> screen 30 <<
+                        ; ======>>  37  <<
+   1459   84            	fcb	$84
+   145a   4f 56 45      	fcc	"OVE"	;fcc	3,OVER
+   145d   d2            	fcb	$D2
+   145e   14 36         	fdb	DMINUS-9
+   1460   14 62         OVER	fdb	*+2
+   1462   30            	tsx
+   1463   a6 02         	lda	a 2,x
+   1465   e6 03         	lda b	3,x
+   1467   7e 10 32      	jmp	PUSHBA
+                        ;
+                        ; ======>>  38  <<
+   146a   84            	fcb	$84
+   146b   44 52 4f      	fcc	"DRO"	;fcc	3,DROP
+   146e   d0            	fcb	$D0
+   146f   14 59         	fdb	OVER-7
+   1471   14 73         DROP	fdb	*+2
+   1473   31            	ins
+   1474   31            	ins
+   1475   7e 10 34      	jmp	NEXT
+                        ;
+                        ; ======>>  39  <<
+   1478   84            	fcb	$84
+   1479   53 57 41      	fcc	"SWA"	;fcc	3,SWAP
+   147c   d0            	fcb	$D0
+   147d   14 6a         	fdb	DROP-7
+   147f   14 81         SWAP	fdb	*+2
+   1481   32            	pula
+   1482   33            	pulb
+   1483   30            	tsx
+   1484   ee 00         	ldx	0,x
+   1486   31            	ins
+   1487   31            	ins
+   1488   37            	pshb
+   1489   36            	psha
+   148a   df e0         	stx	N
+   148c   ce 00 e0      	ldx	#N
+   148f   7e 10 2e      	jmp	GETX
+                        ;
+                        ; ======>>  40  <<
+   1492   83            	fcb	$83
+   1493   44 55         	fcc	"DU"	;fcc	2,DUP
+   1495   d0            	fcb	$D0
+   1496   14 78         	fdb	SWAP-7
+   1498   14 9a         DUP	fdb	*+2
+   149a   32            	pula
+   149b   33            	pulb
+   149c   37            	pshb
+   149d   36            	psha
+   149e   7e 10 32      	jmp PUSHBA
+                        ;
+                        ; ######>> screen 31 <<
+                        ; ======>>  41  <<
+   14a1   82            	fcb	$82
+   14a2   2b            	fcc	"+"	;fcc	1,+!
+   14a3   a1            	fcb	$A1
+   14a4   14 92         	fdb	DUP-6
+   14a6   14 a8         PSTORLABE	fdb	*+2
+   14a8   30            	tsx
+   14a9   ee 00         	ldx	0,x
+   14ab   31            	ins
+   14ac   31            	ins
+   14ad   32            	pula		;get sta a ck data
+   14ae   33            	pulb
+   14af   eb 01         	addb	1,x	;add & store low byte
+   14b1   e7 01         	sta b	1,x
+   14b3   a9 00         	adca	0,x	;add & store hi byte
+   14b5   a7 00         	sta a 	0,x
+   14b7   7e 10 34      	jmp	NEXT
+                        ;
+                        ; ======>>  42  <<
+   14ba   86            	fcb	$86
+   14bb   54 4f 47 47   	fcc	"TOGGL"	;fcc	5,TOGGLE
+   14bf   4c            
+   14c0   c5            	fcb	$C5
+   14c1   14 a1         	fdb	PSTORLABE-5
+   14c3   15 2a 14 60   TOGGLE	fdb	DOCOL,OVER,CAT,XORLAB,SWAP,CSTORLABE
+   14c7   14 e4 13 2a   
+   14cb   14 7f 15 04   
+   14cf   13 6c         	fdb	SEMIS
+                        ;
+                        ; ######>> screen 32 <<
+                        ; ======>>  43  <<
+   14d1   81            	fcb	$81	; @
+   14d2   c0            	fcb	$C0
+   14d3   14 ba         	fdb	TOGGLE-9
+   14d5   14 d7         AT	fdb	*+2
+   14d7   30            	tsx
+   14d8   ee 00         	ldx	0,x	;get address
+   14da   31            	ins
+   14db   31            	ins
+   14dc   7e 10 2e      	jmp	GETX
+                        ;
+                        ; ======>>  44  <<
+   14df   82            	fcb	$82
+   14e0   43            	fcc	"C"	;fcc	1,C@
+   14e1   c0            	fcb	$C0
+   14e2   14 d1         	fdb	AT-4
+   14e4   14 e6         CAT	fdb	*+2
+   14e6   30            	tsx
+   14e7   ee 00         	ldx	0,x
+   14e9   4f            	clra
+   14ea   e6 00         	lda b	0,x
+   14ec   31            	ins
+   14ed   31            	ins
+   14ee   7e 10 32      	jmp	PUSHBA
+                        ;
+                        ; ======>>  45  <<
+   14f1   81            	fcb	$81
+   14f2   a1            	fcb	$A1
+   14f3   14 df         	fdb	CAT-5
+   14f5   14 f7         STORLABE	fdb	*+2
+   14f7   30            	tsx
+   14f8   ee 00         	ldx	0,x	;get address
+   14fa   31            	ins
+   14fb   31            	ins
+   14fc   7e 10 26      	jmp	PULABX
+                        ;
+                        ; ======>>  46  <<
+   14ff   82            	fcb	$82
+   1500   43            	fcc	"C"	;fcc	1,C!
+   1501   a1            	fcb	$A1
+   1502   14 f1         	fdb	STORLABE-4
+   1504   15 06         CSTORLABE	fdb	*+2
+   1506   30            	tsx
+   1507   ee 00         	ldx	0,x	;get address
+   1509   31            	ins
+   150a   31            	ins
+   150b   31            	ins
+   150c   33            	pulb
+   150d   e7 00         	sta b	0,x
+   150f   7e 10 34      	jmp	NEXT
+                        ;
+                        ; ######>> screen 33 <<
+                        ; ======>>  47  <<
+   1512   c1            	fcb	$C1	;immediate
+   1513   ba            	fcb	$BA
+   1514   14 ff         	fdb	CSTORLABE-5
+   1516   15 2a 18 dd   COLON	fdb	DOCOL,QEXEC,SCSP,CURENT,AT,CONTXT,STORLABE
+   151a   18 99 16 b9   
+   151e   14 d5 16 ab   
+   1522   14 f5         
+   1524   1d e4 19 5e   	fdb	CREATE,RBRAK
+   1528   19 ad         	fdb	PSCODE
+                        
+                        ; Here is the IP pusher for allowing
+                        ; nested words in the virtual machine:
+                        ; ( ;S is the equivalent un-nester )
+                        
+   152a   de f4         DOCOL	ldx	RP	;make room in the sta a ck
+   152c   09            	dex
+   152d   09            	dex
+   152e   df f4         	stx	RP
+   1530   96 f2         	lda	a IP
+   1532   d6 f3         	lda b	IP+1	
+   1534   a7 02         	sta a 	2,x	;Store address of the high level word
+   1536   e7 03         	sta b	3,x	;that we are sta a rting to execute
+   1538   de f0         	ldx	W	;Get first sub-word of that definition
+   153a   7e 10 36      	jmp	NEXT+2	;and execute it
+                        ;
+                        ; ======>>  48  <<
+   153d   c1            	fcb	$C1	;imnediate code
+   153e   bb            	fcb	$BB
+   153f   15 12         	fdb	COLON-4
+   1541   15 2a 19 05   SEMI	fdb	DOCOL,QCSP,COMPIL,SEMIS,SMUDGE,LBRAK
+   1545   19 3a 13 6c   
+   1549   19 72 19 50   
+   154d   13 6c         	fdb	SEMIS
+                        ;
+                        ; ######>> screen 34 <<
+                        ; ======>>  49  <<
+   154f   88            	fcb	$88
+   1550   43 4f 4e 53   	fcc	"CONSTAN"	;fcc	7,CONSTANT
+   1554   54 41 4e      
+   1557   d4            	fcb	$D4
+   1558   15 3d         	fdb	SEMI-4
+   155a   15 2a 1d e4   CON	fdb	DOCOL,CREATE,SMUDGE,COMMA,PSCODE
+   155e   19 72 17 50   
+   1562   19 ad         
+   1564   de f0         DOCON	ldx	W
+   1566   a6 02         	lda	a 2,x	
+   1568   e6 03         	lda b	3,x	;A & B now contain the consta a nt
+   156a   7e 10 32      	jmp	PUSHBA
+                        ;
+                        ; ======>>  50  <<
+   156d   88            	fcb	$88
+   156e   56 41 52 49   	fcc	"VARIABL"	;fcc	7,VARIABLE
+   1572   41 42 4c      
+   1575   c5            	fcb	$C5
+   1576   15 4f         	fdb	CON-11
+   1578   15 2a 15 5a   VAR	fdb	DOCOL,CON,PSCODE
+   157c   19 ad         
+   157e   96 f0         DOVAR	lda	a W
+   1580   d6 f1         	lda b	W+1
+   1582   cb 02         	addb	#2
+   1584   89 00         	adca	#0	;A,B now contain the address of the variable
+   1586   7e 10 32      	jmp	PUSHBA
+                        ;
+                        ; ======>>  51  <<
+   1589   84            	fcb	$84
+   158a   55 53 45      	fcc	"USE"	;fcc	3,USER
+   158d   d2            	fcb	$D2
+   158e   15 6d         	fdb	VAR-11
+   1590   15 2a 15 5a   USER	fdb	DOCOL,CON,PSCODE
+   1594   19 ad         
+   1596   de f0         DOUSER	ldx	W	;get offset  into user's table
+   1598   a6 02         	lda	a 2,x
+   159a   e6 03         	lda b	3,x
+   159c   db f7         	addb	UP+1	;add to users base address
+   159e   99 f6         	adca	UP
+   15a0   7e 10 32      	jmp	PUSHBA	;push address of user's variable
+                        ;
+                        ; ######>> screen 35 <<
+                        ; ======>>  52  <<
+   15a3   81            	fcb	$81
+   15a4   b0            	fcb	$B0	; 0
+   15a5   15 89         	fdb	USER-7
+   15a7   15 64         ZERO	fdb	DOCON
+   15a9   00 00         	fdb	0000
+                        ;
+                        ; ======>>  53  <<
+   15ab   81            	fcb	$81
+   15ac   b1            	fcb	$B1	; 1
+   15ad   15 a3         	fdb	ZERO-4
+   15af   15 64         ONE	fdb	DOCON
+   15b1   00 01         	fdb	1
+                        ;
+                        ; ======>>  54  <<
+   15b3   81            	fcb	$81
+   15b4   b2            	fcb	$B2	; 2
+   15b5   15 ab         	fdb	ONE-4
+   15b7   15 64         TWO	fdb	DOCON
+   15b9   00 02         	fdb	2
+                        ;
+                        ; ======>>  55  <<
+   15bb   81            	fcb	$81
+   15bc   b3            	fcb	$B3	; 3
+   15bd   15 b3         	fdb	TWO-4
+   15bf   15 64         THREE	fdb	DOCON
+   15c1   00 03         	fdb	3
+                        ;
+                        ; ======>>  56  <<
+   15c3   82            	fcb	$82
+   15c4   42            	fcc	"B"	;fcc	1,BL
+   15c5   cc            	fcb	$CC
+   15c6   15 bb         	fdb	THREE-4
+   15c8   15 64         BL	fdb	DOCON	;ascii blank
+   15ca   00 20         	fdb	$20
+                        ;
+                        ; ======>>  57  <<
+   15cc   85            	fcb	$85
+   15cd   46 49 52 53   	fcc	"FIRS"	;fcc	4,FIRST
+   15d1   d4            	fcb	$D4
+   15d2   15 c3         	fdb	BL-5
+   15d4   15 64         FIRST	fdb	DOCON
+   15d6   30 00         	fdb	MEMEND-528	;(132 * NBLK)
+                        ;
+                        ; ======>>  58  <<
+   15d8   85            	fcb	$85
+   15d9   4c 49 4d 49   	fcc	"LIMI"	;fcc	4,LIMIT	;(the end of memory +1)
+   15dd   d4            	fcb	$D4
+   15de   15 cc         	fdb	FIRST-8
+   15e0   15 64         LIMIT	fdb	DOCON
+   15e2   32 10         	fdb	MEMEND
+                        ;
+                        ; ======>>  59  <<
+   15e4   85            	fcb	$85
+   15e5   42 2f 42 55   	fcc	"B/BU"	;fcc	4,B/BUF	;(bytes/buffer)
+   15e9   c6            	fcb	$C6
+   15ea   15 d8         	fdb	LIMIT-8
+   15ec   15 64         BBUF	fdb	DOCON
+   15ee   00 80         	fdb	128
+                        ;
+                        ; ======>>  60  <<
+   15f0   85            	fcb	$85
+   15f1   42 2f 53 43   	fcc	"B/SC"	;fcc	4,B/SCR	;(blocks/screen)
+   15f5   d2            	fcb	$D2
+   15f6   15 e4         	fdb	BBUF-8
+   15f8   15 64         BSCR	fdb	DOCON
+   15fa   00 08         	fdb	8
+                        ;	blocks/screen = 1024 / "B/BUF" = 8
+                        ;
+                        ; ======>>  61  <<
+   15fc   87            	fcb	$87
+   15fd   2b 4f 52 4c   	fcc	"+ORLABIGI"	;fcc	6,+ORLABIGIN
+   1601   41 42 49 47   
+   1605   49            
+   1606   ce            	fcb	$CE
+   1607   15 f0         	fdb	BSCR-8
+   1609   15 2a 10 49   PORLABIG	fdb	DOCOL,LIT,ORLABIG,PLUS
+   160d   10 00 13 f6   
+   1611   13 6c         	fdb	SEMIS
+                        ;
+                        ; ######>> screen 36 <<
+                        ; ======>>  62  <<
+   1613   82            	fcb	$82
+   1614   53            	fcc	"S"	;fcc	1,S0
+   1615   b0            	fcb	$B0
+   1616   15 ff         	fdb	PORLABIG-10
+   1618   15 96         SZERO	fdb	DOUSER
+   161a   00 06         	fdb	XSPZER-UORLABIG
+                        ;
+                        ; ======>>  63  <<
+   161c   82            	fcb	$82
+   161d   52            	fcc	"R"	;fcc	1,R0
+   161e   b0            	fcb	$B0
+   161f   16 13         	fdb	SZERO-5
+   1621   15 96         RZERO	fdb	DOUSER
+   1623   00 08         	fdb	XRZERO-UORLABIG
+                        ;
+                        ; ======>>  64  <<
+   1625   83            	fcb	$83
+   1626   54 49         	fcc	"TI"	;fcc	2,TIB
+   1628   c2            	fcb	$C2
+   1629   16 1c         	fdb	RZERO-5
+   162b   15 96         TIB	fdb	DOUSER
+   162d   00 0a         	fdb	XTIB-UORLABIG
+                        ;
+                        ; ======>>  65  <<
+   162f   85            	fcb	$85
+   1630   57 49 44 54   	fcc	"WIDT"	;fcc	4,WIDTH
+   1634   c8            	fcb	$C8
+   1635   16 25         	fdb	TIB-6
+   1637   15 96         WIDTH	fdb	DOUSER
+   1639   00 0c         	fdb	XWIDTH-UORLABIG
+                        ;
+                        ; ======>>  66  <<
+   163b   87            	fcb	$87
+   163c   57 41 52 4e   	fcc	"WARNIN"	;fcc	6,WARNING
+   1640   49 4e         
+   1642   c7            	fcb	$C7
+   1643   16 2f         	fdb	WIDTH-8
+   1645   15 96         WARN	fdb	DOUSER
+   1647   00 0e         	fdb	XWARN-UORLABIG
+                        ;
+                        ; ======>>  67  <<
+   1649   85            	fcb	$85
+   164a   46 45 4e 43   	fcc	"FENC"	;fcc	4,FENCE
+   164e   c5            	fcb	$C5
+   164f   16 3b         	fdb	WARN-10
+   1651   15 96         FENCE	fdb	DOUSER
+   1653   00 10         	fdb	XFENCE-UORLABIG
+                        ;
+                        ; ======>>  68  <<
+   1655   82            	fcb	$82
+   1656   44            	fcc	"D"	;fcc	1,DP	;points to first free byte at end of dictionary
+   1657   d0            	fcb	$D0
+   1658   16 49         	fdb	FENCE-8
+   165a   15 96         DP	fdb	DOUSER
+   165c   00 12         	fdb	XDP-UORLABIG
+                        ;
+                        ; ======>>  68.5  <<
+   165e   88            	fcb	$88
+   165f   56 4f 43 2d   	fcc	"VOC-LIN"	;fcc	7,VOC-LINK
+   1663   4c 49 4e      
+   1666   cb            	fcb	$CB
+   1667   16 55         	fdb	DP-5
+   1669   15 96         VOCLIN	fdb	DOUSER
+   166b   00 14         	fdb	XVOCL-UORLABIG
+                        ;
+                        ; ======>>  69  <<
+   166d   83            	fcb	$83
+   166e   42 4c         	fcc	"BL"	;fcc	2,BLK
+   1670   cb            	fcb	$CB
+   1671   16 5e         	fdb	VOCLIN-11
+   1673   15 96         BLK	fdb	DOUSER
+   1675   00 16         	fdb	XBLK-UORLABIG
+                        ;
+                        ; ======>>  70  <<
+   1677   82            	fcb	$82
+   1678   49            	fcc	"I"	;fcc	1,IN	;scan pointer for input line buffer
+   1679   ce            	fcb	$CE
+   167a   16 6d         	fdb	BLK-6
+   167c   15 96         IN	fdb	DOUSER
+   167e   00 18         	fdb	XIN-UORLABIG
+                        ;
+                        ; ======>>  71  <<
+   1680   83            	fcb	$83
+   1681   4f 55         	fcc	"OU"	;fcc	2,OUT
+   1683   d4            	fcb	$D4
+   1684   16 77         	fdb	IN-5
+   1686   15 96         OUT	fdb	DOUSER
+   1688   00 1a         	fdb	XOUT-UORLABIG
+                        ;
+                        ; ======>>  72  <<
+   168a   83            	fcb	$83
+   168b   53 43         	fcc	"SC"	;fcc	2,SCR
+   168d   d2            	fcb	$D2
+   168e   16 80         	fdb	OUT-6
+   1690   15 96         SCR	fdb	DOUSER
+   1692   00 1c         	fdb	XSCR-UORLABIG
+                        ;
+                        ; ######>> screen 37 <<
+                        ; ======>>  73  <<
+   1694   86            	fcb	$86
+   1695   4f 46 46 53   	fcc	"OFFSE"	;fcc	5,OFFSET
+   1699   45            
+   169a   d4            	fcb	$D4
+   169b   16 8a         	fdb	SCR-6
+   169d   15 96         OFSET	fdb	DOUSER
+   169f   00 1e         	fdb	XOFSET-UORLABIG
+                        ;
+                        ; ======>>  74  <<
+   16a1   87            	fcb	$87
+   16a2   43 4f 4e 54   	fcc	"CONTEX"	;fcc	6,CONTEXT	;points to pointer to vocab to search first
+   16a6   45 58         
+   16a8   d4            	fcb	$D4
+   16a9   16 94         	fdb	OFSET-9
+   16ab   15 96         CONTXT	fdb	DOUSER
+   16ad   00 20         	fdb	XCONT-UORLABIG
+                        ;
+                        ; ======>>  75  <<
+   16af   87            	fcb	$87
+   16b0   43 55 52 52   	fcc	"CURREN"	;fcc	6,CURRENT	;points to pointer to vocab being extended
+   16b4   45 4e         
+   16b6   d4            	fcb	$D4
+   16b7   16 a1         	fdb	CONTXT-10
+   16b9   15 96         CURENT	fdb	DOUSER
+   16bb   00 22         	fdb	XCURR-UORLABIG
+                        ;
+                        ; ======>>  76  <<
+   16bd   85            	fcb	$85
+   16be   53 54 41 54   	fcc	"STAT"	;fcc	4,STATE	;1 if COMPILing, 0 if not
+   16c2   c5            	fcb	$C5
+   16c3   16 af         	fdb	CURENT-10
+   16c5   15 96         STATE	fdb	DOUSER
+   16c7   00 24         	fdb	XSTATE-UORLABIG
+                        ;
+                        ; ======>>  77  <<
+   16c9   84            	fcb	$84
+   16ca   42 41 53      	fcc	"BAS"	;fcc	3,BASE	;number base for all input & output
+   16cd   c5            	fcb	$C5
+   16ce   16 bd         	fdb	STATE-8
+   16d0   15 96         BASE	fdb	DOUSER
+   16d2   00 26         	fdb	XBASE-UORLABIG
+                        ;
+                        ; ======>>  78  <<
+   16d4   83            	fcb	$83
+   16d5   44 50         	fcc	"DP"	;fcc	2,DPL
+   16d7   cc            	fcb	$CC
+   16d8   16 c9         	fdb	BASE-7
+   16da   15 96         DPL	fdb	DOUSER
+   16dc   00 28         	fdb	XDPL-UORLABIG
+                        ;
+                        ; ======>>  79  <<
+   16de   83            	fcb	$83
+   16df   46 4c         	fcc	"FL"	;fcc	2,FLD
+   16e1   c4            	fcb	$C4
+   16e2   16 d4         	fdb	DPL-6
+   16e4   15 96         FLD	fdb	DOUSER
+   16e6   00 2a         	fdb	XFLD-UORLABIG
+                        ;
+                        ; ======>>  80  <<
+   16e8   83            	fcb	$83
+   16e9   43 53         	fcc	"CS"	;fcc	2,CSP
+   16eb   d0            	fcb	$D0
+   16ec   16 de         	fdb	FLD-6
+   16ee   15 96         CSP	fdb	DOUSER
+   16f0   00 2c         	fdb	XCSP-UORLABIG
+                        ;
+                        ; ======>>  81  <<
+   16f2   82            	fcb	$82
+   16f3   52            	fcc	"R"	;fcc	1,R#
+   16f4   a3            	fcb	$A3
+   16f5   16 e8         	fdb	CSP-6
+   16f7   15 96         RNUM	fdb	DOUSER
+   16f9   00 2e         	fdb	XRNUM-UORLABIG
+                        ;
+                        ; ======>>  82  <<
+   16fb   83            	fcb	$83
+   16fc   48 4c         	fcc	"HL"	;fcc	2,HLD
+   16fe   c4            	fcb	$C4
+   16ff   16 f2         	fdb	RNUM-5
+   1701   15 64         HLD	fdb	DOCON
+   1703   01 30         	fdb	XHLD
+                        ;
+                        ; ======>>  82.5  <<== SPECIAL
+   1705   87            	fcb	$87
+   1706   43 4f 4c 55   	fcc	"COLUMN"	;fcc	6,COLUMNS	;line width of terminal
+   170a   4d 4e         
+   170c   d3            	fcb	$D3
+   170d   16 fb         	fdb	HLD-6
+   170f   15 96         COLUMS	fdb	DOUSER
+   1711   00 34         	fdb	XCOLUM-UORLABIG
+                        ;
+                        ; ######>> screen 38 <<
+                        ; ======>>  83  <<
+   1713   82            	fcb	$82
+   1714   31            	fcc	"1"	;fcc	1,1+
+   1715   ab            	fcb	$AB
+   1716   17 05         	fdb	COLUMS-10
+   1718   15 2a 15 af   ONEP	fdb	DOCOL,ONE,PLUS
+   171c   13 f6         
+   171e   13 6c         	fdb	SEMIS
+                        ;
+                        ; ======>>  84  <<
+   1720   82            	fcb	$82
+   1721   32            	fcc	"2"	;fcc	1,2+
+   1722   ab            	fcb	$AB
+   1723   17 13         	fdb	ONEP-5
+   1725   15 2a 15 b7   TWOP	fdb	DOCOL,TWO,PLUS
+   1729   13 f6         
+   172b   13 6c         	fdb	SEMIS
+                        ;
+                        ; ======>>  85  <<
+   172d   84            	fcb	$84
+   172e   48 45 52      	fcc	"HER"	;fcc	3,HERE
+   1731   c5            	fcb	$C5
+   1732   17 20         	fdb	TWOP-5
+   1734   15 2a 16 5a   HERE	fdb	DOCOL,DP,AT
+   1738   14 d5         
+   173a   13 6c         	fdb	SEMIS
+                        ;
+                        ; ======>>  86  <<
+   173c   85            	fcb	$85
+   173d   41 4c 4c 4f   	fcc	"ALLO"	;fcc	4,ALLOT
+   1741   d4            	fcb	$D4
+   1742   17 2d         	fdb	HERE-7
+   1744   15 2a 16 5a   ALLOT	fdb	DOCOL,DP,PSTORLABE
+   1748   14 a6         
+   174a   13 6c         	fdb	SEMIS
+                        ;
+                        ; ======>>  87  <<
+   174c   81            	fcb	$81	; , (comma)
+   174d   ac            	fcb	$AC
+   174e   17 3c         	fdb	ALLOT-8
+   1750   15 2a 17 34   COMMA	fdb	DOCOL,HERE,STORLABE,TWO,ALLOT
+   1754   14 f5 15 b7   
+   1758   17 44         
+   175a   13 6c         	fdb	SEMIS
+                        ;
+                        ; ======>>  88  <<
+   175c   82            	fcb	$82
+   175d   43            	fcc	"C"	;fcc	1,C,
+   175e   ac            	fcb	$AC
+   175f   17 4c         	fdb	COMMA-4
+   1761   15 2a 17 34   CCOMM	fdb	DOCOL,HERE,CSTORLABE,ONE,ALLOT
+   1765   15 04 15 af   
+   1769   17 44         
+   176b   13 6c         	fdb	SEMIS
+                        ;
+                        ; ======>>  89  <<
+   176d   81            	fcb	$81	; -
+   176e   ad            	fcb	$AD
+   176f   17 5c         	fdb	CCOMM-5
+   1771   15 2a 14 26   SUB	fdb	DOCOL,MINUS,PLUS
+   1775   13 f6         
+   1777   13 6c         	fdb	SEMIS
+                        ;
+                        ; ======>>  90  <<
+   1779   81            	fcb	$81	; =
+   177a   bd            	fcb	$BD
+   177b   17 6d         	fdb	SUB-4
+   177d   15 2a 17 71   EQUAL	fdb	DOCOL,SUB,ZEQU
+   1781   13 cc         
+   1783   13 6c         	fdb	SEMIS
+                        ;
+                        ; ======>>  91  <<
+   1785   81            	fcb	$81	; <
+   1786   bc            	fcb	$BC	
+   1787   17 79         	fdb	EQUAL-4
+   1789   17 8b         LESS	fdb	*+2
+   178b   32            	pula
+   178c   33            	pulb
+   178d   30            	tsx
+   178e   a1 00         	cmpa	0,x
+   1790   31            	ins
+   1791   2e 09         	bgt	LESST
+   1793   26 04         	bne	LESSF
+   1795   e1 01         	cmpb	1,x
+   1797   22 03         	bhi	LESST
+   1799   5f            LESSF	clrb
+   179a   20 02         	bra	LESSX
+   179c   c6 01         LESST	lda b	#1
+   179e   4f            LESSX	clra
+   179f   31            	ins
+   17a0   7e 10 32      	jmp	PUSHBA
+                        ;
+                        ; ======>>  92  <<
+   17a3   81            	fcb	$81	; >
+   17a4   be            	fcb	$BE
+   17a5   17 85         	fdb	LESS-4
+   17a7   15 2a 14 7f   GREAT	fdb	DOCOL,SWAP,LESS
+   17ab   17 89         
+   17ad   13 6c         	fdb	SEMIS
+                        ;
+                        ; ======>>  93  <<
+   17af   83            	fcb	$83
+   17b0   52 4f         	fcc	"RO"	;fcc	2,ROT
+   17b2   d4            	fcb	$D4
+   17b3   17 a3         	fdb	GREAT-4
+   17b5   15 2a 13 95   ROT	fdb	DOCOL,TORLAB,SWAP,FROMR,SWAP
+   17b9   14 7f 13 ab   
+   17bd   14 7f         
+   17bf   13 6c         	fdb	SEMIS
+                        ;
+                        ; ======>>  94  <<
+   17c1   85            	fcb	$85
+   17c2   53 50 41 43   	fcc	"SPAC"	;fcc	4,SPACE
+   17c6   c5            	fcb	$C5
+   17c7   17 af         	fdb	ROT-6
+   17c9   15 2a 15 c8   SPACE	fdb	DOCOL,BL,EMIT
+   17cd   12 26         
+   17cf   13 6c         	fdb	SEMIS
+                        ;
+                        ; ======>>  95  <<
+   17d1   83            	fcb	$83
+   17d2   4d 49         	fcc	"MI"	;fcc	2,MIN
+   17d4   ce            	fcb	$CE
+   17d5   17 c1         	fdb	SPACE-8
+   17d7   15 2a 14 60   MIN	fdb	DOCOL,OVER,OVER,GREAT,ZBRAN
+   17db   14 60 17 a7   
+   17df   10 91         
+   17e1   00 04         	fdb	MIN2-*
+   17e3   14 7f         	fdb	SWAP
+   17e5   14 71         MIN2	fdb	DROP
+   17e7   13 6c         	fdb	SEMIS
+                        ;
+                        ; ======>>  96  <<
+   17e9   83            	fcb	$83
+   17ea   4d 41         	fcc	"MA"	;fcc	2,MAX
+   17ec   d8            	fcb	$D8
+   17ed   17 d1         	fdb	MIN-6
+   17ef   15 2a 14 60   MAX	fdb	DOCOL,OVER,OVER,LESS,ZBRAN
+   17f3   14 60 17 89   
+   17f7   10 91         
+   17f9   00 04         	fdb	MAX2-*
+   17fb   14 7f         	fdb	SWAP
+   17fd   14 71         MAX2	fdb	DROP
+   17ff   13 6c         	fdb	SEMIS
+                        ;
+                        ; ======>>  97  <<
+   1801   84            	fcb	$84
+   1802   2d 44 55      	fcc	"-DU"	;fcc	3,-DUP
+   1805   d0            	fcb	$D0
+   1806   17 e9         	fdb	MAX-6
+   1808   15 2a 14 98   DDUP	fdb	DOCOL,DUP,ZBRAN
+   180c   10 91         
+   180e   00 04         	fdb	DDUP2-*
+   1810   14 98         	fdb	DUP
+   1812   13 6c         DDUP2	fdb	SEMIS
+                        ;
+                        ; ######>> screen 39 <<
+                        ; ======>>  98  <<
+   1814   88            	fcb	$88
+   1815   54 52 41 56   	fcc	"TRAVERS"	;fcc	7,TRAVERSE
+   1819   45 52 53      
+   181c   c5            	fcb	$C5
+   181d   18 01         	fdb	DDUP-7
+   181f   15 2a 14 7f   TRAV	fdb	DOCOL,SWAP
+   1823   14 60 13 f6   TRAV2	fdb	OVER,PLUS,CLITER
+   1827   10 59         
+   1829   7f            	fcb	$7F
+   182a   14 60 14 e4   	fdb	OVER,CAT,LESS,ZBRAN
+   182e   17 89 10 91   
+   1832   ff f1         	fdb	TRAV2-*
+   1834   14 7f 14 71   	fdb	SWAP,DROP
+   1838   13 6c         	fdb	SEMIS
+                        ;
+                        ; ======>>  99  <<
+   183a   86            	fcb	$86
+   183b   4c 41 54 45   	fcc	"LATES"	;fcc	5,LATEST
+   183f   53            
+   1840   d4            	fcb	$D4
+   1841   18 14         	fdb	TRAV-11
+   1843   15 2a 16 b9   LATEST	fdb	DOCOL,CURENT,AT,AT
+   1847   14 d5 14 d5   
+   184b   13 6c         	fdb	SEMIS
+                        ;
+                        ; ======>>  100  <<
+   184d   83            	fcb	$83
+   184e   4c 46         	fcc	"LF"	;fcc	2,LFA
+   1850   c1            	fcb	$C1
+   1851   18 3a         	fdb	LATEST-9
+   1853   15 2a 10 59   LFA	fdb	DOCOL,CLITER
+   1857   04            	fcb	4
+   1858   17 71         	fdb	SUB
+   185a   13 6c         	fdb	SEMIS
+                        ;
+                        ; ======>>  101  <<
+   185c   83            	fcb	$83
+   185d   43 46         	fcc	"CF"	;fcc	2,CFA
+   185f   c1            	fcb	$C1
+   1860   18 4d         	fdb	LFA-6
+   1862   15 2a 15 b7   CFA	fdb	DOCOL,TWO,SUB
+   1866   17 71         
+   1868   13 6c         	fdb	SEMIS
+                        ;
+                        ; ======>>  102  <<
+   186a   83            	fcb	$83
+   186b   4e 46         	fcc	"NF"	;fcc	2,NFA
+   186d   c1            	fcb	$C1
+   186e   18 5c         	fdb	CFA-6
+   1870   15 2a 10 59   NFA	fdb	DOCOL,CLITER
+   1874   05            	fcb	5
+   1875   17 71 15 af   	fdb	SUB,ONE,MINUS,TRAV
+   1879   14 26 18 1f   
+   187d   13 6c         	fdb	SEMIS
+                        ;
+                        ; ======>>  103  <<
+   187f   83            	fcb	$83
+   1880   50 46         	fcc	"PF"	;fcc	2,PFA
+   1882   c1            	fcb	$C1
+   1883   18 6a         	fdb	NFA-6
+   1885   15 2a 15 af   PFA	fdb	DOCOL,ONE,TRAV,CLITER
+   1889   18 1f 10 59   
+   188d   05            	fcb	5
+   188e   13 f6         	fdb	PLUS
+   1890   13 6c         	fdb	SEMIS
+                        ;
+                        ; ######>> screen 40 <<
+                        ; ======>>  104  <<
+   1892   84            	fcb	$84
+   1893   21 43 53      	fcc	"!CS"	;fcc	3,!CSP
+   1896   d0            	fcb	$D0
+   1897   18 7f         	fdb	PFA-6
+   1899   15 2a 13 3c   SCSP	fdb	DOCOL,SPAT,CSP,STORLABE
+   189d   16 ee 14 f5   
+   18a1   13 6c         	fdb	SEMIS
+                        ;
+                        ; ======>>  105  <<
+   18a3   86            	fcb	$86
+   18a4   3f 45 52 52   	fcc	"?ERRO"	;fcc	5,?ERRORLAB
+   18a8   4f            
+   18a9   d2            	fcb	$D2
+   18aa   18 92         	fdb	SCSP-7
+   18ac   15 2a 14 7f   QERR	fdb	DOCOL,SWAP,ZBRAN
+   18b0   10 91         
+   18b2   00 08         	fdb	QERR2-*
+   18b4   1d 7f 10 85   	fdb	ERRORLAB,BRAN
+   18b8   00 04         	fdb	QERR3-*
+   18ba   14 71         QERR2	fdb	DROP
+   18bc   13 6c         QERR3	fdb	SEMIS
+                        ;	
+                        ; ======>>  106  <<
+   18be   85            	fcb	$85
+   18bf   3f 43 4f 4d   	fcc	"?COM"	;fcc	4,?COMP
+   18c3   d0            	fcb	$D0
+   18c4   18 a3         	fdb	QERR-9
+   18c6   15 2a 16 c5   QCOMP	fdb	DOCOL,STATE,AT,ZEQU,CLITER
+   18ca   14 d5 13 cc   
+   18ce   10 59         
+   18d0   11            	fcb	$11
+   18d1   18 ac         	fdb	QERR
+   18d3   13 6c         	fdb	SEMIS
+                        ;
+                        ; ======>>  107  <<
+   18d5   85            	fcb	$85
+   18d6   3f 45 58 45   	fcc	"?EXE"	;fcc	4,?EXEC
+   18da   c3            	fcb	$C3
+   18db   18 be         	fdb	QCOMP-8
+   18dd   15 2a 16 c5   QEXEC	fdb	DOCOL,STATE,AT,CLITER
+   18e1   14 d5 10 59   
+   18e5   12            	fcb	$12
+   18e6   18 ac         	fdb	QERR
+   18e8   13 6c         	fdb	SEMIS
+                        ;
+                        ; ======>>  108  <<
+   18ea   86            	fcb	$86
+   18eb   3f 50 41 49   	fcc	"?PAIR"	;fcc	5,?PAIRS
+   18ef   52            
+   18f0   d3            	fcb	$D3
+   18f1   18 d5         	fdb	QEXEC-8
+   18f3   15 2a 17 71   QPAIRS	fdb	DOCOL,SUB,CLITER
+   18f7   10 59         
+   18f9   13            	fcb	$13
+   18fa   18 ac         	fdb	QERR
+   18fc   13 6c         	fdb	SEMIS
+                        ;
+                        ; ======>>  109  <<
+   18fe   84            	fcb	$84
+   18ff   3f 43 53      	fcc	"?CS"	;fcc	3,?CSP
+   1902   d0            	fcb	$D0
+   1903   18 ea         	fdb	QPAIRS-9
+   1905   15 2a 13 3c   QCSP	fdb	DOCOL,SPAT,CSP,AT,SUB,CLITER
+   1909   16 ee 14 d5   
+   190d   17 71 10 59   
+   1911   14            	fcb	$14
+   1912   18 ac         	fdb	QERR
+   1914   13 6c         	fdb	SEMIS
+                        ;
+                        ; ======>>  110  <<
+   1916   88            	fcb	$88
+   1917   3f 4c 4f 41   	fcc	"?LOADIN"	;fcc	7,?LOADING
+   191b   44 49 4e      
+   191e   c7            	fcb	$C7
+   191f   18 fe         	fdb	QCSP-7
+   1921   15 2a 16 73   QLOAD	fdb	DOCOL,BLK,AT,ZEQU,CLITER
+   1925   14 d5 13 cc   
+   1929   10 59         
+   192b   16            	fcb	$16
+   192c   18 ac         	fdb	QERR
+   192e   13 6c         	fdb	SEMIS
+                        ;
+                        ; ######>> screen 41 <<
+                        ; ======>>  111  <<
+   1930   87            	fcb	$87
+   1931   43 4f 4d 50   	fcc	"COMPIL"	;fcc	6,COMPILE
+   1935   49 4c         
+   1937   c5            	fcb	$C5
+   1938   19 16         	fdb	QLOAD-11
+   193a   15 2a 18 c6   COMPIL	fdb	DOCOL,QCOMP,FROMR,TWOP,DUP,TORLAB,AT,COMMA
+   193e   13 ab 17 25   
+   1942   14 98 13 95   
+   1946   14 d5 17 50   
+   194a   13 6c         	fdb	SEMIS
+                        ;
+                        ; ======>>  112  <<
+   194c   c1            	fcb	$C1	; [	immediate
+   194d   db            	fcb	$DB
+   194e   19 30         	fdb	COMPIL-10
+   1950   15 2a 15 a7   LBRAK	fdb	DOCOL,ZERO,STATE,STORLABE
+   1954   16 c5 14 f5   
+   1958   13 6c         	fdb	SEMIS
+                        ;
+                        ; ======>>  113  <<
+   195a   81            	fcb	$81	; ]
+   195b   dd            	fcb	$DD
+   195c   19 4c         	fdb	LBRAK-4
+   195e   15 2a 10 59   RBRAK	fdb	DOCOL,CLITER
+   1962   c0            	fcb	$C0
+   1963   16 c5 14 f5   	fdb	STATE,STORLABE
+   1967   13 6c         	fdb	SEMIS
+                        ;
+                        ; ======>>  114  <<
+   1969   86            	fcb	$86
+   196a   53 4d 55 44   	fcc	"SMUDG"	;fcc	5,SMUDGE
+   196e   47            
+   196f   c5            	fcb	$C5
+   1970   19 5a         	fdb	RBRAK-4
+   1972   15 2a 18 43   SMUDGE	fdb	DOCOL,LATEST,CLITER
+   1976   10 59         
+   1978   20            	fcb	$20
+   1979   14 c3         	fdb	TOGGLE
+   197b   13 6c         	fdb	SEMIS
+                        ;
+                        ; ======>>  115  <<
+   197d   83            	fcb	$83
+   197e   48 45         	fcc	"HE"	;fcc	2,HEX
+   1980   d8            	fcb	$D8
+   1981   19 69         	fdb	SMUDGE-9
+   1983   15 2a         HEX	fdb	DOCOL
+   1985   10 59         	fdb	CLITER
+   1987   10            	fcb	16
+   1988   16 d0 14 f5   	fdb	BASE,STORLABE
+   198c   13 6c         	fdb	SEMIS
+                        ;
+                        ; ======>>  116  <<
+   198e   87            	fcb	$87
+   198f   44 45 43 49   	fcc	"DECIMA"	;fcc	6,DECIMAL
+   1993   4d 41         
+   1995   cc            	fcb	$CC
+   1996   19 7d         	fdb	HEX-6
+   1998   15 2a         DEC	fdb	DOCOL
+   199a   10 59         	fdb	CLITER
+   199c   0a            	fcb	10	;note: hex "A"
+   199d   16 d0 14 f5   	fdb	BASE,STORLABE
+   19a1   13 6c         	fdb	SEMIS
+                        ;
+                        ; ######>> screen 42 <<
+                        ; ======>>  117  <<
+   19a3   87            	fcb	$87
+   19a4   28 3a 43 4f   	fcc	"(:CODE"	;fcc	6,(;CODE)
+   19a8   44 45         
+   19aa   a9            	fcb	$A9
+   19ab   19 8e         	fdb	DEC-10
+   19ad   15 2a 13 ab   PSCODE	fdb	DOCOL,FROMR,TWOP,LATEST,PFA,CFA,STORLABE
+   19b1   17 25 18 43   
+   19b5   18 85 18 62   
+   19b9   14 f5         
+   19bb   13 6c         	fdb	SEMIS
+                        ;
+                        ; ======>>  118  <<
+   19bd   c5            	fcb	$C5	;immediate
+   19be   3b 43 4f 44   	fcc	";COD"	;fcc	4,;CODE
+   19c2   c5            	fcb	$C5
+   19c3   19 a3         	fdb	PSCODE-10
+   19c5   15 2a 19 05   SEMIC	fdb	DOCOL,QCSP,COMPIL,PSCODE,SMUDGE,LBRAK,QSTACK
+   19c9   19 3a 19 ad   
+   19cd   19 72 19 50   
+   19d1   1a ef         
+   19d3   13 6c         	fdb	SEMIS
+                        ; note: "QSTACK" will be replaced by "ASSEMBLER" later
+                        ;
+                        ; ######>> screen 43 <<
+                        ; ======>>  119  <<
+   19d5   87            	fcb	$87
+   19d6   3c 42 55 49   	fcc	"<BUILD"	;fcc	6,<BUILDS
+   19da   4c 44         
+   19dc   d3            	fcb	$D3
+   19dd   19 bd         	fdb	SEMIC-8
+   19df   15 2a 15 a7   BUILDS	fdb	DOCOL,ZERO,CON
+   19e3   15 5a         
+   19e5   13 6c         	fdb	SEMIS
+                        ;
+                        ; ======>>  120  <<
+   19e7   85            	fcb	$85
+   19e8   44 4f 45 53   	fcc	"DOES"	;fcc	4,DOES>
+   19ec   be            	fcb	$BE
+   19ed   19 d5         	fdb	BUILDS-10
+   19ef   15 2a 13 ab   DOES	fdb	DOCOL,FROMR,TWOP,LATEST,PFA,STORLABE
+   19f3   17 25 18 43   
+   19f7   18 85 14 f5   
+   19fb   19 ad         	fdb	PSCODE
+   19fd   96 f2         DODOES	lda	a IP
+   19ff   d6 f3         	lda b	IP+1
+   1a01   de f4         	ldx	RP	;make room on return sta a ck
+   1a03   09            	dex
+   1a04   09            	dex
+   1a05   df f4         	stx	RP
+   1a07   a7 02         	sta a  	2,x	;push return address
+   1a09   e7 03         	sta b	3,x
+   1a0b   de f0         	ldx	W	;get addr of pointer to run-time code
+   1a0d   08            	inx
+   1a0e   08            	inx
+   1a0f   df e0         	stx	N	;sta a sh it in scratch area
+   1a11   ee 00         	ldx	0,x	;get new IP
+   1a13   df f2         	stx	IP
+   1a15   4f            	clra		;get address of parameter
+   1a16   c6 02         	lda b	#2
+   1a18   db e1         	addb	N+1
+   1a1a   99 e0         	adca	N
+   1a1c   37            	pshb		;and push it on data sta a ck
+   1a1d   36            	psha
+   1a1e   7e 10 3a      	jmp	NEXT2
+                        ;
+                        ; ######>> screen 44 <<
+                        ; ======>>  121  <<
+   1a21   85            	fcb	$85
+   1a22   43 4f 55 4e   	fcc	"COUN"	;fcc	4,COUNT
+   1a26   d4            	fcb	$D4
+   1a27   19 e7         	fdb	DOES-8
+   1a29   15 2a 14 98   COUNT	fdb	DOCOL,DUP,ONEP,SWAP,CAT
+   1a2d   17 18 14 7f   
+   1a31   14 e4         
+   1a33   13 6c         	fdb	SEMIS
+                        ;
+                        ; ======>>  122  <<
+   1a35   84            	fcb	$84
+   1a36   54 59 50      	fcc	"TYP"	;fcc	3,TYPE
+   1a39   c5            	fcb	$C5
+   1a3a   1a 21         	fdb	COUNT-8
+   1a3c   15 2a 18 08   TYPE	fdb	DOCOL,DDUP,ZBRAN
+   1a40   10 91         
+   1a42   00 1d         	fdb	TYPE3-*
+   1a44   14 60 13 f6   	fdb	OVER,PLUS,SWAP,XDO
+   1a48   14 7f 11 04   
+                        ;
+                        ;TYPE2	fdb	I,CAT,EMIT,XLOOP
+                        ;
+   1a4c   11 21 14 e4   TYPE2	fdb	I,CAT,CLITER	;fix to make VLIST
+   1a50   10 59         
+   1a52   7f            	fcb	$7F		;type all the characters
+   1a53   13 07 12 26   	fdb	ANDLAB,EMIT,XLOOP	;in the words
+   1a57   10 bf         
+                        ;
+   1a59   ff f3         	fdb	TYPE2-*
+   1a5b   10 85         	fdb	BRAN
+   1a5d   00 04         	fdb	TYPE4-*
+   1a5f   14 71         TYPE3	fdb	DROP
+   1a61   13 6c         TYPE4	fdb	SEMIS
+                        ;
+                        ; ======>>  123  <<
+   1a63   89            	fcb	$89
+   1a64   2d 54 52 41   	fcc	"-TRAILIN"	;fcc	8,-TRAILING
+   1a68   49 4c 49 4e   
+   1a6c   c7            	fcb	$C7
+   1a6d   1a 35         	fdb	TYPE-7
+   1a6f   15 2a 14 98   DTRAIL	fdb	DOCOL,DUP,ZERO,XDO
+   1a73   15 a7 11 04   
+   1a77   14 60 14 60   DTRAL2	fdb	OVER,OVER,PLUS,ONE,SUB,CAT,BL
+   1a7b   13 f6 15 af   
+   1a7f   17 71 14 e4   
+   1a83   15 c8         
+   1a85   17 71 10 91   	fdb	SUB,ZBRAN
+   1a89   00 08         	fdb	DTRAL3-*
+   1a8b   13 81 10 85   	fdb	LEAVE,BRAN
+   1a8f   00 06         	fdb	DTRAL4-*
+   1a91   15 af 17 71   DTRAL3	fdb	ONE,SUB
+   1a95   10 bf         DTRAL4	fdb	XLOOP
+   1a97   ff e0         	fdb	DTRAL2-*
+   1a99   13 6c         	fdb	SEMIS
+                        ;
+                        ; ======>>  124  <<
+   1a9b   84            	fcb	$84
+   1a9c   28 2e 22      	fcb	$28,$2E,$22	;fcc	3,(.")
+   1a9f   a9            	fcb	$A9
+   1aa0   1a 63         	fdb	DTRAIL-12
+   1aa2   15 2a 13 be   PDOTQ	fdb	DOCOL,R,TWOP,COUNT,DUP,ONEP
+   1aa6   17 25 1a 29   
+   1aaa   14 98 17 18   
+   1aae   13 ab 13 f6   	fdb	FROMR,PLUS,TORLAB,TYPE
+   1ab2   13 95 1a 3c   
+   1ab6   13 6c         	fdb	SEMIS
+                        ;
+                        ; ======>>  125  <<
+   1ab8   c2            	fcb	$C2	;immediate
+   1ab9   2e            	fcc	"."	;fcc	1,."
+   1aba   a2            	fcb	$A2
+   1abb   1a 9b         	fdb	PDOTQ-7
+   1abd   15 2a         DOTQ	fdb	DOCOL
+   1abf   10 59         	fdb	CLITER
+   1ac1   22            	fcb	$22	;ascii quote
+   1ac2   16 c5 14 d5   	fdb	STATE,AT,ZBRAN
+   1ac6   10 91         
+   1ac8   00 14         	fdb	DOTQ1-*
+   1aca   19 3a 1a a2   	fdb	COMPIL,PDOTQ,WORLABD
+   1ace   1c 51         
+   1ad0   17 34 14 e4   	fdb	HERE,CAT,ONEP,ALLOT,BRAN
+   1ad4   17 18 17 44   
+   1ad8   10 85         
+   1ada   00 0a         	fdb	DOTQ2-*
+   1adc   1c 51 17 34   DOTQ1	fdb	WORLABD,HERE,COUNT,TYPE
+   1ae0   1a 29 1a 3c   
+   1ae4   13 6c         DOTQ2	fdb	SEMIS
+                        ;
+                        ; ######>> screen 45 <<
+                        ; ======>>  126  <<== MACHINE DEPENDENT
+   1ae6   86            	fcb	$86
+   1ae7   3f 53 54 41   	fcc	"?STAC"	;fcc	5,?STACK
+   1aeb   43            
+   1aec   cb            	fcb	$CB
+   1aed   1a b8         	fdb	DOTQ-5
+   1aef   15 2a 10 59   QSTACK	fdb	DOCOL,CLITER
+   1af3   12            	fcb	$12
+   1af4   16 09 14 d5   	fdb	PORLABIG,AT,TWO,SUB,SPAT,LESS,ONE
+   1af8   15 b7 17 71   
+   1afc   13 3c 17 89   
+   1b00   15 af         
+   1b02   18 ac         	fdb	QERR
+                        ; prints 'empty sta a ck'
+                        ;
+   1b04   13 3c         QSTAC2	fdb	SPAT
+                        ; Here, we compare with a value at least 128
+                        ; higher than dict. ptr. (DP)
+   1b06   17 34 10 59   	fdb	HERE,CLITER
+   1b0a   80            	fcb	$80
+   1b0b   13 f6 17 89   	fdb	PLUS,LESS,ZBRAN
+   1b0f   10 91         
+   1b11   00 06         	fdb	QSTAC3-*
+   1b13   15 b7         	fdb	TWO
+   1b15   18 ac         	fdb	QERR
+                        ; prints 'full sta a ck'
+                        ;
+   1b17   13 6c         QSTAC3	fdb	SEMIS
+                        ;
+                        ; ======>>  127  <<	this word's function
+                        ;	    		is done by ?STACK in this version
+                        ;	fcb	$85
+                        ;	fcc	"?FRE"	;fcc	4,?FREE
+                        ;	fcb	$C5
+                        ;	fdb	QSTACK-9
+                        ;QFREE	fdb	DOCOL,SPAT,HERE,CLITER
+                        ;	fcb	$80
+                        ;	fdb	PLUS,LESS,TWO,QERR,SEMIS
+                        ;
+                        ; ######>> screen 46 <<
+                        ; ======>>  128  <<
+   1b19   86            	fcb	$86
+   1b1a   45 58 50 45   	fcc	"EXPEC"	;fcc	5,EXPECT
+   1b1e   43            
+   1b1f   d4            	fcb	$D4
+   1b20   1a e6         	fdb	QSTACK-9
+   1b22   15 2a 14 60   EXPECT	fdb	DOCOL,OVER,PLUS,OVER,XDO
+   1b26   13 f6 14 60   
+   1b2a   11 04         
+   1b2c   12 3e 14 98   EXPEC2	fdb	KEY,DUP,CLITER
+   1b30   10 59         
+   1b32   0e            	fcb	$0E
+   1b33   16 09 14 d5   	fdb	PORLABIG,AT,EQUAL,ZBRAN
+   1b37   17 7d 10 91   
+   1b3b   00 1f         	fdb	EXPEC3-*
+   1b3d   14 71 10 59   	fdb	DROP,CLITER
+   1b41   08            	fcb	8	;(backspace character to emit)
+   1b42   14 60 11 21   	fdb	OVER,I,EQUAL,DUP,FROMR,TWO,SUB,PLUS
+   1b46   17 7d 14 98   
+   1b4a   13 ab 15 b7   
+   1b4e   17 71 13 f6   
+   1b52   13 95 17 71   	fdb	TORLAB,SUB,BRAN
+   1b56   10 85         
+   1b58   00 27         	fdb	EXPEC6-*
+   1b5a   14 98 10 59   EXPEC3	fdb	DUP,CLITER
+   1b5e   0d            	fcb	$D	;(carriage return)
+   1b5f   17 7d 10 91   	fdb	EQUAL,ZBRAN
+   1b63   00 0e         	fdb	EXPEC4-*
+   1b65   13 81 14 71   	fdb	LEAVE,DROP,BL,ZERO,BRAN
+   1b69   15 c8 15 a7   
+   1b6d   10 85         
+   1b6f   00 04         	fdb	EXPEC5-*
+   1b71   14 98         EXPEC4	fdb	DUP
+   1b73   11 21 15 04   EXPEC5	fdb	I,CSTORLABE,ZERO,I,ONEP,STORLABE
+   1b77   15 a7 11 21   
+   1b7b   17 18 14 f5   
+   1b7f   12 26 10 bf   EXPEC6	fdb	EMIT,XLOOP
+   1b83   ff a9         	fdb	EXPEC2-*
+   1b85   14 71         	fdb	DROP
+   1b87   13 6c         	fdb	SEMIS
+                        ;
+                        ; ======>>  129  <<
+   1b89   85            	fcb	$85
+   1b8a   51 55 45 52   	fcc	"QUER"	;fcc	4,QUERY
+   1b8e   d9            	fcb	$D9
+   1b8f   1b 19         	fdb	EXPECT-9
+   1b91   15 2a 16 2b   QUERY	fdb	DOCOL,TIB,AT,COLUMS
+   1b95   14 d5 17 0f   
+   1b99   14 d5 1b 22   	fdb	AT,EXPECT,ZERO,IN,STORLABE
+   1b9d   15 a7 16 7c   
+   1ba1   14 f5         
+   1ba3   13 6c         	fdb	SEMIS
+                        ;
+                        ; ======>>  130  <<
+   1ba5   c1            	fcb	$C1	;immediate	< carriage return >
+   1ba6   80            	fcb	$80
+   1ba7   1b 89         	fdb	QUERY-8
+   1ba9   15 2a 16 73   NULL	fdb	DOCOL,BLK,AT,ZBRAN
+   1bad   14 d5 10 91   
+   1bb1   00 26         	fdb	NULL2-*
+   1bb3   15 af 16 73   	fdb	ONE,BLK,PSTORLABE
+   1bb7   14 a6         
+   1bb9   15 a7 16 7c   	fdb	ZERO,IN,STORLABE,BLK,AT,BSCR,MODLAB
+   1bbd   14 f5 16 73   
+   1bc1   14 d5 15 f8   
+   1bc5   20 9e         
+   1bc7   13 cc         	fdb	ZEQU
+                        ;     check for end of screen
+   1bc9   10 91         	fdb	ZBRAN
+   1bcb   00 08         	fdb	NULL1-*
+   1bcd   18 dd 13 ab   	fdb	QEXEC,FROMR,DROP
+   1bd1   14 71         
+   1bd3   10 85         NULL1	fdb	BRAN
+   1bd5   00 06         	fdb	NULL3-*
+   1bd7   13 ab 14 71   NULL2	fdb	FROMR,DROP
+   1bdb   13 6c         NULL3	fdb	SEMIS
+                        ;
+                        ; ######>> screen 47 <<
+                        ; ======>>  133  <<
+   1bdd   84            	fcb	$84
+   1bde   46 49 4c      	fcc	"FIL"	;fcc	3,FILL
+   1be1   cc            	fcb	$CC
+   1be2   1b a5         	fdb	NULL-4
+   1be4   15 2a 14 7f   FILL	fdb	DOCOL,SWAP,TORLAB,OVER,CSTORLABE,DUP,ONEP
+   1be8   13 95 14 60   
+   1bec   15 04 14 98   
+   1bf0   17 18         
+   1bf2   13 ab 15 af   	fdb	FROMR,ONE,SUB,CMOVE
+   1bf6   17 71 12 73   
+   1bfa   13 6c         	fdb	SEMIS
+                        ;
+                        ; ======>>  134  <<
+   1bfc   85            	fcb	$85
+   1bfd   45 52 41 53   	fcc	"ERAS"	;fcc	4,ERASE
+   1c01   c5            	fcb	$C5
+   1c02   1b dd         	fdb	FILL-7
+   1c04   15 2a 15 a7   ERASE	fdb	DOCOL,ZERO,FILL
+   1c08   1b e4         
+   1c0a   13 6c         	fdb	SEMIS
+                        ;
+                        ; ======>>  135  <<
+   1c0c   86            	fcb	$86
+   1c0d   42 4c 41 4e   	fcc	"BLANK"	;fcc	5,BLANKS
+   1c11   4b            
+   1c12   d3            	fcb	$D3
+   1c13   1b fc         	fdb	ERASE-8
+   1c15   15 2a 15 c8   BLANKS	fdb	DOCOL,BL,FILL
+   1c19   1b e4         
+   1c1b   13 6c         	fdb	SEMIS
+                        ;
+                        ; ======>>  136  <<
+   1c1d   84            	fcb	$84
+   1c1e   48 4f 4c      	fcc	"HOL"	;fcc	3,HOLD
+   1c21   c4            	fcb	$C4
+   1c22   1c 0c         	fdb	BLANKS-9
+   1c24   15 2a 10 49   HOLD	fdb	DOCOL,LIT,$FFFF,HLD,PSTORLABE,HLD,AT,CSTORLABE
+   1c28   ff ff 17 01   
+   1c2c   14 a6 17 01   
+   1c30   14 d5 15 04   
+   1c34   13 6c         	fdb	SEMIS
+                        ;
+                        ; ======>>  137  <<
+   1c36   83            	fcb	$83
+   1c37   50 41         	fcc	"PA"	;fcc	2,PAD
+   1c39   c4            	fcb	$C4
+   1c3a   1c 1d         	fdb	HOLD-7
+   1c3c   15 2a 17 34   PAD	fdb	DOCOL,HERE,CLITER
+   1c40   10 59         
+   1c42   44            	fcb	$44
+   1c43   13 f6         	fdb	PLUS
+   1c45   13 6c         	fdb	SEMIS
+                        ;
+                        ; ######>> screen 48 <<
+                        ; ======>>  138  <<
+   1c47   84            	fcb	$84
+   1c48   57 4f 52 4c   	fcc	"WORLAB"	;fcc	3,WORLABD
+   1c4c   41 42         
+   1c4e   c4            	fcb	$C4
+   1c4f   1c 36         	fdb	PAD-6
+   1c51   15 2a 16 73   WORLABD	fdb	DOCOL,BLK,AT,ZBRAN
+   1c55   14 d5 10 91   
+   1c59   00 0c         	fdb	WORLABD2-*
+   1c5b   16 73 14 d5   	fdb	BLK,AT,BLOCK,BRAN
+   1c5f   21 fb 10 85   
+   1c63   00 06         	fdb	WORLABD3-*
+   1c65   16 2b 14 d5   WORLABD2	fdb	TIB,AT
+   1c69   16 7c 14 d5   WORLABD3	fdb	IN,AT,PLUS,SWAP,ENCLOS,HERE,CLITER
+   1c6d   13 f6 14 7f   
+   1c71   11 dd 17 34   
+   1c75   10 59         
+   1c77   22            	fcb	34
+   1c78   1c 15 16 7c   	fdb	BLANKS,IN,PSTORLABE,OVER,SUB,TORLAB,R,HERE
+   1c7c   14 a6 14 60   
+   1c80   17 71 13 95   
+   1c84   13 be 17 34   
+   1c88   15 04 13 f6   	fdb	CSTORLABE,PLUS,HERE,ONEP,FROMR,CMOVE
+   1c8c   17 34 17 18   
+   1c90   13 ab 12 73   
+   1c94   13 6c         	fdb	SEMIS
+                        ;
+                        ; ######>> screen 49 <<
+                        ; ======>>  139  <<
+   1c96   88            	fcb	$88
+   1c97   28 4e 55 4d   	fcc	"(NUMBER"	;fcc	7,(NUMBER)
+   1c9b   42 45 52      
+   1c9e   a9            	fcb	$A9
+   1c9f   1c 4a         	fdb	WORLABD-7
+   1ca1   15 2a         PNUMB	fdb	DOCOL
+   1ca3   17 18 14 98   PNUMB2	fdb	ONEP,DUP,TORLAB,CAT,BASE,AT,DIGIT,ZBRAN
+   1ca7   13 95 14 e4   
+   1cab   16 d0 14 d5   
+   1caf   11 32 10 91   
+   1cb3   00 2c         	fdb	PNUMB4-*
+   1cb5   14 7f 16 d0   	fdb	SWAP,BASE,AT,USTAR,DROP,ROT,BASE
+   1cb9   14 d5 12 a7   
+   1cbd   14 71 17 b5   
+   1cc1   16 d0         
+   1cc3   14 d5 12 a7   	fdb	AT,USTAR,DPLUS,DPL,AT,ONEP,ZBRAN
+   1cc7   14 07 16 da   
+   1ccb   14 d5 17 18   
+   1ccf   10 91         
+   1cd1   00 08         	fdb	PNUMB3-*
+   1cd3   15 af 16 da   	fdb	ONE,DPL,PSTORLABE
+   1cd7   14 a6         
+   1cd9   13 ab 10 85   PNUMB3	fdb	FROMR,BRAN
+   1cdd   ff c6         	fdb	PNUMB2-*
+   1cdf   13 ab         PNUMB4	fdb	FROMR
+   1ce1   13 6c         	fdb	SEMIS
+                        ;
+                        ; ======>>  140  <<
+   1ce3   86            	fcb	$86
+   1ce4   4e 55 4d 42   	fcc	"NUMBE"	;fcc	5,NUMBER
+   1ce8   45            
+   1ce9   d2            	fcb	$D2
+   1cea   1c 96         	fdb	PNUMB-11
+   1cec   15 2a 15 a7   NUMB	fdb	DOCOL,ZERO,ZERO,ROT,DUP,ONEP,CAT,CLITER
+   1cf0   15 a7 17 b5   
+   1cf4   14 98 17 18   
+   1cf8   14 e4 10 59   
+   1cfc   2d            	fcc	"-"	;minus sign
+   1cfd   17 7d 14 98   	fdb	EQUAL,DUP,TORLAB,PLUS,LIT,$FFFF
+   1d01   13 95 13 f6   
+   1d05   10 49 ff ff   
+   1d09   16 da 14 f5   NUMB1	fdb	DPL,STORLABE,PNUMB,DUP,CAT,BL,SUB
+   1d0d   1c a1 14 98   
+   1d11   14 e4 15 c8   
+   1d15   17 71         
+   1d17   10 91         	fdb	ZBRAN
+   1d19   00 15         	fdb	NUMB2-*
+   1d1b   14 98 14 e4   	fdb	DUP,CAT,CLITER
+   1d1f   10 59         
+   1d21   2e            	fcc	"."
+   1d22   17 71 15 a7   	fdb	SUB,ZERO,QERR,ZERO,BRAN
+   1d26   18 ac 15 a7   
+   1d2a   10 85         
+   1d2c   ff dd         	fdb	NUMB1-*
+   1d2e   14 71 13 ab   NUMB2	fdb	DROP,FROMR,ZBRAN
+   1d32   10 91         
+   1d34   00 04         	fdb	NUMB3-*
+   1d36   14 3f         	fdb	DMINUS
+   1d38   13 6c         NUMB3	fdb	SEMIS
+                        ;
+                        ; ======>>  141  <<
+   1d3a   85            	fcb	$85
+   1d3b   2d 46 49 4e   	fcc	"-FIN"	;fcc	4,-FIND
+   1d3f   c4            	fcb	$C4
+   1d40   1c e3         	fdb	NUMB-9
+   1d42   15 2a 15 c8   DFIND	fdb	DOCOL,BL,WORLABD,HERE,CONTXT,AT,AT
+   1d46   1c 51 17 34   
+   1d4a   16 ab 14 d5   
+   1d4e   14 d5         
+   1d50   11 67 14 98   	fdb	PFIND,DUP,ZEQU,ZBRAN
+   1d54   13 cc 10 91   
+   1d58   00 0a         	fdb	DFIND2-*
+   1d5a   14 71 17 34   	fdb	DROP,HERE,LATEST,PFIND
+   1d5e   18 43 11 67   
+   1d62   13 6c         DFIND2	fdb	SEMIS
+                        ;
+                        ; ######>> screen 50 <<
+                        ; ======>>  142  <<
+   1d64   87            	fcb	$87
+   1d65   28 41 42 4f   	fcc	"(ABORLABT"	;fcc	6,(ABORLABT)
+   1d69   52 4c 41 42   
+   1d6d   54            
+   1d6e   a9            	fcb	$A9
+   1d6f   1d 3a         	fdb	DFIND-8
+   1d71   15 2a 1f 86   PABORLABT	fdb	DOCOL,ABORLABT
+   1d75   13 6c         	fdb	SEMIS
+                        ;
+                        ; ======>>  143  <<
+   1d77   85            	fcb	$85
+   1d78   45 52 52 4f   	fcc	"ERRO"	;fcc	4,ERRORLAB
+   1d7c   d2            	fcb	$D2
+   1d7d   1d 67         	fdb	PABORLABT-10
+   1d7f   15 2a 16 45   ERRORLAB	fdb	DOCOL,WARN,AT,ZLESS
+   1d83   14 d5 13 df   
+   1d87   10 91         	fdb	ZBRAN
+                        ; note: WARNING is -1 to abort, 0 to print ERRORLAB #
+                        ; and 1 to print ERRORLAB message from disc
+   1d89   00 04         	fdb	ERRORLAB2-*
+   1d8b   1d 71         	fdb	PABORLABT
+   1d8d   17 34 1a 29   ERRORLAB2	fdb	HERE,COUNT,TYPE,PDOTQ
+   1d91   1a 3c 1a a2   
+   1d95   04 07         	fcb	4,7	;(bell)
+   1d97   20 3f 20      	fcc	" ? "
+   1d9a   22 94 13 4d   	fdb	MESS,SPSTORLAB,IN,AT,BLK,AT,QUIT
+   1d9e   16 7c 14 d5   
+   1da2   16 73 14 d5   
+   1da6   1f 55         
+   1da8   13 6c         	fdb	SEMIS
+                        ;
+                        ; ======>>  144  <<
+   1daa   83            	fcb	$83
+   1dab   49 44         	fcc	"ID"	;fcc	2,ID.
+   1dad   ae            	fcb	$AE
+   1dae   1d 77         	fdb	ERRORLAB-8
+   1db0   15 2a 1c 3c   IDDOT	fdb	DOCOL,PAD,CLITER
+   1db4   10 59         
+   1db6   20            	fcb	32
+   1db7   10 59         	fdb	CLITER
+   1db9   5f            	fcb	$5F	;(underline)
+   1dba   1b e4 14 98   	fdb	FILL,DUP,PFA,LFA,OVER,SUB,PAD
+   1dbe   18 85 18 53   
+   1dc2   14 60 17 71   
+   1dc6   1c 3c         
+   1dc8   14 7f 12 73   	fdb	SWAP,CMOVE,PAD,COUNT,CLITER
+   1dcc   1c 3c 1a 29   
+   1dd0   10 59         
+   1dd2   1f            	fcb	31
+   1dd3   13 07 1a 3c   	fdb	ANDLAB,TYPE,SPACE
+   1dd7   17 c9         
+   1dd9   13 6c         	fdb	SEMIS
+                        ;
+                        ; ######>> screen 51 <<
+                        ; ======>>  145  <<
+   1ddb   86            	fcb	$86
+   1ddc   43 52 45 41   	fcc	"CREAT"	;fcc	5,CREATE
+   1de0   54            
+   1de1   c5            	fcb	$C5
+   1de2   1d aa         	fdb	IDDOT-6
+   1de4   15 2a 1d 42   CREATE	fdb	DOCOL,DFIND,ZBRAN
+   1de8   10 91         
+   1dea   00 1a         	fdb	CREAT2-*
+   1dec   14 71 1a a2   	fdb	DROP,PDOTQ
+   1df0   08            	fcb	8
+   1df1   07            	fcb	7	;(bel)
+   1df2   72 65 64 65   	fcc	"redef: "
+   1df6   66 3a 20      
+   1df9   18 70 1d b0   	fdb	NFA,IDDOT,CLITER
+   1dfd   10 59         
+   1dff   04            	fcb	4
+   1e00   22 94 17 c9   	fdb	MESS,SPACE
+   1e04   17 34 14 98   CREAT2	fdb	HERE,DUP,CAT,WIDTH,AT,MIN
+   1e08   14 e4 16 37   
+   1e0c   14 d5 17 d7   
+   1e10   17 18 17 44   	fdb	ONEP,ALLOT,DUP,CLITER
+   1e14   14 98 10 59   
+   1e18   a0            	fcb	$A0
+   1e19   14 c3 17 34   	fdb	TOGGLE,HERE,ONE,SUB,CLITER
+   1e1d   15 af 17 71   
+   1e21   10 59         
+   1e23   80            	fcb	$80
+   1e24   14 c3 18 43   	fdb	TOGGLE,LATEST,COMMA,CURENT,AT,STORLABE
+   1e28   17 50 16 b9   
+   1e2c   14 d5 14 f5   
+   1e30   17 34 17 25   	fdb	HERE,TWOP,COMMA
+   1e34   17 50         
+   1e36   13 6c         	fdb	SEMIS
+                        ;
+                        ; ######>> screen 52 <<
+                        ; ======>>  146  <<
+   1e38   c9            	fcb	$C9	;immediate
+   1e39   5b 43 4f 4d   	fcc	"[COMPILE"	;fcc	8,[COMPILE]
+   1e3d   50 49 4c 45   
+   1e41   dd            	fcb	$DD
+   1e42   1d db         	fdb	CREATE-9
+   1e44   15 2a 1d 42   BcomP	fdb	DOCOL,DFIND,ZEQU,ZERO,QERR,DROP,CFA,COMMA
+   1e48   13 cc 15 a7   
+   1e4c   18 ac 14 71   
+   1e50   18 62 17 50   
+   1e54   13 6c         	fdb	SEMIS
+                        ;
+                        ; ======>>  147  <<
+   1e56   c7            	fcb	$C7	;immediate
+   1e57   4c 49 54 45   	fcc	"LITERA"	;fcc	6,LITERAL
+   1e5b   52 41         
+   1e5d   cc            	fcb	$CC
+   1e5e   1e 38         	fdb	BcomP-12
+   1e60   15 2a 16 c5   LITER	fdb	DOCOL,STATE,AT,ZBRAN
+   1e64   14 d5 10 91   
+   1e68   00 08         	fdb	LITER2-*
+   1e6a   19 3a 10 49   	fdb	COMPIL,LIT,COMMA
+   1e6e   17 50         
+   1e70   13 6c         LITER2	fdb	SEMIS
+                        ;
+                        ; ======>>  148  <<
+   1e72   c8            	fcb	$C8	;immediate
+   1e73   44 4c 49 54   	fcc	"DLITERA"	;fcc	7,DLITERAL
+   1e77   45 52 41      
+   1e7a   cc            	fcb	$CC
+   1e7b   1e 56         	fdb	LITER-10
+   1e7d   15 2a 16 c5   DLITER	fdb	DOCOL,STATE,AT,ZBRAN
+   1e81   14 d5 10 91   
+   1e85   00 08         	fdb	DLITE2-*
+   1e87   14 7f 1e 60   	fdb	SWAP,LITER,LITER
+   1e8b   1e 60         
+   1e8d   13 6c         DLITE2	fdb	SEMIS
+                        ;
+                        ; ######>> screen 53 <<
+                        ; ======>>  149  <<
+   1e8f   89            	fcb	$89
+   1e90   49 4e 54 45   	fcc	"INTERPRE"	;fcc	8,INTERPRET
+   1e94   52 50 52 45   
+   1e98   d4            	fcb	$D4
+   1e99   1e 72         	fdb	DLITER-11
+   1e9b   15 2a         INTERP	fdb	DOCOL
+   1e9d   1d 42 10 91   INTER2	fdb	DFIND,ZBRAN
+   1ea1   00 1c         	fdb	INTER5-*
+   1ea3   16 c5 14 d5   	fdb	STATE,AT,LESS
+   1ea7   17 89         
+   1ea9   10 91         	fdb	ZBRAN
+   1eab   00 0a         	fdb	INTER3-*
+   1ead   18 62 17 50   	fdb	CFA,COMMA,BRAN
+   1eb1   10 85         
+   1eb3   00 06         	fdb	INTER4-*
+   1eb5   18 62 10 71   INTER3	fdb	CFA,EXEC
+   1eb9   10 85         INTER4	fdb	BRAN
+   1ebb   00 1a         	fdb	INTER7-*
+   1ebd   17 34 1c ec   INTER5	fdb	HERE,NUMB,DPL,AT,ONEP,ZBRAN
+   1ec1   16 da 14 d5   
+   1ec5   17 18 10 91   
+   1ec9   00 08         	fdb	INTER6-*
+   1ecb   1e 7d 10 85   	fdb	DLITER,BRAN
+   1ecf   00 06         	fdb	INTER7-*
+   1ed1   14 71 1e 60   INTER6	fdb	DROP,LITER
+   1ed5   1a ef 10 85   INTER7	fdb	QSTACK,BRAN
+   1ed9   ff c4         	fdb	INTER2-*
+                        ;	fdb	SEMIS	;never executed
+                        ;
+                        ; ######>> screen 54 <<
+                        ; ======>>  150  <<
+   1edb   89            	fcb	$89
+   1edc   49 4d 4d 45   	fcc	"IMMEDIAT"	;fcc	8,IMMEDIATE
+   1ee0   44 49 41 54   
+   1ee4   c5            	fcb	$C5
+   1ee5   1e 8f         	fdb	INTERP-12
+   1ee7   15 2a 18 43   IMMED	fdb	DOCOL,LATEST,CLITER
+   1eeb   10 59         
+   1eed   40            	fcb	$40
+   1eee   14 c3         	fdb	TOGGLE
+   1ef0   13 6c         	fdb	SEMIS
+                        ;
+                        ; ======>>  151  <<
+   1ef2   8a            	fcb	$8A
+   1ef3   56 4f 43 41   	fcc	"VOCABULAR"	;fcc	9,VOCABULARY
+   1ef7   42 55 4c 41   
+   1efb   52            
+   1efc   d9            	fcb	$D9
+   1efd   1e db         	fdb	IMMED-12
+   1eff   15 2a 19 df   VOCAB	fdb	DOCOL,BUILDS,LIT,$81A0,COMMA,CURENT,AT,CFA
+   1f03   10 49 81 a0   
+   1f07   17 50 16 b9   
+   1f0b   14 d5 18 62   
+   1f0f   17 50 17 34   	fdb	COMMA,HERE,VOCLIN,AT,COMMA,VOCLIN,STORLABE,DOES
+   1f13   16 69 14 d5   
+   1f17   17 50 16 69   
+   1f1b   14 f5 19 ef   
+   1f1f   17 25 16 ab   DOVOC	fdb	TWOP,CONTXT,STORLABE
+   1f23   14 f5         
+   1f25   13 6c         	fdb	SEMIS
+                        ;
+                        ; ======>>  152  <<
+                        ;
+                        ; Note: FORLABTH does not go here in the rom-able dictionary,
+                        ;       since FORLABTH is a type of variable.
+                        ;
+                        ;
+                        ; ======>>  153  <<
+   1f27   8b            	fcb	$8B
+   1f28   44 45 46 49   	fcc	"DEFINITION"	;fcc	10,DEFINITIONS
+   1f2c   4e 49 54 49   
+   1f30   4f 4e         
+   1f32   d3            	fcb	$D3
+   1f33   1e f2         	fdb	VOCAB-13
+   1f35   15 2a 16 ab   DEFIN	fdb	DOCOL,CONTXT,AT,CURENT,STORLABE
+   1f39   14 d5 16 b9   
+   1f3d   14 f5         
+   1f3f   13 6c         	fdb	SEMIS
+                        ;
+                        ; ======>>  154  <<
+   1f41   c1            	fcb	$C1	;immediate	(
+   1f42   a8            	fcb	$A8
+   1f43   1f 27         	fdb	DEFIN-14
+   1f45   15 2a 10 59   PAREN	fdb	DOCOL,CLITER
+   1f49   29            	fcc	")"
+   1f4a   1c 51         	fdb	WORLABD
+   1f4c   13 6c         	fdb	SEMIS
+                        ;
+                        ; ######>> screen 55 <<
+                        ; ======>>  155  <<
+   1f4e   84            	fcb	$84
+   1f4f   51 55 49      	fcc	"QUI"	;fcc	3,QUIT
+   1f52   d4            	fcb	$D4
+   1f53   1f 41         	fdb	PAREN-4
+   1f55   15 2a 15 a7   QUIT	fdb	DOCOL,ZERO,BLK,STORLABE
+   1f59   16 73 14 f5   
+   1f5d   19 50         	fdb	LBRAK
+                        ;
+                        ;  Here is the outer interpreter
+                        ;  which gets a line of input, does it, prints " OK"
+                        ;  then repeats :
+                        ;
+   1f5f   13 5d 12 63   QUIT2	fdb	RPSTORLAB,CR,QUERY,INTERP,STATE,AT,ZEQU
+   1f63   1b 91 1e 9b   
+   1f67   16 c5 14 d5   
+   1f6b   13 cc         
+   1f6d   10 91         	fdb	ZBRAN
+   1f6f   00 08         	fdb	QUIT3-*
+   1f71   1a a2         	fdb	PDOTQ
+   1f73   03            	fcb	3
+   1f74   20 4f 4b      	fcc	" OK"	;fcc	3, OK
+   1f77   10 85         QUIT3	fdb	BRAN
+   1f79   ff e6         	fdb	QUIT2-*
+                        ;	fdb	SEMIS	;(never executed)
+                        ;
+                        ; ======>>  156  <<
+   1f7b   85            	fcb	$85
+   1f7c   41 42 4f 52   	fcc	"ABORLAB"	;fcc	4,ABORLABT
+   1f80   4c 41 42      
+   1f83   d4            	fcb	$D4
+   1f84   1f 4e         	fdb	QUIT-7
+   1f86   15 2a 13 4d   ABORLABT	fdb	DOCOL,SPSTORLAB,DEC,QSTACK,DRZERO,CR,PDOTQ
+   1f8a   19 98 1a ef   
+   1f8e   21 8e 12 63   
+   1f92   1a a2         
+   1f94   08            	fcb	8
+   1f95   46 6f 72 74   	fcc	"Forth-68"
+   1f99   68 2d 36 38   
+   1f9d   01 53 1f 35   	fdb	FORLABTH,DEFIN
+   1fa1   1f 55         	fdb	QUIT
+                        ;	fdb	SEMIS	;never executed
+                        ;
+                        ; ######>> screen 56 <<
+                        ; bootstrap code... moves rom contents to ram :
+                        ; ======>>  157  <<
+   1fa3   84            	fcb	$84
+   1fa4   43 4f 4c      	fcc	"COL"	;fcc	3,COLD
+   1fa7   c4            	fcb	$C4
+   1fa8   1f 7e         	fdb	ABORLABT-8
+   1faa   1f ac         COLD	fdb	*+2
+   1fac   8e 01 85      CENT	lds	#REND-1	;top of destination
+   1faf   ce 20 4e      	ldx	#ERAM	;top of stuff to move
+   1fb2   09            COLD2	dex
+   1fb3   a6 00         	lda a 0,x
+   1fb5   36            	psha		;move TASK & FORLABTH to ram
+   1fb6   8c 20 08      	cpx	#RAM
+   1fb9   26 f7         	bne	COLD2
+                        ;
+   1fbb   8e 01 0f      	lds	#XFENCE-1	;put sta a ck at a safe place for now
+   1fbe   fe 10 22      	ldx	COLINT
+   1fc1   ff 01 34      	stx	XCOLUM
+   1fc4   fe 10 24      	ldx	DELINT
+   1fc7   ff 01 32      	stx	XDELAY
+   1fca   fe 10 20      	ldx	VOCINT
+   1fcd   ff 01 14      	stx	XVOCL
+   1fd0   fe 10 1e      	ldx	DPINIT
+   1fd3   ff 01 12      	stx	XDP
+   1fd6   fe 10 1c      	ldx	FENCIN
+   1fd9   ff 01 10      	stx	XFENCE
+                        ;
+   1fdc   8e 01 0f      WENT	lds	#XFENCE-1	;top of destination
+   1fdf   ce 10 1c      	ldx	#FENCIN		;top of stuff to move
+   1fe2   09            WARM2	dex
+   1fe3   a6 00         	lda a 0,x
+   1fe5   36            	psha
+   1fe6   8c 10 12      	cpx	#SINIT
+   1fe9   26 f7         	bne	WARM2
+                        ;
+   1feb   be 10 12      	lds	SINIT
+   1fee   fe 10 10      	ldx	UPINIT
+   1ff1   df f6         	stx	UP		;init user ram pointer
+   1ff3   ce 1f 86      	ldx	#ABORLABT
+   1ff6   df f2         	stx	IP
+   1ff8   01            	nop		;Here is a place to jump to special user
+   1ff9   01            	nop		;initializations such as I/0 interrups
+   1ffa   01            	nop
+                        ;
+                        ; For systems with TRACE:
+   1ffb   ce 00 00      	ldx	#00
+   1ffe   df ea         	stx	TRLIM	;clear trace mode
+   2000   ce 00 00      	ldx	#0
+   2003   df ec         	stx	BRKPT	;clear breakpoint address
+   2005   7e 13 5f      	jmp	RPSTORLAB+2 ;sta a rt the virtual machine running !
+                        ;
+                        ; Here is the stuff that gets copied to ram :
+                        ; at address $140:
+                        ;
+   2008   30 00 30 00   RAM	fdb	$3000,$3000,0,0
+   200c   00 00 00 00   
+                        ;
+                        ; ======>>  (152)  <<
+   2010   c5            	fcb	$C5	;immediate
+   2011   46 4f 52 4c   	fcc	"FORLABT"	;fcc	4,FORLABTH
+   2015   41 42 54      
+   2018   c8            	fcb	$C8
+   2019   27 5c         	fdb	NOOP-7
+   201b   19 fd 1f 1f   RFORLABTH	fdb	DODOES,DOVOC,$81A0,TASK-7
+   201f   81 a0 01 7b   
+   2023   00 00         	fdb	0
+   2025   28 43 29 20   	fcc	"(C) Forth Interest Group, 1979"
+   2029   46 6f 72 74   
+   202d   68 20 49 6e   
+   2031   74 65 72 65   
+   2035   73 74 20 47   
+   2039   72 6f 75 70   
+   203d   2c 20 31 39   
+   2041   37 39         
+   2043   84            	fcb	$84
+   2044   54 41 53      	fcc	"TAS"	;fcc	3,TASK
+   2047   cb            	fcb	$CB
+   2048   01 4b         	fdb	FORLABTH-8
+   204a   15 2a 13 6c   RTASK	fdb	DOCOL,SEMIS
+   204e   44 61 76 69   ERAM	fcc	"David Lion"	
+   2052   64 20 4c 69   
+   2056   6f 6e         
+                        ;
+                        ; ######>> screen 57 <<
+                        ; ======>>  158  <<
+   2058   84            	fcb	$84
+   2059   53 2d 3e      	fcc	"S->"	;fcc	3,S->D
+   205c   c4            	fcb	$C4
+   205d   1f a3         	fdb	COLD-7
+   205f   15 2a 14 98   STOD	fdb	DOCOL,DUP,ZLESS,MINUS
+   2063   13 df 14 26   
+   2067   13 6c         	fdb	SEMIS
+                        ;
+                        ; ======>>  159  <<
+   2069   81            	fcb	$81	; *
+   206a   aa            	fcb	$AA
+   206b   20 58         	fdb	STOD-7
+   206d   20 6f         STAR	fdb	*+2
+   206f   bd 12 b0      	jsr	USTARS
+   2072   31            	ins
+   2073   31            	ins
+   2074   7e 10 34      	jmp	NEXT
+                        ;
+                        ; ======>>  160  <<
+   2077   84            	fcb	$84
+   2078   2f 4d 4f      	fcc	"/MO"	;fcc	3,/MODLAB
+   207b   c4            	fcb	$C4
+   207c   20 69         	fdb	STAR-4
+   207e   15 2a 13 95   SLMODLAB	fdb	DOCOL,TORLAB,STOD,FROMR,USLASH
+   2082   20 5f 13 ab   
+   2086   12 cf         
+   2088   13 6c         	fdb	SEMIS
+                        ;
+                        ; ======>>  161  <<
+   208a   81            	fcb	$81	; /
+   208b   af            	fcb	$AF
+   208c   20 77         	fdb	SLMODLAB-7
+   208e   15 2a 20 7e   SLASH	fdb	DOCOL,SLMODLAB,SWAP,DROP
+   2092   14 7f 14 71   
+   2096   13 6c         	fdb	SEMIS
+                        ;
+                        ; ======>>  162  <<
+   2098   83            	fcb	$83
+   2099   4d 4f         	fcc	"MO"	;fcc	2,MODLAB
+   209b   c4            	fcb	$C4
+   209c   20 8a         	fdb	SLASH-4
+   209e   15 2a 20 7e   MODLAB	fdb	DOCOL,SLMODLAB,DROP
+   20a2   14 71         
+   20a4   13 6c         	fdb	SEMIS
+                        ;
+                        ; ======>>  163  <<
+   20a6   85            	fcb	$85
+   20a7   2a 2f 4d 4f   	fcc	"*/MO"	;fcc	4,*/MODLAB
+   20ab   c4            	fcb	$C4
+   20ac   20 98         	fdb	MODLAB-6
+   20ae   15 2a 13 95   SSMODLAB	fdb	DOCOL,TORLAB,USTAR,FROMR,USLASH
+   20b2   12 a7 13 ab   
+   20b6   12 cf         
+   20b8   13 6c         	fdb	SEMIS
+                        ;
+                        ; ======>>  164  <<
+   20ba   82            	fcb	$82
+   20bb   2a            	fcc	"*"	;fcc	1,*/
+   20bc   af            	fcb	$AF
+   20bd   20 a6         	fdb	SSMODLAB-8
+   20bf   15 2a 20 ae   SSLASH	fdb	DOCOL,SSMODLAB,SWAP,DROP
+   20c3   14 7f 14 71   
+   20c7   13 6c         	fdb	SEMIS
+                        ;
+                        ; ======>>  165  <<
+   20c9   85            	fcb	$85
+   20ca   4d 2f 4d 4f   	fcc	"M/MO"	;fcc	4,M/MODLAB
+   20ce   c4            	fcb	$C4
+   20cf   20 ba         	fdb	SSLASH-5
+   20d1   15 2a 13 95   MSMODLAB	fdb	DOCOL,TORLAB,ZERO,R,USLASH
+   20d5   15 a7 13 be   
+   20d9   12 cf         
+   20db   13 ab 14 7f   	fdb	FROMR,SWAP,TORLAB,USLASH,FROMR
+   20df   13 95 12 cf   
+   20e3   13 ab         
+   20e5   13 6c         	fdb	SEMIS
+                        ;
+                        ; ======>>  166  <<
+   20e7   83            	fcb	$83
+   20e8   41 42         	fcc	"AB"	;fcc	2,ABS
+   20ea   d3            	fcb	$D3
+   20eb   20 c9         	fdb	MSMODLAB-8
+   20ed   15 2a 14 98   ABS	fdb	DOCOL,DUP,ZLESS,ZBRAN
+   20f1   13 df 10 91   
+   20f5   00 04         	fdb	ABS2-*
+   20f7   14 26         	fdb	MINUS
+   20f9   13 6c         ABS2	fdb	SEMIS
+                        ;
+                        ; ======>>  167  <<
+   20fb   84            	fcb	$84
+   20fc   44 41 42      	fcc	"DAB"	;fcc	3,DABS
+   20ff   d3            	fcb	$D3
+   2100   20 e7         	fdb	ABS-6
+   2102   15 2a 14 98   DABS	fdb	DOCOL,DUP,ZLESS,ZBRAN
+   2106   13 df 10 91   
+   210a   00 04         	fdb	DABS2-*
+   210c   14 3f         	fdb	DMINUS
+   210e   13 6c         DABS2	fdb	SEMIS
+                        ;
+                        ; ######>> screen 58 <<
+                        ; Disc primatives :
+                        ; ======>>  168  <<
+   2110   83            	fcb	$83
+   2111   55 53         	fcc	"US"	;fcc	2,USE
+   2113   c5            	fcb	$C5
+   2114   20 fb         	fdb	DABS-7
+   2116   15 64         USE	fdb	DOCON
+   2118   01 40         	fdb	XUSE
+                        ;
+                        ; ======>>  169  <<
+   211a   84            	fcb	$84
+   211b   50 52 45      	fcc	"PRE"	;fcc	3,PREV
+   211e   d6            	fcb	$D6
+   211f   21 10         	fdb	USE-6
+   2121   15 64         PREV	fdb	DOCON
+   2123   01 42         	fdb	XPREV
+                        ;
+                        ; ======>>  170  <<
+   2125   84            	fcb	$84
+   2126   2b 42 55      	fcc	"+BU"	;fcc	3,+BUF
+   2129   c6            	fcb	$C6
+   212a   21 1a         	fdb	PREV-7
+   212c   15 2a 10 59   PBUF	fdb	DOCOL,CLITER
+   2130   84            	fcb	$84
+   2131   13 f6 14 98   	fdb	PLUS,DUP,LIMIT,EQUAL,ZBRAN
+   2135   15 e0 17 7d   
+   2139   10 91         
+   213b   00 06         	fdb	PBUF2-*
+   213d   14 71 15 d4   	fdb	DROP,FIRST
+   2141   14 98 21 21   PBUF2	fdb	DUP,PREV,AT,SUB
+   2145   14 d5 17 71   
+   2149   13 6c         	fdb	SEMIS
+                        ;
+                        ; ======>>  171  <<
+   214b   86            	fcb	$86
+   214c   55 50 44 41   	fcc	"UPDAT"	;fcc	5,UPDATE
+   2150   54            
+   2151   c5            	fcb	$C5
+   2152   21 25         	fdb	PBUF-7
+   2154   15 2a 21 21   UPDATE	fdb	DOCOL,PREV,AT,AT,LIT,$8000,ORLAB,PREV,AT,STORLABE
+   2158   14 d5 14 d5   
+   215c   10 49 80 00   
+   2160   13 18 21 21   
+   2164   14 d5 14 f5   
+   2168   13 6c         	fdb	SEMIS
+                        ;
+                        ; ======>>  172  <<
+   216a   8d            	fcb	$8D
+   216b   45 4d 50 54   	fcc	"EMPTY-BUFFER"	;fcc	12,EMPTY-BUFFERS
+   216f   59 2d 42 55   
+   2173   46 46 45 52   
+   2177   d3            	fcb	$D3
+   2178   21 4b         	fdb	UPDATE-9
+   217a   15 2a 15 d4   MTBUF	fdb	DOCOL,FIRST,LIMIT,OVER,SUB,ERASE
+   217e   15 e0 14 60   
+   2182   17 71 1c 04   
+   2186   13 6c         	fdb	SEMIS
+                        ;
+                        ; ======>>  173  <<
+   2188   83            	fcb	$83
+   2189   44 52         	fcc	"DR"	;fcc	2,DR0
+   218b   b0            	fcb	$B0
+   218c   21 6a         	fdb	MTBUF-16
+   218e   15 2a 15 a7   DRZERO	fdb	DOCOL,ZERO,OFSET,STORLABE
+   2192   16 9d 14 f5   
+   2196   13 6c         	fdb	SEMIS
+                        ;
+                        ; ======>>  174  <<== system dependant word
+   2198   83            	fcb	$83
+   2199   44 52         	fcc	"DR"	;fcc	2,DR1
+   219b   b1            	fcb	$B1
+   219c   21 88         	fdb	DRZERO-6
+   219e   15 2a 10 49   DRONE	fdb	DOCOL,LIT,$07D0,OFSET,STORLABE
+   21a2   07 d0 16 9d   
+   21a6   14 f5         
+   21a8   13 6c         	fdb	SEMIS
+                        ;
+                        ; ######>> screen 59 <<
+                        ; ======>>  175  <<
+   21aa   86            	fcb	$86
+   21ab   42 55 46 46   	fcc	"BUFFE"	;fcc	5,BUFFER
+   21af   45            
+   21b0   d2            	fcb	$D2
+   21b1   21 98         	fdb	DRONE-6
+   21b3   15 2a 21 16   BUFFER	fdb	DOCOL,USE,AT,DUP,TORLAB
+   21b7   14 d5 14 98   
+   21bb   13 95         
+   21bd   21 2c 10 91   BUFFR2	fdb	PBUF,ZBRAN
+   21c1   ff fc         	fdb	BUFFR2-*
+   21c3   21 16 14 f5   	fdb	USE,STORLABE,R,AT,ZLESS
+   21c7   13 be 14 d5   
+   21cb   13 df         
+   21cd   10 91         	fdb	ZBRAN
+   21cf   00 14         	fdb	BUFFR3-*
+   21d1   13 be 17 25   	fdb	R,TWOP,R,AT,LIT,$7FFF,ANDLAB,ZERO,RW
+   21d5   13 be 14 d5   
+   21d9   10 49 7f ff   
+   21dd   13 07 15 a7   
+   21e1   23 b6         
+   21e3   13 be 14 f5   BUFFR3	fdb	R,STORLABE,R,PREV,STORLABE,FROMR,TWOP
+   21e7   13 be 21 21   
+   21eb   14 f5 13 ab   
+   21ef   17 25         
+   21f1   13 6c         	fdb	SEMIS
+                        ;
+                        ; ######>> screen 60 <<
+                        ; ======>>  176  <<
+   21f3   85            	fcb	$85
+   21f4   42 4c 4f 43   	fcc	"BLOC"	;fcc	4,BLOCK
+   21f8   cb            	fcb	$CB
+   21f9   21 aa         	fdb	BUFFER-9
+   21fb   15 2a 16 9d   BLOCK	fdb	DOCOL,OFSET,AT,PLUS,TORLAB
+   21ff   14 d5 13 f6   
+   2203   13 95         
+   2205   21 21 14 d5   	fdb	PREV,AT,DUP,AT,R,SUB,DUP,PLUS,ZBRAN
+   2209   14 98 14 d5   
+   220d   13 be 17 71   
+   2211   14 98 13 f6   
+   2215   10 91         
+   2217   00 34         	fdb	BLOCK5-*
+   2219   21 2c 13 cc   BLOCK3	fdb	PBUF,ZEQU,ZBRAN
+   221d   10 91         
+   221f   00 14         	fdb	BLOCK4-*
+   2221   14 71 13 be   	fdb	DROP,R,BUFFER,DUP,R,ONE,RW,TWO,SUB
+   2225   21 b3 14 98   
+   2229   13 be 15 af   
+   222d   23 b6 15 b7   
+   2231   17 71         
+   2233   14 98 14 d5   BLOCK4	fdb	DUP,AT,R,SUB,DUP,PLUS,ZEQU,ZBRAN
+   2237   13 be 17 71   
+   223b   14 98 13 f6   
+   223f   13 cc 10 91   
+   2243   ff d6         	fdb	BLOCK3-*
+   2245   14 98 21 21   	fdb	DUP,PREV,STORLABE
+   2249   14 f5         
+   224b   13 ab 14 71   BLOCK5	fdb	FROMR,DROP,TWOP
+   224f   17 25         
+   2251   13 6c         	fdb	SEMIS
+                        ;
+                        ; ######>> screen 61 <<
+                        ; ======>>  177  <<
+   2253   86            	fcb	$86
+   2254   28 4c 49 4e   	fcc	"(LINE"	;fcc	5,(LINE)
+   2258   45            
+   2259   a9            	fcb	$A9
+   225a   21 f3         	fdb	BLOCK-8
+   225c   15 2a 13 95   PLINE	fdb	DOCOL,TORLAB,CLITER
+   2260   10 59         
+   2262   40            	fcb	$40
+   2263   15 ec 20 ae   	fdb	BBUF,SSMODLAB,FROMR,BSCR,STAR,PLUS,BLOCK,PLUS,CLITER
+   2267   13 ab 15 f8   
+   226b   20 6d 13 f6   
+   226f   21 fb 13 f6   
+   2273   10 59         
+   2275   40            	fcb	$40
+   2276   13 6c         	fdb	SEMIS
+                        ;
+                        ; ======>>  178  <<
+   2278   85            	fcb	$85
+   2279   2e 4c 49 4e   	fcc	".LIN"	;fcc	4,.LINE
+   227d   c5            	fcb	$C5
+   227e   22 53         	fdb	PLINE-9
+   2280   15 2a 22 5c   DLINE	fdb	DOCOL,PLINE,DTRAIL,TYPE
+   2284   1a 6f 1a 3c   
+   2288   13 6c         	fdb	SEMIS
+                        ;
+                        ; ======>>  179  <<
+   228a   87            	fcb	$87
+   228b   4d 45 53 53   	fcc	"MESSAG"	;fcc	6,MESSAGE
+   228f   41 47         
+   2291   c5            	fcb	$C5
+   2292   22 78         	fdb	DLINE-8
+   2294   15 2a 16 45   MESS	fdb	DOCOL,WARN,AT,ZBRAN
+   2298   14 d5 10 91   
+   229c   00 1b         	fdb	MESS3-*
+   229e   18 08 10 91   	fdb	DDUP,ZBRAN
+   22a2   00 15         	fdb	MESS3-*
+   22a4   10 59         	fdb	CLITER
+   22a6   04            	fcb	4
+   22a7   16 9d 14 d5   	fdb	OFSET,AT,BSCR,SLASH,SUB,DLINE,BRAN
+   22ab   15 f8 20 8e   
+   22af   17 71 22 80   
+   22b3   10 85         
+   22b5   00 0d         	fdb	MESS4-*
+   22b7   1a a2         MESS3	fdb	PDOTQ
+   22b9   06            	fcb	6
+   22ba   65 72 72 20   	fcc	"err # "	;fcc	6,err # 
+   22be   23 20         
+   22c0   26 50         	fdb	DOT
+   22c2   13 6c         MESS4	fdb	SEMIS
+                        ;
+                        ; ======>>  180  <<
+   22c4   84            	fcb	$84
+   22c5   4c 4f 41      	fcc	"LOA"	;fcc	3,LOAD	;input:scr #
+   22c8   c4            	fcb	$C4
+   22c9   22 8a         	fdb	MESS-10
+   22cb   15 2a 16 73   LOAD	fdb	DOCOL,BLK,AT,TORLAB,IN,AT,TORLAB,ZERO,IN,STORLABE
+   22cf   14 d5 13 95   
+   22d3   16 7c 14 d5   
+   22d7   13 95 15 a7   
+   22db   16 7c 14 f5   
+   22df   15 f8 20 6d   	fdb	BSCR,STAR,BLK,STORLABE
+   22e3   16 73 14 f5   
+   22e7   1e 9b 13 ab   	fdb	INTERP,FROMR,IN,STORLABE,FROMR,BLK,STORLABE
+   22eb   16 7c 14 f5   
+   22ef   13 ab 16 73   
+   22f3   14 f5         
+   22f5   13 6c         	fdb	SEMIS
+                        ;
+                        ; ======>>  181  <<
+   22f7   c3            	fcb	$C3
+   22f8   2d 2d         	fcc	"--"	;fcc	2,-->
+   22fa   be            	fcb	$BE
+   22fb   22 c4         	fdb	LOAD-7
+   22fd   15 2a 19 21   ARROW	fdb	DOCOL,QLOAD,ZERO,IN,STORLABE,BSCR
+   2301   15 a7 16 7c   
+   2305   14 f5 15 f8   
+   2309   16 73 14 d5   	fdb	BLK,AT,OVER,MODLAB,SUB,BLK,PSTORLABE
+   230d   14 60 20 9e   
+   2311   17 71 16 73   
+   2315   14 a6         
+   2317   13 6c         	fdb	SEMIS
+                        ;
+                        ;
+                        ; ######>> screen 63 <<
+                        ;    The next 4 subroutines are machine dependent, and are
+                        ;    called by words 13 through 16 in the dictionary.
+                        ;
+                        ;
+                        ; ======>>  182  << code for EMIT
+   2319   d7 e0         PEMIT	sta b	N	;save B
+   231b   df e1         	stx	N+1	;save X
+   231d   f6 fc 18      	lda b	ACIAC
+   2320   c5 02         	bitb	#2	;check ready bit
+   2322   27 f9         	beq	PEMIT+4	;if not ready for more data
+   2324   b7 fc 19      	sta a 	ACIAD
+   2327   de f6         	ldx	UP
+   2329   e7 36         	sta b	IOSTAT-UORLABIG,x
+   232b   d6 e0         	lda b	N	;recover B & X
+   232d   de e1         	ldx	N+1
+   232f   39            	rts		;only A register may change
+                        
+                        ;PEMIT	jmp	$E1D1	;for MIKBUG
+                        ;  PEMIT	fcb	$3F,$11,$39	;for PROTO
+                        ;  PEMIT	jmp	$D286 ;for Smoke Signal DOS
+                        ;
+                        ; ======>>  183  << code for KEY
+   2330   d7 e0         PKEY	sta b	N
+   2332   df e1         	stx	N+1
+   2334   f6 fc 18      	lda b	ACIAC
+   2337   57            	asrb
+   2338   24 fa         	bcc	PKEY+4	;no incoming data yet
+   233a   b6 fc 19      	lda	a ACIAD
+   233d   84 7f         	anda	#$7F	;strip parity bit
+   233f   de f6         	ldx	UP
+   2341   e7 37         	sta b	IOSTAT+1-UORLABIG,x
+   2343   d6 e0         	lda b	N
+   2345   de e1         	ldx	N+1
+   2347   39            	rts
+                        	
+                        ;PKEY	jmp	$E1AC	;for MIKBUG
+                        ;  PKEY	fcb	$3F,$14,$39	;for PROTO
+                        ;  PKEY	jmp	$D289 ;for Smoke Signal DOS
+                        ;
+                        ; ######>> screen 64 <<
+                        ; ======>>  184  << code for ?TERMINAL
+   2348   b6 fc 18      PQTER	lda	a ACIAC	;Test for 'break'  condition
+   234b   84 11         	anda	#$11	;mask framing ERRORLAB bit and
+                        ;			 input buffer full
+   234d   27 05         	beq	PQTER2
+   234f   b6 fc 19      	lda	a ACIAD	;clear input buffer
+   2352   86 01         	lda a #01
+   2354   39            PQTER2	rts
+                        ;
+                        ; ======>>  185  << code for CR
+   2355   86 0d         PCR	lda a #$D	;carriage return
+   2357   8d c0         	bsr	PEMIT
+   2359   86 0a         	lda a #$A	;line feed
+   235b   8d bc         	bsr	PEMIT
+   235d   86 7f         	lda a #$7F	;rubout
+   235f   de f6         	ldx	UP
+   2361   e6 33         	lda b	XDELAY+1-UORLABIG,x
+   2363   5a            PCR2	decb
+   2364   2b ee         	bmi	PQTER2	;return if minus
+   2366   37            	pshb		;save counter
+   2367   8d b0         	bsr	PEMIT	;print RUBOUTs to delay.....
+   2369   33            	pulb
+   236a   20 f7         	bra	PCR2	;repeat
+                        ;
+                        ; ######>> screen 66 <<
+                        ; ======>>  187  <<
+   236c   85            	fcb	$85
+   236d   3f 44 49 53   	fcc	"?DIS"	;fcc	4,?DISC
+   2371   c3            	fcb	$C3
+   2372   22 f7         	fdb	ARROW-6
+   2374   23 76         QDISC	fdb	*+2
+   2376   7e 10 34      	jmp	NEXT
+                        ;
+                        ; ######>> screen 67 <<
+                        ; ======>>  189  <<
+   2379   8b            	fcb	$8B
+   237a   42 4c 4f 43   	fcc	"BLOCK_WRIT"	;fcc	10,BLOCK-WRITE
+   237e   4b 5f 57 52   
+   2382   49 54         
+   2384   c5            	fcb	$C5
+   2385   23 6c         	fdb	QDISC-8
+   2387   23 89         BWRITE	fdb	*+2
+   2389   7e 10 34      	jmp	NEXT
+                        ;
+                        ; ######>> screen 68 <<
+                        ; ======>>  190  <<
+   238c   8a            	fcb	$8A
+   238d   42 4c 4f 43   	fcc	"BLOCK_REA"	;fcc	9,BLOCK-READ
+   2391   4b 5f 52 45   
+   2395   41            
+   2396   c4            	fcb	$C4
+   2397   23 79         	fdb	BWRITE-14
+   2399   23 9b         BREAD	fdb	*+2
+   239b   7e 10 34      	jmp	NEXT
+                        ;
+                        ; The next 3 words are written to create a substitute for disc
+                        ; mass memory,located between $3210 & $7BFF in ram.
+                        ;
+                        ; ======>>  190.1  <<
+   239e   82            	fcb	$82
+   239f   4c            	fcc	"L"	;fcc	1,LO
+   23a0   cf            	fcb	$CF
+   23a1   23 8c         	fdb	BREAD-13
+   23a3   15 64         LO	fdb	DOCON
+   23a5   32 10         	fdb	MEMEND	;a system dependent equate at front
+                        ;
+                        ; ======>>  190.2  <<
+   23a7   82            	fcb	$82
+   23a8   48            	fcc	"H"	;fcc	1,HI
+   23a9   c9            	fcb	$C9
+   23aa   23 9e         	fdb	LO-5
+   23ac   15 64         HI	fdb	DOCON
+   23ae   7b ff         	fdb	MEMTOP	;($7BFF in this version)
+                        ;
+                        ; ######>> screen 69 <<
+                        ; ======>>  191  <<
+   23b0   83            	fcb	$83
+   23b1   52 2f         	fcc	"R/"	;fcc	2,R/W
+   23b3   d7            	fcb	$D7
+   23b4   23 a7         	fdb	HI-5
+   23b6   15 2a 13 95   RW	fdb	DOCOL,TORLAB,BBUF,STAR,LO,PLUS,DUP,HI,GREAT,ZBRAN
+   23ba   15 ec 20 6d   
+   23be   23 a3 13 f6   
+   23c2   14 98 23 ac   
+   23c6   17 a7 10 91   
+   23ca   00 0f         	fdb	RW2-*
+   23cc   1a a2         	fdb	PDOTQ
+   23ce   08            	fcb	8
+   23cf   20 52 61 6e   	fcc	" Range ;"	;fcc	8, Range ;?
+   23d3   67 65 20 3b   
+   23d7   1f 55         	fdb	QUIT
+   23d9   13 ab 10 91   RW2	fdb	FROMR,ZBRAN
+   23dd   00 04         	fdb	RW3-*
+   23df   14 7f         	fdb	SWAP
+   23e1   15 ec 12 73   RW3	fdb	BBUF,CMOVE
+   23e5   13 6c         	fdb	SEMIS
+                        ;
+                        ; ######>> screen 72 <<
+                        ; ======>>  192  <<
+   23e7   c1            	fcb	$C1	;immediate
+   23e8   a7            	fcb	$A7	; ' (tick)
+   23e9   23 b0         	fdb	RW-6
+   23eb   15 2a 1d 42   TICK	fdb	DOCOL,DFIND,ZEQU,ZERO,QERR,DROP,LITER
+   23ef   13 cc 15 a7   
+   23f3   18 ac 14 71   
+   23f7   1e 60         
+   23f9   13 6c         	fdb	SEMIS
+                        ;
+                        ; ======>>  193  <<
+   23fb   86            	fcb	$86
+   23fc   46 4f 52 4c   	fcc	"FORLABGE"	;fcc	5,FORLABGET
+   2400   41 42 47 45   
+   2404   d4            	fcb	$D4
+   2405   23 e7         	fdb	TICK-4
+   2407   15 2a 16 b9   FORLABGET	fdb	DOCOL,CURENT,AT,CONTXT,AT,SUB,CLITER
+   240b   14 d5 16 ab   
+   240f   14 d5 17 71   
+   2413   10 59         
+   2415   18            	fcb	$18
+   2416   18 ac 23 eb   	fdb	QERR,TICK,DUP,FENCE,AT,LESS,CLITER
+   241a   14 98 16 51   
+   241e   14 d5 17 89   
+   2422   10 59         
+   2424   15            	fcb	$15
+   2425   18 ac 14 98   	fdb	QERR,DUP,ZERO,PORLABIG,GREAT,CLITER
+   2429   15 a7 16 09   
+   242d   17 a7 10 59   
+   2431   15            	fcb	$15
+   2432   18 ac 14 98   	fdb	QERR,DUP,NFA,DP,STORLABE,LFA,AT,CONTXT,AT,STORLABE
+   2436   18 70 16 5a   
+   243a   14 f5 18 53   
+   243e   14 d5 16 ab   
+   2442   14 d5 14 f5   
+   2446   13 6c         	fdb	SEMIS
+                        ;
+                        ; ######>> screen 73 <<
+                        ; ======>>  194  <<
+   2448   84            	fcb	$84
+   2449   42 41 43      	fcc	"BAC"	;fcc	3,BACK
+   244c   cb            	fcb	$CB
+   244d   23 fe         	fdb	FORLABGET-9
+   244f   15 2a 17 34   BACK	fdb	DOCOL,HERE,SUB,COMMA
+   2453   17 71 17 50   
+   2457   13 6c         	fdb	SEMIS
+                        ;
+                        ; ======>>  195  <<
+   2459   c5            	fcb	$C5
+   245a   42 45 47 49   	fcc	"BEGI"	;fcc	4,BEGIN
+   245e   ce            	fcb	$CE
+   245f   24 48         	fdb	BACK-7
+   2461   15 2a 18 c6   BEGIN	fdb	DOCOL,QCOMP,HERE,ONE
+   2465   17 34 15 af   
+   2469   13 6c         	fdb	SEMIS
+                        ;
+                        ; ======>>  196  <<
+   246b   c5            	fcb	$C5
+   246c   45 4e 44 49   	fcc	"ENDI"	;fcc	4,ENDIF
+   2470   c6            	fcb	$C6
+   2471   24 59         	fdb	BEGIN-8
+   2473   15 2a 18 c6   ENDIF	fdb	DOCOL,QCOMP,TWO,QPAIRS,HERE
+   2477   15 b7 18 f3   
+   247b   17 34         
+   247d   14 60 17 71   	fdb	OVER,SUB,SWAP,STORLABE
+   2481   14 7f 14 f5   
+   2485   13 6c         	fdb	SEMIS
+                        ;
+                        ; ======>>  197  <<
+   2487   c4            	fcb	$C4
+   2488   54 48 45      	fcc	"THE"	;fcc	3,THEN
+   248b   ce            	fcb	$CE
+   248c   24 6b         	fdb	ENDIF-8
+   248e   15 2a 24 73   THEN	fdb	DOCOL,ENDIF
+   2492   13 6c         	fdb	SEMIS
+                        ;
+                        ; ======>>  198  <<
+   2494   c2            	fcb	$C2
+   2495   44            	fcc	"D"	;fcc	1,DO
+   2496   cf            	fcb	$CF
+   2497   24 87         	fdb	THEN-7
+   2499   15 2a 19 3a   DO	fdb	DOCOL,COMPIL,XDO,HERE,THREE
+   249d   11 04 17 34   
+   24a1   15 bf         
+   24a3   13 6c         	fdb	SEMIS
+                        ;
+                        ; ======>>  199  <<
+   24a5   c4            	fcb	$C4
+   24a6   4c 4f 4f      	fcc	"LOO"	;fcc	3,LOOP
+   24a9   d0            	fcb	$D0
+   24aa   24 94         	fdb	DO-5
+   24ac   15 2a 15 bf   LOOP	fdb	DOCOL,THREE,QPAIRS,COMPIL,XLOOP,BACK
+   24b0   18 f3 19 3a   
+   24b4   10 bf 24 4f   
+   24b8   13 6c         	fdb	SEMIS
+                        ;
+                        ; ======>>  200  <<
+   24ba   c5            	fcb	$C5
+   24bb   2b 4c 4f 4f   	fcc	"+LOO"	;fcc	4,+LOOP
+   24bf   d0            	fcb	$D0
+   24c0   24 a5         	fdb	LOOP-7
+   24c2   15 2a 15 bf   PLOOP	fdb	DOCOL,THREE,QPAIRS,COMPIL,XPLOOP,BACK
+   24c6   18 f3 19 3a   
+   24ca   10 d0 24 4f   
+   24ce   13 6c         	fdb	SEMIS
+                        ;
+                        ; ======>>  201  <<
+   24d0   c5            	fcb	$C5
+   24d1   55 4e 54 49   	fcc	"UNTI"	;fcc	4,UNTIL	;(same as END)
+   24d5   cc            	fcb	$CC
+   24d6   24 ba         	fdb	PLOOP-8
+   24d8   15 2a 15 af   UNTIL	fdb	DOCOL,ONE,QPAIRS,COMPIL,ZBRAN,BACK
+   24dc   18 f3 19 3a   
+   24e0   10 91 24 4f   
+   24e4   13 6c         	fdb	SEMIS
+                        ;
+                        ; ######>> screen 74 <<
+                        ; ======>>  202  <<
+   24e6   c3            	fcb	$C3
+   24e7   45 4e         	fcc	"EN"	;fcc	2,END
+   24e9   c4            	fcb	$C4
+   24ea   24 d0         	fdb	UNTIL-8
+   24ec   15 2a 24 d8   END	fdb	DOCOL,UNTIL
+   24f0   13 6c         	fdb	SEMIS
+                        ;
+                        ; ======>>  203  <<
+   24f2   c5            	fcb	$C5
+   24f3   41 47 41 49   	fcc	"AGAI"	;fcc	4,AGAIN
+   24f7   ce            	fcb	$CE
+   24f8   24 e6         	fdb	END-6
+   24fa   15 2a 15 af   AGAIN	fdb	DOCOL,ONE,QPAIRS,COMPIL,BRAN,BACK
+   24fe   18 f3 19 3a   
+   2502   10 85 24 4f   
+   2506   13 6c         	fdb	SEMIS
+                        ;
+                        ; ======>>  204  <<
+   2508   c6            	fcb	$C6
+   2509   52 45 50 45   	fcc	"REPEA"	;fcc	5,REPEAT
+   250d   41            
+   250e   d4            	fcb	$D4
+   250f   24 f2         	fdb	AGAIN-8
+   2511   15 2a 13 95   REPEAT	fdb	DOCOL,TORLAB,TORLAB,AGAIN,FROMR,FROMR
+   2515   13 95 24 fa   
+   2519   13 ab 13 ab   
+   251d   15 b7 17 71   	fdb	TWO,SUB,ENDIF
+   2521   24 73         
+   2523   13 6c         	fdb	SEMIS
+                        ;
+                        ; ======>>  205  <<
+   2525   c2            	fcb	$C2
+   2526   49            	fcc	"I"	;fcc	1,IF
+   2527   c6            	fcb	$C6
+   2528   25 08         	fdb	REPEAT-9
+   252a   15 2a 19 3a   IF	fdb	DOCOL,COMPIL,ZBRAN,HERE,ZERO,COMMA,TWO
+   252e   10 91 17 34   
+   2532   15 a7 17 50   
+   2536   15 b7         
+   2538   13 6c         	fdb	SEMIS
+                        ;
+                        ; ======>>  206  <<
+   253a   c4            	fcb	$C4
+   253b   45 4c 53      	fcc	"ELS"	;fcc	3,ELSE
+   253e   c5            	fcb	$C5
+   253f   25 25         	fdb	IF-5
+   2541   15 2a 15 b7   ELSE	fdb	DOCOL,TWO,QPAIRS,COMPIL,BRAN,HERE
+   2545   18 f3 19 3a   
+   2549   10 85 17 34   
+   254d   15 a7 17 50   	fdb	ZERO,COMMA,SWAP,TWO,ENDIF,TWO
+   2551   14 7f 15 b7   
+   2555   24 73 15 b7   
+   2559   13 6c         	fdb	SEMIS
+                        ;
+                        ; ======>>  207  <<
+   255b   c5            	fcb	$C5
+   255c   57 48 49 4c   	fcc	"WHIL"	;fcc	4,WHILE
+   2560   c5            	fcb	$C5
+   2561   25 3a         	fdb	ELSE-7
+   2563   15 2a 25 2a   WHILE	fdb	DOCOL,IF,TWOP
+   2567   17 25         
+   2569   13 6c         	fdb	SEMIS
+                        ;
+                        ; ######>> screen 75 <<
+                        ; ======>>  208  <<
+   256b   86            	fcb	$86
+   256c   53 50 41 43   	fcc	"SPACE"	;fcc	5,SPACES
+   2570   45            
+   2571   d3            	fcb	$D3
+   2572   25 5b         	fdb	WHILE-8
+   2574   15 2a 15 a7   SPACES	fdb	DOCOL,ZERO,MAX,DDUP,ZBRAN
+   2578   17 ef 18 08   
+   257c   10 91         
+   257e   00 0c         	fdb	SPACE3-*
+   2580   15 a7 11 04   	fdb	ZERO,XDO
+   2584   17 c9 10 bf   SPACE2	fdb	SPACE,XLOOP
+   2588   ff fc         	fdb	SPACE2-*
+   258a   13 6c         SPACE3	fdb	SEMIS
+                        ;
+                        ; ======>>  209  <<
+   258c   82            	fcb	$82
+   258d   3c            	fcc	"<"	;fcc	1,<#
+   258e   a3            	fcb	$A3
+   258f   25 6b         	fdb	SPACES-9
+   2591   15 2a 1c 3c   BDIGS	fdb	DOCOL,PAD,HLD,STORLABE
+   2595   17 01 14 f5   
+   2599   13 6c         	fdb	SEMIS
+                        ;
+                        ; ======>>  210  <<
+   259b   82            	fcb	$82
+   259c   23            	fcc	"#"	;fcc	1,#>
+   259d   be            	fcb	$BE
+   259e   25 8c         	fdb	BDIGS-5
+   25a0   15 2a 14 71   EDIGS	fdb	DOCOL,DROP,DROP,HLD,AT,PAD,OVER,SUB
+   25a4   14 71 17 01   
+   25a8   14 d5 1c 3c   
+   25ac   14 60 17 71   
+   25b0   13 6c         	fdb	SEMIS
+                        ;
+                        ; ======>>  211  <<
+   25b2   84            	fcb	$84
+   25b3   53 49 47      	fcc	"SIG"	;fcc	3,SIGN
+   25b6   ce            	fcb	$CE
+   25b7   25 9b         	fdb	EDIGS-5
+   25b9   15 2a 17 b5   SIGN	fdb	DOCOL,ROT,ZLESS,ZBRAN
+   25bd   13 df 10 91   
+   25c1   00 07          	fdb	SIGN2-*
+   25c3   10 59          	fdb	CLITER
+   25c5   2d             	fcc	"-"	
+   25c6   1c 24          	fdb	HOLD
+   25c8   13 6c         SIGN2	fdb	SEMIS
+                        ;
+                        ; ======>>  212  <<
+   25ca   81            	fcb	$81	; #
+   25cb   a3            	fcb	$A3
+   25cc   25 b2         	fdb	SIGN-7
+   25ce   15 2a 16 d0   DIG	fdb	DOCOL,BASE,AT,MSMODLAB,ROT,CLITER
+   25d2   14 d5 20 d1   
+   25d6   17 b5 10 59   
+   25da   09            	fcb	9
+   25db   14 60 17 89   	fdb	OVER,LESS,ZBRAN
+   25df   10 91         
+   25e1   00 07         	fdb	DIG2-*
+   25e3   10 59         	fdb	CLITER
+   25e5   07            	fcb	7
+   25e6   13 f6         	fdb	PLUS
+   25e8   10 59         DIG2	fdb	CLITER
+   25ea   30            	fcc	"0"	;ascii zero
+   25eb   13 f6 1c 24   	fdb	PLUS,HOLD
+   25ef   13 6c         	fdb	SEMIS
+                        ;
+                        ; ======>>  213  <<
+   25f1   82            	fcb	$82
+   25f2   23            	fcc	"#"	;fcc	1,#S
+   25f3   d3            	fcb	$D3
+   25f4   25 ca         	fdb	DIG-4
+   25f6   15 2a         DIGS	fdb	DOCOL
+   25f8   25 ce 14 60   DIGS2	fdb	DIG,OVER,OVER,ORLAB,ZEQU,ZBRAN
+   25fc   14 60 13 18   
+   2600   13 cc 10 91   
+   2604   ff f4         	fdb	DIGS2-*
+   2606   13 6c         	fdb	SEMIS
+                        ;
+                        ; ######>> screen 76 <<
+                        ; ======>>  214  <<
+   2608   82            	fcb	$82
+   2609   2e            	fcc	"."	;fcc	1,.R
+   260a   d2            	fcb	$D2
+   260b   25 f1         	fdb	DIGS-5
+   260d   15 2a 13 95   DOTR	fdb	DOCOL,TORLAB,STOD,FROMR,DDOTR
+   2611   20 5f 13 ab   
+   2615   26 1f         
+   2617   13 6c         	fdb	SEMIS
+                        ;
+                        ; ======>>  215  <<
+   2619   83            	fcb	$83
+   261a   44 2e         	fcc	"D."	;fcc	2,D.R
+   261c   d2            	fcb	$D2
+   261d   26 08         	fdb	DOTR-5
+   261f   15 2a 13 95   DDOTR	fdb	DOCOL,TORLAB,SWAP,OVER,DABS,BDIGS,DIGS,SIGN
+   2623   14 7f 14 60   
+   2627   21 02 25 91   
+   262b   25 f6 25 b9   
+   262f   25 a0 13 ab   	fdb	EDIGS,FROMR,OVER,SUB,SPACES,TYPE
+   2633   14 60 17 71   
+   2637   25 74 1a 3c   
+   263b   13 6c         	fdb	SEMIS
+                        ;
+                        ; ======>>  216  <<
+   263d   82            	fcb	$82
+   263e   44            	fcc	"D"	;fcc	1,D.
+   263f   ae            	fcb	$AE
+   2640   26 19         	fdb	DDOTR-6
+   2642   15 2a 15 a7   DDOT	fdb	DOCOL,ZERO,DDOTR,SPACE
+   2646   26 1f 17 c9   
+   264a   13 6c         	fdb	SEMIS
+                        ;
+                        ; ======>>  217  <<
+   264c   81            	fcb	$81	; .
+   264d   ae            	fcb	$AE
+   264e   26 3d         	fdb	DDOT-5
+   2650   15 2a 20 5f   DOT	fdb	DOCOL,STOD,DDOT
+   2654   26 42         
+   2656   13 6c         	fdb	SEMIS
+                        ;
+                        ; ======>>  218  <<
+   2658   81            	fcb	$81	; ?
+   2659   bf            	fcb	$BF
+   265a   26 4c         	fdb	DOT-4
+   265c   15 2a 14 d5   QUEST	fdb	DOCOL,AT,DOT
+   2660   26 50         
+   2662   13 6c         	fdb	SEMIS
+                        ;
+                        ; ######>> screen 77 <<
+                        ; ======>>  219  <<
+   2664   84            	fcb	$84
+   2665   4c 49 53      	fcc	"LIS"	;fcc	3,LIST
+   2668   d4            	fcb	$D4
+   2669   26 58         	fdb	QUEST-4
+   266b   15 2a 19 98   LIST	fdb	DOCOL,DEC,CR,DUP,SCR,STORLABE,PDOTQ
+   266f   12 63 14 98   
+   2673   16 90 14 f5   
+   2677   1a a2         
+   2679   06            	fcb	6
+   267a   53 43 52 20   	fcc	"SCR # "
+   267e   23 20         
+   2680   26 50 10 59   	fdb	DOT,CLITER
+   2684   10            	fcb	$10
+   2685   15 a7 11 04   	fdb	ZERO,XDO
+   2689   12 63 11 21   LIST2	fdb	CR,I,THREE
+   268d   15 bf         
+   268f   26 0d 17 c9   	fdb	DOTR,SPACE,I,SCR,AT,DLINE,XLOOP
+   2693   11 21 16 90   
+   2697   14 d5 22 80   
+   269b   10 bf         
+   269d   ff ec         	fdb	LIST2-*
+   269f   12 63         	fdb	CR
+   26a1   13 6c         	fdb	SEMIS
+                        ;
+                        ; ======>>  220  <<
+   26a3   85            	fcb	$85
+   26a4   49 4e 44 45   	fcc	"INDE"	;fcc	4,INDEX
+   26a8   d8            	fcb	$D8
+   26a9   26 64         	fdb	LIST-7
+   26ab   15 2a 12 63   INDEX	fdb	DOCOL,CR,ONEP,SWAP,XDO
+   26af   17 18 14 7f   
+   26b3   11 04         
+   26b5   12 63 11 21   INDEX2	fdb	CR,I,THREE
+   26b9   15 bf         
+   26bb   26 0d 17 c9   	fdb	DOTR,SPACE,ZERO,I,DLINE
+   26bf   15 a7 11 21   
+   26c3   22 80         
+   26c5   12 55 10 91   	fdb	QTERM,ZBRAN
+   26c9   00 04         	fdb	INDEX3-*
+   26cb   13 81         	fdb	LEAVE
+   26cd   10 bf         INDEX3	fdb	XLOOP
+   26cf   ff e6         	fdb	INDEX2-*
+   26d1   13 6c         	fdb	SEMIS
+                        ;
+                        ; ======>>  221  <<
+   26d3   85            	fcb	$85
+   26d4   54 52 49 41   	fcc	"TRIA"	;fcc	4,TRIAD
+   26d8   c4            	fcb	$C4
+   26d9   26 a3         	fdb	INDEX-8
+   26db   15 2a 15 bf   TRIAD	fdb	DOCOL,THREE,SLASH,THREE,STAR
+   26df   20 8e 15 bf   
+   26e3   20 6d         
+   26e5   15 bf 14 60   	fdb	THREE,OVER,PLUS,SWAP,XDO
+   26e9   13 f6 14 7f   
+   26ed   11 04         
+   26ef   12 63 11 21   TRIAD2	fdb	CR,I
+   26f3   26 6b 12 55   	fdb	LIST,QTERM,ZBRAN
+   26f7   10 91         
+   26f9   00 04         	fdb	TRIAD3-*
+   26fb   13 81         	fdb	LEAVE
+   26fd   10 bf         TRIAD3	fdb	XLOOP
+   26ff   ff f0         	fdb	TRIAD2-*
+   2701   12 63 10 59   	fdb	CR,CLITER
+   2705   0f            	fcb	$0F
+   2706   22 94 12 63   	fdb	MESS,CR
+   270a   13 6c         	fdb	SEMIS
+                        ;
+                        ; ######>> screen 78 <<
+                        ; ======>>  222  <<
+   270c   85            	fcb	$85
+   270d   56 4c 49 53   	fcc	"VLIS"	;fcc	4,VLIST
+   2711   d4            	fcb	$D4
+   2712   26 d3         	fdb	TRIAD-8
+   2714   15 2a 10 59   VLIST	fdb	DOCOL,CLITER
+   2718   80            	fcb	$80
+   2719   16 86 14 f5   	fdb	OUT,STORLABE,CONTXT,AT,AT
+   271d   16 ab 14 d5   
+   2721   14 d5         
+   2723   16 86 14 d5   VLIST1	fdb	OUT,AT,COLUMS,AT,CLITER
+   2727   17 0f 14 d5   
+   272b   10 59         
+   272d   20            	fcb	32
+   272e   17 71 17 a7   	fdb	SUB,GREAT,ZBRAN
+   2732   10 91         
+   2734   00 0a         	fdb	VLIST2-*
+   2736   12 63 15 a7   	fdb	CR,ZERO,OUT,STORLABE
+   273a   16 86 14 f5   
+   273e   14 98 1d b0   VLIST2	fdb	DUP,IDDOT,SPACE,SPACE,PFA,LFA,AT
+   2742   17 c9 17 c9   
+   2746   18 85 18 53   
+   274a   14 d5         
+   274c   14 98 13 cc   	fdb	DUP,ZEQU,QTERM,ORLAB,ZBRAN
+   2750   12 55 13 18   
+   2754   10 91         
+   2756   ff cd         	fdb	VLIST1-*
+   2758   14 71         	fdb	DROP
+   275a   13 6c         	fdb	SEMIS
+                        ;
+                        ; ======>>  XX  <<
+   275c   84            	fcb	$84
+   275d   4e 4f 4f      	fcc	"NOO"	;fcc	3,NOOP
+   2760   d0            	fcb	$D0
+   2761   27 0c         	fdb	VLIST-8
+   2763   10 34         NOOP	fdb	NEXT	;a useful no-op
+   2765   00 00 00 00   ZZZZ	fdb	0,0,0,0,0,0,0,0	;end of rom program
+   2769   00 00 00 00   
+   276d   00 00 00 00   
+   2771   00 00 00 00   
+                        ;
+   2775                 	END
+1f86  ABORLABT      20ed  ABS           20f9  ABS2          fc18  ACIAC     
+fc19  ACIAD         24fa  AGAIN         1744  ALLOT         1307  ANDLAB    
+22fd  ARROW         14d5  AT            244f  BACK          100e  BACKSP    
+16d0  BASE          15ec  BBUF          2591  BDIGS         2461  BEGIN     
+15c8  BL            1c15  BLANKS        1673  BLK           21fb  BLOCK     
+2219  BLOCK3        2233  BLOCK4        224b  BLOCK5        1085  BRAN      
+2399  BREAD         00ec  BRKPT         15f8  BSCR          21b3  BUFFER    
+21bd  BUFFR2        21e3  BUFFR3        19df  BUILDS        2387  BWRITE    
+1e44  BcomP         14e4  CAT           1761  CCOMM         1fac  CENT      
+1862  CFA           1059  CLITER        127a  CMOV1         1281  CMOV2     
+129f  CMOV3         1273  CMOVE         1faa  COLD          1fb2  COLD2     
+1022  COLINT        1516  COLON         170f  COLUMS        1750  COMMA     
+193a  COMPIL        155a  CON           16ab  CONTXT        1a29  COUNT     
+1263  CR            1e04  CREAT2        1de4  CREATE        16ee  CSP       
+1504  CSTORLABE     16b9  CURENT        2102  DABS          210e  DABS2     
+2642  DDOT          261f  DDOTR         1808  DDUP          1812  DDUP2     
+1998  DEC           1f35  DEFIN         1024  DELINT        1d42  DFIND     
+1d62  DFIND2        25ce  DIG           25e8  DIG2          1132  DIGIT     
+1149  DIGIT0        1151  DIGIT1        1156  DIGIT2        25f6  DIGS      
+25f8  DIGS2         2280  DLINE         1e8d  DLITE2        1e7d  DLITER    
+143f  DMINUS        1456  DMINX         2499  DO            152a  DOCOL     
+1564  DOCON         19fd  DODOES        19ef  DOES          2650  DOT       
+1abd  DOTQ          1adc  DOTQ1         1ae4  DOTQ2         260d  DOTR      
+1596  DOUSER        157e  DOVAR         1f1f  DOVOC         165a  DP        
+101e  DPINIT        16da  DPL           1407  DPLUS         140d  DPLUS2    
+219e  DRONE         1471  DROP          218e  DRZERO        1a6f  DTRAIL    
+1a77  DTRAL2        1a91  DTRAL3        1a95  DTRAL4        1498  DUP       
+25a0  EDIGS         2541  ELSE          1226  EMIT          11e7  ENCL2     
+11f4  ENCL3         11f9  ENCL4         1206  ENCL5         120f  ENCL6     
+1216  ENCL7         121a  ENCL8         11dd  ENCLOS        24ec  END       
+2473  ENDIF         177d  EQUAL         204e  ERAM          1c04  ERASE     
+1d7f  ERRORLAB      1d8d  ERRORLAB2     1071  EXEC          1b2c  EXPEC2    
+1b5a  EXPEC3        1b71  EXPEC4        1b73  EXPEC5        1b7f  EXPEC6    
+1b22  EXPECT        1651  FENCE         101c  FENCIN        1be4  FILL      
+15d4  FIRST         16e4  FLD           2407  FORLABGET     0153  FORLABTH  
+11b7  FOUND         13ab  FROMR         102e  GETX          17a7  GREAT     
+1734  HERE          1983  HEX           23ac  HI            1701  HLD       
+1c24  HOLD          1121  I             1db0  IDDOT         252a  IF        
+1ee7  IMMED         167c  IN            26ab  INDEX         26b5  INDEX2    
+26cd  INDEX3        1e9d  INTER2        1eb5  INTER3        1eb9  INTER4    
+1ebd  INTER5        1ed1  INTER6        1ed5  INTER7        1e9b  INTERP    
+0136  IOSTAT        00f2  IP            123e  KEY           1843  LATEST    
+1950  LBRAK         1381  LEAVE         1789  LESS          1799  LESSF     
+179c  LESST         179e  LESSX         1853  LFA           15e0  LIMIT     
+266b  LIST          2689  LIST2         1049  LIT           1e60  LITER     
+1e70  LITER2        23a3  LO            22cb  LOAD          24ac  LOOP      
+17ef  MAX           17fd  MAX2          3210  MEMEND        7bff  MEMTOP    
+2294  MESS          22b7  MESS3         22c2  MESS4         17d7  MIN       
+17e5  MIN2          1426  MINUS         1431  MINUS2        1433  MINUS3    
+209e  MODLAB        20d1  MSMODLAB      217a  MTBUF         00e0  N         
+0004  NBLK          1034  NEXT          103a  NEXT2         103c  NEXT3     
+1870  NFA           2763  NOOP          1ba9  NULL          1bd3  NULL1     
+1bd7  NULL2         1bdb  NULL3         1cec  NUMB          1d09  NUMB1     
+1d2e  NUMB2         1d38  NUMB3         169d  OFSET         15af  ONE       
+1718  ONEP          1318  ORLAB         1000  ORLABIG       1686  OUT       
+1460  OVER          00e4  PA            00e2  PA0           1d71  PABORLABT 
+1c3c  PAD           1f45  PAREN         212c  PBUF          2141  PBUF2     
+00e6  PC            2355  PCR           2363  PCR2          00e0  PD        
+1aa2  PDOTQ         2319  PEMIT         1885  PFA           1167  PFIND     
+1170  PFIND0        1179  PFIND1        118c  PFIND2        11a2  PFIND3    
+11ae  PFIND4        11ab  PFIND8        11b0  PFIND9        2330  PKEY      
+225c  PLINE         24c2  PLOOP         13f6  PLUS          1ca1  PNUMB     
+1ca3  PNUMB2        1cd9  PNUMB3        1cdf  PNUMB4        1609  PORLABIG  
+2348  PQTER         2354  PQTER2        2121  PREV          19ad  PSCODE    
+14a6  PSTORLABE     1026  PULABX        1032  PUSHBA        18c6  QCOMP     
+1905  QCSP          2374  QDISC         18ac  QERR          18ba  QERR2     
+18bc  QERR3         18dd  QEXEC         1921  QLOAD         18f3  QPAIRS    
+1b04  QSTAC2        1b17  QSTAC3        1aef  QSTACK        1255  QTERM     
+1b91  QUERY         265c  QUEST         1f55  QUIT          1f5f  QUIT2     
+1f77  QUIT3         13be  R             2008  RAM           195e  RBRAK     
+0186  REND          2511  REPEAT        201b  RFORLABTH     1014  RINIT     
+16f7  RNUM          17b5  ROT           00f4  RP            135d  RPSTORLAB 
+204a  RTASK         23b6  RW            23d9  RW2           23e1  RW3       
+1621  RZERO         1690  SCR           1899  SCSP          1541  SEMI      
+19c5  SEMIC         136c  SEMIS         25b9  SIGN          25c8  SIGN2     
+1012  SINIT         208e  SLASH         207e  SLMODLAB      1972  SMUDGE    
+17c9  SPACE         2584  SPACE2        258a  SPACE3        2574  SPACES    
+133c  SPAT          134d  SPSTORLAB     20bf  SSLASH        20ae  SSMODLAB  
+1028  STABX         206d  STAR          16c5  STATE         205f  STOD      
+14f5  STORLABE      1771  SUB           147f  SWAP          1618  SZERO     
+0182  TASK          248e  THEN          15bf  THREE         162b  TIB       
+23eb  TICK          14c3  TOGGLE        1395  TORLAB        00eb  TRACEM    
+181f  TRAV          1823  TRAV2         26db  TRIAD         26ef  TRIAD2    
+26fd  TRIAD3        00ea  TRLIM         15b7  TWO           1725  TWOP      
+1a3c  TYPE          1a4c  TYPE2         1a5f  TYPE3         1a61  TYPE4     
+24d8  UNTIL         0100  UORLABIG      00f6  UP            2154  UPDATE    
+1010  UPINIT        2116  USE           1590  USER          12d9  USL1      
+12e3  USL2          12e6  USL3          12eb  USL4          12f9  USL5      
+12cf  USLASH        12a7  USTAR         12b6  USTAR2        12c4  USTAR3    
+12c8  USTAR4        12b0  USTARS        1578  VAR           00ee  VECT      
+2714  VLIST         2723  VLIST1        273e  VLIST2        1eff  VOCAB     
+1020  VOCINT        1669  VOCLIN        00f0  W             1fe2  WARM2     
+1645  WARN          1fdc  WENT          2563  WHILE         1637  WIDTH     
+1c51  WORLABD       1c65  WORLABD2      1c69  WORLABD3      0126  XBASE     
+0116  XBLK          0134  XCOLUM        0120  XCONT         012c  XCSP      
+0122  XCURR         0132  XDELAY        1104  XDO           0112  XDP       
+0128  XDPL          0110  XFENCE        012a  XFLD          0130  XHLD      
+0118  XIN           10bf  XLOOP         011e  XOFSET        132a  XORLAB    
+011a  XOUT          10ed  XPLOF         10f5  XPLONO        10d0  XPLOOP    
+10d4  XPLOP2        10e2  XPLOPS        0142  XPREV         012e  XRNUM     
+0108  XRZERO        011c  XSCR          0106  XSPZER        0124  XSTATE    
+010a  XTIB          0140  XUSE          0114  XVOCL         010e  XWARN     
+010c  XWIDTH        10ac  ZBNO          1091  ZBRAN         109a  ZBYES     
+13cc  ZEQU          13d6  ZEQU2         15a7  ZERO          13df  ZLESS     
+13ee  ZLESS2        2765  ZZZZ          
+
