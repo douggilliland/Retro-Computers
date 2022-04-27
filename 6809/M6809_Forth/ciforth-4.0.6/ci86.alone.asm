@@ -1,0 +1,9422 @@
+
+
+;         ciforth : a generic I86 ISO FORTH by HCC FIG
+
+; $Id: ci86.gnr,v 4.15.5.19 2005/02/18 17:32:33 albert Exp $
+; Copyright (2000): Albert van der Horst by GNU Public License
+;
+;HCC FIG Holland : Hobby Computer Club, Forth Interest Group  Holland
+        ;  66,106
+ ;   ciforth $Revision: 4.15.5.19 $
+;
+; For the generic system (to generate ciforth in an other configuration than this one):
+;     http://home.hccnet.nl/a.w.m.van.der.horst/ci86gnr.html
+;
+; If this is a configured assembly file, it should be accompanied with configured
+; documentation (texinfo, ps, html.)
+; WITHOUT THE DOCUMENTATION: GIVE UP! GET THE REAL THING!
+; You have a configured system, if there are NO curly brackets on the next line.
+;                          
+;
+; Configuration of this particular version:
+; 16 -bits protected mode  
+; standalone  
+; Normally ciforth doesn't observe ISO >IN.
+; Contains :
+; (there may be no items here.)
+;        Security words
+;         Loadable words, i.e. all of ISO CORE, more than is needed
+;           for a self contained kernel.
+;
+;
+; This is a NASM version of ciforth created by ``m4'' from the generic listing.
+; It can be assembled using ``nasm'' obtainable via :
+; Source: ftp://ftp.us.kernel.org/pub/software/devel/nasm/source/
+; URL: http://www.cryogen.com/Nasm/
+
+; This version can be assembled on a Linux system in behalf of a
+;  standalone (booting) version by
+;   nasm -fbin ciforth.asm -o ciforth.com
+; For assembling on other systems where nasm is available see the
+; documentation of nasm.
+; See again the generic system manual for more information how to install
+; booting versions.
+
+%if 0
+        A generic version of ISO FORTH for IBM type standard PC's by
+                Albert van der Horst
+
+                in cooperation with
+                HCC Forth user group
+                The Netherlands
+                www.forth.hccnet.nl
+
+              based on
+              FIG-FORTH
+   implemented by:  Charlie Krajewski
+                    205 ( BIG ) Blue Rd.
+                    Middletown, CT  06457
+
+  The listing has been made possible by the
+  prior work of:
+               Thomas Newman, Hayward, Ca.
+
+ : other_acknowledgements
+         John_Cassidy
+         Kim_Harris
+         George_Flammer
+         Robert_D._Villwock ;
+
+ : for tools
+         Richard M. Stallman
+         Linus Torvalds
+
+No one who programs with FORTH can afford to be without:
+  "Starting Forth  by Leo Brodie" and "Thinking Forth by Leo Brodie".
+   Both out of print.
+
+This Forth is a descendant in the 300+ (RCS)- generations from fig-Forth.
+
+For nostalgic reasons the following comment has never been removed:
+   Although there is much to be said for typing in your own
+   listing and getting it running, there is much to be said
+   not typing in your own listing.  If you feel that 100+
+   pages of plinking is nutty, contact me for availability
+   of a disc with source & executable files.  Obtainable at
+   a bargain basement price, prepare yourself for bargain
+   basement support.
+
+All publications of the FORTH Interest Group are public domain.
+They may be further distributed by the inclusion of this
+credit notice:
+               This publication has been made available by:
+
+               FORTH Interest Group
+               P.O. Box 1105
+               San Carlos, Ca.  94070
+[I feel obliged to keep this last one in (AH). Note that although it is
+based on fig-Forth no stone is left unturned.]
+%endif
+        ;
+; ########################################################################################
+;                       PREPARATION (no code)
+; ########################################################################################
+FIGREL  EQU     4       ; FIG RELEASE #
+FIGREV  EQU     0       ; FIG REVISION #
+USRVER  EQU     0      ; USER VERSION NUMBER, a digit now
+;
+;      VERY ELEMENTARY .
+CW      EQU     2    ; Size of a cell in Forth, not in the bootcode.
+ERRORSCREEN EQU     48    ; Screen where the error messages start.
+;
+;      MEMORY LAYOUT.
+; Normally this is specified at the m4 configuration level.
+; For a configured system these values can be changed at this single place. 
+NBUF    EQU     8    ; No. of buffers, or screens 
+KBBUF   EQU     1024      ; Data bytes per disk buffer
+US      EQU     0x40*CW  ; User variable space
+EM      EQU     0x10000     ; Where the memory ends w.r.t. ORIG. 1) 
+EMP     EQU     (EM-1)/0x1000+1 ; Number of pages.
+RTS     EQU     0x0100    ; Return stack & terminal input buffer
+;
+; NOTE 1:
+;This trick to not have a round memory allocated convinces loaders
+; on Linux 1.24 and following to load the elf header in memory
+; in front of the executable, and not in some other place.
+; ciforth relies on modifying the elf header in behalf of SAVE-SYSTEM.
+;This is more convenient than creating it from scratch. It also leaves
+; alone the load address generated by ``ld'', and all other things we
+; are not aware of.
+
+
+;
+;      ASCII CHARACTER EQUIVALENTS
+;
+ABL     EQU     ' '     ; SPACE
+ACR     EQU     0x0D     ; CR
+AMS     EQU     '-'
+ASO     EQU     '['
+ASC     EQU     ']'
+ADOT    EQU     '.'
+ALF      EQU     0x0A     ; LINE FEED, USED INTERNALLY AS
+                        ; LINE ENDER
+AFF      EQU     0x0C     ; FORM FEED
+BELL    EQU     0x07     ; ^G
+BSIN    EQU     0x08     ; INPUT DELETE CHARACTER
+BSOUT   EQU     0x08     ; OUTPUT BACKSPACE ( ^H )
+;
+;      HEADER RELATED EQUATES
+B_DUMMY   EQU     0x01     ; dea is dummy, from vocabulary link
+B_INVIS   EQU     0x02     ; dea is invisible, "smudged".
+B_IMMED   EQU     0x04     ; dea is a immediate.
+B_DENOT   EQU     0x08     ; dea is a denotation.
+C_HOFFSET EQU     0       ; Offsets of code field in cells, w.r.t. dea
+D_HOFFSET EQU     1       ; Same for data field
+F_HOFFSET EQU     2       ; Same for flag field
+L_HOFFSET EQU     3       ; Same for link field
+N_HOFFSET EQU     4       ; Same for name field
+PH_OFFSET EQU     5   ; Past header field: Start of data area. 
+BD_OFFSET EQU     5+1 ; Start of BODY for CREATEd word.
+HEADSIZE  EQU     (CW*(PH_OFFSET))  ;In cells, only to clean up source.
+;
+
+; 
+
+STRUSA  EQU     EM-US         ; User area at end 
+;
+; 
+
+STRTIB  EQU     STRUSA-RTS      ; Start return stack area
+                                ; Under this : data stack
+INITR0  EQU     STRUSA         ; Grows down
+INITS0  EQU     STRTIB          ; Grows down
+;
+ ;  
+;
+
+DRIVE   EQU     0       ; Use floppy A for blocks.
+%if 0
+DRIVE   EQU     0x80     ; Use drive C for blocks.
+%endif
+;
+;
+BPS     EQU     512             ;Bytes/sector, common to all of MSDOS
+SPB     EQU     KBBUF/BPS
+;
+;
+
+; PHYSICAL DISK PARAMETERS
+;
+; Disk parameters: 
+; FD drive 3" 
+TRKS    EQU     80    ;Number of tracks
+SPT     EQU     18    ;Sectors/track
+HEADS   EQU     2     ;Number of heads 
+NFAT    EQU     2     ; Number of FATS
+SECROOT EQU     0x0E   ; Sectors for root directory entry.
+SECFAT  EQU     9     ; Sectors per FAT
+MEDIA   EQU    0x0F0   ; Descriptor byte. Used for selecting between A: and C:.
+
+%if 0
+; FD drive 5" 
+TRKS    EQU     80      ;Number of tracks
+SPT     EQU     15      ;Sectors/track
+HEADS   EQU     2       ;Number of heads 
+NFAT    EQU     2       ; Number of FATS
+SECROOT EQU     ?       ; Sectors for root directory entry.
+SECFAT  EQU     7       ; Sectors per FAT
+MEDIA   EQU    0x0F0     ; Descriptor byte. Used for selecting between A: and C:.
+%endif
+
+%if 0
+; Hard drive 
+;This works supposedly with all reasonably modern drives. 
+TRKS    EQU     1       ;Number of tracks, dummy
+SPT     EQU     63      ;Sectors/track
+HEADS   EQU     255     ;Number of heads 
+NFAT    EQU     2       ; Number of FATS
+SECROOT EQU     0       ; Sectors for root directory entry, dummy.
+SECFAT  EQU     0       ; Sectors per FAT, dummy
+MEDIA   EQU    0x0F8     ; Descriptor byte. Used for selecting between A: and C:.
+%endif
+
+; Bios specific equates.
+BOOTADDRESS     EQU     0x07C00 ; PC jumps to 0:7C00 to boot
+        ; Skip boot sector,fats and root dir and first sector of file.
+
+SECSTRT EQU     1+NFAT*SECFAT + SECROOT + 1
+ ; 
+;
+; END  OF PHYSICAL DISK PARAMETERS
+;
+;
+;
+
+; Segments   @ Valid in real mode % Valid in protected mode 
+; Names starting in A_ are linear, physical (32 bit), absolute addresses 
+RSTSIZE     EQU     0x10000  ; For real mode stack. 
+GDTSIZE         EQU     0x8000   ; For GDT-table.
+IDTSIZE         EQU     0x0800   ; For IDT-table. Not yet used. 
+A_FORTH0     EQU     0x07C00 - 0x07C00 ;  Physical address of Forth's CS:0 = SS:0 = ES:0 . 
+
+A_SWITCH        EQU     0x07C00
+A_RST       EQU     A_SWITCH + 0x10000
+A_GDT             EQU     A_RST + RSTSIZE
+A_IDT             EQU     A_GDT + GDTSIZE  ;  reserved but not yet used. 
+A_LOWDP         EQU     A_IDT + IDTSIZE ;  Must become this. 
+
+; @ Real mode place for the stack.
+; This is such that after switching to real mode an isolated 
+; Stack is available 
+SS_RST      EQU     A_RST/0x10 ;
+SWITCHSEGMENT     EQU     A_SWITCH/0x10 ; @ DS and CS for real code 
+; Add this to go from GDT_CS addresses to GDT_SWITCH addresses.
+M4_SWITCHOFFSET EQU  ( A_FORTH0 - 0x07C00)
+
+; The GDT_.. are offsets in the GDT table. They can be arbitrarily chosen 
+; as far as the GDT goes as long as they are a multiple of 0x08 
+; Switching sometimes restricts these to a particular value.
+GDT_SWITCH       EQU    SWITCHSEGMENT  ; % Switching segment, must be same for switching to work! 
+GDT_CS EQU 0x10  ; % The protected mode code segment 
+GDT_SS         EQU     SS_RST ; % The protected mode data segment
+GDT_DS         EQU     SS_RST ; % The protected mode data segment
+GDT_SEGMENT    EQU     A_GDT/0x10       ; @ General descriptor table.
+
+IDENTIFY_16 EQU 0x008F   ; Identification of 16 bit data/code segment, byte 6
+IDENTIFY_32 EQU 0x00CF   ; Identification of 32 bit data/code segment, byte 6
+IDENTIFY_INT EQU 0x8E00  ; Identification of an interrupt descriptor, byte 5
+IDENTIFY_XR  EQU 0x9A00  ; Identification of a code segment, execute read, byte 5
+IDENTIFY_RW  EQU 0x9200  ; Identification of a data segment, read write, byte 5
+
+GDTLEN EQU GDTSIZE-1      ; Intel peculiarity.
+BOOTOFFSET EQU 0
+; 
+
+; 
+
+create  EQU     0x3C00
+open    EQU     0x3D00
+close   EQU     0x3E00
+read    EQU     0x3F00
+write   EQU     0x4000
+delete  EQU     0x4100
+lseek   EQU     0x4200
+EPIPE   EQU     38
+; 
+
+; 
+; ########################################################################################
+;                      BOOTCODE    (optional, always real mode)
+; ########################################################################################
+
+; All bootcode must be relocatable and its memory references absolute.
+; Not for the sake of booting, but to allow MSDOS to start the program too. 
+        ;    SEGMENT PARA PUBLIC 'CODE'
+        ; CS:;,DS:;,SS:;,ES:;
+; 
+     ORG     0x07C00
+    
+
+
+ORIG:
+        JMP     SHORT BOOT
+        NOP
+        ; MSDOS programmers reference (thru 6, 3.9)
+        DB    "DFW--EXP"
+LBPS    DW         BPS
+        DB         1
+RESSECTORS  DW     0x01
+        DB         NFAT
+        DW BPS*SECROOT/32
+        DW         HEADS*TRKS*SPT    ; sectors/drive
+LMEDIA  DB         MEDIA
+        DB         SECFAT, 0x0
+LSPT    DW         SPT
+LHEADS  DW       HEADS
+HIDDENSECS    DD        0x0
+HUGESECS      DD         0x000
+      ; BIOS parameter block ends here
+        DB 0x000, 0x000, 0x029                  ; Required magic.
+        DB         0x004, 0x01C, 0x040,  0x00B
+        DB    "           "
+        DB    "FAT12   "
+
+;       Read the sector with number in CX (Counting from 0) to ES:BX.
+;       Keep BX, CX  
+READSECTOR:
+        PUSH    CX
+        PUSH    BX
+        MOV     AX,CX
+        MOV     CL,[LSPT]
+        DIV     CL
+        MOV     CL,AH
+        INC     CL      ; Sectors counting from 1!
+        XOR     AH,AH   ; Get rid of remainder
+        MOV     CH,[LHEADS]
+        DIV     CH
+        MOV     DH,AH   ; Head number
+        MOV     CH,AL   ; Only small disks <256 cylinders
+        MOV     AX,0x0201   ; Read absolute one sector
+        INT(0x13)                 ;BIOS disk access.
+        POP     BX
+        POP     CX
+        RET
+
+RETRY:
+        CALL    DISPLAYW
+        XOR     AX,AX   ; Reset
+;       MOV     DL,DRIVE
+        INT(0x13)                 ;BIOS disk access.
+        CALL    DISPLAYW
+        MOV     AL,' '
+        CALL DISPLAY
+        MOV     AX,CX
+        CALL    DISPLAYW
+        MOV     AL,' '
+        CALL DISPLAY
+BOOT:
+        MOV     DL, 0x80          ; Hard disk, default.
+        MOV     AL, [LMEDIA]
+        CMP     AL, 0x0F8        ; Fixed disk.
+        JZ     ENDIF1A
+        MOV     DL, 0x0          ; Floppy.
+ENDIF1A:
+
+        MOV     AL,'D'
+        CALL    DISPLAY
+        MOV AX,CS
+        AND AX,AX       ; Z = BOOTING ?
+        JZ   ENDIF1B
+        JMP  NOBOOT
+ENDIF1B:
+        MOV     AL,'F'
+        CALL    DISPLAY
+        MOV     AH,00   ; Reset
+;       MOV     DL,DRIVE
+        INT(0x13)                 ;BIOS disk access.
+        JB      RETRY
+
+        ; The first file copied to a freshly formatted floppy will
+        ; be at SECSTRT (See also genboot.bat)
+        MOV     CX,SECSTRT      ; Counting from zero
+        MOV     AX,BOOTADDRESS/0x10 ; Bootsegment
+        MOV     ES,AX
+        MOV     BX,BPS
+BEGIN1: CALL    READSECTOR
+        INC     CX
+        ADD     BX,BPS
+        JB      RETRY
+        CMP     BX,TEXTEND - $$
+        JB      BEGIN1
+
+        MOV     AL,'W'
+        CALL    DISPLAY
+        CALL    DISPLAYCR
+
+        MOV     AL, [LHEADS]     ;Copy from boot sector to Forth.
+        MOV     [LFHEADS],AL
+        MOV     AL, [LSPT]
+        MOV     [LFSPT],AL
+        MOV     AL, 0
+        MOV     [LFDRIVE], DL
+
+        JMP     ENDBOOT
+ ;  
+
+; 
+
+; Debug code, could be dispensed with in an ideal world.
+DISPLAYCR:
+        MOV     AL,ACR
+        CALL    DISPLAY
+        MOV     AL,ALF
+        JMP DISPLAY
+
+DISPLAYPC:      POP     AX
+        PUSH    AX
+DISPLAYW:       PUSH    AX              ; Display AX in hex 
+        MOV     AL,AH
+        CALL    DISPLAYHEX
+        POP     AX
+        ; CALL DISPLAYHEX _C RET
+DISPLAYHEX:     PUSH    AX              ; Display AL in hex 
+        MOV     CL,4
+        SAR     AL,CL
+        CALL    DISPLAYHD
+        POP     AX
+        ; CALL DISPLAYHD _C RET
+DISPLAYHD:      AND     AL,0x0F          ; Display AL as one hex digit
+        DAA
+        MOV     AH,AL
+        MOV     CL,5
+        SHR     AH,CL
+        ADC     AL,0x30
+        ; CALL DISPLAY _C RET
+DISPLAY:XOR     BH,BH           ; Display AL as an ASCII char
+        MOV     AH,0x0E
+        INT(0x10)
+        RET
+GETKEY: MOV     AH, 0x01       ; If CARRY, a key sits in AL. 
+        INT(0x16)
+        JNB     ENDIF1
+        MOV     AH, 0x00       ; Consume the key. 
+        INT(0x16)
+ENDIF1:  RET
+; 
+NOBOOT:         ; Skip till here if not booting.
+
+
+; Apparently we may have to move the code, e.g. if started from MSDOS.
+; Prepare return to MSDOS using the original code segment.
+        MOV     AX,CS
+        MOV     DS,AX
+        CALL    HERE1
+HERE1:  POP     BX
+        MOV     CX,BX
+        ADD     BX,RETDOSV-HERE1+1        ; Independant of load address.
+        ADD     CX,RETDOS-HERE1
+        MOV     [BX],CX
+        INC     BX
+        INC     BX
+        MOV     [BX],AX
+        JMP ENDBOOT     ;
+
+; Returns to DOS, provided we started from dos as a .COM.
+; Use far jump restoring CS to .COM value. 
+RETDOS:
+        MOV     AX,CS
+        MOV     DS,AX
+        MOV     ES,AX
+        MOV     SS,AX
+        MOV     AH,0x4C
+        INT     0x21    ; Only works if cs is the same as while starting.
+
+; 
+ENDBOOT:
+
+
+
+; ########################################################################################
+;                       MOVE CODE TO ITS PLACE (still real mode)
+; ########################################################################################
+;   Take care of the situation where booting code is actually started up by  
+;   MSDOS. This is no problem as long as the code is moved to where it would 
+;   be if booted. If the code is at its place, nothing really happens here.  
+;   Furthermore all protected code started by MSDOS must be at an absolute address.
+        STD     ; Start at the end going back.
+        MOV     CX,TEXTEND-HERE5 ; Amount to move
+        CALL  HERE6
+HERE6:  POP     AX                 ;  Calculate address of the first byte to move
+        ADD     AX,TEXTEND-HERE6-1
+        MOV     SI,AX           ; Relocatable address, w.r.t code segment.
+        MOV     AX,CS
+        MOV     DS,AX
+        MOV     AX, A_FORTH0/0x10 ; Destination segment
+        MOV     ES, AX
+        MOV     DI, TEXTEND-1
+        REPNZ
+        MOVSB
+        PUSH    ES    ; Corrected code segment
+        MOV BX, HERE5
+        PUSH BX     ; Correct program counter
+        RETF        ; Returning to here5 now
+HERE5:
+        MOV     AX,CS
+        MOV     DS,AX
+        MOV     ES,AX
+        MOV     SS,AX
+        CLD     ; Reset direction to going up.
+
+;
+
+; ########################################################################################
+;                       FILL GDT AND SWITCH TO PROTECTED MODE/32 BITS (optional)
+; ########################################################################################
+        JMP    PROTECT
+GDTLOAD DW     GDTLEN
+        DD     A_GDT
+PROTECT:
+;Prepare. Remember STOSW uses ES:DI                              
+        MOV     AX,GDT_SEGMENT ; GDT segment
+        MOV     ES,AX
+        MOV     DI,0
+        MOV     AX,GDTLEN
+        STOSW
+; The switch segment.         
+; Switch between real and (16-bit) protected mode is done,
+; while using this segment (Relocatable code only).
+; GDT_SWITCH can to an extent be chosen arbitrarily,
+; as long as here we ensure that the real mode address  
+; is equal to the protected mode address. 
+; You can only switch while staying at the same physical address
+; when you are currently executing in the range GDT_SWITCH:[0:FFFFH] 
+        MOV     BX,GDT_SWITCH
+        MOV     DI,BX
+        MOV     AX,0x0FFFF
+        STOSW
+        SHL     BX,4     ;  Turn segment register into IP
+        MOV     AX,BX
+        STOSW
+        MOV     AX,IDENTIFY_XR
+        STOSW
+        MOV     AX,IDENTIFY_16
+        STOSW
+;
+; GDT_DS/GDT_SS to an extent be chosen arbitrarily,
+; The real mode view of GDT_SS is valid, isolated and reserved for real stack.
+; DS is reset after switching anyway.
+; Accommodate a 24 bit start address, a maximal limit, large pages. 
+        MOV     DI,GDT_SS ;Identical to GDT_DS
+        MOV     AX,0x0FFFF
+        STOSW
+        MOV     EAX,A_FORTH0
+        STOSW           ; Only 16 bits
+        SHR     EAX,8
+        ADD     AX,IDENTIFY_RW
+        STOSW
+        MOV     AX,IDENTIFY_16
+        STOSW
+; PREPARE-CS 16/32 BITS                                                   
+        MOV     DI,GDT_CS
+        MOV     AX,0x0FFFF
+        STOSW
+        MOV     EAX,A_FORTH0
+        STOSW           ; Only 16 bits
+        SHR     EAX,8
+        ADD     AX,IDENTIFY_XR
+        STOSW
+        MOV     AX,IDENTIFY_16
+        STOSW
+
+        LGDT    [GDTLOAD]
+; 
+
+; 
+
+        JMP     ENDREADJUST
+        RESB    0x01FE-($-$$)
+        ; Signature. Last piece of boot sector. 
+        DB         0x055, 0x0AA
+ENDREADJUST:
+; 
+
+
+; Remember: we are now in the real mode for a protected model.
+; Make sure we are in the switch segment, such that we can switch.
+        MOV   BX,CS      ; Reality.
+        MOV AX, GDT_SWITCH ; Dream.
+        PUSH AX     ; Correct code segment
+        SUB AX,BX      ; Discrepancy between dream and reality
+        MOV CX,0x10     ; How much units would that be for the IP?
+        CWD
+        MUL CX
+        CALL  HERE3
+HERE3:  POP   BX         ; Reality.
+        SUB BX,AX    ;
+        ADD BX,THERE4-HERE3
+        PUSH BX     ; Corrected program counter
+        RETF        ; Returning to THERE4 now
+
+THERE4: 
+
+; 
+; 
+;
+;
+
+;
+
+
+        CLI     ; Wait for stacks to be setup.
+        
+        MOV EAX,CR0
+        INC AL
+        MOV CR0,EAX            ;set protected mode
+        BITS   16
+        JMP    GDT_CS: $+5
+        
+        MOV     AX,GDT_DS
+        MOV     DS,AX
+        MOV     ES,AX
+        MOV     SS,AX
+        MOV     AX,GDT_SS
+        MOV     SS,AX
+REP1:
+; 
+; 
+;
+
+;
+COLD_ENTRY:
+        CLD                     ; DIR = INC
+
+        MOV     AX,DS
+        MOV     SS,AX           ;Atomic with next instruction.
+        MOV     SP, WORD[USINI+(CW*(2))]    ;PARAM. STACK
+        MOV     BP, WORD[USINI+(CW*(3))]    ;RETURN STACK
+        MOV     SI, CLD1  ; (IP) <-
+        JMP     NEXT
+;
+CLD1:   DW      COLD    ;  This is a piece of headerless high level code.
+;
+; ########################################################################################
+;                       FORTH ITSELF
+; ########################################################################################
+;
+%if 0
+   FORTH REGISTERS
+   The names under FORTH are used in the generic source.
+
+   FORTH   8088     FORTH PRESERVATION RULES
+   -----   ----     ----- ------------ -----
+   HIP   SI      High level Interpreter Pointer.  Must be preserved
+                    across FORTH words.
+
+   WOR   BX      Working register.  When entering a word
+                    via its code field the DEA is passed in WOR.
+
+   SPO   SP      Parameter stack pointer.  Must be preserved
+                    across FORTH words.
+
+   RPO   BP      Return stack pointer.  Must be preserved across
+                    FORTH words.
+
+            AX      General register.  Used to pass data from
+                    FORTH words, see label APUSH or macro _APUSH
+
+            DX      General register.  Used to pass more data from
+                    FORTH words, see label DPUSH or macro _DPUSH
+
+            BX      General purpose register.
+
+            CX      General purpose register.
+
+            CS      Segment register. Must be preserved
+                    across FORTH words.
+
+            DS      ditto
+
+            SS      ibid
+
+            ES      Temporary segment register only used by
+                    a few words. However it MUST remain equal to
+                    DS, such that string primitives can be used
+                    with impunity.
+
+----------------------------------------------------------
+%endif
+        ;
+%if 0
+---------------------------------------------
+
+   COMMENT CONVENTIONS
+   ------- -----------
+
+   =       IS EQUAL TO
+   <-      ASSIGNMENT
+
+  NAME        =  Address of name
+  (NAME)      =  Contents of name
+
+  CFA         =  CODE FIELD ADDRESS : a pointer to executable code
+  DFA         =  DATA FIELD ADDRESS : a pointer to
+                        data/high level code/ DOES> pointer
+  FFA         =  FLAG FIELD ADDRESS: contains flags
+  LFA         =  LINK FIELD ADDRESS: a pointer
+  NFA         =  NAME FIELD ADDRESS: a pointer to a variable number of chars
+  PHA         =  POST HEADER ADDRESS
+
+  S1          =  Parameter stack - 1st cell
+  S2          =  Parameter stack - 2nd cell
+  R1          =  Return stack    - 1st cell
+  R2          =  Return stack    - 2nd cell
+
+  LSB         =  Least significant bit
+  MSB         =  Most  significant bit
+  LB          =  Low byte
+  HB          =  High byte
+  LW          =  Low  cell
+
+------------------------------------------------------------
+%endif
+; 
+        ;
+
+; 
+; 
+;
+; 
+; In 32 bit versions there may be no jumps to NEXT at all 
+; The label NEXT1 is rarely relevant (for _OLDDEBUG_) 
+DPUSH:  PUSH    DX      ; Fall through.
+APUSH:  PUSH    AX
+NEXT:
+;
+        LODSW           ;AX <- (IP)
+NEXT1:  MOV     BX,AX   ; (WOR) <- (IP)
+
+        JMP      WORD[BX]    ; TO `CFA'
+;
+;       Dictionary starts here.
+
+DP0:
+; Vocabularies all end in a link to 0.
+
+;  *********
+;  *   '   *
+;  *********
+;
+N_TICK:
+        DW      1
+        DB      "'"
+TICK:
+        DW    DOCOL
+        DW    TICK+HEADSIZE
+        DW    B_IMMED + B_DENOT
+        DW    0
+        DW    N_TICK
+
+        DW      ITICK
+        DW      LITER
+        DW      SEMIS
+;
+
+;  *********
+;  *   &   *
+;  *********
+;
+N_DCHAR:
+        DW      1
+        DB      "&"
+DCHAR:
+        DW    DOCOL
+        DW    DCHAR+HEADSIZE
+        DW    B_IMMED + B_DENOT
+        DW    TICK
+        DW    N_DCHAR
+
+        DW      INBRS
+        DW      SWAP, DROP
+        DW      LDUP, QBL
+        DW      LIT, 10, QERR
+        DW      LITER
+        DW      QDELIM
+        DW      SEMIS
+;
+
+;  *********
+;  *   ^   *
+;  *********
+;
+N_DCTL:
+        DW      1
+        DB      "^"
+DCTL:
+        DW    DOCOL
+        DW    DCTL+HEADSIZE
+        DW    B_IMMED + B_DENOT
+        DW    DCHAR
+        DW    N_DCTL
+
+        DW      INBRS
+        DW      SWAP, DROP
+        DW      LDUP, QBL
+        DW      LIT, 10, QERR
+        DW      LIT, '@', LSUB
+        DW      LITER
+        DW      QDELIM
+        DW      SEMIS
+;
+
+;  *********
+;  *   0   *
+;  *********
+;
+N_DEN0:
+        DW      1
+        DB      "0"
+DEN0:
+        DW    DOCOL
+        DW    LNUMB
+        DW    B_IMMED + B_DENOT
+        DW    DCTL
+        DW    N_DEN0
+
+;  *********
+;  *   1   *
+;  *********
+;
+N_DEN1:
+        DW      1
+        DB      "1"
+DEN1:
+        DW    DOCOL
+        DW    LNUMB
+        DW    B_IMMED + B_DENOT
+        DW    DEN0
+        DW    N_DEN1
+
+;  *********
+;  *   2   *
+;  *********
+;
+N_DEN2:
+        DW      1
+        DB      "2"
+DEN2:
+        DW    DOCOL
+        DW    LNUMB
+        DW    B_IMMED + B_DENOT
+        DW    DEN1
+        DW    N_DEN2
+
+;  *********
+;  *   3   *
+;  *********
+;
+N_DEN3:
+        DW      1
+        DB      "3"
+DEN3:
+        DW    DOCOL
+        DW    LNUMB
+        DW    B_IMMED + B_DENOT
+        DW    DEN2
+        DW    N_DEN3
+
+;  *********
+;  *   4   *
+;  *********
+;
+N_DEN4:
+        DW      1
+        DB      "4"
+DEN4:
+        DW    DOCOL
+        DW    LNUMB
+        DW    B_IMMED + B_DENOT
+        DW    DEN3
+        DW    N_DEN4
+
+;  *********
+;  *   5   *
+;  *********
+;
+N_DEN5:
+        DW      1
+        DB      "5"
+DEN5:
+        DW    DOCOL
+        DW    LNUMB
+        DW    B_IMMED + B_DENOT
+        DW    DEN4
+        DW    N_DEN5
+
+;  *********
+;  *   6   *
+;  *********
+;
+N_DEN6:
+        DW      1
+        DB      "6"
+DEN6:
+        DW    DOCOL
+        DW    LNUMB
+        DW    B_IMMED + B_DENOT
+        DW    DEN5
+        DW    N_DEN6
+
+
+;  *********
+;  *   7   *
+;  *********
+;
+N_DEN7:
+        DW      1
+        DB      "7"
+DEN7:
+        DW    DOCOL
+        DW    LNUMB
+        DW    B_IMMED + B_DENOT
+        DW    DEN6
+        DW    N_DEN7
+
+;  *********
+;  *   8   *
+;  *********
+;
+N_DEN8:
+        DW      1
+        DB      "8"
+DEN8:
+        DW    DOCOL
+        DW    LNUMB
+        DW    B_IMMED + B_DENOT
+        DW    DEN7
+        DW    N_DEN8
+
+;  *********
+;  *   9   *
+;  *********
+;
+N_DEN9:
+        DW      1
+        DB      "9"
+DEN9:
+        DW    DOCOL
+        DW    LNUMB
+        DW    B_IMMED + B_DENOT
+        DW    DEN8
+        DW    N_DEN9
+
+;  *********
+;  *   A   *
+;  *********
+;
+N_DENA:
+        DW      1
+        DB      "A"
+DENA:
+        DW    DOCOL
+        DW    LNUMB
+        DW    B_IMMED + B_DENOT
+        DW    DEN9
+        DW    N_DENA
+
+;  *********
+;  *   B   *
+;  *********
+;
+N_DENB:
+        DW      1
+        DB      "B"
+DENB:
+        DW    DOCOL
+        DW    LNUMB
+        DW    B_IMMED + B_DENOT
+        DW    DENA
+        DW    N_DENB
+
+
+;  *********
+;  *   C   *
+;  *********
+;
+N_DENC:
+        DW      1
+        DB      "C"
+DENC:
+        DW    DOCOL
+        DW    LNUMB
+        DW    B_IMMED + B_DENOT
+        DW    DENB
+        DW    N_DENC
+
+;  *********
+;  *   D   *
+;  *********
+;
+N_DEND:
+        DW      1
+        DB      "D"
+DEND:
+        DW    DOCOL
+        DW    LNUMB
+        DW    B_IMMED + B_DENOT
+        DW    DENC
+        DW    N_DEND
+
+;  *********
+;  *   E   *
+;  *********
+;
+N_DENE:
+        DW      1
+        DB      "E"
+DENE:
+        DW    DOCOL
+        DW    LNUMB
+        DW    B_IMMED + B_DENOT
+        DW    DEND
+        DW    N_DENE
+
+;  *********
+;  *   F   *
+;  *********
+;
+N_DENF:
+        DW      1
+        DB      "F"
+DENF:
+        DW    DOCOL
+        DW    LNUMB
+        DW    B_IMMED + B_DENOT
+        DW    DENE
+        DW    N_DENF
+
+;
+
+;  *********
+;  *   -   *
+;  *********
+;
+N_DENM:
+        DW      1
+        DB      "-"
+DENM:
+        DW    DOCOL
+        DW    DENM+HEADSIZE
+        DW    B_IMMED + B_DENOT
+        DW    DENF
+        DW    N_DENM
+
+        DW      PNUMB, DNEGA, SDLITE
+        DW      SEMIS
+;
+
+;  *********
+;  *   +   *
+;  *********
+;
+N_DENP:
+        DW      1
+        DB      "+"
+DENP:
+        DW    DOCOL
+        DW    DENP+HEADSIZE
+        DW    B_IMMED + B_DENOT
+        DW    DENM
+        DW    N_DENP
+
+        DW      PNUMB, SDLITE
+        DW      SEMIS
+;
+
+;  *********
+;  *   "   *
+;  *********
+;
+N_DENQ:
+        DW      1
+        DB      '"'
+DENQ:
+        DW    DOCOL
+        DW    DENQ+HEADSIZE
+        DW    B_IMMED + B_DENOT
+        DW    DENP
+        DW    N_DENQ
+
+        DW      LIT, SKIP, COMMA        ;  'SKIP , HERE >R 0 ,
+        DW      HERE, TOR, ZERO, COMMA
+DENQ1:
+        DW      LIT, '"', PPARS         ;           BEGIN &" (PARSE)
+        DW      INBRS, LDUP, LIT, '"', EQUAL ;           IN[] DUP &" =
+        DW      ZBRAN
+        DW      DENQ2-$-CW                 ;           WHILE
+        DW      TDROP, ONEP             ;           2DROP 1+ R@ $+!
+        DW      LDUP, ALLOT, RR, SADD
+        DW      BRAN
+        DW      DENQ1-$-CW                  ;           REPEAT
+DENQ2:
+        DW      QBL, ZEQU
+        DW      LIT, 10, QERR           ;           ?BLANK 0= 5 ?ERROR
+        DW      DROP                    ;                DROP R@ $+!
+        DW      LDUP, ALLOT, RR, SADD
+        DW      FROMR, SFET, DLITE      ;           R> $@ POSTPONE DLITERAL ;
+        DW      SEMIS
+;
+
+; The FORTH word is the only non-denotation in the ONLY vocabulary.
+;  *************
+;  *   FORTH   *
+;  *************
+;
+N_FORTH:
+        DW      5
+        DB      "FORTH"
+FORTH:
+        DW    DODOE
+        DW    FORTH+HEADSIZE
+        DW    B_IMMED
+        DW    DENQ
+        DW    N_FORTH
+
+        DW      DOVOC
+        DW      0       ; END OF VOCABULARY LIST
+
+
+        DW    0x0
+        DW    0
+        DW    B_DUMMY
+        DW    TASK
+        DW    (ZERO+(CW*(D_HOFFSET)))
+
+;
+;
+;
+
+;  ************
+;  *   CORE   *
+;  ************
+;
+N_CORE:
+        DW      4
+        DB      "CORE"
+CORE:
+        DW    DOCOL
+        DW    CORE+HEADSIZE
+        DW    0x0
+        DW    0
+        DW    N_CORE
+
+        DW      ZERO    ; Not (fully) present.
+        DW      SEMIS
+;
+
+;  ***********
+;  *   CPU   *
+;  ***********
+;
+N_LCPU:
+        DW      3
+        DB      "CPU"
+LCPU:
+        DW    DOCOL
+        DW    LCPU+HEADSIZE
+        DW    0x0
+        DW    CORE
+        DW    N_LCPU
+
+
+             ; '80386'
+       DW      LIT, 0x1856, LIT, 0x0CD     ; '80386'
+ ;  
+
+        DW      SEMIS
+;
+
+;  ***************
+;  *   VERSION   *
+;  ***************
+;
+N_LVERSION:
+        DW      7
+        DB      "VERSION"
+LVERSION:
+        DW    DOCOL
+        DW    LVERSION+HEADSIZE
+        DW    0x0
+        DW    LCPU
+        DW    N_LVERSION
+
+%if 0
+;       If this is there it is an official release
+        DW      SKIP
+        DW      22
+IBMPC:  DB      'IBM-PC ciforth'
+        DB      FIGREL+0x40,ADOT,FIGREV+0x30,ADOT,USRVER+0x30
+        DW      LIT, IBMPC, LIT, 22
+%endif
+;       If M4_VERSION exists and contains a . it is an official release
+        DW      SKIP
+         DW      5
+SB0: DB      "4.0.6"
+       
+        DW      LIT, SB0
+        DW      LIT, 5
+        DW      SEMIS
+;
+
+;  ************
+;  *   NAME   *
+;  ************
+;
+N_LNAME:
+        DW      4
+        DB      "NAME"
+LNAME:
+        DW    DOCOL
+        DW    LNAME+HEADSIZE
+        DW    0x0
+        DW    LVERSION
+        DW    N_LNAME
+
+        DW      SKIP
+         DW      7
+SB1: DB      "ciforth"
+       
+        DW      LIT, SB1
+        DW      LIT, 7
+        DW      SEMIS
+;
+
+;  ****************
+;  *   SUPPLIER   *
+;  ****************
+;
+N_SUPPLIER:
+        DW      8
+        DB      "SUPPLIER"
+SUPPLIER:
+        DW    DOCOL
+        DW    SUPPLIER+HEADSIZE
+        DW    0x0
+        DW    LNAME
+        DW    N_SUPPLIER
+
+        DW      SKIP
+         DW      20
+SB2: DB      "Albert van der Horst"
+       
+        DW      LIT, SB2
+        DW      LIT, 20
+        DW      SEMIS
+;
+;
+
+;  ************
+;  *   ONLY   *
+;  ************
+;
+N_ONLY:
+        DW      4
+        DB      "ONLY"
+ONLY:
+        DW    DODOE
+        DW    ONLY+HEADSIZE
+        DW    B_IMMED
+        DW    0
+        DW    N_ONLY
+
+        DW      DOVOC
+        DW      FORTH     ; NEXT VOCABULARY 
+ONLYBODY:
+
+
+        DW    0x0
+        DW    0
+        DW    B_DUMMY
+        DW    FORTH
+        DW    (ZERO+(CW*(D_HOFFSET)))
+
+;
+
+;  *******************
+;  *   ENVIRONMENT   *
+;  *******************
+;
+N_ENV:
+        DW      11
+        DB      "ENVIRONMENT"
+ENV:
+        DW    DODOE
+        DW    ENV+HEADSIZE
+        DW    B_IMMED
+        DW    ONLY
+        DW    N_ENV
+
+        DW      DOVOC
+        DW      ONLY       ; NEXT VOCABULARY 
+
+
+        DW    0x0
+        DW    0
+        DW    B_DUMMY
+        DW    SUPPLIER
+        DW    (ZERO+(CW*(D_HOFFSET)))
+
+;
+
+;  ************
+;  *   NOOP   *
+;  ************
+;
+N_NOOP:
+        DW      4
+        DB      "NOOP"
+NOOP:
+        DW    NOOP+HEADSIZE
+        DW    NOOP+HEADSIZE
+        DW    0x0
+        DW    ENV
+        DW    N_NOOP
+
+       JMP     NEXT
+;
+; 
+;
+
+;  ***********
+;  *   LIT   *
+;  ***********
+;
+N_LIT:
+        DW      3
+        DB      "LIT"
+LIT:
+        DW    LIT+HEADSIZE
+        DW    LIT+HEADSIZE
+        DW    0x0
+        DW    NOOP
+        DW    N_LIT
+
+        LODSW           ; AX <- LITERAL
+        JMP     APUSH          ; TO TOP OF STACK
+;
+
+;  ***************
+;  *   EXECUTE   *
+;  ***************
+;
+N_EXEC:
+        DW      7
+        DB      "EXECUTE"
+EXEC:
+        DW    EXEC+HEADSIZE
+        DW    EXEC+HEADSIZE
+        DW    0x0
+        DW    LIT
+        DW    N_EXEC
+
+        POP     BX      ; GET XT
+        JMP      WORD[BX]  ;(IP) <- (PFA)
+;
+
+
+;  ***************
+;  *   RECURSE   *
+;  ***************
+;
+N_RECURSE:
+        DW      7
+        DB      "RECURSE"
+RECURSE:
+        DW    DOCOL
+        DW    RECURSE+HEADSIZE
+        DW    B_IMMED
+        DW    EXEC
+        DW    N_RECURSE
+
+        DW      LATEST, COMMA
+        DW      SEMIS
+;
+;
+
+;  **************
+;  *   BRANCH   *
+;  **************
+;
+N_BRAN:
+        DW      6
+        DB      "BRANCH"
+BRAN:
+        DW    (SKIP+HEADSIZE)
+        DW    BRAN+HEADSIZE
+        DW    0x0
+        DW    RECURSE
+        DW    N_BRAN
+
+;
+
+;  ************
+;  *   SKIP   *
+;  ************
+;
+N_SKIP:
+        DW      4
+        DB      "SKIP"
+SKIP:
+        DW    SKIP+HEADSIZE
+        DW    SKIP+HEADSIZE
+        DW    0x0
+        DW    BRAN
+        DW    N_SKIP
+
+BRAN1:  LODSW
+        ADD     SI,AX
+        JMP     NEXT
+;
+
+;  ***************
+;  *   0BRANCH   *
+;  ***************
+;
+N_ZBRAN:
+        DW      7
+        DB      "0BRANCH"
+ZBRAN:
+        DW    ZBRAN+HEADSIZE
+        DW    ZBRAN+HEADSIZE
+        DW    0x0
+        DW    SKIP
+        DW    N_ZBRAN
+
+        POP     AX      ; GET STACK VALUE
+        OR      AX,AX   ; ZERO?
+        JZ      BRAN1   ; YES, BRANCH
+        LEA     SI,[SI+(CW*(1))]
+        JMP     NEXT
+;
+;
+
+;  **************
+;  *   (LOOP)   *
+;  **************
+;
+N_XLOOP:
+        DW      6
+        DB      "(LOOP)"
+XLOOP:
+        DW    XLOOP+HEADSIZE
+        DW    XLOOP+HEADSIZE
+        DW    0x0
+        DW    ZBRAN
+        DW    N_XLOOP
+
+        MOV     BX,1    ; INCREMENT
+XLOO1:  ADD     [BP],BX ; INDEX = INDEX + INCR
+        MOV     AX,[BP] ; GET NEW INDEX
+        SUB     AX,[BP+(CW*(1))]        ; COMPARE WITH LIMIT
+        XOR     AX,BX   ; TEST SIGN
+        JS      BRAN1   ; KEEP LOOPING
+;
+;  END OF `DO' LOOP
+        LEA     BP,[BP+(CW*(3))]  ; ADJ RETURN STACK
+        LEA     SI,[SI+(CW*(1))]       ; BYPASS BRANCH OFFSET
+        JMP     NEXT
+;
+
+;  ***************
+;  *   (+LOOP)   *
+;  ***************
+;
+N_XPLOO:
+        DW      7
+        DB      "(+LOOP)"
+XPLOO:
+        DW    XPLOO+HEADSIZE
+        DW    XPLOO+HEADSIZE
+        DW    0x0
+        DW    XLOOP
+        DW    N_XPLOO
+
+        POP     BX      ; GET LOOP VALUE
+        JMP SHORT     XLOO1
+        JMP     NEXT           ;Helpfull for disassembly.
+;
+
+;  ************
+;  *   (DO)   *
+;  ************
+;
+N_XDO:
+        DW      4
+        DB      "(DO)"
+XDO:
+        DW    XDO+HEADSIZE
+        DW    XDO+HEADSIZE
+        DW    0x0
+        DW    XPLOO
+        DW    N_XDO
+
+        LODSW
+        ADD     AX,SI  ;Make absolute
+        POP     DX      ; INITIAL INDEX VALUE
+        POP     BX      ; LIMIT VALUE
+        XCHG    BP,SP   ; GET RETURN STACK
+        PUSH    AX      ; Target location.
+        PUSH    BX
+        PUSH    DX
+        XCHG    BP,SP   ; GET PARAMETER STACK
+        JMP     NEXT
+;
+
+;  *************
+;  *   (?DO)   *
+;  *************
+;
+N_XQDO:
+        DW      5
+        DB      "(?DO)"
+XQDO:
+        DW    XQDO+HEADSIZE
+        DW    XQDO+HEADSIZE
+        DW    0x0
+        DW    XDO
+        DW    N_XQDO
+
+        LODSW
+        ADD     AX,SI  ;Make absolute
+        POP     DX      ; INITIAL INDEX VALUE
+        POP     BX      ; LIMIT VALUE
+        CMP     DX,BX
+        JZ      QXDO1
+        XCHG    BP,SP   ; GET RETURN STACK
+        PUSH    AX      ; Target location.
+        PUSH    BX
+        PUSH    DX
+        XCHG    BP,SP   ; GET PARAMETER STACK
+        JMP     NEXT
+QXDO1:  MOV     SI,AX
+        JMP     NEXT
+;
+
+;  *********
+;  *   I   *
+;  *********
+;
+N_IDO:
+        DW      1
+        DB      "I"
+IDO:
+        DW    IDO+HEADSIZE
+        DW    IDO+HEADSIZE
+        DW    0x0
+        DW    XQDO
+        DW    N_IDO
+
+        MOV     AX,[BP] ; GET INDEX VALUE
+        JMP     APUSH          ; TO PARAMETER STACK
+;
+
+;  *********
+;  *   J   *
+;  *********
+;
+N_JDO:
+        DW      1
+        DB      "J"
+JDO:
+        DW    JDO+HEADSIZE
+        DW    JDO+HEADSIZE
+        DW    0x0
+        DW    IDO
+        DW    N_JDO
+
+        MOV     AX,[BP+(CW*(3))] ; GET INDEX VALUE
+        JMP     APUSH          ; TO PARAMETER STACK
+;
+
+;  **************
+;  *   UNLOOP   *
+;  **************
+;
+N_UNLOOP:
+        DW      6
+        DB      "UNLOOP"
+UNLOOP:
+        DW    DOCOL
+        DW    UNLOOP+HEADSIZE
+        DW    B_IMMED
+        DW    JDO
+        DW    N_UNLOOP
+
+        DW      LIT, RDROP, COMMA
+        DW      LIT, RDROP, COMMA
+        DW      LIT, RDROP, COMMA
+        DW      SEMIS
+;
+
+;  ***************
+;  *   +ORIGIN   *
+;  ***************
+;
+N_PORIG:
+        DW      7
+        DB      "+ORIGIN"
+PORIG:
+        DW    DOCOL
+        DW    PORIG+HEADSIZE
+        DW    0x0
+        DW    UNLOOP
+        DW    N_PORIG
+
+        DW      LIT
+        DW      USINI
+        DW      PLUS
+        DW      SEMIS
+;
+;      Initialisation block for user variables through DOC-LINK
+;       <<<<< must be in same order as user variables >>>>>
+;
+;        DW      WARM_ENTRY FIXME
+;        DW      COLD_ENTRY
+USINI:  DW      STRUSA  ; User area currently in use, cold value same as next.
+        DW      STRUSA  ; INIT (U0) user area of the main task 1
+        DW      INITS0  ; INIT (S0)         2
+        DW      INITR0  ; INIT (R0)         3
+        DW      STRTIB  ; INIT (TIB)        4
+        DW      BSIN    ; RUBOUT: get rid of latest char 5
+        DW      0       ; AVAILABLE         6
+        DW      1       ; INIT (WARNING)     7
+        DW      INITDP  ;      INIT (FENCE)  8
+DPA:    DW      INITDP  ;      INIT (DP)     9
+        DW      ENV ;       INIT (VOC-LINK) 10
+;
+;
+;
+
+;
+
+; This will reserve place for dos information, such that the floppy
+; can be accessed from DOS and makes sure blocks are not allocated
+; within the forth system itself. 
+; BPS subtracted because SECSTRT corresponds with one sector into source. 
+; Round up both parts separately.
+;       You need a filler file of one sector,
+;       if this  vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv even (for a 3" drive).
+        DW      (SECSTRT+((TEXTEND - $$-1-BPS)/BPS+1)-1)/SPB+1     ; INIT (OFFSET) 
+ ; 
+
+;
+;
+;
+        DW      0, 0            ; WHERE             12 13 
+        DW      0, 0            ;REMAINDER   14 15 
+
+; Swap the following with DP to allocate in conventional memory.
+         DW     TEXTEND         ; LOW-DP        16
+; Leave space to start conventional programs
+         DW     0x80000          ; LOW-EM        17
+; 
+        RESB    US-($ - USINI)        ; All user can be initialised.
+;
+;      <<<<< end of data used by cold start >>>>>
+
+;  *************
+;  *   DIGIT   *
+;  *************
+;
+N_DIGIT:
+        DW      5
+        DB      "DIGIT"
+DIGIT:
+        DW    DIGIT+HEADSIZE
+        DW    DIGIT+HEADSIZE
+        DW    0x0
+        DW    PORIG
+        DW    N_DIGIT
+
+        POP     DX      ;NUMBER BASE
+        POP     AX      ;ASCII DIGIT
+        SUB     AL, '0'
+        JB      DIGI2   ;NUMBER ERROR
+        CMP     AL, 9
+        JBE     DIGI1   ;NUMBER = 0 THRU 9
+        SUB     AL, 7
+        CMP     AL, 10   ;NUMBER 'A' THRU 'Z'?
+        JB      DIGI2   ;NO
+DIGI1:  CMP     AL,DL   ; COMPARE NUMBER TO BASE
+        JAE     DIGI2   ;NUMBER ERROR
+        SUB     DX,DX   ;ZERO
+        MOV     DL,AL   ;NEW BINARY NUMBER
+        MOV     AL, 1    ;TRUE FLAG
+        NEG     AX
+        JMP     DPUSH          ;ADD TO STACK
+;   NUMBER ERROR
+DIGI2:  SUB     AX,AX   ;FALSE FLAG
+        JMP     DPUSH
+;
+
+;  **************
+;  *   ~MATCH   *
+;  **************
+;
+N_NMATCH:
+        DW      6
+        DB      "~MATCH"
+NMATCH:
+        DW    DOCOL
+        DW    NMATCH+HEADSIZE
+        DW    0x0
+        DW    DIGIT
+        DW    N_NMATCH
+
+;
+        DW      TOR                           ; Remember dea
+        DW      TDUP
+        DW      RR, TNFA, FETCH, SFET
+        DW      ROT, MIN
+        DW      CORA
+        DW      FROMR, SWAP                   ; Leave flag on top of dea.
+        DW      SEMIS                            ;
+;
+
+;  **************
+;  *   ?BLANK   *
+;  **************
+;
+N_QBL:
+        DW      6
+        DB      "?BLANK"
+QBL:
+        DW    DOCOL
+        DW    QBL+HEADSIZE
+        DW    0x0
+        DW    NMATCH
+        DW    N_QBL
+
+        DW      LBL, ONEP, LESS
+        DW      SEMIS
+;
+
+;  ************
+;  *   IN[]   *
+;  ************
+;
+N_INBRS:
+        DW      4
+        DB      "IN[]"
+INBRS:
+        DW    DOCOL
+        DW    INBRS+HEADSIZE
+        DW    0x0
+        DW    QBL
+        DW    N_INBRS
+
+        DW      SRC, CELLP, TFET
+        DW      OVER, EQUAL
+        DW      ZBRAN
+        DW      INBRS1-$-CW
+        DW      ZERO
+        DW      BRAN
+        DW      INBRS2-$-CW
+INBRS1:
+        DW      LDUP
+        
+        DW      CFET
+        DW      ONE, LIN, PSTORE
+INBRS2:
+        DW      SEMIS
+;
+
+;  **************
+;  *   (WORD)   *
+;  **************
+;
+N_LPWORD:
+        DW      6
+        DB      "(WORD)"
+LPWORD:
+        DW    DOCOL
+        DW    LPWORD+HEADSIZE
+        DW    0x0
+        DW    INBRS
+        DW    N_LPWORD
+
+        DW      X
+PWORD0: DW      DROP
+        DW      INBRS, QBL
+        DW      OVER, SRC, CELLP, FETCH, LSUB ; At end?
+        DW      LAND, ZEQU
+        DW      ZBRAN
+        DW      PWORD0-$-CW
+
+        DW      X
+PWORD1: DW      DROP
+        DW      INBRS, QBL
+        DW      ZBRAN
+        DW      PWORD1-$-CW
+
+        DW      OVER, LSUB
+        
+        DW      SEMIS
+;
+
+;  ***************
+;  *   (PARSE)   *
+;  ***************
+;
+N_PPARS:
+        DW      7
+        DB      "(PARSE)"
+PPARS:
+        DW    DOCOL
+        DW    PPARS+HEADSIZE
+        DW    0x0
+        DW    LPWORD
+        DW    N_PPARS
+
+        DW      SRC, CELLP, TFET
+        DW      OVER, LSUB
+        
+        DW      ROT, SSPLIT, TSWAP
+        DW      ZEQU
+        DW      ZBRAN
+        DW      PPARS8-$-CW
+        DW      DROP, SRC, CELLP, FETCH
+PPARS8: 
+        DW      LIN, STORE
+        DW SEMIS
+;
+
+;  ***********
+;  *   SRC   *
+;  ***********
+;
+N_SRC:
+        DW      3
+        DB      "SRC"
+SRC:
+        DW    DOUSE
+        DW    (CW*(27))
+        DW    0x0
+        DW    PPARS
+        DW    N_SRC
+      ; And 28 and 29.
+;
+
+
+;  **************
+;  *   SOURCE   *
+;  **************
+;
+N_SOURCE:
+        DW      6
+        DB      "SOURCE"
+SOURCE:
+        DW    DOCOL
+        DW    SOURCE+HEADSIZE
+        DW    0x0
+        DW    SRC
+        DW    N_SOURCE
+
+        DW      SRC, FETCH
+        DW      SRC, CELLP, FETCH
+        DW      OVER, LSUB
+        DW      SEMIS
+;
+
+;  ***********
+;  *   >IN   *
+;  ***********
+;
+N_IIN:
+        DW      3
+        DB      ">IN"
+IIN:
+        DW    DOCOL
+        DW    IIN+HEADSIZE
+        DW    0x0
+        DW    SOURCE
+        DW    N_IIN
+
+        DW      LIN, FETCH
+        DW      SRC, FETCH, LSUB     
+        DW      PIIN, STORE
+        DW      PIIN
+        DW      SEMIS
+;
+;
+
+;  **********
+;  *   CR   *
+;  **********
+;
+N_CR:
+        DW      2
+        DB      "CR"
+CR:
+        DW    DOCOL
+        DW    CR+HEADSIZE
+        DW    0x0
+        DW    IIN
+        DW    N_CR
+
+        DW      LIT,ALF
+        DW      EMIT
+        DW      ZERO, LOUT, STORE
+        DW      SEMIS
+;
+
+;  *************
+;  *   CMOVE   *
+;  *************
+;
+N_LCMOVE:
+        DW      5
+        DB      "CMOVE"
+LCMOVE:
+        DW    LCMOVE+HEADSIZE
+        DW    LCMOVE+HEADSIZE
+        DW    0x0
+        DW    CR
+        DW    N_LCMOVE
+
+        CLD             ;direction
+        MOV     BX,SI   ;save 
+        POP     CX      ;count
+        POP     DI      ;dest
+        POP     SI      ;source
+        REP     MOVSB
+        MOV     SI,BX   ;get back 
+        JMP     NEXT
+;
+
+;  ************
+;  *   MOVE   *
+;  ************
+;
+N_LMOVE:
+        DW      4
+        DB      "MOVE"
+LMOVE:
+        DW    LMOVE+HEADSIZE
+        DW    LMOVE+HEADSIZE
+        DW    0x0
+        DW    LCMOVE
+        DW    N_LMOVE
+
+        MOV     BX,SI   ;SAVE 
+        POP     CX      ;count
+        POP     DI      ;dest
+        POP     SI      ;source
+        CMP     SI,DI
+        JC    MOVE1
+        CLD             ;INC DIRECTION
+        JMP SHORT MOVE2
+MOVE1:  STD
+        ADD     DI,CX
+        DEC     DI
+        ADD     SI,CX
+        DEC     SI
+MOVE2:
+        REP     MOVSB   ;THAT'S THE MOVE
+        CLD             ;INC DIRECTION
+        MOV     SI,BX   ;GET BACK 
+        JMP     NEXT
+;
+
+;  ***************
+;  *   FARMOVE   *
+;  ***************
+;
+N_FMOVE:
+        DW      7
+        DB      "FARMOVE"
+FMOVE:
+        DW    FMOVE+HEADSIZE
+        DW    FMOVE+HEADSIZE
+        DW    0x0
+        DW    LMOVE
+        DW    N_FMOVE
+
+        CLD             ;direction
+        MOV     AX,SI   ;save 
+        MOV     BX,DS    ;save 
+        POP     CX      ;count
+        POP     DI      ;dest
+        POP     DX
+        AND     DX,DX
+        JZ      FARMV1
+        MOV     ES,DX
+FARMV1:
+        POP     SI      ;source
+        POP     DX
+        PUSH    DS
+        PUSH    BX      ;ES in fact.
+        AND     DX,DX
+        JZ      FARMV2
+        MOV     DS,DX
+FARMV2:
+        REP     MOVSB
+        MOV     SI,AX   ;restore 
+        POP     ES
+        POP     DS
+        JMP     NEXT
+;
+
+;  ***********
+;  *   UM*   *
+;  ***********
+;
+N_USTAR:
+        DW      3
+        DB      "UM*"
+USTAR:
+        DW    USTAR+HEADSIZE
+        DW    USTAR+HEADSIZE
+        DW    0x0
+        DW    FMOVE
+        DW    N_USTAR
+
+        POP     AX
+        POP     BX
+        MUL     BX      ;UNSIGNED
+        XCHG    AX,DX   ;AX NOW = MSW
+        JMP     DPUSH          ;STORE DOUBLE CELL
+;
+
+;  **************
+;  *   UM/MOD   *
+;  **************
+;
+N_USLAS:
+        DW      6
+        DB      "UM/MOD"
+USLAS:
+        DW    USLAS+HEADSIZE
+        DW    USLAS+HEADSIZE
+        DW    0x0
+        DW    USTAR
+        DW    N_USLAS
+
+        POP     BX      ;DIVISOR
+        POP     DX      ;MSW OF DIVIDEND
+        POP     AX      ;LSW OF DIVIDEND
+        DIV     BX      ;16 BIT DIVIDE
+        JMP     DPUSH          ;STORE QUOT/REM
+;
+
+;  ***********
+;  *   AND   *
+;  ***********
+;
+N_LAND:
+        DW      3
+        DB      "AND"
+LAND:
+        DW    LAND+HEADSIZE
+        DW    LAND+HEADSIZE
+        DW    0x0
+        DW    USLAS
+        DW    N_LAND
+
+        POP     AX
+        POP     BX
+        AND     AX,BX
+        JMP     APUSH
+;
+
+;  **********
+;  *   OR   *
+;  **********
+;
+N_LOR:
+        DW      2
+        DB      "OR"
+LOR:
+        DW    LOR+HEADSIZE
+        DW    LOR+HEADSIZE
+        DW    0x0
+        DW    LAND
+        DW    N_LOR
+
+        POP     AX      ; (S1) <- (S1) OR (S2)
+        POP     BX
+        OR      AX,BX
+        JMP     APUSH
+;
+
+;  ***********
+;  *   XOR   *
+;  ***********
+;
+N_LXOR:
+        DW      3
+        DB      "XOR"
+LXOR:
+        DW    LXOR+HEADSIZE
+        DW    LXOR+HEADSIZE
+        DW    0x0
+        DW    LOR
+        DW    N_LXOR
+
+        POP     AX      ; (S1) <- (S1) XOR (S2)
+        POP     BX
+        XOR     AX,BX
+        JMP     APUSH
+;
+
+;  **************
+;  *   INVERT   *
+;  **************
+;
+N_INVERT:
+        DW      6
+        DB      "INVERT"
+INVERT:
+        DW    INVERT+HEADSIZE
+        DW    INVERT+HEADSIZE
+        DW    0x0
+        DW    LXOR
+        DW    N_INVERT
+
+        POP     AX      ; (S1) <- (S1) XOR (S2)
+        NOT     AX
+        JMP     APUSH
+;
+
+;  ************
+;  *   DSP@   *
+;  ************
+;
+N_SPFET:
+        DW      4
+        DB      "DSP@"
+SPFET:
+        DW    SPFET+HEADSIZE
+        DW    SPFET+HEADSIZE
+        DW    0x0
+        DW    INVERT
+        DW    N_SPFET
+
+        MOV     AX,SP   ; (S1) <- (SP)
+        JMP     APUSH
+;
+
+;  ************
+;  *   DSP!   *
+;  ************
+;
+N_SPSTO:
+        DW      4
+        DB      "DSP!"
+SPSTO:
+        DW    SPSTO+HEADSIZE
+        DW    SPSTO+HEADSIZE
+        DW    0x0
+        DW    SPFET
+        DW    N_SPSTO
+
+        POP     AX
+        MOV     SP,AX        ;RESET PARAM STACK POINTER
+        JMP     NEXT
+;
+
+
+;  *************
+;  *   DEPTH   *
+;  *************
+;
+N_DEPTH:
+        DW      5
+        DB      "DEPTH"
+DEPTH:
+        DW    DOCOL
+        DW    DEPTH+HEADSIZE
+        DW    0x0
+        DW    SPSTO
+        DW    N_DEPTH
+
+        DW      SZERO, FETCH
+        DW      SPFET
+        DW      LSUB
+        DW      LIT, CW, SLASH
+        DW      ONEM
+        DW      SEMIS
+;
+;
+
+;  ************
+;  *   RSP@   *
+;  ************
+;
+N_RPFET:
+        DW      4
+        DB      "RSP@"
+RPFET:
+        DW    RPFET+HEADSIZE
+        DW    RPFET+HEADSIZE
+        DW    0x0
+        DW    DEPTH
+        DW    N_RPFET
+      ;(S1) <- (RP)
+        PUSH    BP
+        JMP     NEXT
+;
+
+;  ************
+;  *   RSP!   *
+;  ************
+;
+N_RPSTO:
+        DW      4
+        DB      "RSP!"
+RPSTO:
+        DW    RPSTO+HEADSIZE
+        DW    RPSTO+HEADSIZE
+        DW    0x0
+        DW    RPFET
+        DW    N_RPSTO
+
+        POP     BP
+        JMP     NEXT
+;
+
+;  ************
+;  *   EXIT   *
+;  ************
+;
+N_EXIT:
+        DW      4
+        DB      "EXIT"
+EXIT:
+        DW    EXIT+HEADSIZE
+        DW    EXIT+HEADSIZE
+        DW    0x0
+        DW    RPSTO
+        DW    N_EXIT
+
+        MOV     SI,[BP] ;(IP) <- (R1)
+        LEA     BP,[BP+(CW*(1))]
+        JMP     NEXT
+;
+
+;  **********
+;  *   CO   *
+;  **********
+;
+N_CO:
+        DW      2
+        DB      "CO"
+CO:
+        DW    CO+HEADSIZE
+        DW    CO+HEADSIZE
+        DW    0x0
+        DW    EXIT
+        DW    N_CO
+
+        XCHG    SI,[BP]
+        JMP     NEXT
+;
+
+;  ***********
+;  *   (;)   *
+;  ***********
+;
+N_SEMIS:
+        DW      3
+        DB      "(;)"
+SEMIS:
+        DW    (EXIT+HEADSIZE)
+        DW    SEMIS+HEADSIZE
+        DW    0x0
+        DW    CO
+        DW    N_SEMIS
+
+;
+
+;  *************
+;  *   LEAVE   *
+;  *************
+;
+N_LLEAV:
+        DW      5
+        DB      "LEAVE"
+LLEAV:
+        DW    DOCOL
+        DW    LLEAV+HEADSIZE
+        DW    0x0
+        DW    SEMIS
+        DW    N_LLEAV
+  ;LIMIT <- INDEX
+        DW      RDROP, RDROP, RDROP
+        DW      SEMIS
+;
+
+;  **********
+;  *   >R   *
+;  **********
+;
+N_TOR:
+        DW      2
+        DB      ">R"
+TOR:
+        DW    TOR+HEADSIZE
+        DW    TOR+HEADSIZE
+        DW    0x0
+        DW    LLEAV
+        DW    N_TOR
+        ; (R1) <- (S1)
+        POP     BX      ;GET STACK PARAMETER
+        LEA     BP,[BP - (CW*(1))]    ;MOVE RETURN STACK DOWN
+        MOV     [BP],BX ;ADD TO RETURN STACK
+        JMP     NEXT
+;
+
+;  **********
+;  *   R>   *
+;  **********
+;
+N_FROMR:
+        DW      2
+        DB      "R>"
+FROMR:
+        DW    FROMR+HEADSIZE
+        DW    FROMR+HEADSIZE
+        DW    0x0
+        DW    TOR
+        DW    N_FROMR
+      ;(S1) <- (R1)
+        MOV     AX,[BP] ; GET RETURN STACK VALUE
+        LEA     BP,[BP + (CW*(1))]
+        JMP     APUSH
+;
+
+;  *************
+;  *   RDROP   *
+;  *************
+;
+N_RDROP:
+        DW      5
+        DB      "RDROP"
+RDROP:
+        DW    RDROP+HEADSIZE
+        DW    RDROP+HEADSIZE
+        DW    0x0
+        DW    FROMR
+        DW    N_RDROP
+      ;(S1) <- (R1)
+        LEA     BP,[BP+(CW*(1))]
+        JMP     NEXT
+;
+
+;  **********
+;  *   R@   *
+;  **********
+;
+N_RR:
+        DW      2
+        DB      "R@"
+RR:
+        DW    (IDO+HEADSIZE)
+        DW    RR+HEADSIZE
+        DW    0x0
+        DW    RDROP
+        DW    N_RR
+
+;
+
+;  **********
+;  *   0=   *
+;  **********
+;
+N_ZEQU:
+        DW      2
+        DB      "0="
+ZEQU:
+        DW    ZEQU+HEADSIZE
+        DW    ZEQU+HEADSIZE
+        DW    0x0
+        DW    RR
+        DW    N_ZEQU
+
+        POP     AX
+        NEG     AX
+        CMC
+        SBB     AX,AX
+        JMP     APUSH
+;
+
+;  **********
+;  *   0<   *
+;  **********
+;
+N_ZLESS:
+        DW      2
+        DB      "0<"
+ZLESS:
+        DW    ZLESS+HEADSIZE
+        DW    ZLESS+HEADSIZE
+        DW    0x0
+        DW    ZEQU
+        DW    N_ZLESS
+
+        POP     AX
+        OR      AX,AX   ;SET FLAGS
+        MOV     AX,0    ;FALSE
+        JNS     ZLESS1
+        DEC     AX      ;TRUE
+ZLESS1: JMP     APUSH
+;
+
+;  *********
+;  *   +   *
+;  *********
+;
+N_PLUS:
+        DW      1
+        DB      "+"
+PLUS:
+        DW    PLUS+HEADSIZE
+        DW    PLUS+HEADSIZE
+        DW    0x0
+        DW    ZLESS
+        DW    N_PLUS
+
+        POP     AX      ;(S1) <- (S1) + (S2)
+        POP     BX
+        ADD     AX,BX
+        JMP     APUSH
+;
+
+;  **********
+;  *   D+   *
+;  **********
+;
+N_DPLUS:
+        DW      2
+        DB      "D+"
+DPLUS:
+        DW    DPLUS+HEADSIZE
+        DW    DPLUS+HEADSIZE
+        DW    0x0
+        DW    PLUS
+        DW    N_DPLUS
+
+        POP     AX      ; YHW
+        POP     DX      ; YLW
+        POP     BX      ; XHW
+        POP     CX      ; XLW
+        ADD     DX,CX   ; SLW
+        ADC     AX,BX   ; SHW
+        JMP     DPUSH
+;
+
+;  **************
+;  *   NEGATE   *
+;  **************
+;
+N_NEGATE:
+        DW      6
+        DB      "NEGATE"
+NEGATE:
+        DW    NEGATE+HEADSIZE
+        DW    NEGATE+HEADSIZE
+        DW    0x0
+        DW    DPLUS
+        DW    N_NEGATE
+
+        POP     AX
+        NEG     AX
+        JMP     APUSH
+;
+
+;  ***************
+;  *   DNEGATE   *
+;  ***************
+;
+N_DNEGA:
+        DW      7
+        DB      "DNEGATE"
+DNEGA:
+        DW    DNEGA+HEADSIZE
+        DW    DNEGA+HEADSIZE
+        DW    0x0
+        DW    NEGATE
+        DW    N_DNEGA
+
+        POP     BX
+        POP     CX
+        SUB     AX,AX
+        MOV     DX,AX
+        SUB     DX,CX   ; MAKE 2'S COMPLEMENT
+        SBB     AX,BX   ; HIGH CELL
+        JMP     DPUSH
+        ;
+;
+
+;  ************
+;  *   OVER   *
+;  ************
+;
+N_OVER:
+        DW      4
+        DB      "OVER"
+OVER:
+        DW    OVER+HEADSIZE
+        DW    OVER+HEADSIZE
+        DW    0x0
+        DW    DNEGA
+        DW    N_OVER
+
+        POP     DX
+        POP     AX
+        PUSH    AX
+        JMP     DPUSH
+;
+
+;  ************
+;  *   DROP   *
+;  ************
+;
+N_DROP:
+        DW      4
+        DB      "DROP"
+DROP:
+        DW    DROP+HEADSIZE
+        DW    DROP+HEADSIZE
+        DW    0x0
+        DW    OVER
+        DW    N_DROP
+
+        POP     AX
+        JMP     NEXT
+;
+
+;  *************
+;  *   2DROP   *
+;  *************
+;
+N_TDROP:
+        DW      5
+        DB      "2DROP"
+TDROP:
+        DW    TDROP+HEADSIZE
+        DW    TDROP+HEADSIZE
+        DW    0x0
+        DW    DROP
+        DW    N_TDROP
+
+        POP     AX
+        POP     AX
+        JMP     NEXT
+;
+
+;  ************
+;  *   SWAP   *
+;  ************
+;
+N_SWAP:
+        DW      4
+        DB      "SWAP"
+SWAP:
+        DW    SWAP+HEADSIZE
+        DW    SWAP+HEADSIZE
+        DW    0x0
+        DW    TDROP
+        DW    N_SWAP
+
+        POP     DX
+        POP     AX
+        JMP     DPUSH
+;
+
+;  ***********
+;  *   DUP   *
+;  ***********
+;
+N_LDUP:
+        DW      3
+        DB      "DUP"
+LDUP:
+        DW    LDUP+HEADSIZE
+        DW    LDUP+HEADSIZE
+        DW    0x0
+        DW    SWAP
+        DW    N_LDUP
+
+        POP     AX
+        PUSH    AX
+        JMP     APUSH
+;
+
+;  ************
+;  *   2DUP   *
+;  ************
+;
+N_TDUP:
+        DW      4
+        DB      "2DUP"
+TDUP:
+        DW    TDUP+HEADSIZE
+        DW    TDUP+HEADSIZE
+        DW    0x0
+        DW    LDUP
+        DW    N_TDUP
+
+        POP     AX
+        POP     DX
+        PUSH    DX
+        PUSH    AX
+        JMP     DPUSH
+;
+
+;  *************
+;  *   2SWAP   *
+;  *************
+;
+N_TSWAP:
+        DW      5
+        DB      "2SWAP"
+TSWAP:
+        DW    TSWAP+HEADSIZE
+        DW    TSWAP+HEADSIZE
+        DW    0x0
+        DW    TDUP
+        DW    N_TSWAP
+
+        POP     BX
+        POP     CX
+        POP     AX
+        POP     DX
+        PUSH     CX
+        PUSH     BX
+        JMP     DPUSH
+;
+
+;  *************
+;  *   2OVER   *
+;  *************
+;
+N_TOVER:
+        DW      5
+        DB      "2OVER"
+TOVER:
+        DW    TOVER+HEADSIZE
+        DW    TOVER+HEADSIZE
+        DW    0x0
+        DW    TSWAP
+        DW    N_TOVER
+
+        POP     BX
+        POP     CX
+        POP     AX
+        POP     DX
+        PUSH     DX
+        PUSH     AX
+        PUSH     CX
+        PUSH     BX
+        JMP     DPUSH
+;
+
+;  **********
+;  *   +!   *
+;  **********
+;
+N_PSTORE:
+        DW      2
+        DB      "+!"
+PSTORE:
+        DW    PSTORE+HEADSIZE
+        DW    PSTORE+HEADSIZE
+        DW    0x0
+        DW    TOVER
+        DW    N_PSTORE
+
+        POP     BX      ;ADDRESS
+        POP     AX      ;INCREMENT
+        ADD     [BX],AX
+        JMP     NEXT
+;
+
+;  **************
+;  *   TOGGLE   *
+;  **************
+;
+N_TOGGL:
+        DW      6
+        DB      "TOGGLE"
+TOGGL:
+        DW    TOGGL+HEADSIZE
+        DW    TOGGL+HEADSIZE
+        DW    0x0
+        DW    PSTORE
+        DW    N_TOGGL
+
+        POP     AX      ;BIT PATTERN
+        POP     BX      ;ADDR
+        XOR     [BX],AX ;
+        JMP     NEXT
+;
+
+;  *********
+;  *   @   *
+;  *********
+;
+N_FETCH:
+        DW      1
+        DB      "@"
+FETCH:
+        DW    FETCH+HEADSIZE
+        DW    FETCH+HEADSIZE
+        DW    0x0
+        DW    TOGGL
+        DW    N_FETCH
+
+        POP     BX
+        MOV     AX,[BX]
+        JMP     APUSH
+;
+
+;  **********
+;  *   C@   *
+;  **********
+;
+N_CFET:
+        DW      2
+        DB      "C@"
+CFET:
+        DW    CFET+HEADSIZE
+        DW    CFET+HEADSIZE
+        DW    0x0
+        DW    FETCH
+        DW    N_CFET
+
+        POP     BX
+        XOR     AX,AX
+        MOV     AL,[BX]
+        JMP     APUSH
+;
+
+;  **********
+;  *   2@   *
+;  **********
+;
+N_TFET:
+        DW      2
+        DB      "2@"
+TFET:
+        DW    TFET+HEADSIZE
+        DW    TFET+HEADSIZE
+        DW    0x0
+        DW    CFET
+        DW    N_TFET
+
+        POP     BX      ;ADDR
+        MOV     AX,[BX] ;MSW
+        MOV     DX,[BX+(CW*(1))]        ;LSW
+        JMP     DPUSH
+;
+
+;  *********
+;  *   !   *
+;  *********
+;
+N_STORE:
+        DW      1
+        DB      "!"
+STORE:
+        DW    STORE+HEADSIZE
+        DW    STORE+HEADSIZE
+        DW    0x0
+        DW    TFET
+        DW    N_STORE
+
+        POP     BX      ;ADDR
+        POP     AX      ;DATA
+        MOV     [BX],AX
+        JMP     NEXT
+;
+
+;  **********
+;  *   C!   *
+;  **********
+;
+N_CSTOR:
+        DW      2
+        DB      "C!"
+CSTOR:
+        DW    CSTOR+HEADSIZE
+        DW    CSTOR+HEADSIZE
+        DW    0x0
+        DW    STORE
+        DW    N_CSTOR
+
+        POP     BX      ;ADDR
+        POP     AX      ;DATA
+        MOV     [BX],AL
+        JMP     NEXT
+;
+
+;  **********
+;  *   2!   *
+;  **********
+;
+N_TSTOR:
+        DW      2
+        DB      "2!"
+TSTOR:
+        DW    TSTOR+HEADSIZE
+        DW    TSTOR+HEADSIZE
+        DW    0x0
+        DW    CSTOR
+        DW    N_TSTOR
+
+        POP     BX      ;ADDR
+        POP     AX      ;MSW
+        MOV     [BX],AX
+        POP     AX      ;LSW
+        MOV     [BX+(CW*(1))],AX
+        JMP     NEXT
+;
+
+;  **************
+;  *   WITHIN   *
+;  **************
+;
+N_WITHIN:
+        DW      6
+        DB      "WITHIN"
+WITHIN:
+        DW    DOCOL
+        DW    WITHIN+HEADSIZE
+        DW    0x0
+        DW    TSTOR
+        DW    N_WITHIN
+
+        DW      OVER, LSUB, TOR
+        DW      LSUB, FROMR
+        DW      ULESS
+        DW      SEMIS
+;
+
+
+;  **********
+;  *   L@   *
+;  **********
+;
+N_LFET:
+        DW      2
+        DB      "L@"
+LFET:
+        DW    LFET+HEADSIZE
+        DW    LFET+HEADSIZE
+        DW    0x0
+        DW    WITHIN
+        DW    N_LFET
+
+        POP     BX      ;Offset
+        POP     CX      ;Segment
+ 
+        JMP     GDT_SWITCH: $+3+CW+M4_SWITCHOFFSET
+        MOV EAX,CR0
+        DEC AL
+        MOV CR0,EAX            ;set real mode
+        BITS   16
+        MOV     AX,SWITCHSEGMENT
+        MOV     DS,AX
+        MOV     ES,AX 
+        MOV     DX,DS
+        MOV     DS,CX
+        MOV     BX,[BX]
+        MOV     DS,DX
+ 
+        MOV EAX,CR0
+        INC AL
+        MOV CR0,EAX            ;set protected mode
+        BITS   16
+        JMP    GDT_CS: $+5
+        
+        MOV     AX,GDT_DS
+        MOV     DS,AX
+        MOV     ES,AX
+        MOV     SS,AX 
+        PUSH    BX
+        JMP     NEXT
+;
+
+;  **********
+;  *   L!   *
+;  **********
+;
+N_LSTORE:
+        DW      2
+        DB      "L!"
+LSTORE:
+        DW    LSTORE+HEADSIZE
+        DW    LSTORE+HEADSIZE
+        DW    0x0
+        DW    LFET
+        DW    N_LSTORE
+
+        POP     BX
+        POP     CX
+        POP     DX
+ 
+        JMP     GDT_SWITCH: $+3+CW+M4_SWITCHOFFSET
+        MOV EAX,CR0
+        DEC AL
+        MOV CR0,EAX            ;set real mode
+        BITS   16
+        MOV     AX,SWITCHSEGMENT
+        MOV     DS,AX
+        MOV     ES,AX 
+        MOV     AX,DS
+        MOV     DS,CX
+        MOV     [BX],DX
+        MOV     DS,AX
+ 
+        MOV EAX,CR0
+        INC AL
+        MOV CR0,EAX            ;set protected mode
+        BITS   16
+        JMP    GDT_CS: $+5
+        
+        MOV     AX,GDT_DS
+        MOV     DS,AX
+        MOV     ES,AX
+        MOV     SS,AX 
+        JMP     NEXT
+;
+;
+
+;  *********
+;  *   :   *
+;  *********
+;
+N_COLON:
+        DW      1
+        DB      ":"
+COLON:
+        DW    DOCOL
+        DW    COLON+HEADSIZE
+        DW    0x0
+        DW    LSTORE
+        DW    N_COLON
+
+        DW      SCSP
+        DW      LPWORD
+        DW      PCREAT
+        DW      LATEST, HIDDEN
+        DW      RBRAC
+        DW      PSCOD
+DOCOL:  LEA     BP,[BP - (CW*(1))]  ;Push HIP
+        MOV     [BP],SI ;R1 <- (IP)
+         MOV     SI,[BX+(CW*(D_HOFFSET - C_HOFFSET))]  ;(IP) <- (PFA)
+;        CALL    DISPLAYSI
+
+        
+        
+        MOV      WORD[SPSAVE],SP
+        AND     AX,AX
+        MOV     SP,AX
+        
+        JMP     GDT_SWITCH: $+3+CW+M4_SWITCHOFFSET
+        MOV EAX,CR0
+        DEC AL
+        MOV CR0,EAX            ;set real mode
+        BITS   16
+        MOV     AX,SWITCHSEGMENT
+        MOV     DS,AX
+        MOV     ES,AX
+        MOV     AX,SS_RST ; Make stack valid
+        MOV     SS,AX
+        STI
+        ; Allow interrupts to happen.
+        
+        CLI
+        
+        MOV EAX,CR0
+        INC AL
+        MOV CR0,EAX            ;set protected mode
+        BITS   16
+        JMP    GDT_CS: $+5
+        
+        MOV     AX,GDT_DS
+        MOV     DS,AX
+        MOV     ES,AX
+        MOV     SS,AX
+        
+        MOV     SP, WORD[SPSAVE]
+; 
+        JMP     NEXT
+;
+
+;  *********
+;  *   ;   *
+;  *********
+;
+N_SEMI:
+        DW      1
+        DB      ";"
+SEMI:
+        DW    DOCOL
+        DW    SEMI+HEADSIZE
+        DW    B_IMMED
+        DW    COLON
+        DW    N_SEMI
+
+        DW      QCSP
+        DW      LIT, SEMIS, COMMA
+        DW      LATEST, HIDDEN
+        DW      LBRAC
+        DW      SEMIS
+;
+
+;  ****************
+;  *   CONSTANT   *
+;  ****************
+;
+N_LCONST:
+        DW      8
+        DB      "CONSTANT"
+LCONST:
+        DW    DOCOL
+        DW    LCONST+HEADSIZE
+        DW    0x0
+        DW    SEMI
+        DW    N_LCONST
+
+        DW      LPWORD
+        DW      PCREAT
+        DW      LATEST, TDFA, STORE
+        DW      PSCOD
+DOCON:  MOV     AX,[BX+(CW*((D_HOFFSET)))] ;GET DATA FROM PFA
+        JMP     APUSH
+;
+
+;  ****************
+;  *   VARIABLE   *
+;  ****************
+;
+N_VAR:
+        DW      8
+        DB      "VARIABLE"
+VAR:
+        DW    DOCOL
+        DW    VAR+HEADSIZE
+        DW    0x0
+        DW    LCONST
+        DW    N_VAR
+
+        DW      LPWORD
+        DW      PCREAT
+        DW      ZERO, COMMA
+        DW      PSCOD
+DOVAR:  MOV     AX,[BX+(CW*((D_HOFFSET)))] ;(AX) <- PFA
+        JMP     APUSH
+;
+
+;  ************
+;  *   USER   *
+;  ************
+;
+N_USER:
+        DW      4
+        DB      "USER"
+USER:
+        DW    DOCOL
+        DW    USER+HEADSIZE
+        DW    0x0
+        DW    VAR
+        DW    N_USER
+
+        DW      LCONST
+        DW      PSCOD
+DOUSE:  MOV     BX,[BX+(CW*((D_HOFFSET)))] ;PFA  
+        MOV     DI, WORD[USINI]
+        LEA     AX,[BX+DI]      ;ADDR OF VARIABLE
+        JMP     APUSH
+;
+;
+
+;  *********
+;  *   _   *
+;  *********
+;
+N_X:
+        DW      1
+        DB      "_"
+X:
+        DW    X+HEADSIZE
+        DW    X+HEADSIZE
+        DW    0x0
+        DW    USER
+        DW    N_X
+
+        JMP     APUSH ;Whatever happens to be in AX, i.e. the dea of ``_''.
+;
+
+;  *********
+;  *   0   *
+;  *********
+;
+N_ZERO:
+        DW      1
+        DB      "0"
+ZERO:
+        DW    DOCON
+        DW    0
+        DW    0x0
+        DW    X
+        DW    N_ZERO
+
+; The data field of 0 is used for an empty string.
+;
+
+;  *********
+;  *   1   *
+;  *********
+;
+N_ONE:
+        DW      1
+        DB      "1"
+ONE:
+        DW    DOCON
+        DW    1
+        DW    0x0
+        DW    ZERO
+        DW    N_ONE
+
+;
+
+;  *********
+;  *   2   *
+;  *********
+;
+N_TWO:
+        DW      1
+        DB      "2"
+TWO:
+        DW    DOCON
+        DW    2
+        DW    0x0
+        DW    ONE
+        DW    N_TWO
+
+;
+
+;  **********
+;  *   BL   *
+;  **********
+;
+N_LBL:
+        DW      2
+        DB      "BL"
+LBL:
+        DW    DOCON
+        DW    ABL
+        DW    0x0
+        DW    TWO
+        DW    N_LBL
+
+;
+
+;
+;  **********
+;  *   $@   *
+;  **********
+;
+N_SFET:
+        DW      2
+        DB      "$@"
+SFET:
+        DW    SFET+HEADSIZE
+        DW    SFET+HEADSIZE
+        DW    0x0
+        DW    LBL
+        DW    N_SFET
+
+        POP   BX
+        MOV   AX,[BX]
+        LEA   DX, [BX+(CW*(1))]
+        JMP     DPUSH
+;
+
+;  **********
+;  *   $!   *
+;  **********
+;
+N_SSTOR:
+        DW      2
+        DB      "$!"
+SSTOR:
+        DW    DOCOL
+        DW    SSTOR+HEADSIZE
+        DW    0x0
+        DW    SFET
+        DW    N_SSTOR
+
+        DW TDUP, STORE, CELLP, SWAP, LCMOVE
+        DW SEMIS
+;
+
+;  *************
+;  *   $!-BD   *
+;  *************
+;
+N_SSTORBD:
+        DW      5
+        DB      "$!-BD"
+SSTORBD:
+        DW    DOCOL
+        DW    SSTORBD+HEADSIZE
+        DW    0x0
+        DW    SSTOR
+        DW    N_SSTORBD
+
+        DW TDUP, CSTOR, ONEP, SWAP, LCMOVE
+        DW SEMIS
+;
+
+;  ***********
+;  *   $+!   *
+;  ***********
+;
+N_SADD:
+        DW      3
+        DB      "$+!"
+SADD:
+        DW    DOCOL
+        DW    SADD+HEADSIZE
+        DW    0x0
+        DW    SSTORBD
+        DW    N_SADD
+
+        DW   LDUP, FETCH, TOR ; Remember old count.
+        DW   TDUP, PSTORE
+        DW   CELLP, FROMR, PLUS, SWAP, LCMOVE
+        DW SEMIS
+;
+
+;  ***********
+;  *   $C+   *
+;  ***********
+;
+N_CHAPP:
+        DW      3
+        DB      "$C+"
+CHAPP:
+        DW    DOCOL
+        DW    CHAPP+HEADSIZE
+        DW    0x0
+        DW    SADD
+        DW    N_CHAPP
+
+        DW   LDUP, TOR
+        DW   LDUP, FETCH, PLUS, CELLP, CSTOR
+        DW   ONE, FROMR, PSTORE
+        DW SEMIS
+;
+
+;  **********
+;  *   $,   *
+;  **********
+;
+N_SCOMMA:
+        DW      2
+        DB      "$,"
+SCOMMA:
+        DW    DOCOL
+        DW    SCOMMA+HEADSIZE
+        DW    0x0
+        DW    CHAPP
+        DW    N_SCOMMA
+
+        DW HERE, TOR
+        DW LDUP, CELLP, ALLOT
+        DW RR, SSTOR, FROMR
+        DW SEMIS
+;
+
+;  ***********
+;  *   C/L   *
+;  ***********
+;
+N_CSLL:
+        DW      3
+        DB      "C/L"
+CSLL:
+        DW    DOCON
+        DW    64
+        DW    0x0
+        DW    SCOMMA
+        DW    N_CSLL
+
+;
+; 
+;
+
+        ALIGN    2       ; Otherwise INT 13 hangs when filling
+        ; in into the lba block as a buffer address.
+        DB      0       ;Padding the odd # of bytes in the name FIRST.
+
+;  *************
+;  *   FIRST   *
+;  *************
+;
+N_FIRST:
+        DW      5
+        DB      "FIRST"
+FIRST:
+        DW    DOVAR
+        DW    BUF1
+        DW    0x0
+        DW    CSLL
+        DW    N_FIRST
+
+BUF1:   RESB    (KBBUF+2*CW)*NBUF 
+; 
+;
+
+;  *************
+;  *   LIMIT   *
+;  *************
+;
+N_LIMIT:
+        DW      5
+        DB      "LIMIT"
+LIMIT:
+        DW    DOCON
+        DW    BUF1+(KBBUF+2*CW)*NBUF
+        DW    0x0
+        DW    FIRST
+        DW    N_LIMIT
+
+; THE END  OF THE MEMORY 
+
+;  **********
+;  *   EM   *
+;  **********
+;
+N_LEM:
+        DW      2
+        DB      "EM"
+LEM:
+        DW    DOCON
+        DW    ACTUAL_EM
+        DW    0x0
+        DW    LIMIT
+        DW    N_LEM
+
+;
+
+;  **********
+;  *   BM   *
+;  **********
+;
+N_LBM:
+        DW      2
+        DB      "BM"
+LBM:
+        DW    DOCON
+        DW    ORIG
+        DW    0x0
+        DW    LEM
+        DW    N_LBM
+
+;
+
+;  *************
+;  *   B/BUF   *
+;  *************
+;
+N_BBUF:
+        DW      5
+        DB      "B/BUF"
+BBUF:
+        DW    DOCON
+        DW    KBBUF
+        DW    0x0
+        DW    LBM
+        DW    N_BBUF
+
+;
+; All user variables are initialised 
+; with the values from USINI.
+; The implementation relies on the initialisation of 
+; those with numbers (1..11), so change in concord with USINI.
+
+;  **********
+;  *   U0   *
+;  **********
+;
+N_UZERO:
+        DW      2
+        DB      "U0"
+UZERO:
+        DW    DOUSE
+        DW    (CW*(1))
+        DW    0x0
+        DW    BBUF
+        DW    N_UZERO
+
+;
+
+;  **********
+;  *   S0   *
+;  **********
+;
+N_SZERO:
+        DW      2
+        DB      "S0"
+SZERO:
+        DW    DOUSE
+        DW    (CW*(2))
+        DW    0x0
+        DW    UZERO
+        DW    N_SZERO
+
+;
+
+;  **********
+;  *   R0   *
+;  **********
+;
+N_RZERO:
+        DW      2
+        DB      "R0"
+RZERO:
+        DW    DOUSE
+        DW    (CW*(3))
+        DW    0x0
+        DW    SZERO
+        DW    N_RZERO
+
+;
+
+;  ***********
+;  *   TIB   *
+;  ***********
+;
+N_TIB:
+        DW      3
+        DB      "TIB"
+TIB:
+        DW    DOUSE
+        DW    (CW*(4))
+        DW    0x0
+        DW    RZERO
+        DW    N_TIB
+
+;
+
+;  **************
+;  *   RUBOUT   *
+;  **************
+;
+N_RUBOUT:
+        DW      6
+        DB      "RUBOUT"
+RUBOUT:
+        DW    DOUSE
+        DW    (CW*(5))
+        DW    0x0
+        DW    TIB
+        DW    N_RUBOUT
+
+;
+
+;  ***************
+;  *   WARNING   *
+;  ***************
+;
+N_LWARN:
+        DW      7
+        DB      "WARNING"
+LWARN:
+        DW    DOUSE
+        DW    (CW*(7))
+        DW    0x0
+        DW    RUBOUT
+        DW    N_LWARN
+
+;
+
+;  *************
+;  *   FENCE   *
+;  *************
+;
+N_FENCE:
+        DW      5
+        DB      "FENCE"
+FENCE:
+        DW    DOUSE
+        DW    (CW*(8))
+        DW    0x0
+        DW    LWARN
+        DW    N_FENCE
+
+;
+
+;  **********
+;  *   DP   *
+;  **********
+;
+N_LDP:
+        DW      2
+        DB      "DP"
+LDP:
+        DW    DOUSE
+        DW    (CW*(9))
+        DW    0x0
+        DW    FENCE
+        DW    N_LDP
+
+;
+
+;  ****************
+;  *   VOC-LINK   *
+;  ****************
+;
+N_VOCL:
+        DW      8
+        DB      "VOC-LINK"
+VOCL:
+        DW    DOUSE
+        DW    (CW*(10))
+        DW    0x0
+        DW    LDP
+        DW    N_VOCL
+
+;
+
+;  **************
+;  *   OFFSET   *
+;  **************
+;
+N_LOFFSET:
+        DW      6
+        DB      "OFFSET"
+LOFFSET:
+        DW    DOUSE
+        DW    (CW*(11))
+        DW    0x0
+        DW    VOCL
+        DW    N_LOFFSET
+
+;
+; End of user variables with fixed place.
+;
+;
+
+;  *************
+;  *   WHERE   *
+;  *************
+;
+N_LWHERE:
+        DW      5
+        DB      "WHERE"
+LWHERE:
+        DW    DOUSE
+        DW    (CW*(12))
+        DW    0x0
+        DW    LOFFSET
+        DW    N_LWHERE
+    ;  Occupies two CELLS! 
+;
+
+;  ***********
+;  *   SCR   *
+;  ***********
+;
+N_SCR:
+        DW      3
+        DB      "SCR"
+SCR:
+        DW    DOUSE
+        DW    (CW*(33))
+        DW    0x0
+        DW    LWHERE
+        DW    N_SCR
+
+;
+
+;  *************
+;  *   STATE   *
+;  *************
+;
+N_STATE:
+        DW      5
+        DB      "STATE"
+STATE:
+        DW    DOUSE
+        DW    (CW*(18))
+        DW    0x0
+        DW    SCR
+        DW    N_STATE
+
+;
+
+;  ************
+;  *   BASE   *
+;  ************
+;
+N_BASE:
+        DW      4
+        DB      "BASE"
+BASE:
+        DW    DOUSE
+        DW    (CW*(19))
+        DW    0x0
+        DW    STATE
+        DW    N_BASE
+
+;
+
+;  ***********
+;  *   DPL   *
+;  ***********
+;
+N_DPL:
+        DW      3
+        DB      "DPL"
+DPL:
+        DW    DOUSE
+        DW    (CW*(20))
+        DW    0x0
+        DW    BASE
+        DW    N_DPL
+
+;
+
+;  ***********
+;  *   FLD   *
+;  ***********
+;
+N_LFLD:
+        DW      3
+        DB      "FLD"
+LFLD:
+        DW    DOUSE
+        DW    (CW*(21))
+        DW    0x0
+        DW    DPL
+        DW    N_LFLD
+
+;
+
+
+;  ***********
+;  *   CSP   *
+;  ***********
+;
+N_LCSP:
+        DW      3
+        DB      "CSP"
+LCSP:
+        DW    DOUSE
+        DW    (CW*(22))
+        DW    0x0
+        DW    LFLD
+        DW    N_LCSP
+
+;
+;
+
+;  **********
+;  *   R#   *
+;  **********
+;
+N_RNUM:
+        DW      2
+        DB      "R#"
+RNUM:
+        DW    DOUSE
+        DW    (CW*(23))
+        DW    0x0
+        DW    LCSP
+        DW    N_RNUM
+
+;
+
+;  ***********
+;  *   HLD   *
+;  ***********
+;
+N_HLD:
+        DW      3
+        DB      "HLD"
+HLD:
+        DW    DOUSE
+        DW    (CW*(24))
+        DW    0x0
+        DW    RNUM
+        DW    N_HLD
+
+;
+
+;  ***********
+;  *   OUT   *
+;  ***********
+;
+N_LOUT:
+        DW      3
+        DB      "OUT"
+LOUT:
+        DW    DOUSE
+        DW    (CW*(25))
+        DW    0x0
+        DW    HLD
+        DW    N_LOUT
+
+;
+
+;  *************
+;  *   (BLK)   *
+;  *************
+;
+N_PBLK:
+        DW      5
+        DB      "(BLK)"
+PBLK:
+        DW    DOUSE
+        DW    (CW*(26))
+        DW    0x0
+        DW    LOUT
+        DW    N_PBLK
+
+;
+
+;  **********
+;  *   IN   *
+;  **********
+;
+N_LIN:
+        DW      2
+        DB      "IN"
+LIN:
+        DW    DOUSE
+        DW    (CW*(29))
+        DW    0x0
+        DW    PBLK
+        DW    N_LIN
+
+;
+
+
+;  *************
+;  *   (>IN)   *
+;  *************
+;
+N_PIIN:
+        DW      5
+        DB      "(>IN)"
+PIIN:
+        DW    DOUSE
+        DW    (CW*(30))
+        DW    0x0
+        DW    LIN
+        DW    N_PIIN
+
+;
+;
+
+;  ************
+;  *   ARGS   *
+;  ************
+;
+N_ARGS:
+        DW      4
+        DB      "ARGS"
+ARGS:
+        DW    DOUSE
+        DW    (CW*(31))
+        DW    0x0
+        DW    PIIN
+        DW    N_ARGS
+
+;
+
+;  ***************
+;  *   HANDLER   *
+;  ***************
+;
+N_HANDLER:
+        DW      7
+        DB      "HANDLER"
+HANDLER:
+        DW    DOUSE
+        DW    (CW*(32))
+        DW    0x0
+        DW    ARGS
+        DW    N_HANDLER
+
+;
+
+;  ***************
+;  *   CURRENT   *
+;  ***************
+;
+N_CURR:
+        DW      7
+        DB      "CURRENT"
+CURR:
+        DW    DOUSE
+        DW    (CW*(34))
+        DW    0x0
+        DW    HANDLER
+        DW    N_CURR
+
+;
+
+;  *****************
+;  *   REMAINDER   *
+;  *****************
+;
+N_REMAIND:
+        DW      9
+        DB      "REMAINDER"
+REMAIND:
+        DW    DOUSE
+        DW    (CW*(14))
+        DW    0x0
+        DW    CURR
+        DW    N_REMAIND
+
+;      IMPORTANT
+; REQUIRES ONE MORE CELL!
+;
+
+;  ***************
+;  *   CONTEXT   *
+;  ***************
+;
+N_CONTEXT:
+        DW      7
+        DB      "CONTEXT"
+CONTEXT:
+        DW    DOUSE
+        DW    (CW*(37))
+        DW    0x0
+        DW    REMAIND
+        DW    N_CONTEXT
+ ; Up to  37+8
+;      IMPORTANT
+;     8 USER SPACE CELLS MUST BE KEPT FREE
+;     IN ADDITION TO THE ONE FOR CONTEXT
+;
+;========== END USER VARIABLES =============
+;
+
+;  **********
+;  *   1+   *
+;  **********
+;
+N_ONEP:
+        DW      2
+        DB      "1+"
+ONEP:
+        DW    DOCOL
+        DW    ONEP+HEADSIZE
+        DW    0x0
+        DW    CONTEXT
+        DW    N_ONEP
+
+        DW      ONE
+        DW      PLUS
+        DW      SEMIS
+;
+
+;  *************
+;  *   CELL+   *
+;  *************
+;
+N_CELLP:
+        DW      5
+        DB      "CELL+"
+CELLP:
+        DW    DOCOL
+        DW    CELLP+HEADSIZE
+        DW    0x0
+        DW    ONEP
+        DW    N_CELLP
+
+        DW      LIT, CW
+        DW      PLUS
+        DW      SEMIS
+;
+
+;
+;  *************
+;  *   CELLS   *
+;  *************
+;
+N_LCELLS:
+        DW      5
+        DB      "CELLS"
+LCELLS:
+        DW    DOCOL
+        DW    LCELLS+HEADSIZE
+        DW    0x0
+        DW    CELLP
+        DW    N_LCELLS
+
+        DW      ONE  
+        DW      LSHIFT
+        DW      SEMIS
+;
+
+;  *************
+;  *   CHAR+   *
+;  *************
+;
+N_CHARP:
+        DW      5
+        DB      "CHAR+"
+CHARP:
+        DW    DOCOL
+        DW    (ONEP+HEADSIZE)
+        DW    0x0
+        DW    LCELLS
+        DW    N_CHARP
+
+;
+
+;  *************
+;  *   CHARS   *
+;  *************
+;
+N_CHARS:
+        DW      5
+        DB      "CHARS"
+CHARS:
+        DW    DOCOL
+        DW    CHARS+HEADSIZE
+        DW    B_IMMED
+        DW    CHARP
+        DW    N_CHARS
+
+        DW      SEMIS
+;
+
+;  *************
+;  *   ALIGN   *
+;  *************
+;
+N_LALIGN:
+        DW      5
+        DB      "ALIGN"
+LALIGN:
+        DW    DOCOL
+        DW    LALIGN+HEADSIZE
+        DW    B_IMMED
+        DW    CHARS
+        DW    N_LALIGN
+
+        DW      SEMIS
+;
+
+;  ***************
+;  *   ALIGNED   *
+;  ***************
+;
+N_ALIGNED :
+        DW      7
+        DB      "ALIGNED"
+ALIGNED :
+        DW    ALIGNED +HEADSIZE
+        DW    ALIGNED +HEADSIZE
+        DW    0x0
+        DW    LALIGN
+        DW    N_ALIGNED 
+
+        JMP     NEXT
+;
+
+;  ************
+;  *   HERE   *
+;  ************
+;
+N_HERE:
+        DW      4
+        DB      "HERE"
+HERE:
+        DW    DOCOL
+        DW    HERE+HEADSIZE
+        DW    0x0
+        DW    ALIGNED 
+        DW    N_HERE
+
+        DW      LDP
+        DW      FETCH
+        DW      SEMIS
+;
+
+;  *************
+;  *   ALLOT   *
+;  *************
+;
+N_ALLOT:
+        DW      5
+        DB      "ALLOT"
+ALLOT:
+        DW    DOCOL
+        DW    ALLOT+HEADSIZE
+        DW    0x0
+        DW    HERE
+        DW    N_ALLOT
+
+        DW      LDP
+        DW      PSTORE
+        DW      SEMIS
+;
+
+;  *********
+;  *   ,   *
+;  *********
+;
+N_COMMA:
+        DW      1
+        DB      ","
+COMMA:
+        DW    DOCOL
+        DW    COMMA+HEADSIZE
+        DW    0x0
+        DW    ALLOT
+        DW    N_COMMA
+
+        DW      HERE
+        DW      STORE
+        DW      TWO
+        DW      ALLOT
+        DW      SEMIS
+;
+
+;  **********
+;  *   C,   *
+;  **********
+;
+N_CCOMM:
+        DW      2
+        DB      "C,"
+CCOMM:
+        DW    DOCOL
+        DW    CCOMM+HEADSIZE
+        DW    0x0
+        DW    COMMA
+        DW    N_CCOMM
+
+        DW      HERE
+        DW      CSTOR
+        DW      ONE
+        DW      ALLOT
+        DW      SEMIS
+;
+
+;  *********
+;  *   -   *
+;  *********
+;
+N_LSUB:
+        DW      1
+        DB      "-"
+LSUB:
+        DW    LSUB+HEADSIZE
+        DW    LSUB+HEADSIZE
+        DW    0x0
+        DW    CCOMM
+        DW    N_LSUB
+
+        POP     DX      ;S1
+        POP     AX
+        SUB     AX,DX
+        JMP     APUSH   ;S1 = S2 - S1
+;
+
+;  *********
+;  *   =   *
+;  *********
+;
+N_EQUAL:
+        DW      1
+        DB      "="
+EQUAL:
+        DW    DOCOL
+        DW    EQUAL+HEADSIZE
+        DW    0x0
+        DW    LSUB
+        DW    N_EQUAL
+
+        DW      LSUB
+        DW      ZEQU
+        DW      SEMIS
+;
+
+;  *********
+;  *   <   *
+;  *********
+;
+N_LESS:
+        DW      1
+        DB      "<"
+LESS:
+        DW    LESS+HEADSIZE
+        DW    LESS+HEADSIZE
+        DW    0x0
+        DW    EQUAL
+        DW    N_LESS
+
+        POP     DX      ;S1
+        POP     BX      ;S2
+        XOR     AX,AX   ;0 default RESULT
+        CMP     BX,DX
+        JNL     LES1
+        DEC     AX
+LES1:   JMP     APUSH
+;
+
+;  **********
+;  *   U<   *
+;  **********
+;
+N_ULESS:
+        DW      2
+        DB      "U<"
+ULESS:
+        DW    ULESS+HEADSIZE
+        DW    ULESS+HEADSIZE
+        DW    0x0
+        DW    LESS
+        DW    N_ULESS
+
+        POP     AX
+        POP     DX
+        SUB     DX,AX
+        SBB     AX,AX
+        JMP     APUSH
+;
+
+;  *********
+;  *   >   *
+;  *********
+;
+N_GREAT:
+        DW      1
+        DB      ">"
+GREAT:
+        DW    DOCOL
+        DW    GREAT+HEADSIZE
+        DW    0x0
+        DW    ULESS
+        DW    N_GREAT
+
+        DW      SWAP
+        DW      LESS
+        DW      SEMIS
+;
+
+;  **********
+;  *   <>   *
+;  **********
+;
+N_UNEQ:
+        DW      2
+        DB      "<>"
+UNEQ:
+        DW    DOCOL
+        DW    UNEQ+HEADSIZE
+        DW    0x0
+        DW    GREAT
+        DW    N_UNEQ
+
+        DW      LSUB
+        DW      ZEQU
+        DW      ZEQU
+        DW      SEMIS
+;
+
+;  ***********
+;  *   ROT   *
+;  ***********
+;
+N_ROT:
+        DW      3
+        DB      "ROT"
+ROT:
+        DW    ROT+HEADSIZE
+        DW    ROT+HEADSIZE
+        DW    0x0
+        DW    UNEQ
+        DW    N_ROT
+
+        POP     DX      ;S1
+        POP     BX      ;S2
+        POP     AX      ;S3
+        PUSH    BX
+        JMP     DPUSH
+;
+
+;  *************
+;  *   SPACE   *
+;  *************
+;
+N_SPACE:
+        DW      5
+        DB      "SPACE"
+SPACE:
+        DW    DOCOL
+        DW    SPACE+HEADSIZE
+        DW    0x0
+        DW    ROT
+        DW    N_SPACE
+
+        DW      LBL
+        DW      EMIT
+        DW      SEMIS
+;
+
+;  ************
+;  *   ?DUP   *
+;  ************
+;
+N_QDUP:
+        DW      4
+        DB      "?DUP"
+QDUP:
+        DW    DOCOL
+        DW    QDUP+HEADSIZE
+        DW    0x0
+        DW    SPACE
+        DW    N_QDUP
+
+        DW      LDUP
+        DW      ZBRAN
+        DW      QDUP1-$-CW ; IF
+        DW      LDUP    ;THEN
+QDUP1:  DW      SEMIS
+;
+
+;  **************
+;  *   LATEST   *
+;  **************
+;
+N_LATEST:
+        DW      6
+        DB      "LATEST"
+LATEST:
+        DW    DOCOL
+        DW    LATEST+HEADSIZE
+        DW    0x0
+        DW    QDUP
+        DW    N_LATEST
+
+        DW      CURR
+        DW      FETCH
+        DW      TLFA
+        DW      FETCH
+        DW      SEMIS
+;
+
+;  ************
+;  *   >CFA   *
+;  ************
+;
+N_TCFA:
+        DW      4
+        DB      ">CFA"
+TCFA:
+        DW    DOCOL
+        DW    TCFA+HEADSIZE
+        DW    0x0
+        DW    LATEST
+        DW    N_TCFA
+
+        DW      LIT, (CW*(C_HOFFSET))
+        DW      PLUS
+        DW      SEMIS
+;
+
+;  ************
+;  *   >DFA   *
+;  ************
+;
+N_TDFA:
+        DW      4
+        DB      ">DFA"
+TDFA:
+        DW    DOCOL
+        DW    TDFA+HEADSIZE
+        DW    0x0
+        DW    TCFA
+        DW    N_TDFA
+
+        DW      LIT, (CW*(D_HOFFSET))
+        DW      PLUS
+        DW      SEMIS
+;
+
+;  ************
+;  *   >FFA   *
+;  ************
+;
+N_TFFA:
+        DW      4
+        DB      ">FFA"
+TFFA:
+        DW    DOCOL
+        DW    TFFA+HEADSIZE
+        DW    0x0
+        DW    TDFA
+        DW    N_TFFA
+
+        DW      LIT, (CW*(F_HOFFSET))
+        DW      PLUS
+        DW      SEMIS
+;
+
+;  ************
+;  *   >LFA   *
+;  ************
+;
+N_TLFA:
+        DW      4
+        DB      ">LFA"
+TLFA:
+        DW    DOCOL
+        DW    TLFA+HEADSIZE
+        DW    0x0
+        DW    TFFA
+        DW    N_TLFA
+
+        DW      LIT, (CW*(L_HOFFSET))
+        DW      PLUS
+        DW      SEMIS
+;
+
+;  ************
+;  *   >NFA   *
+;  ************
+;
+N_TNFA:
+        DW      4
+        DB      ">NFA"
+TNFA:
+        DW    DOCOL
+        DW    TNFA+HEADSIZE
+        DW    0x0
+        DW    TLFA
+        DW    N_TNFA
+
+        DW      LIT,(CW*(N_HOFFSET))
+        DW      PLUS
+        DW      SEMIS
+;
+;
+;
+
+;  ************
+;  *   >PHA   *
+;  ************
+;
+N_TPHA:
+        DW      4
+        DB      ">PHA"
+TPHA:
+        DW    DOCOL
+        DW    TPHA+HEADSIZE
+        DW    0x0
+        DW    TNFA
+        DW    N_TPHA
+
+        DW      LIT,(CW*(PH_OFFSET))
+        DW      PLUS
+        DW      SEMIS
+;
+
+;  *************
+;  *   >BODY   *
+;  *************
+;
+N_TOBODY:
+        DW      5
+        DB      ">BODY"
+TOBODY:
+        DW    DOCOL
+        DW    TOBODY+HEADSIZE
+        DW    0x0
+        DW    TPHA
+        DW    N_TOBODY
+
+        DW      CTOD
+        DW      TDFA, FETCH
+        DW      CELLP           ; Skip DOES> pointer.
+        DW      SEMIS
+;
+
+;  *************
+;  *   BODY>   *
+;  *************
+;
+N_BODYF:
+        DW      5
+        DB      "BODY>"
+BODYF:
+        DW    DOCOL
+        DW    BODYF+HEADSIZE
+        DW    0x0
+        DW    TOBODY
+        DW    N_BODYF
+
+        DW      LIT,(CW*(BD_OFFSET))
+        DW      LSUB
+        DW      SEMIS
+;
+
+;  ************
+;  *   CFA>   *
+;  ************
+;
+N_CTOD:
+        DW      4
+        DB      "CFA>"
+CTOD:
+        DW    DOCOL
+        DW    CTOD+HEADSIZE
+        DW    0x0
+        DW    BODYF
+        DW    N_CTOD
+
+        DW      LIT,(CW*(C_HOFFSET))
+        DW      LSUB
+        DW      SEMIS
+;
+
+;  ************
+;  *   >WID   *
+;  ************
+;
+N_TWID:
+        DW      4
+        DB      ">WID"
+TWID:
+        DW    DOCOL
+        DW    TWID+HEADSIZE
+        DW    0x0
+        DW    CTOD
+        DW    N_TWID
+
+        DW      TOBODY
+        DW      CELLP ; Skip vfa link.
+        DW      SEMIS
+;
+
+;  ************
+;  *   >VFA   *
+;  ************
+;
+N_TVFA:
+        DW      4
+        DB      ">VFA"
+TVFA:
+        DW    DOCOL
+        DW    TVFA+HEADSIZE
+        DW    0x0
+        DW    TWID
+        DW    N_TVFA
+
+        DW      TOBODY
+        DW      SEMIS
+;
+
+
+;  ************
+;  *   !CSP   *
+;  ************
+;
+N_SCSP:
+        DW      4
+        DB      "!CSP"
+SCSP:
+        DW    DOCOL
+        DW    SCSP+HEADSIZE
+        DW    0x0
+        DW    TVFA
+        DW    N_SCSP
+
+        DW      SPFET
+        DW      LCSP
+        DW      STORE
+        DW      SEMIS
+;
+;
+
+;  **************
+;  *   ?ERROR   *
+;  **************
+;
+N_QERR:
+        DW      6
+        DB      "?ERROR"
+QERR:
+        DW    DOCOL
+        DW    QERR+HEADSIZE
+        DW    0x0
+        DW    SCSP
+        DW    N_QERR
+
+        DW      SWAP
+        DW      ZBRAN
+        DW      QERR1-$-CW ;IF
+        DW      LIN, FETCH
+        DW      SRC, FETCH
+        DW      LWHERE, TSTOR
+        DW      THROW
+        DW      BRAN
+        DW      QERR2-$-CW  ;ELSE
+QERR1:  DW      DROP    ;THEN
+QERR2:  DW      SEMIS
+;
+
+;  **************
+;  *   ?ERRUR   *
+;  **************
+;
+N_QERRUR:
+        DW      6
+        DB      "?ERRUR"
+QERRUR:
+        DW    DOCOL
+        DW    QERRUR+HEADSIZE
+        DW    0x0
+        DW    QERR
+        DW    N_QERRUR
+
+        DW      ZERO, MIN, LDUP, QERR
+        DW      SEMIS
+;
+
+
+;  **************
+;  *   ?DELIM   *
+;  **************
+;
+N_QDELIM:
+        DW      6
+        DB      "?DELIM"
+QDELIM:
+        DW    DOCOL
+        DW    QDELIM+HEADSIZE
+        DW    0x0
+        DW    QERRUR
+        DW    N_QDELIM
+
+        DW      INBRS
+        DW      QBL
+        DW      ZEQU
+        DW      LIT, 10, QERR
+        DW      DROP
+        DW      SEMIS
+;
+
+;  ************
+;  *   ?CSP   *
+;  ************
+;
+N_QCSP:
+        DW      4
+        DB      "?CSP"
+QCSP:
+        DW    DOCOL
+        DW    QCSP+HEADSIZE
+        DW    0x0
+        DW    QDELIM
+        DW    N_QCSP
+
+        DW      SPFET
+        DW      LCSP
+        DW      FETCH
+        DW      LSUB
+        DW      LIT, 20, QERR
+        DW      SEMIS
+;
+
+;  *************
+;  *   ?COMP   *
+;  *************
+;
+N_QCOMP:
+        DW      5
+        DB      "?COMP"
+QCOMP:
+        DW    DOCOL
+        DW    QCOMP+HEADSIZE
+        DW    0x0
+        DW    QCSP
+        DW    N_QCOMP
+
+        DW      STATE
+        DW      FETCH
+        DW      ZEQU
+        DW      LIT, 17, QERR
+        DW      SEMIS
+;
+
+;  *************
+;  *   ?EXEC   *
+;  *************
+;
+N_QEXEC:
+        DW      5
+        DB      "?EXEC"
+QEXEC:
+        DW    DOCOL
+        DW    QEXEC+HEADSIZE
+        DW    0x0
+        DW    QCOMP
+        DW    N_QEXEC
+
+        DW      STATE
+        DW      FETCH
+        DW      LIT, 18, QERR
+        DW      SEMIS
+;
+
+;  **************
+;  *   ?PAIRS   *
+;  **************
+;
+N_QPAIR:
+        DW      6
+        DB      "?PAIRS"
+QPAIR:
+        DW    DOCOL
+        DW    QPAIR+HEADSIZE
+        DW    0x0
+        DW    QEXEC
+        DW    N_QPAIR
+
+        DW      LSUB
+        DW      LIT, 19, QERR
+        DW      SEMIS
+;
+
+
+;  ****************
+;  *   ?LOADING   *
+;  ****************
+;
+N_QLOAD:
+        DW      8
+        DB      "?LOADING"
+QLOAD:
+        DW    DOCOL
+        DW    QLOAD+HEADSIZE
+        DW    0x0
+        DW    QPAIR
+        DW    N_QLOAD
+
+        DW      BLK
+        DW      FETCH
+        DW      ZEQU
+        DW      LIT, 22, QERR
+        DW      SEMIS
+;
+;
+;
+;
+
+;  *********
+;  *   [   *
+;  *********
+;
+N_LBRAC:
+        DW      1
+        DB      "["
+LBRAC:
+        DW    DOCOL
+        DW    LBRAC+HEADSIZE
+        DW    B_IMMED
+        DW    QLOAD
+        DW    N_LBRAC
+
+        DW      ZERO
+        DW      STATE
+        DW      STORE
+        DW      SEMIS
+;
+
+;  *********
+;  *   ]   *
+;  *********
+;
+N_RBRAC:
+        DW      1
+        DB      "]"
+RBRAC:
+        DW    DOCOL
+        DW    RBRAC+HEADSIZE
+        DW    0x0
+        DW    LBRAC
+        DW    N_RBRAC
+
+        DW      ONE
+        DW      STATE
+        DW      STORE
+        DW      SEMIS
+;
+
+;  **************
+;  *   HIDDEN   *
+;  **************
+;
+N_HIDDEN:
+        DW      6
+        DB      "HIDDEN"
+HIDDEN:
+        DW    DOCOL
+        DW    HIDDEN+HEADSIZE
+        DW    0x0
+        DW    RBRAC
+        DW    N_HIDDEN
+
+        DW      TFFA
+        DW      LIT,B_INVIS
+        DW      TOGGL
+        DW      SEMIS
+;
+
+;  ***********
+;  *   HEX   *
+;  ***********
+;
+N_HEX:
+        DW      3
+        DB      "HEX"
+HEX:
+        DW    DOCOL
+        DW    HEX+HEADSIZE
+        DW    0x0
+        DW    HIDDEN
+        DW    N_HEX
+
+        DW      LIT,16
+        DW      BASE
+        DW      STORE
+        DW      SEMIS
+;
+
+;  ***************
+;  *   DECIMAL   *
+;  ***************
+;
+N_DECA:
+        DW      7
+        DB      "DECIMAL"
+DECA:
+        DW    DOCOL
+        DW    DECA+HEADSIZE
+        DW    0x0
+        DW    HEX
+        DW    N_DECA
+
+        DW      LIT,10
+        DW      BASE
+        DW      STORE
+        DW      SEMIS
+;
+
+;  ***************
+;  *   (;CODE)   *
+;  ***************
+;
+N_PSCOD:
+        DW      7
+        DB      "(;CODE)"
+PSCOD:
+        DW    DOCOL
+        DW    PSCOD+HEADSIZE
+        DW    0x0
+        DW    DECA
+        DW    N_PSCOD
+
+        DW      FROMR
+        DW      LATEST
+        DW      TCFA
+        DW      STORE
+        DW      SEMIS
+;
+
+;
+
+;  **************
+;  *   CREATE   *
+;  **************
+;
+N_CREATE:
+        DW      6
+        DB      "CREATE"
+CREATE:
+        DW    DOCOL
+        DW    CREATE+HEADSIZE
+        DW    0x0
+        DW    PSCOD
+        DW    N_CREATE
+
+        DW      LPWORD
+        DW      PCREAT
+        DW      LIT, HLNOOP, COMMA
+        DW      PSCOD
+DODOE:  LEA     BP,[BP - (CW*(1))] ;Push HIP.
+        MOV     [BP],SI
+        MOV     SI,[BX+(CW*((D_HOFFSET)))] ;NEW IP 
+        LEA     AX,[SI+(CW*(1))]
+        MOV     SI,[SI]
+        JMP     APUSH
+HLNOOP: DW      SEMIS
+;
+
+;  *************
+;  *   DOES>   *
+;  *************
+;
+N_DOES:
+        DW      5
+        DB      "DOES>"
+DOES:
+        DW    DOCOL
+        DW    DOES+HEADSIZE
+        DW    0x0
+        DW    CREATE
+        DW    N_DOES
+
+        DW      FROMR
+        DW      LATEST
+        DW      TDFA
+        DW      FETCH
+        DW      STORE
+        DW      SEMIS
+;
+
+;  *************
+;  *   COUNT   *
+;  *************
+;
+N_COUNT:
+        DW      5
+        DB      "COUNT"
+COUNT:
+        DW    DOCOL
+        DW    COUNT+HEADSIZE
+        DW    0x0
+        DW    DOES
+        DW    N_COUNT
+
+        DW      LDUP
+        DW      ONEP
+        DW      SWAP
+        DW      CFET
+        DW      SEMIS
+;
+
+;  *****************
+;  *   -TRAILING   *
+;  *****************
+;
+N_DTRAI:
+        DW      9
+        DB      "-TRAILING"
+DTRAI:
+        DW    DOCOL
+        DW    DTRAI+HEADSIZE
+        DW    0x0
+        DW    COUNT
+        DW    N_DTRAI
+
+        DW      LDUP
+        DW      ZERO
+        DW     XQDO
+        DW      DTRA4-$-CW
+DTRA1:  DW      OVER
+        DW      OVER
+        DW      PLUS
+        DW      ONE
+        DW      LSUB
+        DW      CFET
+        DW      QBL
+        DW      ZEQU
+        DW      ZBRAN
+        DW      DTRA2-$-CW ;IF
+        DW      LLEAV
+DTRA2:  DW      ONE
+        DW      LSUB    ; THEN
+        DW     XLOOP
+        DW      DTRA1-$-CW    ; LOOP
+DTRA4:
+        DW      SEMIS
+;
+
+
+;  **********
+;  *   S"   *
+;  **********
+;
+N_SQUOT:
+        DW      2
+        DB      'S"'
+SQUOT:
+        DW    DOCOL
+        DW    SQUOT+HEADSIZE
+        DW    B_IMMED
+        DW    DTRAI
+        DW    N_SQUOT
+
+        DW      DENQ
+        DW      SEMIS
+;
+;
+
+;  **********
+;  *   ."   *
+;  **********
+;
+N_DOTQ:
+        DW      2
+        DB      '."'
+DOTQ:
+        DW    DOCOL
+        DW    DOTQ+HEADSIZE
+        DW    B_IMMED
+        DW    SQUOT
+        DW    N_DOTQ
+
+        DW      DENQ
+        DW      STATE
+        DW      FETCH
+        DW      ZBRAN
+        DW      DOTQ1-$-CW ; IF
+        DW      LIT, LTYPE, COMMA
+        DW      BRAN
+        DW      DOTQ2-$-CW
+DOTQ1:
+        DW      LTYPE
+DOTQ2:
+        DW      SEMIS   ; THEN
+;
+
+;  **********
+;  *   .(   *
+;  **********
+;
+N_DOTP:
+        DW      2
+        DB      ".("
+DOTP:
+        DW    DOCOL
+        DW    DOTP+HEADSIZE
+        DW    B_IMMED
+        DW    DOTQ
+        DW    N_DOTP
+
+        DW      LIT, ')'
+        DW      PPARS
+        DW      LTYPE
+        DW      SEMIS
+;
+
+;  ***************
+;  *   SET-SRC   *
+;  ***************
+;
+N_SETSRC:
+        DW      7
+        DB      "SET-SRC"
+SETSRC:
+        DW    DOCOL
+        DW    SETSRC+HEADSIZE
+        DW    0x0
+        DW    DOTP
+        DW    N_SETSRC
+
+        DW      OVER, PLUS
+        DW      SWAP, SRC, TSTOR
+        DW      SRC, FETCH
+        DW      LIN, STORE ;  IN
+
+;       DW      DOTS
+        DW      SEMIS
+;
+
+;  ****************
+;  *   EVALUATE   *
+;  ****************
+;
+N_EVALUATE:
+        DW      8
+        DB      "EVALUATE"
+EVALUATE:
+        DW    DOCOL
+        DW    EVALUATE+HEADSIZE
+        DW    0x0
+        DW    SETSRC
+        DW    N_EVALUATE
+
+        DW      SAVE
+        DW      SETSRC
+        DW      LIT, INTER, CATCH
+        DW      RESTO
+        DW      THROW
+        DW      SEMIS
+;
+
+;  ************
+;  *   FILL   *
+;  ************
+;
+N_FILL:
+        DW      4
+        DB      "FILL"
+FILL:
+        DW    FILL+HEADSIZE
+        DW    FILL+HEADSIZE
+        DW    0x0
+        DW    EVALUATE
+        DW    N_FILL
+
+;       Assume the extra segment points to the data segment 
+        POP     AX      ; FILL CHAR
+        POP     CX      ; FILL COUNT
+        POP     DI      ; BEGIN ADDR
+        CLD             ; INC DIRECTION
+        REP     STOSB   ;STORE BYTE
+        JMP     NEXT
+;
+
+;  ************
+;  *   CORA   *
+;  ************
+;
+N_CORA:
+        DW      4
+        DB      "CORA"
+CORA:
+        DW    CORA+HEADSIZE
+        DW    CORA+HEADSIZE
+        DW    0x0
+        DW    FILL
+        DW    N_CORA
+
+;       Assume the extra segment points to the data segment 
+        MOV     DX,SI   ;SAVE
+        XOR     AX,AX   ; Result
+        POP     CX      ; count
+        POP     DI      ; addr2
+        POP     SI      ; addr1
+        CLD             ; INC DIRECTION
+        REP     CMPSB   ; Compare BYTE
+        JZ      CORA3
+        MOV     AL,1    ;Remainder is already 0
+        JNC     CORA3
+        NEG     AX
+CORA3:
+        MOV     SI,DX  ;Restore
+        JMP     APUSH
+;
+
+;  **********
+;  *   $I   *
+;  **********
+;
+N_SINDEX:
+        DW      2
+        DB      "$I"
+SINDEX:
+        DW    SINDEX+HEADSIZE
+        DW    SINDEX+HEADSIZE
+        DW    0x0
+        DW    CORA
+        DW    N_SINDEX
+
+;       Assume the extra segment points to the data segment 
+        POP     AX      ; char
+        POP     CX      ; count
+        POP     DI      ; addr
+        OR      SI,SI   ;Clear zero flag.
+        CLD             ; INC DIRECTION
+        REPNZ     SCASB   ; Compare BYTE
+        JZ      SINDEX1
+        XOR     DI,DI    ;Not found: 0
+        INC     DI
+SINDEX1:
+        DEC     DI
+        PUSH    DI
+        JMP     NEXT
+;
+
+;  **********
+;  *   $S   *
+;  **********
+;
+N_SSPLIT:
+        DW      2
+        DB      "$S"
+SSPLIT:
+        DW    SSPLIT+HEADSIZE
+        DW    SSPLIT+HEADSIZE
+        DW    0x0
+        DW    SINDEX
+        DW    N_SSPLIT
+
+;       Assume the extra segment points to the data segment 
+        POP     AX      ; char
+        POP     CX      ; count
+        MOV     BX,CX
+        POP     DI      ; addr
+        OR      DI,DI   ;Clear zero flag.
+        MOV     DX,DI   ; Copy
+        CLD             ; INC DIRECTION
+        REPNZ     SCASB   ; Compare BYTE
+        JZ      SSPLIT1
+; Not present.
+        PUSH    CX   ; Nil pointer.
+        JMP SHORT SSPLIT2
+SSPLIT1:
+        PUSH    DI
+        SUB     BX,CX
+        DEC     BX      ;Delimiter is not part of first string.
+SSPLIT2:
+        PUSH    CX   ;Remaining length
+        PUSH    DX   ;Start of first string.
+        PUSH    BX   ;Skipped length.
+        JMP     NEXT
+;
+
+;  *************
+;  *   ERASE   *
+;  *************
+;
+N_LERASE:
+        DW      5
+        DB      "ERASE"
+LERASE:
+        DW    DOCOL
+        DW    LERASE+HEADSIZE
+        DW    0x0
+        DW    SSPLIT
+        DW    N_LERASE
+
+        DW      ZERO
+        DW      FILL
+        DW      SEMIS
+;
+
+
+;  *************
+;  *   BLANK   *
+;  *************
+;
+N_BLANK:
+        DW      5
+        DB      "BLANK"
+BLANK:
+        DW    DOCOL
+        DW    BLANK+HEADSIZE
+        DW    0x0
+        DW    LERASE
+        DW    N_BLANK
+
+        DW      LBL
+        DW      FILL
+        DW      SEMIS
+;
+;
+
+;  ************
+;  *   HOLD   *
+;  ************
+;
+N_HOLD:
+        DW      4
+        DB      "HOLD"
+HOLD:
+        DW    DOCOL
+        DW    HOLD+HEADSIZE
+        DW    0x0
+        DW    BLANK
+        DW    N_HOLD
+
+        DW      LIT,-1
+        DW      HLD
+        DW      PSTORE
+        DW      HLD
+        DW      FETCH
+        DW      CSTOR
+        DW      SEMIS
+;
+
+;  ***********
+;  *   PAD   *
+;  ***********
+;
+N_PAD:
+        DW      3
+        DB      "PAD"
+PAD:
+        DW    DOCOL
+        DW    PAD+HEADSIZE
+        DW    0x0
+        DW    HOLD
+        DW    N_PAD
+
+        DW      HERE
+; Allow for a one line name, a double binary number and some hold char's
+        DW      LIT,84+128+64
+        DW      PLUS
+        DW      SEMIS
+;
+
+
+;  ************
+;  *   WORD   *
+;  ************
+;
+N_IWORD:
+        DW      4
+        DB      "WORD"
+IWORD:
+        DW    DOCOL
+        DW    IWORD+HEADSIZE
+        DW    0x0
+        DW    PAD
+        DW    N_IWORD
+
+        DW      LDUP, LBL, EQUAL
+        DW      ZBRAN
+        DW      IWORD1-$-CW
+         DW      DROP
+         DW      LPWORD
+        DW      BRAN
+        DW      IWORD2-$-CW
+IWORD1: DW      TOR
+IWORD3:  DW      INBRS, RR, EQUAL
+        DW      ZBRAN
+        DW      IWORD4-$-CW
+        DW      DROP
+        DW      BRAN
+        DW      IWORD3-$-CW
+IWORD4:
+        DW      DROP
+        DW      LIT, -1, LIN, PSTORE ; Backtrace to first non-delimiter.
+        DW      FROMR, PPARS
+;        DW      DOTS
+IWORD2:
+        DW      HERE
+        DW      LIT,0x22
+        DW      BLANK
+        DW      HERE
+        DW      SSTORBD     ; FIXME
+        DW      HERE
+;        DW      DOTS
+        DW      SEMIS
+;
+;
+
+;  ************
+;  *   CHAR   *
+;  ************
+;
+N_LCHAR:
+        DW      4
+        DB      "CHAR"
+LCHAR:
+        DW    DOCOL
+        DW    LCHAR+HEADSIZE
+        DW    0x0
+        DW    IWORD
+        DW    N_LCHAR
+
+        DW      LPWORD, DROP, CFET
+        DW      SEMIS
+;
+
+;  **************
+;  *   [CHAR]   *
+;  **************
+;
+N_BCHAR:
+        DW      6
+        DB      "[CHAR]"
+BCHAR:
+        DW    DOCOL
+        DW    BCHAR+HEADSIZE
+        DW    B_IMMED
+        DW    LCHAR
+        DW    N_BCHAR
+
+        DW      LCHAR, LITER
+        DW      SEMIS
+;
+
+;  ****************
+;  *   (NUMBER)   *
+;  ****************
+;
+N_PNUMB:
+        DW      8
+        DB      "(NUMBER)"
+PNUMB:
+        DW    DOCOL
+        DW    PNUMB+HEADSIZE
+        DW    0x0
+        DW    BCHAR
+        DW    N_PNUMB
+
+        DW      ZERO, ZERO
+        DW      ZERO, DPL, STORE
+NPNUM1:  DW      INBRS   ; BEGIN
+        DW      LDUP, LIT, ADOT, EQUAL
+        DW      ZBRAN
+        DW      NPNUM2A-$-CW ; IF
+        DW      DROP, DPL, STORE, ZERO
+        DW      BRAN
+        DW      NPNUM3-$-CW ; ELSE
+NPNUM2A:
+        DW      LDUP, LIT, ',', EQUAL
+        DW      ZBRAN
+        DW      NPNUM2-$-CW ; IF
+        DW      TDROP, ZERO
+        DW      BRAN
+        DW      NPNUM3-$-CW ; ELSE
+NPNUM2:
+        DW      LDUP, QBL
+        DW      ZBRAN
+        DW      NPNUM4-$-CW ; IF
+        DW      DROP, DROP, ONE
+        DW      BRAN
+        DW      NPNUM3-$-CW ; ELSE
+NPNUM4:
+        DW      SWAP, DROP
+        DW      BASE, FETCH, DIGIT
+        DW      ZEQU
+        DW      LIT, 10, QERR
+
+        DW      SWAP
+        DW      BASE
+        DW      FETCH
+        DW      USTAR
+        DW      DROP
+        DW      ROT
+        DW      BASE
+        DW      FETCH
+        DW      USTAR
+        DW      DPLUS
+        DW      ZERO
+NPNUM3:                 ; THEN THEN
+        DW      ZBRAN
+        DW      NPNUM1-$-CW
+        DW      SEMIS
+;
+
+;  **************
+;  *   NUMBER   *
+;  **************
+;
+N_NUMB:
+        DW      6
+        DB      "NUMBER"
+NUMB:
+        DW    DOCOL
+        DW    NUMB+HEADSIZE
+        DW    0x0
+        DW    PNUMB
+        DW    N_NUMB
+
+LNUMB:
+        DW      LIT, -1, LIN, PSTORE
+        DW      PNUMB, SDLITE
+        DW      SEMIS
+;
+
+
+;  ***************
+;  *   >NUMBER   *
+;  ***************
+;
+N_TONUMB:
+        DW      7
+        DB      ">NUMBER"
+TONUMB:
+        DW    DOCOL
+        DW    TONUMB+HEADSIZE
+        DW    0x0
+        DW    NUMB
+        DW    N_TONUMB
+
+        DW      TDUP, PLUS, TOR     ; End available on return stack.
+        DW      ZERO
+        DW     XQDO
+        DW      TONUM9-$-CW
+TONUM1:
+        DW      LDUP, CFET, BASE, FETCH, DIGIT
+        DW      ZEQU
+        DW      ZBRAN
+        DW      TONUM4-$-CW ; IF
+        DW      DROP
+        DW      LLEAV
+TONUM4:
+        DW      SWAP, TOR ; Address out of the way.
+        DW      SWAP
+        DW      BASE
+        DW      FETCH
+        DW      USTAR
+        DW      DROP
+        DW      ROT
+        DW      BASE
+        DW      FETCH
+        DW      USTAR
+        DW      DPLUS
+        DW      FROMR, ONEP     ; Address back.
+        DW     XLOOP
+        DW      TONUM1-$-CW
+TONUM9:
+        DW      FROMR
+        DW      OVER, LSUB
+        DW      SEMIS
+;
+;
+
+;  *************
+;  *   FOUND   *
+;  *************
+;
+N_FOUND:
+        DW      5
+        DB      "FOUND"
+FOUND:
+        DW    DOCOL
+        DW    FOUND+HEADSIZE
+        DW    0x0
+        DW    TONUMB
+        DW    N_FOUND
+
+        DW      CONTEXT, TOR
+FOUND1: DW      RR, FETCH
+;        DW      DOTS
+        DW      PFIND, LDUP, ZEQU
+        DW      ZBRAN
+        DW      FOUND3-$-CW
+        DW      DROP
+        DW      RR, FETCH, LIT, ONLYBODY, LSUB ;Was this ONLY?
+        DW      ZBRAN
+        DW      FOUND2-$-CW
+        DW      FROMR, CELLP, TOR
+        DW      BRAN
+        DW      FOUND1-$-CW
+FOUND2: DW      ZERO
+FOUND3: DW      RDROP
+        DW      SWAP,DROP,SWAP,DROP
+        DW      SEMIS
+;
+
+;  ***************
+;  *   PRESENT   *
+;  ***************
+;
+N_PRESENT:
+        DW      7
+        DB      "PRESENT"
+PRESENT:
+        DW    DOCOL
+        DW    PRESENT+HEADSIZE
+        DW    0x0
+        DW    FOUND
+        DW    N_PRESENT
+
+        DW      LDUP, TOR
+        DW      FOUND
+        DW      LDUP
+        DW      ZBRAN
+        DW      PRES1-$-CW
+        DW      LDUP
+        DW      TNFA, FETCH, FETCH ;  Get precise length.
+        DW      RR, EQUAL
+        DW      LAND
+PRES1:
+        DW      RDROP
+        DW      SEMIS
+;
+
+
+;  ************
+;  *   FIND   *
+;  ************
+;
+N_FIND:
+        DW      4
+        DB      "FIND"
+FIND:
+        DW    DOCOL
+        DW    FIND+HEADSIZE
+        DW    0x0
+        DW    PRESENT
+        DW    N_FIND
+
+        DW      LDUP, COUNT, PRESENT
+        DW      LDUP
+        DW      ZBRAN
+        DW      FIND1-$-CW ;IF
+        DW      SWAP, DROP ; The address.
+        ; Fine point, get xt by TCFA. Even if a NOOP.
+        DW      LDUP, TCFA, SWAP
+        DW      TFFA, FETCH
+        DW      LIT, B_IMMED, LAND
+        DW      LIT, -1, SWAP
+        DW      ZBRAN
+        DW      FIND1-$-CW ;IF
+        DW      NEGATE
+FIND1:               ;THEN THEN
+        DW      SEMIS
+;
+
+;
+
+;  **************
+;  *   (FIND)   *
+;  **************
+;
+N_PFIND:
+        DW      6
+        DB      "(FIND)"
+PFIND:
+        DW    DOCOL
+        DW    PFIND+HEADSIZE
+        DW    0x0
+        DW    FIND
+        DW    N_PFIND
+
+; The idea is to have a fast slim loop.
+; The optimisation tries to skip, using the extra links.
+; At all labels the stack is (sc, dea).
+; PFIND0 : nothing known yet about dea
+; PFINDM1 : dea has no optimisation possibilities any more
+; PFINDM2 : dea has a possible match: ~MATCH returns 0(=equal)
+; PFIND1 : dea is a match, inasfar name and prefix
+; PFIND2 : dea is the match, or null.
+
+PFIND0:                       ;Start of fast loop.
+                DW      NMATCH
+        DW      ZBRAN
+        DW      PFINDM2-$-CW
+PFINDM1:
+        DW      TLFA, FETCH
+        DW      LDUP, ZEQU
+        DW      ZBRAN
+        DW      PFIND0-$-CW      ;End of fast loop.
+
+; Exit for end of chain (fall through)
+        DW      BRAN
+        DW      PFIND2-$-CW
+; Exit for possible match
+; ~MATCH is sure in determining a no-match,
+; a possible match must be investigated closely.
+PFINDM2:
+;
+; Discard, because name too short to match dea, can't be a denotation.
+        DW      TDUP, TNFA, FETCH, FETCH
+        DW      LESS, ZEQU
+        DW      ZBRAN
+        DW      PFINDM1-$-CW
+;
+; Equal: found, barring invisibility and dummy entries.
+        DW      TDUP, TNFA, FETCH, FETCH
+        DW      LSUB
+        DW      ZBRAN
+        DW      PFIND1-$-CW
+;
+; Discard, unless dea is a denotation ("prefix")
+        DW      LDUP, TFFA, FETCH
+        DW      LIT, B_DENOT, LAND
+        DW      ZBRAN
+        DW      PFINDM1-$-CW
+
+; Discard still, if invisible ("smudged") or dummy.
+PFIND1:
+        DW      LDUP, TFFA, FETCH
+        DW      LIT, B_INVIS | B_DUMMY, LAND
+        DW      ZEQU
+        DW      ZBRAN
+        DW      PFINDM1-$-CW
+
+PFIND2:
+        DW      SEMIS
+;
+
+;  *************
+;  *   ERROR   *
+;  *************
+;
+N_ERROR:
+        DW      5
+        DB      "ERROR"
+ERROR:
+        DW    DOCOL
+        DW    ERROR+HEADSIZE
+        DW    0x0
+        DW    PFIND
+        DW    N_ERROR
+
+        DW      LWHERE, TFET
+        DW      OVER, LIT, 20, LSUB
+        DW      MAX
+        DW      SWAP,OVER, LSUB
+        DW      ETYPE
+        DW      SKIP
+         DW      18
+SB3: DB      "? ciforth ERROR # "
+       
+        DW      LIT, SB3
+        DW      LIT, 18
+        DW      ETYPE
+        DW      BASE, FETCH
+        DW      DECA
+        DW      OVER
+        DW      STOD, ZERO, PDDOTR      ;This is about (.) 
+        DW      ETYPE
+        DW      BASE, STORE
+        DW      MESS
+        DW      SEMIS
+;
+
+;  *************
+;  *   CATCH   *
+;  *************
+;
+N_CATCH:
+        DW      5
+        DB      "CATCH"
+CATCH:
+        DW    DOCOL
+        DW    CATCH+HEADSIZE
+        DW    0x0
+        DW    ERROR
+        DW    N_CATCH
+
+        DW      SPFET, CELLP, TOR
+        DW      HANDLER, FETCH, TOR
+        DW      RPFET, HANDLER, STORE
+        DW      EXEC
+        DW      FROMR, HANDLER, STORE
+        DW      RDROP, ZERO
+        DW      SEMIS
+;
+
+;  *************
+;  *   THROW   *
+;  *************
+;
+N_THROW:
+        DW      5
+        DB      "THROW"
+THROW:
+        DW    DOCOL
+        DW    THROW+HEADSIZE
+        DW    0x0
+        DW    CATCH
+        DW    N_THROW
+
+        DW      LDUP
+        DW      ZBRAN
+        DW      THROW1-$-CW
+        DW      HANDLER, FETCH, ZEQU
+        DW      ZBRAN
+        DW      THROW2-$-CW
+        DW      ERROR
+        DW      MTBUF  ; A (too) crude way to remove locks
+        DW      SZERO, FETCH, SPSTO
+        DW      QUIT
+THROW2:
+        DW      HANDLER, FETCH, RPSTO
+        DW      FROMR, HANDLER, STORE
+        DW      FROMR, SWAP, TOR
+        DW      SPSTO
+        DW      FROMR
+        DW      X
+THROW1:
+        DW      DROP
+        DW      SEMIS
+;
+
+
+;  ****************
+;  *   (ABORT")   *
+;  ****************
+;
+N_PABORTQ:
+        DW      8
+        DB      '(ABORT")'
+PABORTQ:
+        DW    DOCOL
+        DW    PABORTQ+HEADSIZE
+        DW    0x0
+        DW    THROW
+        DW    N_PABORTQ
+
+        DW      ROT
+        DW      ZBRAN
+        DW      PABQ1-$-CW ;IF
+        DW      ETYPE
+        DW      SIGNON, ABORT
+        DW      BRAN
+        DW      PABQ2-$-CW ;ELSE
+PABQ1:  DW       TDROP
+PABQ2:   DW      SEMIS
+;
+
+;  **************
+;  *   ABORT"   *
+;  **************
+;
+N_ABORTQ:
+        DW      6
+        DB      'ABORT"'
+ABORTQ:
+        DW    DOCOL
+        DW    ABORTQ+HEADSIZE
+        DW    B_IMMED
+        DW    PABORTQ
+        DW    N_ABORTQ
+
+        DW      QCOMP
+        DW      DENQ
+        DW      LIT, PABORTQ, COMMA
+        DW      SEMIS
+;
+;
+
+;  ***********
+;  *   ID.   *
+;  ***********
+;
+N_IDDOT:
+        DW      3
+        DB      "ID."
+IDDOT:
+        DW    DOCOL
+        DW    IDDOT+HEADSIZE
+        DW    0x0
+        DW    ABORTQ
+        DW    N_IDDOT
+
+        DW      LDUP, TFFA
+        DW      FETCH, LIT, B_DUMMY, LXOR
+        DW      ZBRAN
+        DW      IDDOT1-$-CW
+        DW      TNFA
+        DW      FETCH
+        DW      SFET
+        DW      LTYPE
+        DW      SPACE
+        DW      SPACE
+        DW      SPACE
+        DW      BRAN
+        DW      IDDOT2-$-CW
+IDDOT1:
+        DW      DROP
+IDDOT2:
+        DW      SEMIS
+;
+
+;  ****************
+;  *   (CREATE)   *
+;  ****************
+;
+N_PCREAT:
+        DW      8
+        DB      "(CREATE)"
+PCREAT:
+        DW    DOCOL
+        DW    PCREAT+HEADSIZE
+        DW    0x0
+        DW    IDDOT
+        DW    N_PCREAT
+
+        DW      LDUP
+        DW      ZEQU
+        DW      LIT, 5, QERR
+        DW      TDUP
+        DW      PRESENT
+        DW      LDUP
+        DW      ZBRAN
+        DW      CREA1-$-CW ;IF
+        DW      TNFA, FETCH, SFET
+        DW      ETYPE
+        DW      LIT,4
+        DW      MESS
+        DW      X       ;THEN
+CREA1:  DW      DROP
+        DW      SCOMMA
+        DW      HERE,TOR
+
+        DW      RR, TPHA, COMMA         ; Code field.
+
+        DW      RR, TPHA, COMMA         ; Data field.
+
+        DW      ZERO, COMMA ; Flag field.
+
+        DW      CURR, FETCH, TLFA
+        DW      LDUP, FETCH
+        DW      COMMA   ; Link field.
+        DW      RR, SWAP, STORE
+
+        DW      COMMA   ; Name field.
+
+                DW      RDROP
+        DW      SEMIS
+;
+
+;  *****************
+;  *   [COMPILE]   *
+;  *****************
+;
+N_BCOMP:
+        DW      9
+        DB      "[COMPILE]"
+BCOMP:
+        DW    DOCOL
+        DW    BCOMP+HEADSIZE
+        DW    B_IMMED
+        DW    PCREAT
+        DW    N_BCOMP
+
+        DW      LPWORD
+        DW      PRESENT
+        DW      LDUP
+        DW      ZEQU
+        DW      LIT, 16, QERR
+        DW      TCFA
+        DW      COMMA
+        DW      SEMIS
+;
+
+;  ****************
+;  *   POSTPONE   *
+;  ****************
+;
+N_POSTP:
+        DW      8
+        DB      "POSTPONE"
+POSTP:
+        DW    DOCOL
+        DW    POSTP+HEADSIZE
+        DW    B_IMMED
+        DW    BCOMP
+        DW    N_POSTP
+
+        DW      LPWORD
+        DW      PRESENT
+        DW      LDUP
+        DW      ZEQU
+        DW      LIT, 15, QERR
+        DW      LDUP, TFFA, FETCH
+        DW      LIT, B_IMMED, LAND, ZEQU
+        DW      ZBRAN
+        DW      POSTP1-$-CW
+         DW      LIT, LIT, COMMA
+         DW      COMMA
+         DW      LIT, COMMA, COMMA
+        DW      BRAN
+        DW      POSTP2-$-CW
+POSTP1:
+         DW      COMMA
+POSTP2:
+        DW      SEMIS
+;
+
+;  ***************
+;  *   LITERAL   *
+;  ***************
+;
+N_LITER:
+        DW      7
+        DB      "LITERAL"
+LITER:
+        DW    DOCOL
+        DW    LITER+HEADSIZE
+        DW    B_IMMED
+        DW    POSTP
+        DW    N_LITER
+
+        DW      STATE
+        DW      FETCH
+        DW      ZBRAN
+        DW      LITE1-$-CW ;IF
+        DW      LIT, LIT, COMMA
+        DW      COMMA   ;THEN
+LITE1:  DW      SEMIS
+;
+
+;  ****************
+;  *   DLITERAL   *
+;  ****************
+;
+N_DLITE:
+        DW      8
+        DB      "DLITERAL"
+DLITE:
+        DW    DOCOL
+        DW    DLITE+HEADSIZE
+        DW    B_IMMED
+        DW    LITER
+        DW    N_DLITE
+
+        DW      STATE
+        DW      FETCH
+        DW      ZBRAN
+        DW      DLIT1-$-CW ; IF
+        DW      SWAP
+        DW      LITER
+        DW      LITER   ; THEN
+DLIT1:  DW      SEMIS
+;
+;
+
+;  *****************
+;  *   SDLITERAL   *
+;  *****************
+;
+N_SDLITE:
+        DW      9
+        DB      "SDLITERAL"
+SDLITE:
+        DW    DOCOL
+        DW    SDLITE+HEADSIZE
+        DW    B_IMMED
+        DW    DLITE
+        DW    N_SDLITE
+
+        DW      DPL
+        DW      FETCH
+        DW      ZBRAN
+        DW      SDLIT1-$-CW ; IF
+        DW      DLITE
+        DW      BRAN
+        DW      SDLIT2-$-CW ; IF
+SDLIT1:
+        DW      DROP, LITER
+SDLIT2:
+        DW      SEMIS
+;
+
+
+;  **************
+;  *   ?STACK   *
+;  **************
+;
+N_QSTAC:
+        DW      6
+        DB      "?STACK"
+QSTAC:
+        DW    DOCOL
+        DW    QSTAC+HEADSIZE
+        DW    0x0
+        DW    SDLITE
+        DW    N_QSTAC
+
+        DW      SPFET
+        DW      SZERO
+        DW      FETCH
+        DW      SWAP
+        DW      ULESS
+        DW      ONE, QERR
+        DW      SPFET
+        DW      HERE
+        DW      LIT,0x80
+        DW      PLUS
+        DW      ULESS
+        DW      LIT, 7, QERR
+        DW      SEMIS
+        ;
+;
+;
+
+;  *****************
+;  *   INTERPRET   *
+;  *****************
+;
+N_INTER:
+        DW      9
+        DB      "INTERPRET"
+INTER:
+        DW    DOCOL
+        DW    INTER+HEADSIZE
+        DW    0x0
+        DW    QSTAC
+        DW    N_INTER
+
+INTE1:
+        DW      LPWORD
+        DW      LDUP      ; Zero length.
+        DW      ZBRAN
+        DW      INTE8-$-CW ;WHILE
+;       DW      DOTS
+;       DW      TDUP, LTYPE
+        DW      OVER, TOR       ; Save old parse pointer.
+        DW      FOUND
+        DW      LDUP, ZEQU
+        DW      LIT, 12, QERR
+        DW      LDUP, TFFA, FETCH
+        DW      LDUP, LIT, B_DENOT, LAND ;Retain copy of flags.
+        DW      ZBRAN
+        DW      INTE3B-$-CW ;IF
+        DW      OVER, TNFA, FETCH, FETCH
+        DW      RR, PLUS, LIN, STORE  ;Skip over prefix.
+INTE3B:                  ;THEN 
+        DW      RDROP           ; Drop old parse pointer.
+        DW      LIT, B_IMMED, LAND
+        DW      STATE, FETCH, ZEQU, LOR
+        DW      ZBRAN
+        DW      INTE3-$-CW ;IF
+        DW      EXEC
+        DW      BRAN
+        DW      INTE4-$-CW ;IF
+INTE3:
+        DW      COMMA
+                        ;THEN
+INTE4:
+        DW      QSTAC
+        DW      BRAN
+        DW      INTE1-$-CW  ;AGAIN
+INTE8:  DW      DROP, DROP
+        DW      SEMIS
+;
+
+;  *****************
+;  *   IMMEDIATE   *
+;  *****************
+;
+N_IMMED:
+        DW      9
+        DB      "IMMEDIATE"
+IMMED:
+        DW    DOCOL
+        DW    IMMED+HEADSIZE
+        DW    0x0
+        DW    INTER
+        DW    N_IMMED
+
+        DW      LATEST
+        DW      TFFA
+        DW      LIT, B_IMMED
+        DW      TOGGL
+        DW      SEMIS
+;
+
+;  **************
+;  *   PREFIX   *
+;  **************
+;
+N_PREFX:
+        DW      6
+        DB      "PREFIX"
+PREFX:
+        DW    DOCOL
+        DW    PREFX+HEADSIZE
+        DW    0x0
+        DW    IMMED
+        DW    N_PREFX
+
+        DW      LATEST
+        DW      TFFA
+        DW      LIT, B_DENOT
+        DW      TOGGL
+        DW      SEMIS
+;
+
+;  ******************
+;  *   VOCABULARY   *
+;  ******************
+;
+N_VOCAB:
+        DW      10
+        DB      "VOCABULARY"
+VOCAB:
+        DW    DOCOL
+        DW    VOCAB+HEADSIZE
+        DW    0x0
+        DW    PREFX
+        DW    N_VOCAB
+
+        DW      CREATE
+        DW      LATEST   ; Link this DEA into VOC-LINK chain.
+        DW      VOCL
+        DW      FETCH
+        DW      COMMA
+        DW      VOCL
+        DW      STORE
+        DW      ZERO, COMMA   ; Dummy code field
+        DW      ZERO, COMMA   ; Dummy data field
+        DW      LIT, B_DUMMY, COMMA ; Dummy flag field
+        DW      ZERO, COMMA ;Link field: empty chain
+        DW      LIT, (ZERO+(CW*(D_HOFFSET))), COMMA ;Empty string for name.
+                        DW      DOES
+DOVOC:
+        DW      ALSO
+        DW      CELLP   ; Make it a WID. 
+        DW      CONTEXT
+        DW      STORE
+        DW      SEMIS
+        ;
+;
+;   The link to task is a cold start value only.
+;   It is updated each time a definition is
+;   appended to the 'FORTH' vocabulary.
+;
+
+;
+
+;  *******************
+;  *   DEFINITIONS   *
+;  *******************
+;
+N_DEFIN:
+        DW      11
+        DB      "DEFINITIONS"
+DEFIN:
+        DW    DOCOL
+        DW    DEFIN+HEADSIZE
+        DW    0x0
+        DW    VOCAB
+        DW    N_DEFIN
+
+        DW      CONTEXT
+        DW      FETCH
+        DW      CURR
+        DW      STORE
+        DW      SEMIS
+;
+
+;  ************
+;  *   ALSO   *
+;  ************
+;
+N_ALSO:
+        DW      4
+        DB      "ALSO"
+ALSO:
+        DW    DOCOL
+        DW    ALSO+HEADSIZE
+        DW    0x0
+        DW    DEFIN
+        DW    N_ALSO
+
+        DW      CONTEXT, LDUP, CELLP
+        DW      LIT, (CW*(8-1))
+        DW      LMOVE
+        DW      LIT, ONLYBODY  ;End sentinel for array of word lists.
+        DW      CONTEXT, LIT, (CW*(8)), PLUS
+        DW      STORE ;Trim sets of wordset.
+        DW      SEMIS
+;
+
+;  ****************
+;  *   PREVIOUS   *
+;  ****************
+;
+N_PREVI:
+        DW      8
+        DB      "PREVIOUS"
+PREVI:
+        DW    DOCOL
+        DW    PREVI+HEADSIZE
+        DW    0x0
+        DW    ALSO
+        DW    N_PREVI
+
+        DW      CONTEXT, LDUP, CELLP, SWAP
+        DW      LIT, (CW*(8))
+        DW      LMOVE
+        DW      SEMIS
+;
+
+;  *********
+;  *   (   *
+;  *********
+;
+N_PAREN:
+        DW      1
+        DB      "("
+PAREN:
+        DW    DOCOL
+        DW    PAREN+HEADSIZE
+        DW    B_IMMED
+        DW    PREVI
+        DW    N_PAREN
+
+        DW      LIT,')'
+        DW      PPARS
+        DW      TDROP
+        DW      SEMIS
+;
+;
+
+;  *********
+;  *   \   *
+;  *********
+;
+N_BACKS:
+        DW      1
+        DB      "\"
+BACKS:
+        DW    DOCOL
+        DW    BACKS+HEADSIZE
+        DW    B_IMMED
+        DW    PAREN
+        DW    N_BACKS
+
+; Backup one character, just in case we are at the end of a line.
+        DW      LIT, -1, LIN, PSTORE
+        DW      LIT,ALF
+        DW      PPARS
+        DW      TDROP
+        DW      SEMIS
+;
+
+;  ************
+;  *   QUIT   *
+;  ************
+;
+N_QUIT:
+        DW      4
+        DB      "QUIT"
+QUIT:
+        DW    DOCOL
+        DW    QUIT+HEADSIZE
+        DW    0x0
+        DW    BACKS
+        DW    N_QUIT
+
+        DW      LBRAC
+QUIT1:                  ;BEGIN
+        DW      RZERO
+        DW      FETCH
+        DW      RPSTO
+        DW      LIT
+        DW      PACCEP
+        DW      CATCH
+        DW      LDUP, LIT, -EPIPE, EQUAL
+        DW      ZBRAN
+        DW      ENDIF7-$-CW
+        DW      BYE     ;End of input, no error!
+ENDIF7:
+        DW      QERRUR
+        DW      SETSRC
+        DW      INTER
+        DW      OK
+        DW      BRAN
+        DW      QUIT1-$-CW  ;AGAIN
+        DW      SEMIS   ;Unnecessary, but helpful for decompilation.
+;
+
+;  **********
+;  *   OK   *
+;  **********
+;
+N_OK:
+        DW      2
+        DB      "OK"
+OK:
+        DW    DOCOL
+        DW    OK+HEADSIZE
+        DW    0x0
+        DW    QUIT
+        DW    N_OK
+
+        DW      STATE
+        DW      FETCH
+        DW      ZEQU
+        DW      ZBRAN
+        DW      OK2-$-CW ;IF
+        DW      SKIP
+         DW      3
+SB4: DB      " OK"
+       
+        DW      LIT, SB4
+        DW      LIT, 3
+        DW      LTYPE
+        DW      CR
+OK2:
+        DW      SEMIS
+;
+
+;  *************
+;  *   ABORT   *
+;  *************
+;
+N_ABORT:
+        DW      5
+        DB      "ABORT"
+ABORT:
+        DW    DOCOL
+        DW    ABORT+HEADSIZE
+        DW    0x0
+        DW    OK
+        DW    N_ABORT
+
+        DW      SZERO, FETCH, SPSTO
+        DW      ZERO, HANDLER, STORE
+        DW      DECA
+        DW      ONLY
+        DW      FORTH
+        DW      DEFIN
+        DW      QUIT
+        DW      SEMIS   ;Unnecessary, but helpful for decompilation.
+;
+;      WARM START VECTOR COMES HERE
+;      For booting code we enter here, real mode and using the switchsegment.
+;      BY control BREAK.
+WARM_ENTRY:
+
+BITS   16         ;Pops back at next _SWITCH_
+        MOV     SP, WORD[USINI+(CW*(2))]    ;PARAM. STACK
+        MOV     BP, WORD[USINI+(CW*(3))]    ;RETURN STACK
+;Without this clearing of the disk status, the system hangs too.
+        XOR     AX,AX
+        MOV     DL, DRIVE
+        INT     0x13     ;Reset floppy disk system.
+        XOR     AX,AX
+        MOV     DL, 0x80
+        INT     0x13     ;Reset hard disk system.
+;Without this clearing of the keyboard status, the system hangs at
+;the next call of KEY (INT 0x10 function 0x0E)
+        XOR     AX,AX
+        MOV     DS,AX
+        MOV     [0x417],AX
+;        MOV     [0x496],AX ;This should improve things, but doesn't.
+; 
+        
+        CLI
+        
+        MOV EAX,CR0
+        INC AL
+        MOV CR0,EAX            ;set protected mode
+        BITS   16
+        JMP    GDT_CS: $+5
+        
+        MOV     AX,GDT_DS
+        MOV     DS,AX
+        MOV     ES,AX
+        MOV     SS,AX
+        
+        MOV     SP, WORD[SPSAVE]
+        MOV     SI, WRM1
+        JMP     NEXT                   ;Hope stacks are still okay.
+;
+WRM1:   DW      WARM
+;
+
+;  ************
+;  *   WARM   *
+;  ************
+;
+N_WARM:
+        DW      4
+        DB      "WARM"
+WARM:
+        DW    DOCOL
+        DW    WARM+HEADSIZE
+        DW    0x0
+        DW    ABORT
+        DW    N_WARM
+
+        DW      MTBUF
+        DW      SIGNON
+        DW      ABORT
+        DW      SEMIS   ;Unnecessary, but helpful for decompilation.
+;
+;
+
+
+;  ************
+;  *   COLD   *
+;  ************
+;
+N_COLD:
+        DW      4
+        DB      "COLD"
+COLD:
+        DW    DOCOL
+        DW    COLD+HEADSIZE
+        DW    0x0
+        DW    WARM
+        DW    N_COLD
+
+        DW      ZERO, HANDLER, STORE
+        DW      MTBUF
+        DW      FIRST
+        DW      STALEST,STORE
+        DW      FIRST
+        DW      PREV,STORE
+; Fill user area for single task.
+        DW      LIT, USINI
+        DW      LIT, USINI+(CW*(1)), FETCH
+        DW      LIT, US
+        DW      LCMOVE
+;
+        DW      DECA    ; FIXME has to go done by ABORT anyway.
+        DW      ONLY    ; FIXME has to go done by ABORT anyway.
+        DW      FORTH   ; FIXME has to go done by ABORT anyway.
+        DW      DEFIN   ; FIXME has to go done by ABORT anyway.
+        DW      ONE            ; Sign on wanted.
+;
+
+        DW      ZBRAN
+        DW      COLD5-$-CW
+        DW      SIGNON    ; Suppressed for scripting! Or any options.
+COLD5:
+        DW      ABORT
+        DW      BYE     ; In case of turnkey programs.
+        DW      SEMIS   ; Unnecessary, but helpful for decompilation.
+;
+
+;  ***********
+;  *   S>D   *
+;  ***********
+;
+N_STOD:
+        DW      3
+        DB      "S>D"
+STOD:
+        DW    STOD+HEADSIZE
+        DW    STOD+HEADSIZE
+        DW    0x0
+        DW    COLD
+        DW    N_STOD
+
+        POP     DX      ;S1
+        SUB     AX,AX
+        OR      DX,DX
+        JNS     STOD1   ;POS
+        DEC     AX      ;NEG
+STOD1:
+        JMP     DPUSH
+;
+
+;  ***********
+;  *   ABS   *
+;  ***********
+;
+N_LABS:
+        DW      3
+        DB      "ABS"
+LABS:
+        DW    DOCOL
+        DW    LABS+HEADSIZE
+        DW    0x0
+        DW    STOD
+        DW    N_LABS
+
+        DW      LDUP
+        DW      ZLESS
+        DW      ZBRAN
+        DW      PM1-$-CW   ;IF
+        DW      NEGATE   ;THEN
+PM1:
+        DW      SEMIS
+;
+
+;  ************
+;  *   DABS   *
+;  ************
+;
+N_DABS:
+        DW      4
+        DB      "DABS"
+DABS:
+        DW    DOCOL
+        DW    DABS+HEADSIZE
+        DW    0x0
+        DW    LABS
+        DW    N_DABS
+
+        DW      LDUP
+        DW      ZLESS
+        DW      ZBRAN
+        DW      DPM1-$-CW  ;IF
+        DW      DNEGA   ;THEN
+DPM1:
+        DW      SEMIS
+;
+
+;  ***********
+;  *   MIN   *
+;  ***********
+;
+N_MIN:
+        DW      3
+        DB      "MIN"
+MIN:
+        DW    DOCOL
+        DW    MIN+HEADSIZE
+        DW    0x0
+        DW    DABS
+        DW    N_MIN
+
+        DW      TDUP
+        DW      GREAT
+        DW      ZBRAN
+        DW      MIN1-$-CW  ;IF
+        DW      SWAP    ;THEN
+MIN1:   DW      DROP
+        DW      SEMIS
+;
+
+;  ***********
+;  *   MAX   *
+;  ***********
+;
+N_MAX:
+        DW      3
+        DB      "MAX"
+MAX:
+        DW    DOCOL
+        DW    MAX+HEADSIZE
+        DW    0x0
+        DW    MIN
+        DW    N_MAX
+
+        DW      TDUP
+        DW      LESS
+        DW      ZBRAN
+        DW      MAX1-$-CW  ;IF
+        DW      SWAP    ;THEN
+MAX1:   DW      DROP
+        DW      SEMIS
+;
+
+;  **************
+;  *   LSHIFT   *
+;  **************
+;
+N_LSHIFT:
+        DW      6
+        DB      "LSHIFT"
+LSHIFT:
+        DW    LSHIFT+HEADSIZE
+        DW    LSHIFT+HEADSIZE
+        DW    0x0
+        DW    MAX
+        DW    N_LSHIFT
+
+        POP     CX
+        POP     AX
+        SHL     AX,CL
+        JMP     APUSH
+;
+
+;  **************
+;  *   RSHIFT   *
+;  **************
+;
+N_RSHIFT:
+        DW      6
+        DB      "RSHIFT"
+RSHIFT:
+        DW    RSHIFT+HEADSIZE
+        DW    RSHIFT+HEADSIZE
+        DW    0x0
+        DW    LSHIFT
+        DW    N_RSHIFT
+
+        POP     CX
+        POP     AX
+        SHR     AX,CL
+        JMP     APUSH
+;
+
+;  **********
+;  *   M*   *
+;  **********
+;
+N_MSTAR:
+        DW      2
+        DB      "M*"
+MSTAR:
+        DW    MSTAR+HEADSIZE
+        DW    MSTAR+HEADSIZE
+        DW    0x0
+        DW    RSHIFT
+        DW    N_MSTAR
+
+        POP     AX
+        POP     BX
+        IMUL     BX      ;SIGNED
+        XCHG    AX,DX   ;AX NOW = MSW
+        JMP     DPUSH          ;STORE DOUBLE CELL
+;
+
+;  **************
+;  *   SM/REM   *
+;  **************
+;
+N_MSLAS:
+        DW      6
+        DB      "SM/REM"
+MSLAS:
+        DW    MSLAS+HEADSIZE
+        DW    MSLAS+HEADSIZE
+        DW    0x0
+        DW    MSTAR
+        DW    N_MSLAS
+
+        POP     BX      ;DIVISOR
+        POP     DX      ;MSW OF DIVIDEND
+        POP     AX      ;LSW OF DIVIDEND
+        IDIV     BX      ;16 BIT DIVIDE
+        JMP     DPUSH          ;STORE QUOT/REM
+;
+
+
+;  **********
+;  *   2/   *
+;  **********
+;
+N_TWOSL:
+        DW      2
+        DB      "2/"
+TWOSL:
+        DW    DOCOL
+        DW    TWOSL+HEADSIZE
+        DW    0x0
+        DW    MSLAS
+        DW    N_TWOSL
+
+        DW      STOD, TWO, FMSLAS
+        DW      SWAP, DROP
+        DW      SEMIS
+;
+
+;  **********
+;  *   2*   *
+;  **********
+;
+N_TWOST:
+        DW      2
+        DB      "2*"
+TWOST:
+        DW    DOCOL
+        DW    TWOST+HEADSIZE
+        DW    0x0
+        DW    TWOSL
+        DW    N_TWOST
+
+        DW      TWO, STAR
+        DW      SEMIS
+;
+
+;  **********
+;  *   1-   *
+;  **********
+;
+N_ONEM:
+        DW      2
+        DB      "1-"
+ONEM:
+        DW    DOCOL
+        DW    ONEM+HEADSIZE
+        DW    0x0
+        DW    TWOST
+        DW    N_ONEM
+
+        DW      ONE, LSUB
+        DW      SEMIS
+;
+;
+
+;  **************
+;  *   FM/MOD   *
+;  **************
+;
+N_FMSLAS:
+        DW      6
+        DB      "FM/MOD"
+FMSLAS:
+        DW    DOCOL
+        DW    FMSLAS+HEADSIZE
+        DW    0x0
+        DW    ONEM
+        DW    N_FMSLAS
+
+        DW      LDUP, TOR
+        DW      TDUP, LXOR, TOR
+        DW      MSLAS
+        DW      FROMR, ZLESS
+        DW      ZBRAN
+        DW      FMMOD1-$-CW
+        DW      OVER
+        DW      ZBRAN
+        DW      FMMOD1-$-CW
+        DW      ONE, LSUB
+        DW      SWAP, FROMR, PLUS, SWAP
+        DW      BRAN
+        DW      FMMOD2-$-CW
+FMMOD1:
+        DW      RDROP
+FMMOD2:
+        DW      SEMIS
+;
+
+;  *********
+;  *   *   *
+;  *********
+;
+N_STAR:
+        DW      1
+        DB      "*"
+STAR:
+        DW    DOCOL
+        DW    STAR+HEADSIZE
+        DW    0x0
+        DW    FMSLAS
+        DW    N_STAR
+
+        DW      MSTAR
+        DW      DROP
+        DW      SEMIS
+;
+
+;  ************
+;  *   /MOD   *
+;  ************
+;
+N_SLMOD:
+        DW      4
+        DB      "/MOD"
+SLMOD:
+        DW    DOCOL
+        DW    SLMOD+HEADSIZE
+        DW    0x0
+        DW    STAR
+        DW    N_SLMOD
+
+        DW      TOR
+        DW      STOD
+        DW      FROMR
+        DW      MSLAS
+        DW      SEMIS
+;
+
+;  *********
+;  *   /   *
+;  *********
+;
+N_SLASH:
+        DW      1
+        DB      "/"
+SLASH:
+        DW    DOCOL
+        DW    SLASH+HEADSIZE
+        DW    0x0
+        DW    SLMOD
+        DW    N_SLASH
+
+        DW      SLMOD
+        DW      SWAP
+        DW      DROP
+        DW      SEMIS
+;
+
+;  ***********
+;  *   MOD   *
+;  ***********
+;
+N_LMOD:
+        DW      3
+        DB      "MOD"
+LMOD:
+        DW    DOCOL
+        DW    LMOD+HEADSIZE
+        DW    0x0
+        DW    SLASH
+        DW    N_LMOD
+
+        DW      SLMOD
+        DW      DROP
+        DW      SEMIS
+;
+
+;  *************
+;  *   */MOD   *
+;  *************
+;
+N_SSMOD:
+        DW      5
+        DB      "*/MOD"
+SSMOD:
+        DW    DOCOL
+        DW    SSMOD+HEADSIZE
+        DW    0x0
+        DW    LMOD
+        DW    N_SSMOD
+
+        DW      TOR
+        DW      MSTAR
+        DW      FROMR
+        DW      MSLAS
+        DW      SEMIS
+;
+
+;  **********
+;  *   */   *
+;  **********
+;
+N_SSLA:
+        DW      2
+        DB      "*/"
+SSLA:
+        DW    DOCOL
+        DW    SSLA+HEADSIZE
+        DW    0x0
+        DW    SSMOD
+        DW    N_SSLA
+
+        DW      SSMOD
+        DW      SWAP
+        DW      DROP
+        DW      SEMIS
+;
+
+;  *************
+;  *   M/MOD   *
+;  *************
+;
+N_MSMOD:
+        DW      5
+        DB      "M/MOD"
+MSMOD:
+        DW    DOCOL
+        DW    MSMOD+HEADSIZE
+        DW    0x0
+        DW    SSLA
+        DW    N_MSMOD
+
+        DW      TOR
+        DW      ZERO
+        DW      RR
+        DW      USLAS
+        DW      FROMR
+        DW      SWAP
+        DW      TOR
+        DW      USLAS
+        DW      FROMR
+        DW      SEMIS
+;
+
+;  **************
+;  *   (LINE)   *
+;  **************
+;
+N_PLINE:
+        DW      6
+        DB      "(LINE)"
+PLINE:
+        DW    DOCOL
+        DW    PLINE+HEADSIZE
+        DW    0x0
+        DW    MSMOD
+        DW    N_PLINE
+
+        DW      TOR
+        DW      LIT,64
+        DW      MSTAR
+        DW      BBUF
+        DW      FMSLAS
+        DW      FROMR ; This blocks, so is screens.
+        DW      PLUS
+        DW      BLOCK
+        DW      PLUS
+        DW      LIT,63
+        DW      SEMIS
+;
+
+;  **************
+;  *   ERRSCR   *
+;  **************
+;
+N_ERRSCR:
+        DW      6
+        DB      "ERRSCR"
+ERRSCR:
+        DW    DOVAR
+        DW    ERRSCR+HEADSIZE
+        DW    0x0
+        DW    PLINE
+        DW    N_ERRSCR
+
+        DW ERRORSCREEN
+;
+
+;  ***************
+;  *   MESSAGE   *
+;  ***************
+;
+N_MESS:
+        DW      7
+        DB      "MESSAGE"
+MESS:
+        DW    DOCOL
+        DW    MESS+HEADSIZE
+        DW    0x0
+        DW    ERRSCR
+        DW    N_MESS
+
+        DW      LWARN
+        DW      FETCH
+        DW      ZBRAN
+        DW      MESS1-$-CW ;IF
+        DW      ERRSCR, FETCH
+        DW      PLINE, ONEP     ; Also print the '\n' !
+        DW      ETYPE
+        DW      X
+MESS1:                  ;THEN
+        DW      DROP
+        DW      SEMIS
+;
+
+;  ***********
+;  *   PC@   *
+;  ***********
+;
+N_PCFET:
+        DW      3
+        DB      "PC@"
+PCFET:
+        DW    PCFET+HEADSIZE
+        DW    PCFET+HEADSIZE
+        DW    0x0
+        DW    MESS
+        DW    N_PCFET
+
+; FETCH CHARACTER (BYTE) FROM PORT
+        POP     DX      ; PORT ADDR
+        XOR     AX,AX
+        IN      AL,DX  ; BYTE INPUT
+        JMP     APUSH
+;
+
+;  ***********
+;  *   PC!   *
+;  ***********
+;
+N_PCSTO:
+        DW      3
+        DB      "PC!"
+PCSTO:
+        DW    PCSTO+HEADSIZE
+        DW    PCSTO+HEADSIZE
+        DW    0x0
+        DW    PCFET
+        DW    N_PCSTO
+
+        POP     DX      ;PORT ADDR
+        POP     AX      ;DATA
+        OUT     DX,AL   ; BYTE OUTPUT
+        JMP     NEXT
+;
+
+;  **********
+;  *   P@   *
+;  **********
+;
+N_PFET:
+        DW      2
+        DB      "P@"
+PFET:
+        DW    PFET+HEADSIZE
+        DW    PFET+HEADSIZE
+        DW    0x0
+        DW    PCSTO
+        DW    N_PFET
+
+        POP     DX      ;PORT ADDR
+        IN      AX,DX  ;WORD INPUT
+        JMP     APUSH
+;
+
+;  **********
+;  *   P!   *
+;  **********
+;
+N_PSTO:
+        DW      2
+        DB      "P!"
+PSTO:
+        DW    PSTO+HEADSIZE
+        DW    PSTO+HEADSIZE
+        DW    0x0
+        DW    PFET
+        DW    N_PSTO
+
+        POP     DX      ;PORT ADDR
+        POP     AX      ;DATA
+        OUT     DX,AX   ;WORD OUTPUT
+        JMP     NEXT
+;
+
+;  ***************
+;  *   STALEST   *
+;  ***************
+;
+N_STALEST:
+        DW      7
+        DB      "STALEST"
+STALEST:
+        DW    DOVAR
+        DW    STALEST+HEADSIZE
+        DW    0x0
+        DW    PSTO
+        DW    N_STALEST
+
+        DW BUF1
+;
+
+;  ************
+;  *   PREV   *
+;  ************
+;
+N_PREV:
+        DW      4
+        DB      "PREV"
+PREV:
+        DW    DOVAR
+        DW    PREV+HEADSIZE
+        DW    0x0
+        DW    STALEST
+        DW    N_PREV
+
+        DW      BUF1
+;
+
+;  *************
+;  *   #BUFF   *
+;  *************
+;
+N_NOBUF:
+        DW      5
+        DB      "#BUFF"
+NOBUF:
+        DW    DOCON
+        DW    NBUF
+        DW    0x0
+        DW    PREV
+        DW    N_NOBUF
+
+;
+
+;  ************
+;  *   +BUF   *
+;  ************
+;
+N_PBUF:
+        DW      4
+        DB      "+BUF"
+PBUF:
+        DW    DOCOL
+        DW    PBUF+HEADSIZE
+        DW    0x0
+        DW    NOBUF
+        DW    N_PBUF
+
+        DW      LIT,(KBBUF+2*CW)
+        DW      PLUS,LDUP
+        DW      LIMIT,EQUAL
+        DW      ZBRAN
+        DW      PBUF1-$-CW
+        DW      DROP,FIRST
+PBUF1:  DW      LDUP, PREV, FETCH, LSUB
+        DW      SEMIS
+;
+
+;  **************
+;  *   UPDATE   *
+;  **************
+;
+N_UPDAT:
+        DW      6
+        DB      "UPDATE"
+UPDAT:
+        DW    DOCOL
+        DW    UPDAT+HEADSIZE
+        DW    0x0
+        DW    PBUF
+        DW    N_UPDAT
+
+        DW      PREV, FETCH
+        DW      LDUP, CELLP,CELLP
+        DW      SWAP, FETCH
+        DW      LOFFSET,  FETCH, PLUS
+        DW      ZERO
+        DW      RSLW
+        DW      SEMIS
+;
+
+;  *********************
+;  *   EMPTY-BUFFERS   *
+;  *********************
+;
+N_MTBUF:
+        DW      13
+        DB      "EMPTY-BUFFERS"
+MTBUF:
+        DW    DOCOL
+        DW    MTBUF+HEADSIZE
+        DW    0x0
+        DW    UPDAT
+        DW    N_MTBUF
+
+        DW      FIRST
+        DW      LIMIT,OVER
+        DW      LSUB,LERASE
+        DW      SEMIS
+        ;
+;
+
+;  ****************
+;  *   (BUFFER)   *
+;  ****************
+;
+N_BUFFER:
+        DW      8
+        DB      "(BUFFER)"
+BUFFER:
+        DW    DOCOL
+        DW    BUFFER+HEADSIZE
+        DW    0x0
+        DW    MTBUF
+        DW    N_BUFFER
+
+; Find the buffer, if it is already here.
+    DW      PREV, FETCH
+BUFFER1:
+    DW          TOR, RR, FETCH, OVER, EQUAL
+    DW      ZBRAN
+        DW      BUFFER3-$-CW
+    DW        DROP, FROMR, EXIT
+BUFFER3:
+    DW          FROMR
+    DW      PBUF, ZEQU
+    DW      ZBRAN
+        DW      BUFFER1-$-CW
+    DW       DROP
+; Just allocate the stalest buffer.
+    DW       STALEST,   FETCH, TOR
+; Remember the next stalest buffer. 
+    DW       RR
+BUFFER2:
+    DW       PBUF, OVER, CELLP, FETCH
+    DW       LIT, -1, GREAT, LAND
+    DW      ZBRAN
+        DW      BUFFER2-$-CW
+    DW       STALEST, STORE
+; Fill in the house keeping.
+    DW       RR, STORE
+    DW       ZERO, RR, CELLP, STORE
+    DW       RR, PREV, STORE
+    DW       FROMR
+    DW  SEMIS
+;
+
+
+;  *************
+;  *   BLOCK   *
+;  *************
+;
+N_BLOCK:
+        DW      5
+        DB      "BLOCK"
+BLOCK:
+        DW    DOCOL
+        DW    BLOCK+HEADSIZE
+        DW    0x0
+        DW    BUFFER
+        DW    N_BLOCK
+
+
+        DW      BUFFER
+        DW      LDUP, CELLP, FETCH, ZEQU
+        DW      ZBRAN
+        DW      BLOCK1-$-CW
+        DW      LDUP, CELLP, CELLP
+        DW      OVER, FETCH
+        DW      LOFFSET,  FETCH, PLUS
+        DW      ONE
+        DW      RSLW
+        DW      ONE, OVER, CELLP, STORE
+BLOCK1:
+        DW      LDUP, PREV, STORE
+        DW      CELLP, CELLP
+        DW      SEMIS
+;
+
+;  *************
+;  *   FLUSH   *
+;  *************
+;
+N_FLUSH:
+        DW      5
+        DB      "FLUSH"
+FLUSH:
+        DW    DOCOL
+        DW    (MTBUF+HEADSIZE)
+        DW    0x0
+        DW    BLOCK
+        DW    N_FLUSH
+
+
+; Unlock all buffers
+        DW      LIMIT
+        DW      FIRST, CELLP
+        DW     XDO
+        DW      FLUS2-$-CW
+FLUS1:  DW      ZERO, IDO, STORE
+        DW      LIT,(KBBUF+2*CW)
+        DW      PLOOP
+        DW      (FLUS1-$)
+FLUS2:
+        DW      SEMIS
+;
+
+;  ************
+;  *   SAVE   *
+;  ************
+;
+N_SAVE:
+        DW      4
+        DB      "SAVE"
+SAVE:
+        DW    DOCOL
+        DW    SAVE+HEADSIZE
+        DW    0x0
+        DW    FLUSH
+        DW    N_SAVE
+
+        DW      FROMR
+        DW      SRC, TFET
+        DW      LIN, FETCH
+        DW      TOR, TOR, TOR
+        DW      TOR
+        DW SEMIS
+;
+
+;  ***************
+;  *   RESTORE   *
+;  ***************
+;
+N_RESTO:
+        DW      7
+        DB      "RESTORE"
+RESTO:
+        DW    DOCOL
+        DW    RESTO+HEADSIZE
+        DW    0x0
+        DW    SAVE
+        DW    N_RESTO
+
+        DW      FROMR
+        DW      FROMR, FROMR, FROMR
+        DW      LIN, STORE
+        DW      SRC, TSTOR
+        DW      TOR
+        DW SEMIS
+;
+
+
+;  ******************
+;  *   SAVE-INPUT   *
+;  ******************
+;
+N_SAVEI:
+        DW      10
+        DB      "SAVE-INPUT"
+SAVEI:
+        DW    DOCOL
+        DW    SAVEI+HEADSIZE
+        DW    0x0
+        DW    RESTO
+        DW    N_SAVEI
+
+        DW      SRC, TFET
+        DW      LIN, FETCH
+        DW      LIT, 3
+        DW SEMIS
+;
+
+;  *********************
+;  *   RESTORE-INPUT   *
+;  *********************
+;
+N_RESTOI:
+        DW      13
+        DB      "RESTORE-INPUT"
+RESTOI:
+        DW    DOCOL
+        DW    RESTOI+HEADSIZE
+        DW    0x0
+        DW    SAVEI
+        DW    N_RESTOI
+
+        DW      DROP
+        DW      LIN, STORE
+        DW      SRC, TSTOR
+        DW      LIT, -1
+        DW SEMIS
+;
+;
+
+;  ************
+;  *   LOCK   *
+;  ************
+;
+N_LLOCK:
+        DW      4
+        DB      "LOCK"
+LLOCK:
+        DW    DOCOL
+        DW    LLOCK+HEADSIZE
+        DW    0x0
+        DW    RESTOI
+        DW    N_LLOCK
+
+        DW      BLOCK
+        DW      LIT, CW, LSUB
+        DW      LIT, -2, SWAP, PSTORE
+        DW      SEMIS
+;
+
+;  **************
+;  *   UNLOCK   *
+;  **************
+;
+N_LUNLOCK:
+        DW      6
+        DB      "UNLOCK"
+LUNLOCK:
+        DW    DOCOL
+        DW    LUNLOCK+HEADSIZE
+        DW    0x0
+        DW    LLOCK
+        DW    N_LUNLOCK
+
+        DW      BLOCK
+        DW      LIT, CW, LSUB
+        DW      TWO, SWAP, PSTORE
+        DW      SEMIS
+;
+
+;  ************
+;  *   LOAD   *
+;  ************
+;
+N_LOAD:
+        DW      4
+        DB      "LOAD"
+LOAD:
+        DW    DOCOL
+        DW    LOAD+HEADSIZE
+        DW    0x0
+        DW    LUNLOCK
+        DW    N_LOAD
+
+        DW      LDUP, THRU
+        DW      SEMIS
+;
+
+;  ************
+;  *   THRU   *
+;  ************
+;
+N_THRU:
+        DW      4
+        DB      "THRU"
+THRU:
+        DW    DOCOL
+        DW    THRU+HEADSIZE
+        DW    0x0
+        DW    LOAD
+        DW    N_THRU
+
+        DW      SAVE
+        DW      ONEP, SWAP
+        DW     XDO
+        DW      THRU2-$-CW
+THRU1:
+        DW      IDO, LLOCK
+        DW      IDO, BLOCK
+        DW      LIT, KBBUF
+        DW      SETSRC
+        DW      LIT, INTER, CATCH
+        DW      IDO, LUNLOCK
+        DW      QDUP
+        DW      ZBRAN
+        DW      THRU3-$-CW
+        DW      RDROP, RDROP, RDROP ;UNLOOP.
+        DW      RESTO
+        DW      THROW
+THRU3:
+        DW     XLOOP
+        DW      THRU1-$-CW
+THRU2:
+        DW      RESTO
+        DW      SEMIS
+;
+
+;
+
+;  ***********
+;  *   BLK   *
+;  ***********
+;
+N_BLK:
+        DW      3
+        DB      "BLK"
+BLK:
+        DW    DOCOL
+        DW    BLK+HEADSIZE
+        DW    0x0
+        DW    THRU
+        DW    N_BLK
+
+        DW      LIN, FETCH
+        DW      FIRST, LIMIT, WITHIN
+        DW      SRC, TFET, LSUB
+        DW      LIT, 1024, EQUAL, LAND
+        DW      ZBRAN
+        DW      BLK1-$-CW
+        DW      SRC, FETCH, TWO, LCELLS, LSUB, FETCH
+        DW      BRAN
+        DW      BLK2-$-CW
+BLK1:
+        DW      ZERO
+BLK2:
+        DW      PBLK, STORE
+        DW      PBLK
+        DW      SEMIS
+;
+
+;  ***********
+;  *   -->   *
+;  ***********
+;
+N_ARROW:
+        DW      3
+        DB      "-->"
+ARROW:
+        DW    DOCOL
+        DW    ARROW+HEADSIZE
+        DW    B_IMMED
+        DW    BLK
+        DW    N_ARROW
+
+        DW      QLOAD
+        DW      BLK, FETCH
+        DW      LDUP, LUNLOCK
+        DW      ONEP
+        DW      LDUP, LLOCK
+        DW      LDUP, BLK, STORE
+        DW      BLOCK
+        DW      LIT, KBBUF
+        DW      SETSRC
+        DW      SEMIS
+        ;
+;
+;
+
+; Generic call on BIOS. A boon for experimenters.
+
+
+; Because there is no such thing as a variable interrupt:
+; THIS IS SELF MODIFYING CODE! NOT REENTRANT! DO NOT PUT IN ROM!
+; BEWARE OF THE SOFTWARE POLICE!
+;  *************
+;  *   BIOSO   *
+;  *************
+;
+N_BIOSO:
+        DW      5
+        DB      "BIOSO"
+BIOSO:
+        DW    BIOSO+HEADSIZE
+        DW    BIOSO+HEADSIZE
+        DW    0x0
+        DW    ARROW
+        DW    N_BIOSO
+
+        POP     AX      ; Function code
+        ; Once we are more acknowledgeable, put segment overwrite here.
+        MOV     BYTE [RQBIOS+1],AL ; Patch the code.
+        POP     DX
+        POP     CX
+        POP     BX
+        POP     AX
+        PUSH     SI      ; Save Forth registers. NEEDED? 
+        PUSH     BP
+        XCHG    SI,AX   ; Save AX in (already free) SI
+        
+        
+        MOV      WORD[SPSAVE],SP
+        AND     AX,AX
+        MOV     SP,AX
+        
+        JMP     GDT_SWITCH: $+3+CW+M4_SWITCHOFFSET
+        MOV EAX,CR0
+        DEC AL
+        MOV CR0,EAX            ;set real mode
+        BITS   16
+        MOV     AX,SWITCHSEGMENT
+        MOV     DS,AX
+        MOV     ES,AX
+        MOV     AX,SS_RST ; Make stack valid
+        MOV     SS,AX
+        STI
+        XCHG    SI,AX
+RQBIOS:  INT(0)          ; Request number to be overwritten.
+        PUSHF      ; Save status into DI 
+        POP     DI
+        XCHG    SI,AX ; Save AX in (still free) SI     
+        
+        CLI
+        
+        MOV EAX,CR0
+        INC AL
+        MOV CR0,EAX            ;set protected mode
+        BITS   16
+        JMP    GDT_CS: $+5
+        
+        MOV     AX,GDT_DS
+        MOV     DS,AX
+        MOV     ES,AX
+        MOV     SS,AX
+        
+        MOV     SP, WORD[SPSAVE]
+        XCHG    SI,AX
+        POP     BP      ; Restore Forth registers. NEEDED? 
+        POP     SI
+        PUSH     AX
+        PUSH     BX
+        PUSH     CX
+        PUSH     DX
+        PUSH     DI     ; i.e. flags 
+        JMP     NEXT
+SPSAVE: DW       0x0
+; SELF MODIFYING CODE ENDS HERE! YOU HAVE BEEN WARNED!
+;
+;
+; Generic call on BIOS. A boon for experimenters.
+
+
+
+; Because there is no such thing as a variable interrupt:
+; THIS IS SELF MODIFYING CODE! NOT REENTRANT! DO NOT PUT IN ROM!
+; BEWARE OF THE SOFTWARE POLICE!
+;  *************
+;  *   BIOSN   *
+;  *************
+;
+N_BIOSN:
+        DW      5
+        DB      "BIOSN"
+BIOSN:
+        DW    BIOSN+HEADSIZE
+        DW    BIOSN+HEADSIZE
+        DW    0x0
+        DW    BIOSO
+        DW    N_BIOSN
+
+        POP     AX      ; Function code
+        ; Once we are more acknowledgeable, put segment overwrite here.
+        MOV     BYTE [RQBIOSN+1],AL ; Patch the code.
+        POP     AX
+        POP     BX
+        POP     CX
+        POP     DX
+        PUSH     SI      ; Save Forth registers. NEEDED? 
+        PUSH     BP
+        XCHG    SI,AX   ; Save AX in (already free) SI
+        
+        
+        MOV      WORD[SPSAVE],SP
+        AND     AX,AX
+        MOV     SP,AX
+        
+        JMP     GDT_SWITCH: $+3+CW+M4_SWITCHOFFSET
+        MOV EAX,CR0
+        DEC AL
+        MOV CR0,EAX            ;set real mode
+        BITS   16
+        MOV     AX,SWITCHSEGMENT
+        MOV     DS,AX
+        MOV     ES,AX
+        MOV     AX,SS_RST ; Make stack valid
+        MOV     SS,AX
+        STI
+        XCHG    SI,AX
+RQBIOSN:  INT(0)          ; Request number to be overwritten.
+        PUSHF      ; Save status into DI 
+        POP     DI
+        XCHG    SI,AX ; Save AX in (still free) SI     
+        
+        CLI
+        
+        MOV EAX,CR0
+        INC AL
+        MOV CR0,EAX            ;set protected mode
+        BITS   16
+        JMP    GDT_CS: $+5
+        
+        MOV     AX,GDT_DS
+        MOV     DS,AX
+        MOV     ES,AX
+        MOV     SS,AX
+        
+        MOV     SP, WORD[SPSAVE]
+        XCHG    SI,AX
+        POP     BP      ; Restore Forth registers. NEEDED? 
+        POP     SI
+        PUSH     AX
+        PUSH     DI     ; i.e. flags 
+        JMP     NEXT
+; SELF MODIFYING CODE ENDS HERE! YOU HAVE BEEN WARNED!
+;
+;
+
+
+;  *************
+;  *   BDOSO   *
+;  *************
+;
+N_BDOSO:
+        DW      5
+        DB      "BDOSO"
+BDOSO:
+        DW    BDOSO+HEADSIZE
+        DW    BDOSO+HEADSIZE
+        DW    0x0
+        DW    BIOSN
+        DW    N_BDOSO
+
+        POP     DX
+        POP     CX
+        POP     BX
+        POP     AX
+        PUSH     SI      ; Save Forth registers. NEEDED? 
+        PUSH     BP
+        XCHG    SI,AX   ; Save AX in (already free) SI
+        
+        
+        MOV      WORD[SPSAVE],SP
+        AND     AX,AX
+        MOV     SP,AX
+        
+        JMP     GDT_SWITCH: $+3+CW+M4_SWITCHOFFSET
+        MOV EAX,CR0
+        DEC AL
+        MOV CR0,EAX            ;set real mode
+        BITS   16
+        MOV     AX,SWITCHSEGMENT
+        MOV     DS,AX
+        MOV     ES,AX
+        MOV     AX,SS_RST ; Make stack valid
+        MOV     SS,AX
+        STI
+        XCHG    SI,AX
+        INT     0x21
+        PUSHF      ; Save status into DI 
+        POP     DI; Not EDI! 
+        XCHG    SI,AX  ; Save AX in (still free) SI     
+        
+        CLI
+        
+        MOV EAX,CR0
+        INC AL
+        MOV CR0,EAX            ;set protected mode
+        BITS   16
+        JMP    GDT_CS: $+5
+        
+        MOV     AX,GDT_DS
+        MOV     DS,AX
+        MOV     ES,AX
+        MOV     SS,AX
+        
+        MOV     SP, WORD[SPSAVE]
+        XCHG    SI,AX
+        POP     BP      ; Restore Forth registers. NEEDED? 
+        POP     SI
+        PUSH     AX
+        PUSH     BX
+        PUSH     CX
+        PUSH     DX
+        PUSH     DI     ; i.e. flags 
+        JMP     NEXT
+;
+;
+; 
+; 
+
+
+;  ***********
+;  *   MS@   *
+;  ***********
+;
+N_MSFET:
+        DW      3
+        DB      "MS@"
+MSFET:
+        DW    DOCOL
+        DW    MSFET+HEADSIZE
+        DW    0x0
+        DW    BDOSO
+        DW    N_MSFET
+
+        DW      LIT,   0x2C00, X, X, X
+        DW      LIT,    0x21,  BIOSO, DROP
+        DW      TOR, TDROP, DROP, FROMR
+        DW      LIT, 0x100, SLMOD, LIT, 100, STAR, PLUS
+        DW      LIT, 10, STAR
+        DW      SEMIS
+;
+
+;  **********
+;  *   MS   *
+;  **********
+;
+N_MS:
+        DW      2
+        DB      "MS"
+MS:
+        DW    DOCOL
+        DW    MS+HEADSIZE
+        DW    0x0
+        DW    MSFET
+        DW    N_MS
+
+        DW      MSFET, PLUS, LIT, 100000, TOR
+LMS0:   DW      LDUP,  MSFET
+        DW      LSUB, RR, PLUS
+        DW      RR, LMOD, RR, LIT, 2, SLASH
+        DW      GREAT
+        DW      ZBRAN
+        DW      LMS0-$-CW
+        DW      RDROP, DROP
+        DW      SEMIS
+; 
+        ;
+;------------------------------------
+;       SYSTEM DEPENDANT CHAR I/O
+;------------------------------------
+;
+;
+;
+;
+;
+;
+;
+
+
+;  *************
+;  *   ETYPE   *
+;  *************
+;
+N_ETYPE:
+        DW      5
+        DB      "ETYPE"
+ETYPE:
+        DW    DOCOL
+        DW    ETYPE+HEADSIZE
+        DW    0x0
+        DW    MS
+        DW    N_ETYPE
+
+        DW      LTYPE
+        DW      SEMIS
+;
+
+;  **************
+;  *   ACCEPT   *
+;  **************
+;
+N_ACCEP:
+        DW      6
+        DB      "ACCEPT"
+ACCEP:
+        DW    DOCOL
+        DW    ACCEP+HEADSIZE
+        DW    0x0
+        DW    ETYPE
+        DW    N_ACCEP
+
+        DW      PACCEP
+        DW      TSWAP, ROT, MIN
+        DW      LDUP, TOR, LMOVE, FROMR
+        DW      SEMIS
+;
+;
+;
+
+
+;  **************
+;  *   (EMIT)   *
+;  **************
+;
+N_PEMIT:
+        DW      6
+        DB      "(EMIT)"
+PEMIT:
+        DW    DOCOL
+        DW    PEMIT+HEADSIZE
+        DW    0x0
+        DW    ACCEP
+        DW    N_PEMIT
+
+        DW      LIT, 0x0E00, PLUS, X, X, X
+        DW      LIT, 0x0010, BIOSO
+        DW      TDROP, TDROP, DROP    ;Ignore errors.
+        DW      SEMIS
+;
+
+;  ************
+;  *   EMIT   *
+;  ************
+;
+N_EMIT:
+        DW      4
+        DB      "EMIT"
+EMIT:
+        DW    DOCOL
+        DW    EMIT+HEADSIZE
+        DW    0x0
+        DW    PEMIT
+        DW    N_EMIT
+
+             DW      ONE,LOUT,PSTORE
+             DW      LIT, 0x07F, LAND
+             DW      LDUP,LIT,ALF,EQUAL
+             DW      ZBRAN
+        DW      EMIT1-$-CW
+             DW      LIT,ACR,PEMIT
+             DW      ZERO,LOUT,STORE
+EMIT1:       DW      PEMIT
+             DW      SEMIS
+;
+
+;  ***********
+;  *   KEY   *
+;  ***********
+;
+N_KEY:
+        DW      3
+        DB      "KEY"
+KEY:
+        DW    DOCOL
+        DW    KEY+HEADSIZE
+        DW    0x0
+        DW    EMIT
+        DW    N_KEY
+
+        DW      LIT, 0x1000, X, X, X
+        DW      LIT, 0x0016, BIOSO
+        DW      TDROP, TDROP
+        DW      LIT, 0x00FF, LAND
+        DW      SEMIS
+;
+
+;  ************
+;  *   KEY?   *
+;  ************
+;
+N_KEYQ:
+        DW      4
+        DB      "KEY?"
+KEYQ:
+        DW    DOCOL
+        DW    KEYQ+HEADSIZE
+        DW    0x0
+        DW    KEY
+        DW    N_KEYQ
+
+             DW      LIT, 0x01100, ZERO, ZERO, ZERO
+             DW      LIT, 0x016, BIOSO
+             DW      LIT, 0x040, LAND, ZEQU, TOR
+             DW      DROP, DROP, DROP, DROP
+             DW      FROMR, SEMIS
+;
+
+;  ************
+;  *   POUT   *
+;  ************
+;
+N_POUT:
+        DW      4
+        DB      "POUT"
+POUT:
+        DW    DOCOL
+        DW    POUT+HEADSIZE
+        DW    0x0
+        DW    KEYQ
+        DW    N_POUT
+
+        DW      X, X, X
+        DW      LIT, 0x0017, BIOSO
+        DW      DROP, TDROP, TDROP           ;Ignore errors.
+        DW      SEMIS
+;
+
+;  ************
+;  *   TYPE   *
+;  ************
+;
+N_LTYPE:
+        DW      4
+        DB      "TYPE"
+LTYPE:
+        DW    DOCOL
+        DW    LTYPE+HEADSIZE
+        DW    0x0
+        DW    POUT
+        DW    N_LTYPE
+
+             DW      QDUP
+             DW      ZBRAN
+        DW      TYPE1-$-CW
+             DW      OVER,   PLUS
+             DW      SWAP
+             DW     XDO
+        DW      TYPE4-$-CW
+TYPE2:       DW      IDO,    CFET,    EMIT
+             DW     XLOOP
+        DW      TYPE2-$-CW
+             DW      BRAN
+        DW      TYPE3-$-CW
+TYPE4:
+TYPE1:       DW      DROP
+TYPE3:       DW      SEMIS
+;
+;
+
+
+;  ****************
+;  *   (ACCEPT)   *
+;  ****************
+;
+N_PACCEP:
+        DW      8
+        DB      "(ACCEPT)"
+PACCEP:
+        DW    DOCOL
+        DW    PACCEP+HEADSIZE
+        DW    0x0
+        DW    LTYPE
+        DW    N_PACCEP
+
+        DW      TIB
+        DW      FETCH
+        DW      LIT,RTS/2
+        DW      TDUP
+;  Old fig code of EXPECT :
+             DW      OVER
+             DW      PLUS
+             DW      OVER
+             DW     XDO
+        DW      EXPE8-$-CW
+EXPE1:       DW      KEY
+             DW      LDUP
+             DW      RUBOUT
+             DW      FETCH
+             DW      EQUAL
+             DW      ZBRAN
+        DW      EXPE2-$-CW ; IF                    
+             DW      DROP
+             DW      LDUP
+             DW      IDO
+             DW      EQUAL
+             DW      LDUP
+             DW      FROMR
+             DW      TWO     ; Remove last 2 chars 
+             DW      LSUB
+             DW      PLUS
+             DW      TOR
+             DW      ZBRAN
+        DW      EXPE6-$-CW ; IF                    
+             DW      LIT
+             DW      BELL
+             DW      BRAN
+        DW      EXPE7-$-CW  ; ELSE                  
+EXPE6:       DW      LIT
+             DW      BSOUT   ; THEN                 
+EXPE7:       DW      BRAN
+        DW      EXPE3-$-CW  ; ELSE                  
+EXPE2:       DW      LDUP
+             DW      LIT,0x0D
+             DW      EQUAL
+             DW      ZBRAN
+        DW      EXPE4-$-CW ; IF
+             ; Emulate old fashioned LEAVE.
+             DW      FROMR, RDROP, LDUP, TOR, TOR
+             DW      DROP
+             DW      LBL
+             DW      ZERO
+             DW      BRAN
+        DW      EXPE5-$-CW  ; ELSE
+EXPE4:       DW      LDUP    ; THEN
+EXPE5:       DW      IDO
+             DW      CSTOR
+             DW      ZERO
+             DW      IDO
+             DW      ONEP
+             DW      STORE   ; THEN
+EXPE3:       DW      EMIT
+             DW     XLOOP
+        DW      EXPE1-$-CW    ; LOOP
+EXPE8:
+             DW      DROP
+;        ;      EXPEC
+        DW      ZERO, SINDEX
+        DW      TIB, FETCH, SWAP, OVER, LSUB
+        DW      SEMIS
+;
+ ; 
+
+        ;
+;------------------------------------
+;       SYSTEM DEPENDANT DISK I/O
+;------------------------------------
+
+
+;  ******************
+;  *   DISK-ERROR   *
+;  ******************
+;
+N_DERR:
+        DW      10
+        DB      "DISK-ERROR"
+DERR:
+        DW    DOVAR
+        DW    DERR+HEADSIZE
+        DW    0x0
+        DW    PACCEP
+        DW    N_DERR
+
+        DW      -1
+;
+;
+;
+
+;  *************
+;  *   SHELL   *
+;  *************
+;
+N_SHELL:
+        DW      5
+        DB      "SHELL"
+SHELL:
+        DW    DOVAR
+        DW    SHELL+HEADSIZE
+        DW    0x0
+        DW    DERR
+        DW    N_SHELL
+
+         
+                DW      14
+        DB      "C:\COMMAND.COM"
+        RESB    30 -9               ; Allow for some path
+  RESB    0x100     ; Double serve as stack at start up. 
+;
+
+;
+;
+;
+
+
+;  *************
+;  *   DRIVE   *
+;  *************
+;
+N_LDRIVE:
+        DW      5
+        DB      "DRIVE"
+LDRIVE:
+        DW    DOVAR
+        DW    LDRIVE+HEADSIZE
+        DW    0x0
+        DW    SHELL
+        DW    N_LDRIVE
+
+LFDRIVE DB      DRIVE                   ; To be used by Forth.
+LFSPT   DB      SPT
+LFHEADS DB      HEADS
+        
+;
+; 
+;
+
+;
+
+;  ***************
+;  *   SEC/BLK   *
+;  ***************
+;
+N_SPBLK:
+        DW      7
+        DB      "SEC/BLK"
+SPBLK:
+        DW    DOCON
+        DW    SPB
+        DW    0x0
+        DW    LDRIVE
+        DW    N_SPBLK
+
+;
+;
+;
+
+
+;  **************
+;  *   SEC-RW   *
+;  **************
+;
+N_SECRW:
+        DW      6
+        DB      "SEC-RW"
+SECRW:
+        DW    DOCOL
+        DW    SECRW+HEADSIZE
+        DW    0x0
+        DW    SPBLK
+        DW    N_SECRW
+
+        DW      LIT, LFSPT, CFET, SLMOD
+        DW      LIT, LFHEADS, CFET, SLMOD   ; Now #sec, #head, #cyl
+        DW      TOR
+        DW      RR, LIT, 8, RSHIFT, LIT, 6, LSHIFT ; Bit 8, 9 of cyl
+        DW      ROT, ONEP, LOR         ; Compose and in place.
+        DW      FROMR, LIT, 8, LSHIFT     ;Bits 0..7 of #cyl.
+        DW      LOR   ; High, low -- reg CX. 
+        DW      SWAP
+        DW      LIT, 8, LSHIFT
+        DW      LIT, LFDRIVE, CFET
+        DW      LOR   ; High, low -- reg DX. 
+        DW      LIT, 0x13, BIOSO
+        DW      ONE, LAND, DERR, PSTORE
+        DW      TDROP, TDROP
+        DW      SEMIS
+;
+
+;      ( ADDR  OFFSET+BLK#  FLAG (0=W, 1=R) --- )
+;  ***********
+;  *   R\W   *
+;  ***********
+;
+N_RSLW:
+        DW      3
+        DB      "R\W"
+RSLW:
+        DW    DOCOL
+        DW    RSLW+HEADSIZE
+        DW    0x0
+        DW    SECRW
+        DW    N_RSLW
+
+         DW   ROT, LIT, M4_SWITCHOFFSET, PLUS, ROT, ROT
+        DW      ZERO, DERR, STORE
+        DW      ZBRAN
+        DW      RSLW1-$-CW
+        DW      LIT, 0x0201      ; Read (AH) one (AL) sector 
+        DW      BRAN
+        DW      RSLW2-$-CW
+RSLW1:  DW      LIT, 0x0301      ; Write (AH) one (AL) sector 
+RSLW2:  DW      SWAP
+        DW      SPBLK,  STAR
+        DW      SPBLK,  OVER, PLUS
+        DW      SWAP
+        DW     XDO
+        DW      RSLW9-$-CW
+RSLW0:
+        DW      SWAP, TDUP
+        DW      IDO
+        DW      SECRW
+        DW      LIT, BPS, PLUS, SWAP
+        DW     XLOOP
+        DW      RSLW0-$-CW
+RSLW9:
+        DW      DROP, DROP
+        DW      DERR, FETCH,     QDUP
+        DW      ZBRAN
+        DW      RSLW5-$-CW              ;OK
+        DW      ZLESS
+        DW      ZBRAN
+        DW      RSLW3-$-CW
+        DW      LIT,    9   ;Write error
+        DW      BRAN
+        DW      RSLW4-$-CW
+RSLW3:  DW      LIT,    8   ;Read error
+RSLW4:  DW      ZERO,   PREV,   FETCH,     STORE   ;This  buffer
+                                                   ; is no good!
+        DW      QERR    ;  8 or 9. 
+RSLW5:  DW      SEMIS
+;
+; 
+; 
+;
+
+
+;  *********
+;  *   '   *
+;  *********
+;
+N_ITICK:
+        DW      1
+        DB      "'"
+ITICK:
+        DW    DOCOL 
+        DW    ITICK+HEADSIZE
+        DW    0x0
+        DW    RSLW
+        DW    N_ITICK
+
+        DW      LPWORD, PRESENT
+        DW      LDUP, ZEQU
+        DW      LIT, 11, QERR
+        DW      SEMIS
+;
+
+;  ***********
+;  *   [']   *
+;  ***********
+;
+N_BTICK:
+        DW      3
+        DB      "[']"
+BTICK:
+        DW    DOCOL
+        DW    (TICK+HEADSIZE)
+        DW    B_IMMED
+        DW    ITICK
+        DW    N_BTICK
+
+;
+;
+
+;  ******************
+;  *   FORGET-VOC   *
+;  ******************
+;
+N_FORGV:
+        DW      10
+        DB      "FORGET-VOC"
+FORGV:
+        DW    DOCOL
+        DW    FORGV+HEADSIZE
+        DW    0x0
+        DW    BTICK
+        DW    N_FORGV
+
+        DW      TDUP
+        DW      SWAP
+        DW      ULESS
+        DW      ZBRAN
+        DW      FORGV1-$-CW
+;  Forget part of contents.
+        DW      SWAP
+        DW      TOR
+        DW      TWID
+FORGV0:
+        DW      LDUP
+        DW      LDUP
+FORGV3:
+        DW      TLFA,FETCH
+        DW      LDUP
+        DW      RR
+        DW      ULESS
+        DW      ZBRAN
+        DW      FORGV3-$-CW
+        DW      SWAP            ;  Not to be forgotten entry found.
+        DW      TLFA
+        DW      STORE           ;  Short other entries out.
+        DW      TLFA,FETCH
+        DW      LDUP
+        DW      ZEQU
+        DW      ZBRAN
+        DW      FORGV0-$-CW        ;  Repeat until end of wordlist.
+        DW      DROP
+        DW      FROMR
+        DW      BRAN
+        DW      FORGV2-$-CW
+FORGV1:
+;        Vocabulary itself is also forgotten.
+        DW      TVFA
+        DW      FETCH     ; Unlink by linking next vocabulary.
+        DW      VOCL
+        DW      STORE
+        DW      ONLY, FORTH
+        DW      DEFIN
+FORGV2: DW      SEMIS
+;
+
+;  **************
+;  *   FORGET   *
+;  **************
+;
+N_FORG:
+        DW      6
+        DB      "FORGET"
+FORG:
+        DW    DOCOL
+        DW    FORG+HEADSIZE
+        DW    0x0
+        DW    FORGV
+        DW    N_FORG
+
+        DW      TICK
+        DW      LDUP
+        DW      FENCE
+        DW      FETCH
+        DW      LESS
+        DW      LIT, 21, QERR
+        DW      LIT,FORGV
+        DW      FORV
+        DW      TNFA, FETCH, LDP, STORE
+        DW      SEMIS
+;
+
+;  *************
+;  *   (BACK   *
+;  *************
+;
+N_PBACK:
+        DW      5
+        DB      "(BACK"
+PBACK:
+        DW    DOCOL
+        DW    PBACK+HEADSIZE
+        DW    0x0
+        DW    FORG
+        DW    N_PBACK
+
+        DW      HERE
+        DW      SEMIS
+;
+
+;  *************
+;  *   BACK)   *
+;  *************
+;
+N_BACKP:
+        DW      5
+        DB      "BACK)"
+BACKP:
+        DW    DOCOL
+        DW    BACKP+HEADSIZE
+        DW    0x0
+        DW    PBACK
+        DW    N_BACKP
+
+        DW      HERE
+        DW      CELLP
+        DW      LSUB
+        DW      COMMA
+        DW      SEMIS
+;
+
+;  ****************
+;  *   (FORWARD   *
+;  ****************
+;
+N_PFORWARD:
+        DW      8
+        DB      "(FORWARD"
+PFORWARD:
+        DW    DOCOL
+        DW    PFORWARD+HEADSIZE
+        DW    0x0
+        DW    BACKP
+        DW    N_PFORWARD
+
+        DW      HERE
+        DW      X
+        DW      COMMA
+        DW      SEMIS
+;
+
+;  ****************
+;  *   FORWARD)   *
+;  ****************
+;
+N_FORWARDP:
+        DW      8
+        DB      "FORWARD)"
+FORWARDP:
+        DW    DOCOL
+        DW    FORWARDP+HEADSIZE
+        DW    0x0
+        DW    PFORWARD
+        DW    N_FORWARDP
+
+        DW      HERE
+        DW      OVER
+        DW      CELLP
+        DW      LSUB
+        DW      SWAP
+        DW      STORE
+        DW      SEMIS
+;
+
+;  *************
+;  *   BEGIN   *
+;  *************
+;
+N_BEGIN:
+        DW      5
+        DB      "BEGIN"
+BEGIN:
+        DW    DOCOL
+        DW    BEGIN+HEADSIZE
+        DW    B_IMMED
+        DW    FORWARDP
+        DW    N_BEGIN
+
+        DW      PBACK
+        DW      QCOMP, ONE
+        DW      SEMIS
+;
+
+;  ************
+;  *   THEN   *
+;  ************
+;
+N_THEN:
+        DW      4
+        DB      "THEN"
+THEN:
+        DW    DOCOL
+        DW    THEN+HEADSIZE
+        DW    B_IMMED
+        DW    BEGIN
+        DW    N_THEN
+
+        DW      QCOMP, TWO, QPAIR
+        DW      FORWARDP
+        DW      SEMIS
+;
+
+;  **********
+;  *   DO   *
+;  **********
+;
+N_DO:
+        DW      2
+        DB      "DO"
+DO:
+        DW    DOCOL
+        DW    DO+HEADSIZE
+        DW    B_IMMED
+        DW    THEN
+        DW    N_DO
+
+         DW      LIT, XDO, COMMA, PFORWARD, PBACK
+        DW      LIT,3    ; Magic number
+        DW      SEMIS
+;
+
+;  ***********
+;  *   ?DO   *
+;  ***********
+;
+N_QDO:
+        DW      3
+        DB      "?DO"
+QDO:
+        DW    DOCOL
+        DW    QDO+HEADSIZE
+        DW    B_IMMED
+        DW    DO
+        DW    N_QDO
+
+         DW      LIT, XQDO, COMMA, PFORWARD, PBACK
+        DW      LIT,3    ; Magic number
+        DW      SEMIS
+;
+
+;  ************
+;  *   LOOP   *
+;  ************
+;
+N_LLOOP:
+        DW      4
+        DB      "LOOP"
+LLOOP:
+        DW    DOCOL
+        DW    LLOOP+HEADSIZE
+        DW    B_IMMED
+        DW    QDO
+        DW    N_LLOOP
+
+        DW      LIT, 3, QPAIR
+        DW      LIT, XLOOP, COMMA, BACKP
+        DW      FORWARDP ; For DO to push the leave address.
+        DW      SEMIS
+;
+
+;  *************
+;  *   +LOOP   *
+;  *************
+;
+N_PLOOP:
+        DW      5
+        DB      "+LOOP"
+PLOOP:
+        DW    DOCOL
+        DW    PLOOP+HEADSIZE
+        DW    B_IMMED
+        DW    LLOOP
+        DW    N_PLOOP
+
+        DW      LIT, 3, QPAIR
+        DW      LIT, XPLOO, COMMA, BACKP
+        DW      FORWARDP ; For DO to push the leave address.
+        DW      SEMIS
+;
+
+;  *************
+;  *   UNTIL   *
+;  *************
+;
+N_UNTIL:
+        DW      5
+        DB      "UNTIL"
+UNTIL:
+        DW    DOCOL
+        DW    UNTIL+HEADSIZE
+        DW    B_IMMED
+        DW    PLOOP
+        DW    N_UNTIL
+
+        DW      ONE, QPAIR
+        DW      LIT, ZBRAN, COMMA, BACKP
+        DW      SEMIS
+;
+
+;  *************
+;  *   AGAIN   *
+;  *************
+;
+N_AGAIN:
+        DW      5
+        DB      "AGAIN"
+AGAIN:
+        DW    DOCOL
+        DW    AGAIN+HEADSIZE
+        DW    B_IMMED
+        DW    UNTIL
+        DW    N_AGAIN
+
+        DW      ONE, QPAIR
+        DW      LIT, BRAN, COMMA, BACKP
+        DW      SEMIS
+;
+
+;  **************
+;  *   REPEAT   *
+;  **************
+;
+N_REPEA:
+        DW      6
+        DB      "REPEAT"
+REPEA:
+        DW    DOCOL
+        DW    REPEA+HEADSIZE
+        DW    B_IMMED
+        DW    AGAIN
+        DW    N_REPEA
+
+        DW      ONE, QPAIR   ; Matches BEGIN ?
+        DW      LIT, BRAN, COMMA, BACKP
+        DW      QCOMP, LIT, 4, QPAIR ; Matches WHILE ?
+        DW      FORWARDP ; WHILE target. 
+        DW      SEMIS
+;
+
+;  **********
+;  *   IF   *
+;  **********
+;
+N_LIF:
+        DW      2
+        DB      "IF"
+LIF:
+        DW    DOCOL
+        DW    LIF+HEADSIZE
+        DW    B_IMMED
+        DW    REPEA
+        DW    N_LIF
+
+        DW      LIT, ZBRAN, COMMA, PFORWARD
+        DW      TWO     ; Magic number
+        DW      SEMIS
+;
+
+;  ************
+;  *   ELSE   *
+;  ************
+;
+N_LELSE:
+        DW      4
+        DB      "ELSE"
+LELSE:
+        DW    DOCOL
+        DW    LELSE+HEADSIZE
+        DW    B_IMMED
+        DW    LIF
+        DW    N_LELSE
+
+        DW      QCOMP, TWO, QPAIR
+        DW      LIT, BRAN, COMMA, PFORWARD
+        DW      SWAP
+        DW      FORWARDP
+        DW      TWO     ; Magic number
+        DW      SEMIS
+;
+
+;  *************
+;  *   WHILE   *
+;  *************
+;
+N_LWHILE:
+        DW      5
+        DB      "WHILE"
+LWHILE:
+        DW    DOCOL
+        DW    LWHILE+HEADSIZE
+        DW    B_IMMED
+        DW    LELSE
+        DW    N_LWHILE
+
+        DW      TOR    ;  Save backward target. 
+        DW      TOR
+        DW      LIT, ZBRAN, COMMA, PFORWARD
+        DW      LIT, 4 ; Magic number
+        DW      FROMR
+        DW      FROMR
+        DW      SEMIS
+;
+
+;  **************
+;  *   SPACES   *
+;  **************
+;
+N_SPACES:
+        DW      6
+        DB      "SPACES"
+SPACES:
+        DW    DOCOL
+        DW    SPACES+HEADSIZE
+        DW    0x0
+        DW    LWHILE
+        DW    N_SPACES
+
+        DW      ZERO
+        DW      MAX
+        DW      ZERO
+        DW     XQDO
+        DW      SPAX1-$-CW
+SPAX2:  DW      SPACE
+        DW     XLOOP
+        DW      SPAX2-$-CW    ;LOOP
+SPAX1:
+        DW      SEMIS
+;
+
+;  **********
+;  *   <#   *
+;  **********
+;
+N_BDIGS:
+        DW      2
+        DB      "<#"
+BDIGS:
+        DW    DOCOL
+        DW    BDIGS+HEADSIZE
+        DW    0x0
+        DW    SPACES
+        DW    N_BDIGS
+
+        DW      PAD
+        DW      HLD
+        DW      STORE
+        DW      SEMIS
+;
+
+;  **********
+;  *   #>   *
+;  **********
+;
+N_EDIGS:
+        DW      2
+        DB      "#>"
+EDIGS:
+        DW    DOCOL
+        DW    EDIGS+HEADSIZE
+        DW    0x0
+        DW    BDIGS
+        DW    N_EDIGS
+
+        DW      DROP
+        DW      DROP
+        DW      HLD
+        DW      FETCH
+        DW      PAD
+        DW      OVER
+        DW      LSUB
+        DW      SEMIS
+;
+
+;  ************
+;  *   SIGN   *
+;  ************
+;
+N_SIGN:
+        DW      4
+        DB      "SIGN"
+SIGN:
+        DW    DOCOL
+        DW    SIGN+HEADSIZE
+        DW    0x0
+        DW    EDIGS
+        DW    N_SIGN
+
+        DW      ZLESS
+        DW      ZBRAN
+        DW      SIGN1-$-CW ;IF
+        DW      LIT, AMS
+        DW      HOLD    ;THEN
+SIGN1:  DW      SEMIS
+;
+
+;  *********
+;  *   #   *
+;  *********
+;
+N_DIG:
+        DW      1
+        DB      "#"
+DIG:
+        DW    DOCOL
+        DW    DIG+HEADSIZE
+        DW    0x0
+        DW    SIGN
+        DW    N_DIG
+
+        DW      BASE
+        DW      FETCH
+        DW      MSMOD
+        DW      ROT
+        DW      LIT,9
+        DW      OVER
+        DW      LESS
+        DW      ZBRAN
+        DW      DIG1-$-CW  ;IF
+        DW      LIT,7
+        DW      PLUS    ;THEN
+DIG1:   DW      LIT,0x30
+        DW      PLUS
+        DW      HOLD
+        DW      SEMIS
+;
+
+;  **********
+;  *   #S   *
+;  **********
+;
+N_DIGS:
+        DW      2
+        DB      "#S"
+DIGS:
+        DW    DOCOL
+        DW    DIGS+HEADSIZE
+        DW    0x0
+        DW    DIG
+        DW    N_DIGS
+
+DIGS1:  DW      DIG     ;BEGIN
+        DW      OVER
+        DW      OVER
+        DW      LOR
+        DW      ZEQU
+        DW      ZBRAN
+        DW      DIGS1-$-CW ;UNTIL
+        DW      SEMIS
+;
+
+;  *************
+;  *   (D.R)   *
+;  *************
+;
+N_PDDOTR:
+        DW      5
+        DB      "(D.R)"
+PDDOTR:
+        DW    DOCOL
+        DW    PDDOTR+HEADSIZE
+        DW    0x0
+        DW    DIGS
+        DW    N_PDDOTR
+
+        DW      TOR
+        DW      SWAP
+        DW      OVER
+        DW      DABS
+        DW      BDIGS
+        DW      DIGS
+        DW      ROT
+        DW      SIGN
+        DW      EDIGS
+        DW      FROMR
+        DW      OVER
+        DW      LSUB, ZERO, MAX
+        DW      ZERO
+        DW     XQDO
+        DW      PDDOT1-$-CW
+PDDOT2:  DW      LBL, HOLD  ;WARNING: HOLD outside of #>.
+        DW     XLOOP
+        DW      PDDOT2-$-CW
+PDDOT1:
+        DW      EDIGS  ;Drop string instead of number.
+        DW      SEMIS
+;
+
+;  ***********
+;  *   D.R   *
+;  ***********
+;
+N_DDOTR:
+        DW      3
+        DB      "D.R"
+DDOTR:
+        DW    DOCOL
+        DW    DDOTR+HEADSIZE
+        DW    0x0
+        DW    PDDOTR
+        DW    N_DDOTR
+
+        DW      PDDOTR
+        DW      LTYPE
+        DW      SEMIS
+;
+
+;  **********
+;  *   .R   *
+;  **********
+;
+N_DOTR:
+        DW      2
+        DB      ".R"
+DOTR:
+        DW    DOCOL
+        DW    DOTR+HEADSIZE
+        DW    0x0
+        DW    DDOTR
+        DW    N_DOTR
+
+        DW      TOR
+        DW      STOD
+        DW      FROMR
+        DW      DDOTR
+        DW      SEMIS
+;
+
+;  **********
+;  *   D.   *
+;  **********
+;
+N_DDOT:
+        DW      2
+        DB      "D."
+DDOT:
+        DW    DOCOL
+        DW    DDOT+HEADSIZE
+        DW    0x0
+        DW    DOTR
+        DW    N_DDOT
+
+        DW      ZERO
+        DW      DDOTR
+        DW      SPACE
+        DW      SEMIS
+;
+
+;  *********
+;  *   .   *
+;  *********
+;
+N_DOT:
+        DW      1
+        DB      "."
+DOT:
+        DW    DOCOL
+        DW    DOT+HEADSIZE
+        DW    0x0
+        DW    DDOT
+        DW    N_DOT
+
+        DW      STOD
+        DW      DDOT
+        DW      SEMIS
+;
+
+;  *********
+;  *   ?   *
+;  *********
+;
+N_QUES:
+        DW      1
+        DB      "?"
+QUES:
+        DW    DOCOL
+        DW    QUES+HEADSIZE
+        DW    0x0
+        DW    DOT
+        DW    N_QUES
+
+        DW      FETCH
+        DW      DOT
+        DW      SEMIS
+;
+
+;  **********
+;  *   U.   *
+;  **********
+;
+N_UDOT:
+        DW      2
+        DB      "U."
+UDOT:
+        DW    DOCOL
+        DW    UDOT+HEADSIZE
+        DW    0x0
+        DW    QUES
+        DW    N_UDOT
+
+        DW      ZERO
+        DW      DDOT
+        DW      SEMIS
+;
+
+;  *****************
+;  *   FOR-WORDS   *
+;  *****************
+;
+N_FORW:
+        DW      9
+        DB      "FOR-WORDS"
+FORW:
+        DW    DOCOL
+        DW    FORW+HEADSIZE
+        DW    0x0
+        DW    UDOT
+        DW    N_FORW
+
+        DW      SWAP
+        DW      TOR
+        DW      TOR
+FORW1:  DW      FROMR
+        DW      RR
+        DW      OVER
+        DW      TLFA
+        DW      FETCH
+        DW      TOR
+        DW      EXEC
+        DW      RR
+        DW      ZEQU
+        DW      ZBRAN
+        DW      FORW1-$-CW
+        DW      RDROP
+        DW      RDROP
+        DW      SEMIS
+;
+
+;  ****************
+;  *   FOR-VOCS   *
+;  ****************
+;
+N_FORV:
+        DW      8
+        DB      "FOR-VOCS"
+FORV:
+        DW    DOCOL
+        DW    FORV+HEADSIZE
+        DW    0x0
+        DW    FORW
+        DW    N_FORV
+
+        DW      TOR
+        DW      VOCL
+        DW      FETCH
+        DW      TOR
+FORV1:  DW      FROMR
+        DW      RR
+        DW      OVER
+        DW      TVFA
+        DW      FETCH
+        DW      TOR
+        DW      EXEC
+        DW      RR
+        DW      ZEQU
+        DW      ZBRAN
+        DW      FORV1-$-CW
+        DW      RDROP
+        DW      RDROP
+        DW      SEMIS
+;
+
+;  *************
+;  *   WORDS   *
+;  *************
+;
+N_WORDS:
+        DW      5
+        DB      "WORDS"
+WORDS:
+        DW    DOCOL
+        DW    WORDS+HEADSIZE
+        DW    0x0
+        DW    FORV
+        DW    N_WORDS
+
+        DW      CSLL
+        DW      LOUT
+        DW      STORE
+        DW      LIT, IDDOT
+        DW      CONTEXT
+        DW      FETCH
+        DW      FORW
+        DW      SEMIS
+;
+; 
+
+
+;  ***********
+;  *   BYE   *
+;  ***********
+;
+N_BYE:
+        DW      3
+        DB      "BYE"
+BYE:
+        DW    BYE+HEADSIZE
+        DW    BYE+HEADSIZE
+        DW    0x0
+        DW    WORDS
+        DW    N_BYE
+
+; EXIT TO PC-DOS, if run from PC-DOS, otherwise hang or whatever.
+        MOV     BX,[(XCODE+HEADSIZE)]
+        
+        
+        MOV      WORD[SPSAVE],SP
+        AND     AX,AX
+        MOV     SP,AX
+        
+        JMP     GDT_SWITCH: $+3+CW+M4_SWITCHOFFSET
+        MOV EAX,CR0
+        DEC AL
+        MOV CR0,EAX            ;set real mode
+        BITS   16
+        MOV     AX,SWITCHSEGMENT
+        MOV     DS,AX
+        MOV     ES,AX
+        MOV     AX,SS_RST ; Make stack valid
+        MOV     SS,AX
+        STI
+RETDOSV: JMP 0:0        ; Filled in during boot
+        
+
+; 
+
+;  *****************
+;  *   EXIT-CODE   *
+;  *****************
+;
+N_XCODE:
+        DW      9
+        DB      "EXIT-CODE"
+XCODE:
+        DW    DOVAR
+        DW    XCODE+HEADSIZE
+        DW    0x0
+        DW    BYE
+        DW    N_XCODE
+
+        DW      0
+;
+; 
+;
+
+;  ************
+;  *   LIST   *
+;  ************
+;
+N_LLIST:
+        DW      4
+        DB      "LIST"
+LLIST:
+        DW    DOCOL
+        DW    LLIST+HEADSIZE
+        DW    0x0
+        DW    XCODE
+        DW    N_LLIST
+
+        DW      SCR,STORE
+        DW      SKIP
+         DW      6
+SB5: DB      "SCR # "
+       
+        DW      LIT, SB5
+        DW      LIT, 6
+        DW      LTYPE
+        DW      BASE, FETCH
+        DW      DECA
+        DW      SCR, FETCH, DOT
+        DW      BASE, STORE
+        DW      SCR, FETCH, BLOCK
+        DW      LIT,1024
+LLIST1: DW      LIT, ALF, SSPLIT
+        DW      CR, LTYPE
+        DW      OVER,ZEQU ;DUP would not show a last empty line!
+        DW      ZBRAN
+        DW      LLIST1-$-CW
+        DW      TDROP
+        DW      SEMIS
+;
+
+;  *************
+;  *   INDEX   *
+;  *************
+;
+N_INDEX:
+        DW      5
+        DB      "INDEX"
+INDEX:
+        DW    DOCOL
+        DW    INDEX+HEADSIZE
+        DW    0x0
+        DW    LLIST
+        DW    N_INDEX
+
+        DW      LIT,AFF
+        DW      EMIT,CR
+        DW      ONEP,SWAP
+        DW     XDO
+        DW      INDE9-$-CW
+INDE1:  DW      CR,IDO
+        DW      LIT,3
+        DW      DOTR,SPACE
+        DW      ZERO,IDO
+        DW      PLINE, LTYPE, KEYQ
+        DW      ZBRAN
+        DW      INDE2-$-CW
+        DW      LLEAV
+INDE2:  DW     XLOOP
+        DW      INDE1-$-CW
+INDE9:
+        DW      SEMIS
+;
+
+;  **********
+;  *   .S   *
+;  **********
+;
+N_DOTS:
+        DW      2
+        DB      ".S"
+DOTS:
+        DW    DOCOL
+        DW    DOTS+HEADSIZE
+        DW    0x0
+        DW    INDEX
+        DW    N_DOTS
+
+        DW      CR
+        DW      LIT, 'S', EMIT
+        DW      LIT, ASO, EMIT
+        DW      SPACE
+        DW      SPFET, SZERO, FETCH
+DOC2:   DW      OVER, OVER,  EQUAL, ZEQU
+        DW      ZBRAN
+        DW      DOC1-$-CW
+        DW      ZERO, CELLP, LSUB, LDUP, FETCH, DOT
+        DW      BRAN
+        DW      DOC2-$-CW
+DOC1:    DW DROP, DROP
+        DW      LIT, ASC, EMIT
+        DW SEMIS
+;
+
+;  ********************
+;  *   ENVIRONMENT?   *
+;  ********************
+;
+N_ENVQ:
+        DW      12
+        DB      "ENVIRONMENT?"
+ENVQ:
+        DW    DOCOL
+        DW    ENVQ+HEADSIZE
+        DW    0x0
+        DW    DOTS
+        DW    N_ENVQ
+
+        DW      LIT, ENV, TWID, PFIND
+        DW      TOR, TDROP, FROMR
+        DW      LDUP
+        DW      ZBRAN
+        DW      ENVQ1-$-CW
+        DW      EXEC
+        DW      LIT, -1
+ENVQ1:
+        DW      SEMIS
+;
+
+
+;  *************
+;  *   TRIAD   *
+;  *************
+;
+N_TRIAD:
+        DW      5
+        DB      "TRIAD"
+TRIAD:
+        DW    DOCOL
+        DW    TRIAD+HEADSIZE
+        DW    0x0
+        DW    ENVQ
+        DW    N_TRIAD
+
+        DW      LIT,AFF
+        DW      EMIT
+        DW      LIT,3
+        DW      SLASH
+        DW      LIT,3
+        DW      STAR
+        DW      LIT,3
+        DW      OVER,PLUS
+        DW      SWAP
+        DW     XDO
+        DW      TRIA9-$-CW
+TRIA1:  DW      CR,IDO
+        DW      LLIST
+        DW      KEYQ
+        DW      ZBRAN
+        DW      TRIA2-$-CW
+        DW      LLEAV   ;LEAVE
+TRIA2:  DW     XLOOP
+        DW      TRIA1-$-CW    ;THEN
+TRIA9:
+        DW      CR
+        DW      ZERO, MESS
+        DW      SEMIS
+;
+;
+; This word is not even fig!
+
+;  ***************
+;  *   .SIGNON   *
+;  ***************
+;
+N_SIGNON:
+        DW      7
+        DB      ".SIGNON"
+SIGNON:
+        DW    DOCOL
+        DW    SIGNON+HEADSIZE
+        DW    0x0
+        DW    TRIAD
+        DW    N_SIGNON
+
+; PRINT CPU TYPE (8088)
+        DW      CR
+        DW      BASE,FETCH
+        DW      LIT,36, BASE,STORE
+        DW      LCPU, DDOT
+        DW      BASE,STORE
+;
+        DW      LNAME, LTYPE, SPACE
+        DW      LVERSION, LTYPE, SPACE
+        DW      CR
+        DW      SEMIS
+;
+
+;
+
+;  **************
+;  *   LOW-DP   *
+;  **************
+;
+N_LOWDP:
+        DW      6
+        DB      "LOW-DP"
+LOWDP:
+        DW    DOUSE
+        DW    (CW*(16))
+        DW    0x0
+        DW    SIGNON
+        DW    N_LOWDP
+
+;
+
+;  **************
+;  *   LOW-EM   *
+;  **************
+;
+N_LOWEM:
+        DW      6
+        DB      "LOW-EM"
+LOWEM:
+        DW    DOUSE
+        DW    (CW*(17))
+        DW    0x0
+        DW    LOWDP
+        DW    N_LOWEM
+
+;
+; 
+;
+;**** LAST DICTIONARY WORD ****
+
+;  ************
+;  *   TASK   *
+;  ************
+;
+N_TASK:
+        DW      4
+        DB      "TASK"
+TASK:
+        DW    DOCOL
+        DW    TASK+HEADSIZE
+        DW    0x0
+        DW    LOWEM
+        DW    N_TASK
+
+        DW      SEMIS
+;
+
+TEXTEND  EQU     $       ; Show end of dictionary.
+INITDP   EQU     TEXTEND ;Where we want new words.
+ACTUAL_EM EQU    EM  ; Different for relocatable code only.
+ ;  
+
+%if 0
+
+The remaining memory ( up to 'EM' ) is
+used for:
+
+        1. EXTENSION DICTIONARY
+        2. PARAMETER STACK
+        3. TERMINAL INPUT BUFFER
+        4. RETURN STACK
+        5. USER VARIABLE AREA
+        6. DISK BUFFERS (UNLESS REQUIRED <1 MBYTE)
+
+
+%endif
+
+; 
+;
+
+ ;    ENDS
+        ;
+%if 0
+
+  MISC. NOTES AND SCATTERED THOUGHTS
+
+- Remember that all the FORTH words in this version are
+  upper case letters.  Use <CAPS LOCK> when in FORTH.
+
+; 
+
+- Subscribe to FORTH Dimensions.  It is a valuable source
+  of system and application ideas.  Talking with fellow
+  FORTH programmers is sure to stir up some exciting ideas.
+  Consider joining a FIG chapter.  See the back of FORTH
+  Dimensions for more info.
+
+%endif
+
+; Define the entry point, not valid for auto booting.
+        ;     ORIG
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+;
+
+
+
+

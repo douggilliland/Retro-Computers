@@ -1,27 +1,29 @@
-; fig-FORLABTH FORLAB 6800
+; fig-FORTH FOR 6800
 ; ASSEMBLY SOURCE LISTING
+;
+; http://www.forth.org/fig-forth/fig-forth_6800.pdf
 ;
 ; RELEASE 1
 ; MAY 1979
 ; WITH COMPILER SECURITY
-; ANDLAB VARIABLE LENGTH NAMES
+; AND VARIABLE LENGTH NAMES
 ;
 ; This public domain publication is provided
 ; through the courtesy of:
-; FORLABTH INTEREST GROUP (fig)
+; FORTH INTEREST GROUP (fig)
 ;
 ; P.O. Box 8231 - San Jose, CA 95155 - (408) 277-0668
 ; Further distribution must include this notice.
 ;
-; Copyright:FORLABTH Interest Group
+; Copyright:FORTH Interest Group
 ;
-; === FORLABTH-6800 06-06-79 21:OO
+; === FORTH-6800 06-06-79 21:OO
 ;
 ; This listing is in the PUBLIC DOMAIN and 
 ; may be freely copied or published with the
 ; restriction that a credit line is printed
 ; with the material, crediting the
-; authors and the FORLABTH INTEREST GROUP.
+; authors and the FORTH INTEREST GROUP.
 ;
 ; === by Dave Lion,
 ; ===  with help from
@@ -42,8 +44,8 @@
 ;   PKEY   (        183 )
 ;   PQTERM (        184 )
 ;
-;  The FORLABTH words for disc related I/O follow the model
-;  of the FORLABTH Interest Group, but have not been
+;  The FORTH words for disc related I/O follow the model
+;  of the FORTH Interest Group, but have not been
 ;  tested using a real disc.
 ;
 ;  Addresses in this implementation reflect the fact that,
@@ -52,12 +54,15 @@
 ;  4K bytes write-enabled. As a consequence, code from
 ;  location $1000 to lable ZZZZ could be put in ROM.
 ;  Minor deviations from the model were made in the
-;  initialization and words ?STACK and FORLABGET
+;  initialization and words ?STACK and FORGET
 ;  in order to do this.
 ;
 ; smp, June 2018
 ; Modified to assemble properly with the AS02 6800 cross-assembler
 ; Modified to operate on Corsham Technologies 6800 system (SWTPC replica)
+; DGG, APR 2022
+; Ported to A68 Assembler
+; Running on MULTICOMP
 
 NBLK	equ	4		;# of disc buffer blocks for virtual memory
 MEMEND	equ	132*NBLK+$3000	;end of ram
@@ -66,12 +71,12 @@ MEMEND	equ	132*NBLK+$3000	;end of ram
 ;  holding 128 characters
 
 MEMTOP	equ	$7BFF	;32K system absolute end of RAM with 1K spare
-ACIAC	equ	$FC18	;Corsham Technologies ACIA control address
-ACIAD	equ	ACIAC+1	;Corsham Technologies ACIA data address
+ACIAC	equ	$FC18	;MultiComp ACIA control address
+ACIAD	equ	ACIAC+1	;MultiComp ACIA data address
 
-;  MEMORLABY MAP for this 16K system:
+;  MEMORY MAP for this 32K system:
 ;  (positioned so that systems with 4k byte write-
-;   protected segments can write protect FORLABTH)
+;   protected segments can write protect FORTH)
 ;
 ; addr		contents		pointer	init by
 ; ****	*******************************	*******	*******
@@ -79,15 +84,15 @@ ACIAD	equ	ACIAC+1	;Corsham Technologies ACIA data address
 ;	substitute for disc mass memory
 ; 3210						LO,MEMEND
 ; 320F
-; 	4 buffer sectors of VIRTUAL MEMORLABY
+; 	4 buffer sectors of VIRTUAL MEMORY
 ; 3000						FIRST
 ;
 ; >>>>>> memory from here up must be RAM <<<<<<
 ;
 ; 27FF
-; 	6k of romable "FORLABTH"		<== IP	ABORLABT
+; 	6k of romable "FORTH"		<== IP	ABORT
 ;					<== W
-;	the VIRTUAL FORLABTH MACHINE
+;	the VIRTUAL FORTH MACHINE
 ;
 ; 1004 <<< WARM START ENTRY >>>
 ; 1000 <<< COLD START ENTRY >>>
@@ -112,14 +117,14 @@ ACIAD	equ	ACIAC+1	;Corsham Technologies ACIA data address
 ;  183	end of ram-dictionary.		<== DP	DPINIT
 ;	"TASK"
 ;
-;  150	"FORLABTH" (a word)		<=, <== CONTEXT
+;  150	"FORTH" (a word)		<=, <== CONTEXT
 ;					  `==== CURRENT
 ;  148	sta a rt of ram-dictionary.
 ;
 ;  100	user #l table of variables	<= UP	DPINIT
 ;   F0	registers & pointers for the virtual machine
 ; 	scratch area used by various words
-;   E0	lowest address used by FORLABTH
+;   E0	lowest address used by FORTH
 ;
 ; 0000
 ;
@@ -131,7 +136,7 @@ ACIAD	equ	ACIAC+1	;Corsham Technologies ACIA data address
 ; RP points to second free byte (first free word) in return sta a ck
 ; SP (hardware SP) points to first free byte in data sta a ck
 ;
-;	when A and B hold one 16 bit FORLABTH data word,
+;	when A and B hold one 16 bit FORTH data word,
 ;	A contains the high byte, B, the low byte.
 ;**
 
@@ -149,7 +154,7 @@ BRKPT	rmb	2	;the breakpoint address at which
 VECT	rmb	2	;vector to machine code
 ;               	 (only needed if the TRACE routine is resident)
 
-;	Registers used by the FORLABTH virtual machine:
+;	Registers used by the FORTH virtual machine:
 ;	Starting at $OOFO:
 
 W	rmb	2	;the instruction register points to 6800 code
@@ -160,21 +165,21 @@ UP	rmb	2	;the pointer to base of current user's 'USER' table
 
 ;	This system is shown with one user, but additional users
 ;	may be added by allocating additional user tables:
-;	UORLABIG2 rmb 64 data table for user #2
+;	UORIG2 rmb 64 data table for user #2
 ;
 ;	Some of this stuff gets initialized during
 ;	COLD sta a rt and WARM sta a rt:
-; 	[ names correspond to FORLABTH words of similar (no X) name ]
+; 	[ names correspond to FORTH words of similar (no X) name ]
 
 	org	$100
 
-UORLABIG	rmb	6	;3 reserved variables
+UORIG	rmb	6	;3 reserved variables
 XSPZER	rmb	2	;initial top of data sta a ck for this user
 XRZERO	rmb	2	;initial top of return sta a ck
 XTIB	rmb	2	;sta a rt of terminal input buffer
 XWIDTH	rmb	2	;name field width
 XWARN	rmb	2	;warning message mode (0 = no disc)
-XFENCE	rmb	2	;fence for FORLABGET
+XFENCE	rmb	2	;fence for FORGET
 XDP	rmb	2	;dictionary pointer
 XVOCL	rmb	2	;vocabulary linking
 XBLK	rmb	2	;disc block being accessed
@@ -212,10 +217,10 @@ XPREV	rmb	2
 ;  as shown here:
 
 	fcb	$C5	;immediate
-	fcc	"FORLABT"	;fcc	4,FORLABTH
+	fcc	"FORT"	;fcc	4,FORTH
 	fcb	$C8
 	fdb	NOOP-7
-FORLABTH	fdb	DODOES,DOVOC,$81A0,TASK-7
+FORTH	fdb	DODOES,DOVOC,$81A0,TASK-7
 	fdb	0
 
 	fcc	"(C) Forth Interest Group, 1979"
@@ -223,12 +228,12 @@ FORLABTH	fdb	DODOES,DOVOC,$81A0,TASK-7
 	fcb	$84
 	fcc	"TAS"	;fcc	3,TASK
 	fcb	$CB
-	fdb	FORLABTH-8
+	fdb	FORTH-8
 TASK	fdb	DOCOL,SEMIS
 
 REND	equ	*	;(first empty location in dictionary)
 
-;    The FORLABTH program (address $1000 to $27FF) is written
+;    The FORTH program (address $1000 to $27FF) is written
 ;    so that it can be in a ROM, or write-protected if desired
 
 	org	$1000
@@ -238,7 +243,7 @@ REND	equ	*	;(first empty location in dictionary)
 ;**************************
 ;*  C O L D   E N T R Y  **
 ;**************************
-ORLABIG	nop
+ORIG	nop
 	jmp	CENT
 ;**************************
 ;*  W A R M   E N T R Y  **
@@ -247,20 +252,20 @@ ORLABIG	nop
 	jmp	WENT	;warm-sta a rt code, keeps current dictionary intact
 
 ;
-;*************** sta a rtup parmeters *****************
+;*************** startup parmeters *****************
 ;
 	fdb	$6800,0000	;cpu & revision
-	fdb	0	;topmost word in FORLABTH vocabulary
+	fdb	0	;topmost word in FORTH vocabulary
 BACKSP	fdb	$7F	;backspace character for editing
-UPINIT	fdb	UORLABIG	;initial user area
-SINIT	fdb	ORLABIG-$D0	;initial top of data sta a ck
-RINIT	fdb	ORLABIG-2	;initial top of return sta a ck
-	fdb	ORLABIG-$D0	;terminal input buffer
+UPINIT	fdb	UORIG	;initial user area
+SINIT	fdb	ORIG-$D0	;initial top of data sta a ck
+RINIT	fdb	ORIG-2	;initial top of return sta a ck
+	fdb	ORIG-$D0	;terminal input buffer
 	fdb	31	;initial name field width
 	fdb	0	;initial warning mode (0 = no disc)
 FENCIN	fdb	REND	;initial fence
 DPINIT	fdb	REND	;cold sta a rt value for DP
-VOCINT	fdb	FORLABTH+8	
+VOCINT	fdb	FORTH+8	
 COLINT	fdb	132	;initial terminal carriage width
 DELINT	fdb	4	;initial carriage return delay
 ;
@@ -470,7 +475,7 @@ DIGIT	fdb	*+2	;NOTE: legal input range is 0-9, A-Z
 	suba	#$30	;ascii zero
 	bmi	DIGIT2	;IF LESS THAN '0', ILLEGAL
 	cmpa	#$A
-	bmi	DIGIT0	;IF '9' ORLAB LESS
+	bmi	DIGIT0	;IF '9' OR LESS
 	cmpa	#$11
 	bmi	DIGIT2	;if less than 'A'
 	cmpa	#$2B
@@ -608,7 +613,7 @@ ENCLOS	fdb	*+2
 ;	wait for a non-delimiter or a NUL
 ENCL2	lda a 0,x
 	beq	ENCL6
-	cba		;CHECK FORLAB DELIM
+	cba		;CHECK FOR DELIM
 	bne	ENCL3
 	inx
 	inc	N
@@ -662,9 +667,9 @@ EMIT	fdb	*+2
 	pula
 	jsr	PEMIT
 	ldx	UP
-	inc	XOUT+1-UORLABIG,x
+	inc	XOUT+1-UORIG,x
 	bne	*+4
-	inc	XOUT-UORLABIG,x
+	inc	XOUT-UORIG,x
 	jmp	NEXT
 ;
 ; ======>>  14  <<
@@ -859,9 +864,9 @@ SPAT	fdb	*+2
 	fcc	"SP"	;fcc	2,SP!
 	fcb	$A1
 	fdb	SPAT-6
-SPSTORLAB	fdb	*+2
+SPSTOR	fdb	*+2
 	ldx	UP
-	ldx	XSPZER-UORLABIG,x
+	ldx	XSPZER-UORIG,x
 	txs		;watch it ! X and S are not EQUAL.
 	jmp	NEXT
 ;
@@ -869,8 +874,8 @@ SPSTORLAB	fdb	*+2
 	fcb	$83
 	fcc	"RP"	;fcc	2,RP!
 	fcb	$A1
-	fdb	SPSTORLAB-6
-RPSTORLAB	fdb	*+2
+	fdb	SPSTOR-6
+RPSTOR	fdb	*+2
 	ldx	RINIT	;initialize from rom consta a nt
 	stx	RP
 	jmp	NEXT
@@ -879,7 +884,7 @@ RPSTORLAB	fdb	*+2
 	fcb	$82
 	fcc	";"	;fcc	1,;S
 	fcb	$D3
-	fdb	RPSTORLAB-6
+	fdb	RPSTOR-6
 SEMIS	fdb	*+2
 	ldx	RP
 	inx
@@ -907,7 +912,7 @@ LEAVE	fdb	*+2
 	fcc	">"	;fcc	1,>R
 	fcb	$D2
 	fdb	LEAVE-8
-TORLAB	fdb	*+2
+TOR	fdb	*+2
 	ldx	RP
 	dex
 	dex
@@ -922,7 +927,7 @@ TORLAB	fdb	*+2
 	fcb	$82
 	fcc	"R"	;fcc	1,R>
 	fcb	$BE
-	fdb	TORLAB-5
+	fdb	TOR-5
 FROMR	fdb	*+2
 	ldx	RP
 	lda	a 2,x
@@ -1099,7 +1104,7 @@ DUP	fdb	*+2
 	fcc	"+"	;fcc	1,+!
 	fcb	$A1
 	fdb	DUP-6
-PSTORLABE	fdb	*+2
+PSTORE	fdb	*+2
 	tsx
 	ldx	0,x
 	ins
@@ -1116,8 +1121,8 @@ PSTORLABE	fdb	*+2
 	fcb	$86
 	fcc	"TOGGL"	;fcc	5,TOGGLE
 	fcb	$C5
-	fdb	PSTORLABE-5
-TOGGLE	fdb	DOCOL,OVER,CAT,XORLAB,SWAP,CSTORLABE
+	fdb	PSTORE-5
+TOGGLE	fdb	DOCOL,OVER,CAT,XORLAB,SWAP,CSTORE
 	fdb	SEMIS
 ;
 ; ######>> screen 32 <<
@@ -1150,7 +1155,7 @@ CAT	fdb	*+2
 	fcb	$81
 	fcb	$A1
 	fdb	CAT-5
-STORLABE	fdb	*+2
+STORE	fdb	*+2
 	tsx
 	ldx	0,x	;get address
 	ins
@@ -1161,8 +1166,8 @@ STORLABE	fdb	*+2
 	fcb	$82
 	fcc	"C"	;fcc	1,C!
 	fcb	$A1
-	fdb	STORLABE-4
-CSTORLABE	fdb	*+2
+	fdb	STORE-4
+CSTORE	fdb	*+2
 	tsx
 	ldx	0,x	;get address
 	ins
@@ -1176,8 +1181,8 @@ CSTORLABE	fdb	*+2
 ; ======>>  47  <<
 	fcb	$C1	;immediate
 	fcb	$BA
-	fdb	CSTORLABE-5
-COLON	fdb	DOCOL,QEXEC,SCSP,CURENT,AT,CONTXT,STORLABE
+	fdb	CSTORE-5
+COLON	fdb	DOCOL,QEXEC,SCSP,CURENT,AT,CONTXT,STORE
 	fdb	CREATE,RBRAK
 	fdb	PSCODE
 
@@ -1312,10 +1317,10 @@ BSCR	fdb	DOCON
 ;
 ; ======>>  61  <<
 	fcb	$87
-	fcc	"+ORLABIGI"	;fcc	6,+ORLABIGIN
+	fcc	"+ORIGI"	;fcc	6,+ORIGIN
 	fcb	$CE
 	fdb	BSCR-8
-PORLABIG	fdb	DOCOL,LIT,ORLABIG,PLUS
+PORIG	fdb	DOCOL,LIT,ORIG,PLUS
 	fdb	SEMIS
 ;
 ; ######>> screen 36 <<
@@ -1323,9 +1328,9 @@ PORLABIG	fdb	DOCOL,LIT,ORLABIG,PLUS
 	fcb	$82
 	fcc	"S"	;fcc	1,S0
 	fcb	$B0
-	fdb	PORLABIG-10
+	fdb	PORIG-10
 SZERO	fdb	DOUSER
-	fdb	XSPZER-UORLABIG
+	fdb	XSPZER-UORIG
 ;
 ; ======>>  63  <<
 	fcb	$82
@@ -1333,7 +1338,7 @@ SZERO	fdb	DOUSER
 	fcb	$B0
 	fdb	SZERO-5
 RZERO	fdb	DOUSER
-	fdb	XRZERO-UORLABIG
+	fdb	XRZERO-UORIG
 ;
 ; ======>>  64  <<
 	fcb	$83
@@ -1341,7 +1346,7 @@ RZERO	fdb	DOUSER
 	fcb	$C2
 	fdb	RZERO-5
 TIB	fdb	DOUSER
-	fdb	XTIB-UORLABIG
+	fdb	XTIB-UORIG
 ;
 ; ======>>  65  <<
 	fcb	$85
@@ -1349,7 +1354,7 @@ TIB	fdb	DOUSER
 	fcb	$C8
 	fdb	TIB-6
 WIDTH	fdb	DOUSER
-	fdb	XWIDTH-UORLABIG
+	fdb	XWIDTH-UORIG
 ;
 ; ======>>  66  <<
 	fcb	$87
@@ -1357,7 +1362,7 @@ WIDTH	fdb	DOUSER
 	fcb	$C7
 	fdb	WIDTH-8
 WARN	fdb	DOUSER
-	fdb	XWARN-UORLABIG
+	fdb	XWARN-UORIG
 ;
 ; ======>>  67  <<
 	fcb	$85
@@ -1365,7 +1370,7 @@ WARN	fdb	DOUSER
 	fcb	$C5
 	fdb	WARN-10
 FENCE	fdb	DOUSER
-	fdb	XFENCE-UORLABIG
+	fdb	XFENCE-UORIG
 ;
 ; ======>>  68  <<
 	fcb	$82
@@ -1373,7 +1378,7 @@ FENCE	fdb	DOUSER
 	fcb	$D0
 	fdb	FENCE-8
 DP	fdb	DOUSER
-	fdb	XDP-UORLABIG
+	fdb	XDP-UORIG
 ;
 ; ======>>  68.5  <<
 	fcb	$88
@@ -1381,7 +1386,7 @@ DP	fdb	DOUSER
 	fcb	$CB
 	fdb	DP-5
 VOCLIN	fdb	DOUSER
-	fdb	XVOCL-UORLABIG
+	fdb	XVOCL-UORIG
 ;
 ; ======>>  69  <<
 	fcb	$83
@@ -1389,7 +1394,7 @@ VOCLIN	fdb	DOUSER
 	fcb	$CB
 	fdb	VOCLIN-11
 BLK	fdb	DOUSER
-	fdb	XBLK-UORLABIG
+	fdb	XBLK-UORIG
 ;
 ; ======>>  70  <<
 	fcb	$82
@@ -1397,7 +1402,7 @@ BLK	fdb	DOUSER
 	fcb	$CE
 	fdb	BLK-6
 IN	fdb	DOUSER
-	fdb	XIN-UORLABIG
+	fdb	XIN-UORIG
 ;
 ; ======>>  71  <<
 	fcb	$83
@@ -1405,7 +1410,7 @@ IN	fdb	DOUSER
 	fcb	$D4
 	fdb	IN-5
 OUT	fdb	DOUSER
-	fdb	XOUT-UORLABIG
+	fdb	XOUT-UORIG
 ;
 ; ======>>  72  <<
 	fcb	$83
@@ -1413,7 +1418,7 @@ OUT	fdb	DOUSER
 	fcb	$D2
 	fdb	OUT-6
 SCR	fdb	DOUSER
-	fdb	XSCR-UORLABIG
+	fdb	XSCR-UORIG
 ;
 ; ######>> screen 37 <<
 ; ======>>  73  <<
@@ -1422,7 +1427,7 @@ SCR	fdb	DOUSER
 	fcb	$D4
 	fdb	SCR-6
 OFSET	fdb	DOUSER
-	fdb	XOFSET-UORLABIG
+	fdb	XOFSET-UORIG
 ;
 ; ======>>  74  <<
 	fcb	$87
@@ -1430,7 +1435,7 @@ OFSET	fdb	DOUSER
 	fcb	$D4
 	fdb	OFSET-9
 CONTXT	fdb	DOUSER
-	fdb	XCONT-UORLABIG
+	fdb	XCONT-UORIG
 ;
 ; ======>>  75  <<
 	fcb	$87
@@ -1438,7 +1443,7 @@ CONTXT	fdb	DOUSER
 	fcb	$D4
 	fdb	CONTXT-10
 CURENT	fdb	DOUSER
-	fdb	XCURR-UORLABIG
+	fdb	XCURR-UORIG
 ;
 ; ======>>  76  <<
 	fcb	$85
@@ -1446,7 +1451,7 @@ CURENT	fdb	DOUSER
 	fcb	$C5
 	fdb	CURENT-10
 STATE	fdb	DOUSER
-	fdb	XSTATE-UORLABIG
+	fdb	XSTATE-UORIG
 ;
 ; ======>>  77  <<
 	fcb	$84
@@ -1454,7 +1459,7 @@ STATE	fdb	DOUSER
 	fcb	$C5
 	fdb	STATE-8
 BASE	fdb	DOUSER
-	fdb	XBASE-UORLABIG
+	fdb	XBASE-UORIG
 ;
 ; ======>>  78  <<
 	fcb	$83
@@ -1462,7 +1467,7 @@ BASE	fdb	DOUSER
 	fcb	$CC
 	fdb	BASE-7
 DPL	fdb	DOUSER
-	fdb	XDPL-UORLABIG
+	fdb	XDPL-UORIG
 ;
 ; ======>>  79  <<
 	fcb	$83
@@ -1470,7 +1475,7 @@ DPL	fdb	DOUSER
 	fcb	$C4
 	fdb	DPL-6
 FLD	fdb	DOUSER
-	fdb	XFLD-UORLABIG
+	fdb	XFLD-UORIG
 ;
 ; ======>>  80  <<
 	fcb	$83
@@ -1478,7 +1483,7 @@ FLD	fdb	DOUSER
 	fcb	$D0
 	fdb	FLD-6
 CSP	fdb	DOUSER
-	fdb	XCSP-UORLABIG
+	fdb	XCSP-UORIG
 ;
 ; ======>>  81  <<
 	fcb	$82
@@ -1486,7 +1491,7 @@ CSP	fdb	DOUSER
 	fcb	$A3
 	fdb	CSP-6
 RNUM	fdb	DOUSER
-	fdb	XRNUM-UORLABIG
+	fdb	XRNUM-UORIG
 ;
 ; ======>>  82  <<
 	fcb	$83
@@ -1502,7 +1507,7 @@ HLD	fdb	DOCON
 	fcb	$D3
 	fdb	HLD-6
 COLUMS	fdb	DOUSER
-	fdb	XCOLUM-UORLABIG
+	fdb	XCOLUM-UORIG
 ;
 ; ######>> screen 38 <<
 ; ======>>  83  <<
@@ -1534,14 +1539,14 @@ HERE	fdb	DOCOL,DP,AT
 	fcc	"ALLO"	;fcc	4,ALLOT
 	fcb	$D4
 	fdb	HERE-7
-ALLOT	fdb	DOCOL,DP,PSTORLABE
+ALLOT	fdb	DOCOL,DP,PSTORE
 	fdb	SEMIS
 ;
 ; ======>>  87  <<
 	fcb	$81	; , (comma)
 	fcb	$AC
 	fdb	ALLOT-8
-COMMA	fdb	DOCOL,HERE,STORLABE,TWO,ALLOT
+COMMA	fdb	DOCOL,HERE,STORE,TWO,ALLOT
 	fdb	SEMIS
 ;
 ; ======>>  88  <<
@@ -1549,7 +1554,7 @@ COMMA	fdb	DOCOL,HERE,STORLABE,TWO,ALLOT
 	fcc	"C"	;fcc	1,C,
 	fcb	$AC
 	fdb	COMMA-4
-CCOMM	fdb	DOCOL,HERE,CSTORLABE,ONE,ALLOT
+CCOMM	fdb	DOCOL,HERE,CSTORE,ONE,ALLOT
 	fdb	SEMIS
 ;
 ; ======>>  89  <<
@@ -1599,7 +1604,7 @@ GREAT	fdb	DOCOL,SWAP,LESS
 	fcc	"RO"	;fcc	2,ROT
 	fcb	$D4
 	fdb	GREAT-4
-ROT	fdb	DOCOL,TORLAB,SWAP,FROMR,SWAP
+ROT	fdb	DOCOL,TOR,SWAP,FROMR,SWAP
 	fdb	SEMIS
 ;
 ; ======>>  94  <<
@@ -1708,17 +1713,17 @@ PFA	fdb	DOCOL,ONE,TRAV,CLITER
 	fcc	"!CS"	;fcc	3,!CSP
 	fcb	$D0
 	fdb	PFA-6
-SCSP	fdb	DOCOL,SPAT,CSP,STORLABE
+SCSP	fdb	DOCOL,SPAT,CSP,STORE
 	fdb	SEMIS
 ;
 ; ======>>  105  <<
 	fcb	$86
-	fcc	"?ERRO"	;fcc	5,?ERRORLAB
+	fcc	"?ERRO"	;fcc	5,?ERROR
 	fcb	$D2
 	fdb	SCSP-7
 QERR	fdb	DOCOL,SWAP,ZBRAN
 	fdb	QERR2-*
-	fdb	ERRORLAB,BRAN
+	fdb	ERROR,BRAN
 	fdb	QERR3-*
 QERR2	fdb	DROP
 QERR3	fdb	SEMIS
@@ -1779,14 +1784,14 @@ QLOAD	fdb	DOCOL,BLK,AT,ZEQU,CLITER
 	fcc	"COMPIL"	;fcc	6,COMPILE
 	fcb	$C5
 	fdb	QLOAD-11
-COMPIL	fdb	DOCOL,QCOMP,FROMR,TWOP,DUP,TORLAB,AT,COMMA
+COMPIL	fdb	DOCOL,QCOMP,FROMR,TWOP,DUP,TOR,AT,COMMA
 	fdb	SEMIS
 ;
 ; ======>>  112  <<
 	fcb	$C1	; [	immediate
 	fcb	$DB
 	fdb	COMPIL-10
-LBRAK	fdb	DOCOL,ZERO,STATE,STORLABE
+LBRAK	fdb	DOCOL,ZERO,STATE,STORE
 	fdb	SEMIS
 ;
 ; ======>>  113  <<
@@ -1795,7 +1800,7 @@ LBRAK	fdb	DOCOL,ZERO,STATE,STORLABE
 	fdb	LBRAK-4
 RBRAK	fdb	DOCOL,CLITER
 	fcb	$C0
-	fdb	STATE,STORLABE
+	fdb	STATE,STORE
 	fdb	SEMIS
 ;
 ; ======>>  114  <<
@@ -1816,7 +1821,7 @@ SMUDGE	fdb	DOCOL,LATEST,CLITER
 HEX	fdb	DOCOL
 	fdb	CLITER
 	fcb	16
-	fdb	BASE,STORLABE
+	fdb	BASE,STORE
 	fdb	SEMIS
 ;
 ; ======>>  116  <<
@@ -1827,7 +1832,7 @@ HEX	fdb	DOCOL
 DEC	fdb	DOCOL
 	fdb	CLITER
 	fcb	10	;note: hex "A"
-	fdb	BASE,STORLABE
+	fdb	BASE,STORE
 	fdb	SEMIS
 ;
 ; ######>> screen 42 <<
@@ -1836,7 +1841,7 @@ DEC	fdb	DOCOL
 	fcc	"(:CODE"	;fcc	6,(;CODE)
 	fcb	$A9
 	fdb	DEC-10
-PSCODE	fdb	DOCOL,FROMR,TWOP,LATEST,PFA,CFA,STORLABE
+PSCODE	fdb	DOCOL,FROMR,TWOP,LATEST,PFA,CFA,STORE
 	fdb	SEMIS
 ;
 ; ======>>  118  <<
@@ -1862,7 +1867,7 @@ BUILDS	fdb	DOCOL,ZERO,CON
 	fcc	"DOES"	;fcc	4,DOES>
 	fcb	$BE
 	fdb	BUILDS-10
-DOES	fdb	DOCOL,FROMR,TWOP,LATEST,PFA,STORLABE
+DOES	fdb	DOCOL,FROMR,TWOP,LATEST,PFA,STORE
 	fdb	PSCODE
 DODOES	lda	a IP
 	lda b	IP+1
@@ -1938,7 +1943,7 @@ DTRAL4	fdb	XLOOP
 	fcb	$A9
 	fdb	DTRAIL-12
 PDOTQ	fdb	DOCOL,R,TWOP,COUNT,DUP,ONEP
-	fdb	FROMR,PLUS,TORLAB,TYPE
+	fdb	FROMR,PLUS,TOR,TYPE
 	fdb	SEMIS
 ;
 ; ======>>  125  <<
@@ -1951,10 +1956,10 @@ DOTQ	fdb	DOCOL
 	fcb	$22	;ascii quote
 	fdb	STATE,AT,ZBRAN
 	fdb	DOTQ1-*
-	fdb	COMPIL,PDOTQ,WORLABD
+	fdb	COMPIL,PDOTQ,WORD
 	fdb	HERE,CAT,ONEP,ALLOT,BRAN
 	fdb	DOTQ2-*
-DOTQ1	fdb	WORLABD,HERE,COUNT,TYPE
+DOTQ1	fdb	WORD,HERE,COUNT,TYPE
 DOTQ2	fdb	SEMIS
 ;
 ; ######>> screen 45 <<
@@ -1965,7 +1970,7 @@ DOTQ2	fdb	SEMIS
 	fdb	DOTQ-5
 QSTACK	fdb	DOCOL,CLITER
 	fcb	$12
-	fdb	PORLABIG,AT,TWO,SUB,SPAT,LESS,ONE
+	fdb	PORIG,AT,TWO,SUB,SPAT,LESS,ONE
 	fdb	QERR
 ; prints 'empty sta a ck'
 ;
@@ -2001,12 +2006,12 @@ QSTAC3	fdb	SEMIS
 EXPECT	fdb	DOCOL,OVER,PLUS,OVER,XDO
 EXPEC2	fdb	KEY,DUP,CLITER
 	fcb	$0E
-	fdb	PORLABIG,AT,EQUAL,ZBRAN
+	fdb	PORIG,AT,EQUAL,ZBRAN
 	fdb	EXPEC3-*
 	fdb	DROP,CLITER
 	fcb	8	;(backspace character to emit)
 	fdb	OVER,I,EQUAL,DUP,FROMR,TWO,SUB,PLUS
-	fdb	TORLAB,SUB,BRAN
+	fdb	TOR,SUB,BRAN
 	fdb	EXPEC6-*
 EXPEC3	fdb	DUP,CLITER
 	fcb	$D	;(carriage return)
@@ -2015,7 +2020,7 @@ EXPEC3	fdb	DUP,CLITER
 	fdb	LEAVE,DROP,BL,ZERO,BRAN
 	fdb	EXPEC5-*
 EXPEC4	fdb	DUP
-EXPEC5	fdb	I,CSTORLABE,ZERO,I,ONEP,STORLABE
+EXPEC5	fdb	I,CSTORE,ZERO,I,ONEP,STORE
 EXPEC6	fdb	EMIT,XLOOP
 	fdb	EXPEC2-*
 	fdb	DROP
@@ -2027,7 +2032,7 @@ EXPEC6	fdb	EMIT,XLOOP
 	fcb	$D9
 	fdb	EXPECT-9
 QUERY	fdb	DOCOL,TIB,AT,COLUMS
-	fdb	AT,EXPECT,ZERO,IN,STORLABE
+	fdb	AT,EXPECT,ZERO,IN,STORE
 	fdb	SEMIS
 ;
 ; ======>>  130  <<
@@ -2036,8 +2041,8 @@ QUERY	fdb	DOCOL,TIB,AT,COLUMS
 	fdb	QUERY-8
 NULL	fdb	DOCOL,BLK,AT,ZBRAN
 	fdb	NULL2-*
-	fdb	ONE,BLK,PSTORLABE
-	fdb	ZERO,IN,STORLABE,BLK,AT,BSCR,MODLAB
+	fdb	ONE,BLK,PSTORE
+	fdb	ZERO,IN,STORE,BLK,AT,BSCR,MODLAB
 	fdb	ZEQU
 ;     check for end of screen
 	fdb	ZBRAN
@@ -2054,7 +2059,7 @@ NULL3	fdb	SEMIS
 	fcc	"FIL"	;fcc	3,FILL
 	fcb	$CC
 	fdb	NULL-4
-FILL	fdb	DOCOL,SWAP,TORLAB,OVER,CSTORLABE,DUP,ONEP
+FILL	fdb	DOCOL,SWAP,TOR,OVER,CSTORE,DUP,ONEP
 	fdb	FROMR,ONE,SUB,CMOVE
 	fdb	SEMIS
 ;
@@ -2079,7 +2084,7 @@ BLANKS	fdb	DOCOL,BL,FILL
 	fcc	"HOL"	;fcc	3,HOLD
 	fcb	$C4
 	fdb	BLANKS-9
-HOLD	fdb	DOCOL,LIT,$FFFF,HLD,PSTORLABE,HLD,AT,CSTORLABE
+HOLD	fdb	DOCOL,LIT,$FFFF,HLD,PSTORE,HLD,AT,CSTORE
 	fdb	SEMIS
 ;
 ; ======>>  137  <<
@@ -2095,18 +2100,18 @@ PAD	fdb	DOCOL,HERE,CLITER
 ; ######>> screen 48 <<
 ; ======>>  138  <<
 	fcb	$84
-	fcc	"WORLAB"	;fcc	3,WORLABD
+	fcc	"WORLAB"	;fcc	3,WORD
 	fcb	$C4
 	fdb	PAD-6
-WORLABD	fdb	DOCOL,BLK,AT,ZBRAN
-	fdb	WORLABD2-*
+WORD	fdb	DOCOL,BLK,AT,ZBRAN
+	fdb	WORD2-*
 	fdb	BLK,AT,BLOCK,BRAN
-	fdb	WORLABD3-*
-WORLABD2	fdb	TIB,AT
-WORLABD3	fdb	IN,AT,PLUS,SWAP,ENCLOS,HERE,CLITER
+	fdb	WORD3-*
+WORD2	fdb	TIB,AT
+WORD3	fdb	IN,AT,PLUS,SWAP,ENCLOS,HERE,CLITER
 	fcb	34
-	fdb	BLANKS,IN,PSTORLABE,OVER,SUB,TORLAB,R,HERE
-	fdb	CSTORLABE,PLUS,HERE,ONEP,FROMR,CMOVE
+	fdb	BLANKS,IN,PSTORE,OVER,SUB,TOR,R,HERE
+	fdb	CSTORE,PLUS,HERE,ONEP,FROMR,CMOVE
 	fdb	SEMIS
 ;
 ; ######>> screen 49 <<
@@ -2114,14 +2119,14 @@ WORLABD3	fdb	IN,AT,PLUS,SWAP,ENCLOS,HERE,CLITER
 	fcb	$88
 	fcc	"(NUMBER"	;fcc	7,(NUMBER)
 	fcb	$A9
-	fdb	WORLABD-7
+	fdb	WORD-7
 PNUMB	fdb	DOCOL
-PNUMB2	fdb	ONEP,DUP,TORLAB,CAT,BASE,AT,DIGIT,ZBRAN
+PNUMB2	fdb	ONEP,DUP,TOR,CAT,BASE,AT,DIGIT,ZBRAN
 	fdb	PNUMB4-*
 	fdb	SWAP,BASE,AT,USTAR,DROP,ROT,BASE
 	fdb	AT,USTAR,DPLUS,DPL,AT,ONEP,ZBRAN
 	fdb	PNUMB3-*
-	fdb	ONE,DPL,PSTORLABE
+	fdb	ONE,DPL,PSTORE
 PNUMB3	fdb	FROMR,BRAN
 	fdb	PNUMB2-*
 PNUMB4	fdb	FROMR
@@ -2134,8 +2139,8 @@ PNUMB4	fdb	FROMR
 	fdb	PNUMB-11
 NUMB	fdb	DOCOL,ZERO,ZERO,ROT,DUP,ONEP,CAT,CLITER
 	fcc	"-"	;minus sign
-	fdb	EQUAL,DUP,TORLAB,PLUS,LIT,$FFFF
-NUMB1	fdb	DPL,STORLABE,PNUMB,DUP,CAT,BL,SUB
+	fdb	EQUAL,DUP,TOR,PLUS,LIT,$FFFF
+NUMB1	fdb	DPL,STORE,PNUMB,DUP,CAT,BL,SUB
 	fdb	ZBRAN
 	fdb	NUMB2-*
 	fdb	DUP,CAT,CLITER
@@ -2152,7 +2157,7 @@ NUMB3	fdb	SEMIS
 	fcc	"-FIN"	;fcc	4,-FIND
 	fcb	$C4
 	fdb	NUMB-9
-DFIND	fdb	DOCOL,BL,WORLABD,HERE,CONTXT,AT,AT
+DFIND	fdb	DOCOL,BL,WORD,HERE,CONTXT,AT,AT
 	fdb	PFIND,DUP,ZEQU,ZBRAN
 	fdb	DFIND2-*
 	fdb	DROP,HERE,LATEST,PFIND
@@ -2161,34 +2166,34 @@ DFIND2	fdb	SEMIS
 ; ######>> screen 50 <<
 ; ======>>  142  <<
 	fcb	$87
-	fcc	"(ABORLABT"	;fcc	6,(ABORLABT)
+	fcc	"(ABORT"	;fcc	6,(ABORT)
 	fcb	$A9
 	fdb	DFIND-8
-PABORLABT	fdb	DOCOL,ABORLABT
+PABORT	fdb	DOCOL,ABORT
 	fdb	SEMIS
 ;
 ; ======>>  143  <<
 	fcb	$85
-	fcc	"ERRO"	;fcc	4,ERRORLAB
+	fcc	"ERRO"	;fcc	4,ERROR
 	fcb	$D2
-	fdb	PABORLABT-10
-ERRORLAB	fdb	DOCOL,WARN,AT,ZLESS
+	fdb	PABORT-10
+ERROR	fdb	DOCOL,WARN,AT,ZLESS
 	fdb	ZBRAN
-; note: WARNING is -1 to abort, 0 to print ERRORLAB #
-; and 1 to print ERRORLAB message from disc
-	fdb	ERRORLAB2-*
-	fdb	PABORLABT
-ERRORLAB2	fdb	HERE,COUNT,TYPE,PDOTQ
+; note: WARNING is -1 to abort, 0 to print ERROR #
+; and 1 to print ERROR message from disc
+	fdb	ERROR2-*
+	fdb	PABORT
+ERROR2	fdb	HERE,COUNT,TYPE,PDOTQ
 	fcb	4,7	;(bell)
 	fcc	" ? "
-	fdb	MESS,SPSTORLAB,IN,AT,BLK,AT,QUIT
+	fdb	MESS,SPSTOR,IN,AT,BLK,AT,QUIT
 	fdb	SEMIS
 ;
 ; ======>>  144  <<
 	fcb	$83
 	fcc	"ID"	;fcc	2,ID.
 	fcb	$AE
-	fdb	ERRORLAB-8
+	fdb	ERROR-8
 IDDOT	fdb	DOCOL,PAD,CLITER
 	fcb	32
 	fdb	CLITER
@@ -2219,7 +2224,7 @@ CREAT2	fdb	HERE,DUP,CAT,WIDTH,AT,MIN
 	fcb	$A0
 	fdb	TOGGLE,HERE,ONE,SUB,CLITER
 	fcb	$80
-	fdb	TOGGLE,LATEST,COMMA,CURENT,AT,STORLABE
+	fdb	TOGGLE,LATEST,COMMA,CURENT,AT,STORE
 	fdb	HERE,TWOP,COMMA
 	fdb	SEMIS
 ;
@@ -2295,14 +2300,14 @@ IMMED	fdb	DOCOL,LATEST,CLITER
 	fcb	$D9
 	fdb	IMMED-12
 VOCAB	fdb	DOCOL,BUILDS,LIT,$81A0,COMMA,CURENT,AT,CFA
-	fdb	COMMA,HERE,VOCLIN,AT,COMMA,VOCLIN,STORLABE,DOES
-DOVOC	fdb	TWOP,CONTXT,STORLABE
+	fdb	COMMA,HERE,VOCLIN,AT,COMMA,VOCLIN,STORE,DOES
+DOVOC	fdb	TWOP,CONTXT,STORE
 	fdb	SEMIS
 ;
 ; ======>>  152  <<
 ;
-; Note: FORLABTH does not go here in the rom-able dictionary,
-;       since FORLABTH is a type of variable.
+; Note: FORTH does not go here in the rom-able dictionary,
+;       since FORTH is a type of variable.
 ;
 ;
 ; ======>>  153  <<
@@ -2310,7 +2315,7 @@ DOVOC	fdb	TWOP,CONTXT,STORLABE
 	fcc	"DEFINITION"	;fcc	10,DEFINITIONS
 	fcb	$D3
 	fdb	VOCAB-13
-DEFIN	fdb	DOCOL,CONTXT,AT,CURENT,STORLABE
+DEFIN	fdb	DOCOL,CONTXT,AT,CURENT,STORE
 	fdb	SEMIS
 ;
 ; ======>>  154  <<
@@ -2319,7 +2324,7 @@ DEFIN	fdb	DOCOL,CONTXT,AT,CURENT,STORLABE
 	fdb	DEFIN-14
 PAREN	fdb	DOCOL,CLITER
 	fcc	")"
-	fdb	WORLABD
+	fdb	WORD
 	fdb	SEMIS
 ;
 ; ######>> screen 55 <<
@@ -2328,14 +2333,14 @@ PAREN	fdb	DOCOL,CLITER
 	fcc	"QUI"	;fcc	3,QUIT
 	fcb	$D4
 	fdb	PAREN-4
-QUIT	fdb	DOCOL,ZERO,BLK,STORLABE
+QUIT	fdb	DOCOL,ZERO,BLK,STORE
 	fdb	LBRAK
 ;
 ;  Here is the outer interpreter
 ;  which gets a line of input, does it, prints " OK"
 ;  then repeats :
 ;
-QUIT2	fdb	RPSTORLAB,CR,QUERY,INTERP,STATE,AT,ZEQU
+QUIT2	fdb	RPSTOR,CR,QUERY,INTERP,STATE,AT,ZEQU
 	fdb	ZBRAN
 	fdb	QUIT3-*
 	fdb	PDOTQ
@@ -2347,13 +2352,13 @@ QUIT3	fdb	BRAN
 ;
 ; ======>>  156  <<
 	fcb	$85
-	fcc	"ABORLAB"	;fcc	4,ABORLABT
+	fcc	"ABOR"	;fcc	4,ABORT
 	fcb	$D4
 	fdb	QUIT-7
-ABORLABT	fdb	DOCOL,SPSTORLAB,DEC,QSTACK,DRZERO,CR,PDOTQ
+ABORT	fdb	DOCOL,SPSTOR,DEC,QSTACK,DRZERO,CR,PDOTQ
 	fcb	8
 	fcc	"Forth-68"
-	fdb	FORLABTH,DEFIN
+	fdb	FORTH,DEFIN
 	fdb	QUIT
 ;	fdb	SEMIS	;never executed
 ;
@@ -2363,13 +2368,13 @@ ABORLABT	fdb	DOCOL,SPSTORLAB,DEC,QSTACK,DRZERO,CR,PDOTQ
 	fcb	$84
 	fcc	"COL"	;fcc	3,COLD
 	fcb	$C4
-	fdb	ABORLABT-8
+	fdb	ABORT-8
 COLD	fdb	*+2
 CENT	lds	#REND-1	;top of destination
 	ldx	#ERAM	;top of stuff to move
 COLD2	dex
 	lda a 0,x
-	psha		;move TASK & FORLABTH to ram
+	psha		;move TASK & FORTH to ram
 	cpx	#RAM
 	bne	COLD2
 ;
@@ -2396,7 +2401,7 @@ WARM2	dex
 	lds	SINIT
 	ldx	UPINIT
 	stx	UP		;init user ram pointer
-	ldx	#ABORLABT
+	ldx	#ABORT
 	stx	IP
 	nop		;Here is a place to jump to special user
 	nop		;initializations such as I/0 interrups
@@ -2407,7 +2412,7 @@ WARM2	dex
 	stx	TRLIM	;clear trace mode
 	ldx	#0
 	stx	BRKPT	;clear breakpoint address
-	jmp	RPSTORLAB+2 ;sta a rt the virtual machine running !
+	jmp	RPSTOR+2 ;sta a rt the virtual machine running !
 ;
 ; Here is the stuff that gets copied to ram :
 ; at address $140:
@@ -2416,16 +2421,16 @@ RAM	fdb	$3000,$3000,0,0
 ;
 ; ======>>  (152)  <<
 	fcb	$C5	;immediate
-	fcc	"FORLABT"	;fcc	4,FORLABTH
+	fcc	"FORT"	;fcc	4,FORTH
 	fcb	$C8
 	fdb	NOOP-7
-RFORLABTH	fdb	DODOES,DOVOC,$81A0,TASK-7
+RFORTH	fdb	DODOES,DOVOC,$81A0,TASK-7
 	fdb	0
 	fcc	"(C) Forth Interest Group, 1979"
 	fcb	$84
 	fcc	"TAS"	;fcc	3,TASK
 	fcb	$CB
-	fdb	FORLABTH-8
+	fdb	FORTH-8
 RTASK	fdb	DOCOL,SEMIS
 ERAM	fcc	"David Lion"	
 ;
@@ -2453,14 +2458,14 @@ STAR	fdb	*+2
 	fcc	"/MO"	;fcc	3,/MODLAB
 	fcb	$C4
 	fdb	STAR-4
-SLMODLAB	fdb	DOCOL,TORLAB,STOD,FROMR,USLASH
+SLMOD	fdb	DOCOL,TOR,STOD,FROMR,USLASH
 	fdb	SEMIS
 ;
 ; ======>>  161  <<
 	fcb	$81	; /
 	fcb	$AF
-	fdb	SLMODLAB-7
-SLASH	fdb	DOCOL,SLMODLAB,SWAP,DROP
+	fdb	SLMOD-7
+SLASH	fdb	DOCOL,SLMOD,SWAP,DROP
 	fdb	SEMIS
 ;
 ; ======>>  162  <<
@@ -2468,7 +2473,7 @@ SLASH	fdb	DOCOL,SLMODLAB,SWAP,DROP
 	fcc	"MO"	;fcc	2,MODLAB
 	fcb	$C4
 	fdb	SLASH-4
-MODLAB	fdb	DOCOL,SLMODLAB,DROP
+MODLAB	fdb	DOCOL,SLMOD,DROP
 	fdb	SEMIS
 ;
 ; ======>>  163  <<
@@ -2476,15 +2481,15 @@ MODLAB	fdb	DOCOL,SLMODLAB,DROP
 	fcc	"*/MO"	;fcc	4,*/MODLAB
 	fcb	$C4
 	fdb	MODLAB-6
-SSMODLAB	fdb	DOCOL,TORLAB,USTAR,FROMR,USLASH
+SSMOD	fdb	DOCOL,TOR,USTAR,FROMR,USLASH
 	fdb	SEMIS
 ;
 ; ======>>  164  <<
 	fcb	$82
 	fcc	"*"	;fcc	1,*/
 	fcb	$AF
-	fdb	SSMODLAB-8
-SSLASH	fdb	DOCOL,SSMODLAB,SWAP,DROP
+	fdb	SSMOD-8
+SSLASH	fdb	DOCOL,SSMOD,SWAP,DROP
 	fdb	SEMIS
 ;
 ; ======>>  165  <<
@@ -2492,15 +2497,15 @@ SSLASH	fdb	DOCOL,SSMODLAB,SWAP,DROP
 	fcc	"M/MO"	;fcc	4,M/MODLAB
 	fcb	$C4
 	fdb	SSLASH-5
-MSMODLAB	fdb	DOCOL,TORLAB,ZERO,R,USLASH
-	fdb	FROMR,SWAP,TORLAB,USLASH,FROMR
+MSMOD	fdb	DOCOL,TOR,ZERO,R,USLASH
+	fdb	FROMR,SWAP,TOR,USLASH,FROMR
 	fdb	SEMIS
 ;
 ; ======>>  166  <<
 	fcb	$83
 	fcc	"AB"	;fcc	2,ABS
 	fcb	$D3
-	fdb	MSMODLAB-8
+	fdb	MSMOD-8
 ABS	fdb	DOCOL,DUP,ZLESS,ZBRAN
 	fdb	ABS2-*
 	fdb	MINUS
@@ -2552,7 +2557,7 @@ PBUF2	fdb	DUP,PREV,AT,SUB
 	fcc	"UPDAT"	;fcc	5,UPDATE
 	fcb	$C5
 	fdb	PBUF-7
-UPDATE	fdb	DOCOL,PREV,AT,AT,LIT,$8000,ORLAB,PREV,AT,STORLABE
+UPDATE	fdb	DOCOL,PREV,AT,AT,LIT,$8000,ORLAB,PREV,AT,STORE
 	fdb	SEMIS
 ;
 ; ======>>  172  <<
@@ -2568,7 +2573,7 @@ MTBUF	fdb	DOCOL,FIRST,LIMIT,OVER,SUB,ERASE
 	fcc	"DR"	;fcc	2,DR0
 	fcb	$B0
 	fdb	MTBUF-16
-DRZERO	fdb	DOCOL,ZERO,OFSET,STORLABE
+DRZERO	fdb	DOCOL,ZERO,OFSET,STORE
 	fdb	SEMIS
 ;
 ; ======>>  174  <<== system dependant word
@@ -2576,7 +2581,7 @@ DRZERO	fdb	DOCOL,ZERO,OFSET,STORLABE
 	fcc	"DR"	;fcc	2,DR1
 	fcb	$B1
 	fdb	DRZERO-6
-DRONE	fdb	DOCOL,LIT,$07D0,OFSET,STORLABE
+DRONE	fdb	DOCOL,LIT,$07D0,OFSET,STORE
 	fdb	SEMIS
 ;
 ; ######>> screen 59 <<
@@ -2585,14 +2590,14 @@ DRONE	fdb	DOCOL,LIT,$07D0,OFSET,STORLABE
 	fcc	"BUFFE"	;fcc	5,BUFFER
 	fcb	$D2
 	fdb	DRONE-6
-BUFFER	fdb	DOCOL,USE,AT,DUP,TORLAB
+BUFFER	fdb	DOCOL,USE,AT,DUP,TOR
 BUFFR2	fdb	PBUF,ZBRAN
 	fdb	BUFFR2-*
-	fdb	USE,STORLABE,R,AT,ZLESS
+	fdb	USE,STORE,R,AT,ZLESS
 	fdb	ZBRAN
 	fdb	BUFFR3-*
 	fdb	R,TWOP,R,AT,LIT,$7FFF,ANDLAB,ZERO,RW
-BUFFR3	fdb	R,STORLABE,R,PREV,STORLABE,FROMR,TWOP
+BUFFR3	fdb	R,STORE,R,PREV,STORE,FROMR,TWOP
 	fdb	SEMIS
 ;
 ; ######>> screen 60 <<
@@ -2601,7 +2606,7 @@ BUFFR3	fdb	R,STORLABE,R,PREV,STORLABE,FROMR,TWOP
 	fcc	"BLOC"	;fcc	4,BLOCK
 	fcb	$CB
 	fdb	BUFFER-9
-BLOCK	fdb	DOCOL,OFSET,AT,PLUS,TORLAB
+BLOCK	fdb	DOCOL,OFSET,AT,PLUS,TOR
 	fdb	PREV,AT,DUP,AT,R,SUB,DUP,PLUS,ZBRAN
 	fdb	BLOCK5-*
 BLOCK3	fdb	PBUF,ZEQU,ZBRAN
@@ -2609,7 +2614,7 @@ BLOCK3	fdb	PBUF,ZEQU,ZBRAN
 	fdb	DROP,R,BUFFER,DUP,R,ONE,RW,TWO,SUB
 BLOCK4	fdb	DUP,AT,R,SUB,DUP,PLUS,ZEQU,ZBRAN
 	fdb	BLOCK3-*
-	fdb	DUP,PREV,STORLABE
+	fdb	DUP,PREV,STORE
 BLOCK5	fdb	FROMR,DROP,TWOP
 	fdb	SEMIS
 ;
@@ -2619,9 +2624,9 @@ BLOCK5	fdb	FROMR,DROP,TWOP
 	fcc	"(LINE"	;fcc	5,(LINE)
 	fcb	$A9
 	fdb	BLOCK-8
-PLINE	fdb	DOCOL,TORLAB,CLITER
+PLINE	fdb	DOCOL,TOR,CLITER
 	fcb	$40
-	fdb	BBUF,SSMODLAB,FROMR,BSCR,STAR,PLUS,BLOCK,PLUS,CLITER
+	fdb	BBUF,SSMOD,FROMR,BSCR,STAR,PLUS,BLOCK,PLUS,CLITER
 	fcb	$40
 	fdb	SEMIS
 ;
@@ -2657,9 +2662,9 @@ MESS4	fdb	SEMIS
 	fcc	"LOA"	;fcc	3,LOAD	;input:scr #
 	fcb	$C4
 	fdb	MESS-10
-LOAD	fdb	DOCOL,BLK,AT,TORLAB,IN,AT,TORLAB,ZERO,IN,STORLABE
-	fdb	BSCR,STAR,BLK,STORLABE
-	fdb	INTERP,FROMR,IN,STORLABE,FROMR,BLK,STORLABE
+LOAD	fdb	DOCOL,BLK,AT,TOR,IN,AT,TOR,ZERO,IN,STORE
+	fdb	BSCR,STAR,BLK,STORE
+	fdb	INTERP,FROMR,IN,STORE,FROMR,BLK,STORE
 	fdb	SEMIS
 ;
 ; ======>>  181  <<
@@ -2667,8 +2672,8 @@ LOAD	fdb	DOCOL,BLK,AT,TORLAB,IN,AT,TORLAB,ZERO,IN,STORLABE
 	fcc	"--"	;fcc	2,-->
 	fcb	$BE
 	fdb	LOAD-7
-ARROW	fdb	DOCOL,QLOAD,ZERO,IN,STORLABE,BSCR
-	fdb	BLK,AT,OVER,MODLAB,SUB,BLK,PSTORLABE
+ARROW	fdb	DOCOL,QLOAD,ZERO,IN,STORE,BSCR
+	fdb	BLK,AT,OVER,MODLAB,SUB,BLK,PSTORE
 	fdb	SEMIS
 ;
 ;
@@ -2685,7 +2690,7 @@ PEMIT	sta b	N	;save B
 	beq	PEMIT+4	;if not ready for more data
 	sta a 	ACIAD
 	ldx	UP
-	sta b	IOSTAT-UORLABIG,x
+	sta b	IOSTAT-UORIG,x
 	lda b	N	;recover B & X
 	ldx	N+1
 	rts		;only A register may change
@@ -2703,7 +2708,7 @@ PKEY	sta b	N
 	lda	a ACIAD
 	anda	#$7F	;strip parity bit
 	ldx	UP
-	sta b	IOSTAT+1-UORLABIG,x
+	sta b	IOSTAT+1-UORIG,x
 	lda b	N
 	ldx	N+1
 	rts
@@ -2715,7 +2720,7 @@ PKEY	sta b	N
 ; ######>> screen 64 <<
 ; ======>>  184  << code for ?TERMINAL
 PQTER	lda	a ACIAC	;Test for 'break'  condition
-	anda	#$11	;mask framing ERRORLAB bit and
+	anda	#$11	;mask framing ERROR bit and
 ;			 input buffer full
 	beq	PQTER2
 	lda	a ACIAD	;clear input buffer
@@ -2729,7 +2734,7 @@ PCR	lda a #$D	;carriage return
 	bsr	PEMIT
 	lda a #$7F	;rubout
 	ldx	UP
-	lda b	XDELAY+1-UORLABIG,x
+	lda b	XDELAY+1-UORIG,x
 PCR2	decb
 	bmi	PQTER2	;return if minus
 	pshb		;save counter
@@ -2789,7 +2794,7 @@ HI	fdb	DOCON
 	fcc	"R/"	;fcc	2,R/W
 	fcb	$D7
 	fdb	HI-5
-RW	fdb	DOCOL,TORLAB,BBUF,STAR,LO,PLUS,DUP,HI,GREAT,ZBRAN
+RW	fdb	DOCOL,TOR,BBUF,STAR,LO,PLUS,DUP,HI,GREAT,ZBRAN
 	fdb	RW2-*
 	fdb	PDOTQ
 	fcb	8
@@ -2811,16 +2816,16 @@ TICK	fdb	DOCOL,DFIND,ZEQU,ZERO,QERR,DROP,LITER
 ;
 ; ======>>  193  <<
 	fcb	$86
-	fcc	"FORLABGE"	;fcc	5,FORLABGET
+	fcc	"FORGE"	;fcc	5,FORGET
 	fcb	$D4
 	fdb	TICK-4
-FORLABGET	fdb	DOCOL,CURENT,AT,CONTXT,AT,SUB,CLITER
+FORGET	fdb	DOCOL,CURENT,AT,CONTXT,AT,SUB,CLITER
 	fcb	$18
 	fdb	QERR,TICK,DUP,FENCE,AT,LESS,CLITER
 	fcb	$15
-	fdb	QERR,DUP,ZERO,PORLABIG,GREAT,CLITER
+	fdb	QERR,DUP,ZERO,PORIG,GREAT,CLITER
 	fcb	$15
-	fdb	QERR,DUP,NFA,DP,STORLABE,LFA,AT,CONTXT,AT,STORLABE
+	fdb	QERR,DUP,NFA,DP,STORE,LFA,AT,CONTXT,AT,STORE
 	fdb	SEMIS
 ;
 ; ######>> screen 73 <<
@@ -2828,7 +2833,7 @@ FORLABGET	fdb	DOCOL,CURENT,AT,CONTXT,AT,SUB,CLITER
 	fcb	$84
 	fcc	"BAC"	;fcc	3,BACK
 	fcb	$CB
-	fdb	FORLABGET-9
+	fdb	FORGET-9
 BACK	fdb	DOCOL,HERE,SUB,COMMA
 	fdb	SEMIS
 ;
@@ -2846,7 +2851,7 @@ BEGIN	fdb	DOCOL,QCOMP,HERE,ONE
 	fcb	$C6
 	fdb	BEGIN-8
 ENDIF	fdb	DOCOL,QCOMP,TWO,QPAIRS,HERE
-	fdb	OVER,SUB,SWAP,STORLABE
+	fdb	OVER,SUB,SWAP,STORE
 	fdb	SEMIS
 ;
 ; ======>>  197  <<
@@ -2911,7 +2916,7 @@ AGAIN	fdb	DOCOL,ONE,QPAIRS,COMPIL,BRAN,BACK
 	fcc	"REPEA"	;fcc	5,REPEAT
 	fcb	$D4
 	fdb	AGAIN-8
-REPEAT	fdb	DOCOL,TORLAB,TORLAB,AGAIN,FROMR,FROMR
+REPEAT	fdb	DOCOL,TOR,TOR,AGAIN,FROMR,FROMR
 	fdb	TWO,SUB,ENDIF
 	fdb	SEMIS
 ;
@@ -2958,7 +2963,7 @@ SPACE3	fdb	SEMIS
 	fcc	"<"	;fcc	1,<#
 	fcb	$A3
 	fdb	SPACES-9
-BDIGS	fdb	DOCOL,PAD,HLD,STORLABE
+BDIGS	fdb	DOCOL,PAD,HLD,STORE
 	fdb	SEMIS
 ;
 ; ======>>  210  <<
@@ -2985,7 +2990,7 @@ SIGN2	fdb	SEMIS
 	fcb	$81	; #
 	fcb	$A3
 	fdb	SIGN-7
-DIG	fdb	DOCOL,BASE,AT,MSMODLAB,ROT,CLITER
+DIG	fdb	DOCOL,BASE,AT,MSMOD,ROT,CLITER
 	fcb	9
 	fdb	OVER,LESS,ZBRAN
 	fdb	DIG2-*
@@ -3013,7 +3018,7 @@ DIGS2	fdb	DIG,OVER,OVER,ORLAB,ZEQU,ZBRAN
 	fcc	"."	;fcc	1,.R
 	fcb	$D2
 	fdb	DIGS-5
-DOTR	fdb	DOCOL,TORLAB,STOD,FROMR,DDOTR
+DOTR	fdb	DOCOL,TOR,STOD,FROMR,DDOTR
 	fdb	SEMIS
 ;
 ; ======>>  215  <<
@@ -3021,7 +3026,7 @@ DOTR	fdb	DOCOL,TORLAB,STOD,FROMR,DDOTR
 	fcc	"D."	;fcc	2,D.R
 	fcb	$D2
 	fdb	DOTR-5
-DDOTR	fdb	DOCOL,TORLAB,SWAP,OVER,DABS,BDIGS,DIGS,SIGN
+DDOTR	fdb	DOCOL,TOR,SWAP,OVER,DABS,BDIGS,DIGS,SIGN
 	fdb	EDIGS,FROMR,OVER,SUB,SPACES,TYPE
 	fdb	SEMIS
 ;
@@ -3053,7 +3058,7 @@ QUEST	fdb	DOCOL,AT,DOT
 	fcc	"LIS"	;fcc	3,LIST
 	fcb	$D4
 	fdb	QUEST-4
-LIST	fdb	DOCOL,DEC,CR,DUP,SCR,STORLABE,PDOTQ
+LIST	fdb	DOCOL,DEC,CR,DUP,SCR,STORE,PDOTQ
 	fcb	6
 	fcc	"SCR # "
 	fdb	DOT,CLITER
@@ -3106,12 +3111,12 @@ TRIAD3	fdb	XLOOP
 	fdb	TRIAD-8
 VLIST	fdb	DOCOL,CLITER
 	fcb	$80
-	fdb	OUT,STORLABE,CONTXT,AT,AT
+	fdb	OUT,STORE,CONTXT,AT,AT
 VLIST1	fdb	OUT,AT,COLUMS,AT,CLITER
 	fcb	32
 	fdb	SUB,GREAT,ZBRAN
 	fdb	VLIST2-*
-	fdb	CR,ZERO,OUT,STORLABE
+	fdb	CR,ZERO,OUT,STORE
 VLIST2	fdb	DUP,IDDOT,SPACE,SPACE,PFA,LFA,AT
 	fdb	DUP,ZEQU,QTERM,ORLAB,ZBRAN
 	fdb	VLIST1-*

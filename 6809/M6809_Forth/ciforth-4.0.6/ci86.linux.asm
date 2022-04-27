@@ -1,0 +1,8712 @@
+
+
+
+
+
+;         ciforth : a generic I86 ISO FORTH by HCC FIG
+
+; $Id: ci86.gnr,v 4.15.5.19 2005/02/18 17:32:33 albert Exp $
+; Copyright (2000): Albert van der Horst by GNU Public License
+;
+;HCC FIG Holland : Hobby Computer Club, Forth Interest Group  Holland
+        ;  66,106
+ ;   ciforth $Revision: 4.15.5.19 $
+;
+; For the generic system (to generate ciforth in an other configuration than this one):
+;     http://home.hccnet.nl/a.w.m.van.der.horst/ci86gnr.html
+;
+; If this is a configured assembly file, it should be accompanied with configured
+; documentation (texinfo, ps, html.)
+; WITHOUT THE DOCUMENTATION: GIVE UP! GET THE REAL THING!
+; You have a configured system, if there are NO curly brackets on the next line.
+;                          
+;
+; Configuration of this particular version:
+; 32-bits protected mode 
+; running under Linux  ;  with c-routines for I/O 
+; Normally ciforth doesn't observe ISO >IN.
+; Contains :
+; (there may be no items here.)
+;        Security words
+;         Loadable words, i.e. all of ISO CORE, more than is needed
+;           for a self contained kernel.
+;
+;
+; This is a NASM version of ciforth created by ``m4'' from the generic listing.
+; It can be assembled using ``nasm'' obtainable via :
+; Source: ftp://ftp.us.kernel.org/pub/software/devel/nasm/source/
+; URL: http://www.cryogen.com/Nasm/
+
+; This source is to be linked with c-code. You are referred to the
+; information in the generic system for building the executable.
+; In general be warned that GNU(-Linux) is hard on those linking c
+;  with assembler code.
+ 
+; For assembling on other systems where nasm is available see the
+; documentation of nasm.
+
+%if 0
+        A generic version of ISO FORTH for IBM type standard PC's by
+                Albert van der Horst
+
+                in cooperation with
+                HCC Forth user group
+                The Netherlands
+                www.forth.hccnet.nl
+
+              based on
+              FIG-FORTH
+   implemented by:  Charlie Krajewski
+                    205 ( BIG ) Blue Rd.
+                    Middletown, CT  06457
+
+  The listing has been made possible by the
+  prior work of:
+               Thomas Newman, Hayward, Ca.
+
+ : other_acknowledgements
+         John_Cassidy
+         Kim_Harris
+         George_Flammer
+         Robert_D._Villwock ;
+
+ : for tools
+         Richard M. Stallman
+         Linus Torvalds
+
+No one who programs with FORTH can afford to be without:
+  "Starting Forth  by Leo Brodie" and "Thinking Forth by Leo Brodie".
+   Both out of print.
+
+This Forth is a descendant in the 300+ (RCS)- generations from fig-Forth.
+
+For nostalgic reasons the following comment has never been removed:
+   Although there is much to be said for typing in your own
+   listing and getting it running, there is much to be said
+   not typing in your own listing.  If you feel that 100+
+   pages of plinking is nutty, contact me for availability
+   of a disc with source & executable files.  Obtainable at
+   a bargain basement price, prepare yourself for bargain
+   basement support.
+
+All publications of the FORTH Interest Group are public domain.
+They may be further distributed by the inclusion of this
+credit notice:
+               This publication has been made available by:
+
+               FORTH Interest Group
+               P.O. Box 1105
+               San Carlos, Ca.  94070
+[I feel obliged to keep this last one in (AH). Note that although it is
+based on fig-Forth no stone is left unturned.]
+%endif
+        ;
+; ########################################################################################
+;                       PREPARATION (no code)
+; ########################################################################################
+FIGREL  EQU     4       ; FIG RELEASE #
+FIGREV  EQU     0       ; FIG REVISION #
+USRVER  EQU     0      ; USER VERSION NUMBER, a digit now
+;
+;      VERY ELEMENTARY .
+CW      EQU     4    ; Size of a cell in Forth, not in the bootcode.
+ERRORSCREEN EQU     48    ; Screen where the error messages start.
+;
+;      MEMORY LAYOUT.
+; Normally this is specified at the m4 configuration level.
+; For a configured system these values can be changed at this single place. 
+NBUF    EQU     8    ; No. of buffers, or screens 
+KBBUF   EQU     1024      ; Data bytes per disk buffer
+US      EQU     0x40*CW  ; User variable space
+EM      EQU     (0x1000000)     ; Where the memory ends w.r.t. ORIG. 1) 
+EMP     EQU     (EM-1)/0x1000+1 ; Number of pages.
+RTS     EQU     0x10000    ; Return stack & terminal input buffer
+;
+; NOTE 1:
+;This trick to not have a round memory allocated convinces loaders
+; on Linux 1.24 and following to load the elf header in memory
+; in front of the executable, and not in some other place.
+; ciforth relies on modifying the elf header in behalf of SAVE-SYSTEM.
+;This is more convenient than creating it from scratch. It also leaves
+; alone the load address generated by ``ld'', and all other things we
+; are not aware of.
+
+
+;
+;      ASCII CHARACTER EQUIVALENTS
+;
+ABL     EQU     ' '     ; SPACE
+ACR     EQU     0x0D     ; CR
+AMS     EQU     '-'
+ASO     EQU     '['
+ASC     EQU     ']'
+ADOT    EQU     '.'
+ALF      EQU     0x0A     ; LINE FEED, USED INTERNALLY AS
+                        ; LINE ENDER
+AFF      EQU     0x0C     ; FORM FEED
+BELL    EQU     0x07     ; ^G
+BSIN    EQU     0x08     ; INPUT DELETE CHARACTER
+BSOUT   EQU     0x08     ; OUTPUT BACKSPACE ( ^H )
+;
+;      HEADER RELATED EQUATES
+B_DUMMY   EQU     0x01     ; dea is dummy, from vocabulary link
+B_INVIS   EQU     0x02     ; dea is invisible, "smudged".
+B_IMMED   EQU     0x04     ; dea is a immediate.
+B_DENOT   EQU     0x08     ; dea is a denotation.
+C_HOFFSET EQU     0       ; Offsets of code field in cells, w.r.t. dea
+D_HOFFSET EQU     1       ; Same for data field
+F_HOFFSET EQU     2       ; Same for flag field
+L_HOFFSET EQU     3       ; Same for link field
+N_HOFFSET EQU     4       ; Same for name field
+PH_OFFSET EQU     5   ; Past header field: Start of data area. 
+BD_OFFSET EQU     5+1 ; Start of BODY for CREATEd word.
+HEADSIZE  EQU     (CW*(PH_OFFSET))  ;In cells, only to clean up source.
+;
+ ;  
+;
+;
+BPS     EQU     512             ;Bytes/sector, common to all of MSDOS
+SPB     EQU     KBBUF/BPS
+;
+;
+;
+;
+;
+; 
+
+
+; ------------------------------------------------------------      
+;   Start of constants stolen from C.                                 
+; ------------------------------------------------------------      
+
+SEEK_SET	EQU	0x0
+TCGETS	EQU	0x5401
+TCSETS	EQU	0x5402
+ECHO	EQU	0x8
+EAGAIN	EQU	0xb
+EINTR	EQU	0x4
+EPIPE	EQU	0x20
+VMIN	EQU	0x6
+VTIME	EQU	0x5
+ICANON	EQU	0x2
+O_RDWR	EQU	0x2
+O_RDONLY	EQU	0x0
+O_WRONLY	EQU	0x1
+O_CREAT	EQU	0x40
+O_NONBLOCK	EQU	0x800
+SIZE_TERMIO	EQU	0x3c
+
+; Numbers of system calls. See "Linux kernel Internals" Appendix A. 
+; By M.Beck, H. Boehme e.a. Addison Wesley.                         
+; The system calls themselves are extensively documented in chapter 
+; 2 of the man pages, e.g. "man 2 exit"
+exit	EQU	0x1
+open	EQU	0x5
+close	EQU	0x6
+creat	EQU	0x8
+unlink	EQU	0xa
+chdir	EQU	0xc
+read	EQU	0x3
+select	EQU	0x52
+_newselect	EQU	0x8e
+write	EQU	0x4
+ioctl	EQU	0x36
+ioperm	EQU	0x65
+iopl	EQU	0x6e
+lseek	EQU	0x13
+execve	EQU	0xb
+fork	EQU	0x2
+waitpid	EQU	0x7
+; ------------------------------------------------------------      
+;   End of constants stolen from C.                                 
+; ------------------------------------------------------------      
+
+RAWIO           EQU     (ECHO | ICANON)
+        GLOBAL  _start        ; Entry point. Called from c. Remainder c-routines to be called from here.
+        extern  c_type,c_expec,c_key,c_qterm
+        extern  c_rslw, c_block_exit, c_block_init, c_debug
+        GLOBAL  ciforth 
+; 
+; 
+
+
+        section forth progbits write exec alloc
+        ;
+ORIG:
+; 
+; 
+    
+    
+
+; 
+
+; 
+; 
+NOBOOT:         ; Skip till here if not booting.
+
+; 
+ENDBOOT:
+
+
+;
+; 
+
+; 
+; 
+
+; 
+;
+;
+
+;
+
+
+;************************
+BITS   32         ; Assembler directive
+
+;************************
+
+; 
+
+; ########################################################################################
+;                       FORTH GLUE CODE (optional, except for the jump)
+; ########################################################################################
+SAVE_LINUX:     DD      0,0,0,0,0 ; ESP, EBP, ESI, EDI, EBX
+RETURN_LINUX:
+        MOV     ESP, LONG[SAVE_LINUX+(CW*(0))]
+        MOV     EBP, LONG[SAVE_LINUX+(CW*(1))]
+        MOV     ESI, LONG[SAVE_LINUX+(CW*(2))]
+        MOV     EDI, LONG[SAVE_LINUX+(CW*(3))]
+        MOV     EBX, LONG[SAVE_LINUX+(CW*(4))]
+        RET     ; Assuming the old stack has not been disturbed.It shouldn't.
+ciforth:
+        MOV      LONG[SAVE_LINUX+(CW*(0))],ESP
+        MOV      LONG[SAVE_LINUX+(CW*(1))],EBP
+        MOV      LONG[SAVE_LINUX+(CW*(2))],ESI
+        MOV      LONG[SAVE_LINUX+(CW*(3))],EDI
+        MOV      LONG[SAVE_LINUX+(CW*(4))],EBX
+        LEA     ECX,[ESP+(CW*(1))]
+        XOR     EAX,EAX
+        CMP     EAX, LONG[ECX]
+        JZ     ENDIF1
+        JMP     WARM_ENTRY         ; Warm start
+ENDIF1:
+
+ ; 
+
+;
+COLD_ENTRY:
+        CLD                     ; DIR = INC
+       MOV      LONG[USINI+(CW*(31))],ESP ;Remember ARGS.
+
+        MOV     EAX,DS
+        MOV     SS,EAX           ;Atomic with next instruction.
+        MOV     ESP, LONG[USINI+(CW*(2))]    ;PARAM. STACK
+        MOV     EBP, LONG[USINI+(CW*(3))]    ;RETURN STACK
+        MOV     ESI, CLD1  ; (IP) <-
+        JMP NEXT
+;
+CLD1:   DD      COLD    ;  This is a piece of headerless high level code.
+;
+; ########################################################################################
+;                       FORTH ITSELF
+; ########################################################################################
+;
+%if 0
+   FORTH REGISTERS
+   The names under FORTH are used in the generic source.
+
+   FORTH   8088     FORTH PRESERVATION RULES
+   -----   ----     ----- ------------ -----
+   HIP   ESI      High level Interpreter Pointer.  Must be preserved
+                    across FORTH words.
+
+   WOR   EAX      Working register.  When entering a word
+                    via its code field the DEA is passed in WOR.
+
+   SPO   ESP      Parameter stack pointer.  Must be preserved
+                    across FORTH words.
+
+   RPO   EBP      Return stack pointer.  Must be preserved across
+                    FORTH words.
+
+            EAX      General register.  Used to pass data from
+                    FORTH words, see label APUSH or macro _APUSH
+
+            EDX      General register.  Used to pass more data from
+                    FORTH words, see label DPUSH or macro _DPUSH
+
+            EBX      General purpose register.
+
+            ECX      General purpose register.
+
+            CS      Segment register. Must be preserved
+                    across FORTH words.
+
+            DS      ditto
+
+            SS      ibid
+
+            ES      Temporary segment register only used by
+                    a few words. However it MUST remain equal to
+                    DS, such that string primitives can be used
+                    with impunity.
+
+----------------------------------------------------------
+%endif
+        ;
+%if 0
+---------------------------------------------
+
+   COMMENT CONVENTIONS
+   ------- -----------
+
+   =       IS EQUAL TO
+   <-      ASSIGNMENT
+
+  NAME        =  Address of name
+  (NAME)      =  Contents of name
+
+  CFA         =  CODE FIELD ADDRESS : a pointer to executable code
+  DFA         =  DATA FIELD ADDRESS : a pointer to
+                        data/high level code/ DOES> pointer
+  FFA         =  FLAG FIELD ADDRESS: contains flags
+  LFA         =  LINK FIELD ADDRESS: a pointer
+  NFA         =  NAME FIELD ADDRESS: a pointer to a variable number of chars
+  PHA         =  POST HEADER ADDRESS
+
+  S1          =  Parameter stack - 1st cell
+  S2          =  Parameter stack - 2nd cell
+  R1          =  Return stack    - 1st cell
+  R2          =  Return stack    - 2nd cell
+
+  LSB         =  Least significant bit
+  MSB         =  Most  significant bit
+  LB          =  Low byte
+  HB          =  High byte
+  LW          =  Low  cell
+
+------------------------------------------------------------
+%endif
+; 
+        ;
+; 
+;
+; 
+; In 32 bit versions there may be no jumps to NEXT at all 
+; The label NEXT1 is rarely relevant (for _OLDDEBUG_) 
+DPUSH:  PUSH    EDX      ; Fall through.
+APUSH:  PUSH    EAX
+NEXT:
+
+; 
+ ; 
+        LODSD           ;AX <- (IP)
+NEXT1:  MOV     EAX,EAX   ; (WOR) <- (IP)
+
+        JMP      LONG[EAX]    ; TO `CFA'
+;
+;       Dictionary starts here.
+
+DP0:
+; Vocabularies all end in a link to 0.
+
+;  *********
+;  *   '   *
+;  *********
+;
+N_TICK:
+        DD      1
+        DB      "'"
+TICK:
+        DD    DOCOL
+        DD    TICK+HEADSIZE
+        DD    B_IMMED + B_DENOT
+        DD    0
+        DD    N_TICK
+
+        DD      ITICK
+        DD      LITER
+        DD      SEMIS
+;
+
+;  *********
+;  *   &   *
+;  *********
+;
+N_DCHAR:
+        DD      1
+        DB      "&"
+DCHAR:
+        DD    DOCOL
+        DD    DCHAR+HEADSIZE
+        DD    B_IMMED + B_DENOT
+        DD    TICK
+        DD    N_DCHAR
+
+        DD      INBRS
+        DD      SWAP, DROP
+        DD      LDUP, QBL
+        DD      LIT, 10, QERR
+        DD      LITER
+        DD      QDELIM
+        DD      SEMIS
+;
+
+;  *********
+;  *   ^   *
+;  *********
+;
+N_DCTL:
+        DD      1
+        DB      "^"
+DCTL:
+        DD    DOCOL
+        DD    DCTL+HEADSIZE
+        DD    B_IMMED + B_DENOT
+        DD    DCHAR
+        DD    N_DCTL
+
+        DD      INBRS
+        DD      SWAP, DROP
+        DD      LDUP, QBL
+        DD      LIT, 10, QERR
+        DD      LIT, '@', LSUB
+        DD      LITER
+        DD      QDELIM
+        DD      SEMIS
+;
+
+;  *********
+;  *   0   *
+;  *********
+;
+N_DEN0:
+        DD      1
+        DB      "0"
+DEN0:
+        DD    DOCOL
+        DD    LNUMB
+        DD    B_IMMED + B_DENOT
+        DD    DCTL
+        DD    N_DEN0
+
+;  *********
+;  *   1   *
+;  *********
+;
+N_DEN1:
+        DD      1
+        DB      "1"
+DEN1:
+        DD    DOCOL
+        DD    LNUMB
+        DD    B_IMMED + B_DENOT
+        DD    DEN0
+        DD    N_DEN1
+
+;  *********
+;  *   2   *
+;  *********
+;
+N_DEN2:
+        DD      1
+        DB      "2"
+DEN2:
+        DD    DOCOL
+        DD    LNUMB
+        DD    B_IMMED + B_DENOT
+        DD    DEN1
+        DD    N_DEN2
+
+;  *********
+;  *   3   *
+;  *********
+;
+N_DEN3:
+        DD      1
+        DB      "3"
+DEN3:
+        DD    DOCOL
+        DD    LNUMB
+        DD    B_IMMED + B_DENOT
+        DD    DEN2
+        DD    N_DEN3
+
+;  *********
+;  *   4   *
+;  *********
+;
+N_DEN4:
+        DD      1
+        DB      "4"
+DEN4:
+        DD    DOCOL
+        DD    LNUMB
+        DD    B_IMMED + B_DENOT
+        DD    DEN3
+        DD    N_DEN4
+
+;  *********
+;  *   5   *
+;  *********
+;
+N_DEN5:
+        DD      1
+        DB      "5"
+DEN5:
+        DD    DOCOL
+        DD    LNUMB
+        DD    B_IMMED + B_DENOT
+        DD    DEN4
+        DD    N_DEN5
+
+;  *********
+;  *   6   *
+;  *********
+;
+N_DEN6:
+        DD      1
+        DB      "6"
+DEN6:
+        DD    DOCOL
+        DD    LNUMB
+        DD    B_IMMED + B_DENOT
+        DD    DEN5
+        DD    N_DEN6
+
+
+;  *********
+;  *   7   *
+;  *********
+;
+N_DEN7:
+        DD      1
+        DB      "7"
+DEN7:
+        DD    DOCOL
+        DD    LNUMB
+        DD    B_IMMED + B_DENOT
+        DD    DEN6
+        DD    N_DEN7
+
+;  *********
+;  *   8   *
+;  *********
+;
+N_DEN8:
+        DD      1
+        DB      "8"
+DEN8:
+        DD    DOCOL
+        DD    LNUMB
+        DD    B_IMMED + B_DENOT
+        DD    DEN7
+        DD    N_DEN8
+
+;  *********
+;  *   9   *
+;  *********
+;
+N_DEN9:
+        DD      1
+        DB      "9"
+DEN9:
+        DD    DOCOL
+        DD    LNUMB
+        DD    B_IMMED + B_DENOT
+        DD    DEN8
+        DD    N_DEN9
+
+;  *********
+;  *   A   *
+;  *********
+;
+N_DENA:
+        DD      1
+        DB      "A"
+DENA:
+        DD    DOCOL
+        DD    LNUMB
+        DD    B_IMMED + B_DENOT
+        DD    DEN9
+        DD    N_DENA
+
+;  *********
+;  *   B   *
+;  *********
+;
+N_DENB:
+        DD      1
+        DB      "B"
+DENB:
+        DD    DOCOL
+        DD    LNUMB
+        DD    B_IMMED + B_DENOT
+        DD    DENA
+        DD    N_DENB
+
+
+;  *********
+;  *   C   *
+;  *********
+;
+N_DENC:
+        DD      1
+        DB      "C"
+DENC:
+        DD    DOCOL
+        DD    LNUMB
+        DD    B_IMMED + B_DENOT
+        DD    DENB
+        DD    N_DENC
+
+;  *********
+;  *   D   *
+;  *********
+;
+N_DEND:
+        DD      1
+        DB      "D"
+DEND:
+        DD    DOCOL
+        DD    LNUMB
+        DD    B_IMMED + B_DENOT
+        DD    DENC
+        DD    N_DEND
+
+;  *********
+;  *   E   *
+;  *********
+;
+N_DENE:
+        DD      1
+        DB      "E"
+DENE:
+        DD    DOCOL
+        DD    LNUMB
+        DD    B_IMMED + B_DENOT
+        DD    DEND
+        DD    N_DENE
+
+;  *********
+;  *   F   *
+;  *********
+;
+N_DENF:
+        DD      1
+        DB      "F"
+DENF:
+        DD    DOCOL
+        DD    LNUMB
+        DD    B_IMMED + B_DENOT
+        DD    DENE
+        DD    N_DENF
+
+;
+
+;  *********
+;  *   -   *
+;  *********
+;
+N_DENM:
+        DD      1
+        DB      "-"
+DENM:
+        DD    DOCOL
+        DD    DENM+HEADSIZE
+        DD    B_IMMED + B_DENOT
+        DD    DENF
+        DD    N_DENM
+
+        DD      PNUMB, DNEGA, SDLITE
+        DD      SEMIS
+;
+
+;  *********
+;  *   +   *
+;  *********
+;
+N_DENP:
+        DD      1
+        DB      "+"
+DENP:
+        DD    DOCOL
+        DD    DENP+HEADSIZE
+        DD    B_IMMED + B_DENOT
+        DD    DENM
+        DD    N_DENP
+
+        DD      PNUMB, SDLITE
+        DD      SEMIS
+;
+
+;  *********
+;  *   "   *
+;  *********
+;
+N_DENQ:
+        DD      1
+        DB      '"'
+DENQ:
+        DD    DOCOL
+        DD    DENQ+HEADSIZE
+        DD    B_IMMED + B_DENOT
+        DD    DENP
+        DD    N_DENQ
+
+        DD      LIT, SKIP, COMMA        ;  'SKIP , HERE >R 0 ,
+        DD      HERE, TOR, ZERO, COMMA
+DENQ1:
+        DD      LIT, '"', PPARS         ;           BEGIN &" (PARSE)
+        DD      INBRS, LDUP, LIT, '"', EQUAL ;           IN[] DUP &" =
+        DD      ZBRAN
+        DD      DENQ2-$-CW                 ;           WHILE
+        DD      TDROP, ONEP             ;           2DROP 1+ R@ $+!
+        DD      LDUP, ALLOT, RR, SADD
+        DD      BRAN
+        DD      DENQ1-$-CW                  ;           REPEAT
+DENQ2:
+        DD      QBL, ZEQU
+        DD      LIT, 10, QERR           ;           ?BLANK 0= 5 ?ERROR
+        DD      DROP                    ;                DROP R@ $+!
+        DD      LDUP, ALLOT, RR, SADD
+        DD      FROMR, SFET, DLITE      ;           R> $@ POSTPONE DLITERAL ;
+        DD      SEMIS
+;
+
+; The FORTH word is the only non-denotation in the ONLY vocabulary.
+;  *************
+;  *   FORTH   *
+;  *************
+;
+N_FORTH:
+        DD      5
+        DB      "FORTH"
+FORTH:
+        DD    DODOE
+        DD    FORTH+HEADSIZE
+        DD    B_IMMED
+        DD    DENQ
+        DD    N_FORTH
+
+        DD      DOVOC
+        DD      0       ; END OF VOCABULARY LIST
+
+
+        DD    0x0
+        DD    0
+        DD    B_DUMMY
+        DD    TASK
+        DD    (ZERO+(CW*(D_HOFFSET)))
+
+;
+;
+;
+
+;  ************
+;  *   CORE   *
+;  ************
+;
+N_CORE:
+        DD      4
+        DB      "CORE"
+CORE:
+        DD    DOCOL
+        DD    CORE+HEADSIZE
+        DD    0x0
+        DD    0
+        DD    N_CORE
+
+        DD      ZERO    ; Not (fully) present.
+        DD      SEMIS
+;
+
+;  ***********
+;  *   CPU   *
+;  ***********
+;
+N_LCPU:
+        DD      3
+        DB      "CPU"
+LCPU:
+        DD    DOCOL
+        DD    LCPU+HEADSIZE
+        DD    0x0
+        DD    CORE
+        DD    N_LCPU
+
+
+       DD      LIT, 0x0CD1856, ZERO      ; '80386'
+           ; '80386'
+; 
+
+        DD      SEMIS
+;
+
+;  ***************
+;  *   VERSION   *
+;  ***************
+;
+N_LVERSION:
+        DD      7
+        DB      "VERSION"
+LVERSION:
+        DD    DOCOL
+        DD    LVERSION+HEADSIZE
+        DD    0x0
+        DD    LCPU
+        DD    N_LVERSION
+
+%if 0
+;       If this is there it is an official release
+        DD      SKIP
+        DD      22
+IBMPC:  DB      'IBM-PC ciforth'
+        DB      FIGREL+0x40,ADOT,FIGREV+0x30,ADOT,USRVER+0x30
+        DD      LIT, IBMPC, LIT, 22
+%endif
+;       If M4_VERSION exists and contains a . it is an official release
+        DD      SKIP
+         DD      5
+SB0: DB      "4.0.6"
+       
+        DD      LIT, SB0
+        DD      LIT, 5
+        DD      SEMIS
+;
+
+;  ************
+;  *   NAME   *
+;  ************
+;
+N_LNAME:
+        DD      4
+        DB      "NAME"
+LNAME:
+        DD    DOCOL
+        DD    LNAME+HEADSIZE
+        DD    0x0
+        DD    LVERSION
+        DD    N_LNAME
+
+        DD      SKIP
+         DD      7
+SB1: DB      "ciforth"
+       
+        DD      LIT, SB1
+        DD      LIT, 7
+        DD      SEMIS
+;
+
+;  ****************
+;  *   SUPPLIER   *
+;  ****************
+;
+N_SUPPLIER:
+        DD      8
+        DB      "SUPPLIER"
+SUPPLIER:
+        DD    DOCOL
+        DD    SUPPLIER+HEADSIZE
+        DD    0x0
+        DD    LNAME
+        DD    N_SUPPLIER
+
+        DD      SKIP
+         DD      20
+SB2: DB      "Albert van der Horst"
+       
+        DD      LIT, SB2
+        DD      LIT, 20
+        DD      SEMIS
+;
+;
+
+;  ************
+;  *   ONLY   *
+;  ************
+;
+N_ONLY:
+        DD      4
+        DB      "ONLY"
+ONLY:
+        DD    DODOE
+        DD    ONLY+HEADSIZE
+        DD    B_IMMED
+        DD    0
+        DD    N_ONLY
+
+        DD      DOVOC
+        DD      FORTH     ; NEXT VOCABULARY 
+ONLYBODY:
+
+
+        DD    0x0
+        DD    0
+        DD    B_DUMMY
+        DD    FORTH
+        DD    (ZERO+(CW*(D_HOFFSET)))
+
+;
+
+;  *******************
+;  *   ENVIRONMENT   *
+;  *******************
+;
+N_ENV:
+        DD      11
+        DB      "ENVIRONMENT"
+ENV:
+        DD    DODOE
+        DD    ENV+HEADSIZE
+        DD    B_IMMED
+        DD    ONLY
+        DD    N_ENV
+
+        DD      DOVOC
+        DD      ONLY       ; NEXT VOCABULARY 
+
+
+        DD    0x0
+        DD    0
+        DD    B_DUMMY
+        DD    SUPPLIER
+        DD    (ZERO+(CW*(D_HOFFSET)))
+
+;
+
+;  ************
+;  *   NOOP   *
+;  ************
+;
+N_NOOP:
+        DD      4
+        DB      "NOOP"
+NOOP:
+        DD    NOOP+HEADSIZE
+        DD    NOOP+HEADSIZE
+        DD    0x0
+        DD    ENV
+        DD    N_NOOP
+
+       JMP NEXT
+;
+; 
+;
+
+;  ***********
+;  *   LIT   *
+;  ***********
+;
+N_LIT:
+        DD      3
+        DB      "LIT"
+LIT:
+        DD    LIT+HEADSIZE
+        DD    LIT+HEADSIZE
+        DD    0x0
+        DD    NOOP
+        DD    N_LIT
+
+        LODSD           ; AX <- LITERAL
+        PUSH    EAX
+        JMP NEXT          ; TO TOP OF STACK
+;
+
+;  ***************
+;  *   EXECUTE   *
+;  ***************
+;
+N_EXEC:
+        DD      7
+        DB      "EXECUTE"
+EXEC:
+        DD    EXEC+HEADSIZE
+        DD    EXEC+HEADSIZE
+        DD    0x0
+        DD    LIT
+        DD    N_EXEC
+
+        POP     EAX      ; GET XT
+        JMP      LONG[EAX]  ;(IP) <- (PFA)
+;
+
+
+;  ***************
+;  *   RECURSE   *
+;  ***************
+;
+N_RECURSE:
+        DD      7
+        DB      "RECURSE"
+RECURSE:
+        DD    DOCOL
+        DD    RECURSE+HEADSIZE
+        DD    B_IMMED
+        DD    EXEC
+        DD    N_RECURSE
+
+        DD      LATEST, COMMA
+        DD      SEMIS
+;
+;
+
+;  **************
+;  *   BRANCH   *
+;  **************
+;
+N_BRAN:
+        DD      6
+        DB      "BRANCH"
+BRAN:
+        DD    (SKIP+HEADSIZE)
+        DD    BRAN+HEADSIZE
+        DD    0x0
+        DD    RECURSE
+        DD    N_BRAN
+
+;
+
+;  ************
+;  *   SKIP   *
+;  ************
+;
+N_SKIP:
+        DD      4
+        DB      "SKIP"
+SKIP:
+        DD    SKIP+HEADSIZE
+        DD    SKIP+HEADSIZE
+        DD    0x0
+        DD    BRAN
+        DD    N_SKIP
+
+BRAN1:  LODSD
+        ADD     ESI,EAX
+        JMP NEXT
+;
+
+;  ***************
+;  *   0BRANCH   *
+;  ***************
+;
+N_ZBRAN:
+        DD      7
+        DB      "0BRANCH"
+ZBRAN:
+        DD    ZBRAN+HEADSIZE
+        DD    ZBRAN+HEADSIZE
+        DD    0x0
+        DD    SKIP
+        DD    N_ZBRAN
+
+        POP     EAX      ; GET STACK VALUE
+        OR      EAX,EAX   ; ZERO?
+        JZ      BRAN1   ; YES, BRANCH
+        LEA     ESI,[ESI+(CW*(1))]
+        JMP NEXT
+;
+;
+
+;  **************
+;  *   (LOOP)   *
+;  **************
+;
+N_XLOOP:
+        DD      6
+        DB      "(LOOP)"
+XLOOP:
+        DD    XLOOP+HEADSIZE
+        DD    XLOOP+HEADSIZE
+        DD    0x0
+        DD    ZBRAN
+        DD    N_XLOOP
+
+        MOV     EBX,1    ; INCREMENT
+XLOO1:  ADD     [EBP],EBX ; INDEX = INDEX + INCR
+        MOV     EAX,[EBP] ; GET NEW INDEX
+        SUB     EAX,[EBP+(CW*(1))]        ; COMPARE WITH LIMIT
+        XOR     EAX,EBX   ; TEST SIGN
+        JS      BRAN1   ; KEEP LOOPING
+;
+;  END OF `DO' LOOP
+        LEA     EBP,[EBP+(CW*(3))]  ; ADJ RETURN STACK
+        LEA     ESI,[ESI+(CW*(1))]       ; BYPASS BRANCH OFFSET
+        JMP NEXT
+;
+
+;  ***************
+;  *   (+LOOP)   *
+;  ***************
+;
+N_XPLOO:
+        DD      7
+        DB      "(+LOOP)"
+XPLOO:
+        DD    XPLOO+HEADSIZE
+        DD    XPLOO+HEADSIZE
+        DD    0x0
+        DD    XLOOP
+        DD    N_XPLOO
+
+        POP     EBX      ; GET LOOP VALUE
+        JMP SHORT     XLOO1
+        JMP NEXT           ;Helpfull for disassembly.
+;
+
+;  ************
+;  *   (DO)   *
+;  ************
+;
+N_XDO:
+        DD      4
+        DB      "(DO)"
+XDO:
+        DD    XDO+HEADSIZE
+        DD    XDO+HEADSIZE
+        DD    0x0
+        DD    XPLOO
+        DD    N_XDO
+
+        LODSD
+        ADD     EAX,ESI  ;Make absolute
+        POP     EDX      ; INITIAL INDEX VALUE
+        POP     EBX      ; LIMIT VALUE
+        XCHG    EBP,ESP   ; GET RETURN STACK
+        PUSH    EAX      ; Target location.
+        PUSH    EBX
+        PUSH    EDX
+        XCHG    EBP,ESP   ; GET PARAMETER STACK
+        JMP NEXT
+;
+
+;  *************
+;  *   (?DO)   *
+;  *************
+;
+N_XQDO:
+        DD      5
+        DB      "(?DO)"
+XQDO:
+        DD    XQDO+HEADSIZE
+        DD    XQDO+HEADSIZE
+        DD    0x0
+        DD    XDO
+        DD    N_XQDO
+
+        LODSD
+        ADD     EAX,ESI  ;Make absolute
+        POP     EDX      ; INITIAL INDEX VALUE
+        POP     EBX      ; LIMIT VALUE
+        CMP     EDX,EBX
+        JZ      QXDO1
+        XCHG    EBP,ESP   ; GET RETURN STACK
+        PUSH    EAX      ; Target location.
+        PUSH    EBX
+        PUSH    EDX
+        XCHG    EBP,ESP   ; GET PARAMETER STACK
+        JMP NEXT
+QXDO1:  MOV     ESI,EAX
+        JMP NEXT
+;
+
+;  *********
+;  *   I   *
+;  *********
+;
+N_IDO:
+        DD      1
+        DB      "I"
+IDO:
+        DD    IDO+HEADSIZE
+        DD    IDO+HEADSIZE
+        DD    0x0
+        DD    XQDO
+        DD    N_IDO
+
+        MOV     EAX,[EBP] ; GET INDEX VALUE
+        PUSH    EAX
+        JMP NEXT          ; TO PARAMETER STACK
+;
+
+;  *********
+;  *   J   *
+;  *********
+;
+N_JDO:
+        DD      1
+        DB      "J"
+JDO:
+        DD    JDO+HEADSIZE
+        DD    JDO+HEADSIZE
+        DD    0x0
+        DD    IDO
+        DD    N_JDO
+
+        MOV     EAX,[EBP+(CW*(3))] ; GET INDEX VALUE
+        PUSH    EAX
+        JMP NEXT          ; TO PARAMETER STACK
+;
+
+;  **************
+;  *   UNLOOP   *
+;  **************
+;
+N_UNLOOP:
+        DD      6
+        DB      "UNLOOP"
+UNLOOP:
+        DD    DOCOL
+        DD    UNLOOP+HEADSIZE
+        DD    B_IMMED
+        DD    JDO
+        DD    N_UNLOOP
+
+        DD      LIT, RDROP, COMMA
+        DD      LIT, RDROP, COMMA
+        DD      LIT, RDROP, COMMA
+        DD      SEMIS
+;
+
+;  ***************
+;  *   +ORIGIN   *
+;  ***************
+;
+N_PORIG:
+        DD      7
+        DB      "+ORIGIN"
+PORIG:
+        DD    DOCOL
+        DD    PORIG+HEADSIZE
+        DD    0x0
+        DD    UNLOOP
+        DD    N_PORIG
+
+        DD      LIT
+        DD      USINI
+        DD      PLUS
+        DD      SEMIS
+;
+;      Initialisation block for user variables through DOC-LINK
+;       <<<<< must be in same order as user variables >>>>>
+;
+;        DD      WARM_ENTRY FIXME
+;        DD      COLD_ENTRY
+USINI:  DD      STRUSA  ; User area currently in use, cold value same as next.
+        DD      STRUSA  ; INIT (U0) user area of the main task 1
+        DD      INITS0  ; INIT (S0)         2
+        DD      INITR0  ; INIT (R0)         3
+        DD      STRTIB  ; INIT (TIB)        4
+        DD      BSIN    ; RUBOUT: get rid of latest char 5
+        DD      0       ; AVAILABLE         6
+        DD      1       ; INIT (WARNING)     7
+        DD      INITDP  ;      INIT (FENCE)  8
+DPA:    DD      INITDP  ;      INIT (DP)     9
+        DD      ENV ;       INIT (VOC-LINK) 10
+
+        DD      0       ; INIT (OFFSET) 
+;
+;
+;
+;
+;
+;
+        DD      0, 0            ; WHERE             12 13 
+        DD      0, 0            ;REMAINDER   14 15 
+; 
+        RESB    US-($ - USINI)        ; All user can be initialised.
+;
+;      <<<<< end of data used by cold start >>>>>
+
+;  *************
+;  *   DIGIT   *
+;  *************
+;
+N_DIGIT:
+        DD      5
+        DB      "DIGIT"
+DIGIT:
+        DD    DIGIT+HEADSIZE
+        DD    DIGIT+HEADSIZE
+        DD    0x0
+        DD    PORIG
+        DD    N_DIGIT
+
+        POP     EDX      ;NUMBER BASE
+        POP     EAX      ;ASCII DIGIT
+        SUB     AL, '0'
+        JB      DIGI2   ;NUMBER ERROR
+        CMP     AL, 9
+        JBE     DIGI1   ;NUMBER = 0 THRU 9
+        SUB     AL, 7
+        CMP     AL, 10   ;NUMBER 'A' THRU 'Z'?
+        JB      DIGI2   ;NO
+DIGI1:  CMP     AL,DL   ; COMPARE NUMBER TO BASE
+        JAE     DIGI2   ;NUMBER ERROR
+        SUB     EDX,EDX   ;ZERO
+        MOV     DL,AL   ;NEW BINARY NUMBER
+        MOV     AL, 1    ;TRUE FLAG
+        NEG     EAX
+        PUSH    EDX
+        PUSH    EAX
+        JMP NEXT          ;ADD TO STACK
+;   NUMBER ERROR
+DIGI2:  SUB     EAX,EAX   ;FALSE FLAG
+        PUSH    EDX
+        PUSH    EAX
+        JMP NEXT
+;
+
+;  **************
+;  *   ~MATCH   *
+;  **************
+;
+N_NMATCH:
+        DD      6
+        DB      "~MATCH"
+NMATCH:
+        DD    DOCOL
+        DD    NMATCH+HEADSIZE
+        DD    0x0
+        DD    DIGIT
+        DD    N_NMATCH
+
+;
+        DD      TOR                           ; Remember dea
+        DD      TDUP
+        DD      RR, TNFA, FETCH, SFET
+        DD      ROT, MIN
+        DD      CORA
+        DD      FROMR, SWAP                   ; Leave flag on top of dea.
+        DD      SEMIS                            ;
+;
+
+;  **************
+;  *   ?BLANK   *
+;  **************
+;
+N_QBL:
+        DD      6
+        DB      "?BLANK"
+QBL:
+        DD    DOCOL
+        DD    QBL+HEADSIZE
+        DD    0x0
+        DD    NMATCH
+        DD    N_QBL
+
+        DD      LBL, ONEP, LESS
+        DD      SEMIS
+;
+
+;  ************
+;  *   IN[]   *
+;  ************
+;
+N_INBRS:
+        DD      4
+        DB      "IN[]"
+INBRS:
+        DD    DOCOL
+        DD    INBRS+HEADSIZE
+        DD    0x0
+        DD    QBL
+        DD    N_INBRS
+
+        DD      SRC, CELLP, TFET
+        DD      OVER, EQUAL
+        DD      ZBRAN
+        DD      INBRS1-$-CW
+        DD      ZERO
+        DD      BRAN
+        DD      INBRS2-$-CW
+INBRS1:
+        DD      LDUP
+        
+        DD      CFET
+        DD      ONE, LIN, PSTORE
+INBRS2:
+        DD      SEMIS
+;
+
+;  **************
+;  *   (WORD)   *
+;  **************
+;
+N_LPWORD:
+        DD      6
+        DB      "(WORD)"
+LPWORD:
+        DD    DOCOL
+        DD    LPWORD+HEADSIZE
+        DD    0x0
+        DD    INBRS
+        DD    N_LPWORD
+
+        DD      X
+PWORD0: DD      DROP
+        DD      INBRS, QBL
+        DD      OVER, SRC, CELLP, FETCH, LSUB ; At end?
+        DD      LAND, ZEQU
+        DD      ZBRAN
+        DD      PWORD0-$-CW
+
+        DD      X
+PWORD1: DD      DROP
+        DD      INBRS, QBL
+        DD      ZBRAN
+        DD      PWORD1-$-CW
+
+        DD      OVER, LSUB
+        
+        DD      SEMIS
+;
+
+;  ***************
+;  *   (PARSE)   *
+;  ***************
+;
+N_PPARS:
+        DD      7
+        DB      "(PARSE)"
+PPARS:
+        DD    DOCOL
+        DD    PPARS+HEADSIZE
+        DD    0x0
+        DD    LPWORD
+        DD    N_PPARS
+
+        DD      SRC, CELLP, TFET
+        DD      OVER, LSUB
+        
+        DD      ROT, SSPLIT, TSWAP
+        DD      ZEQU
+        DD      ZBRAN
+        DD      PPARS8-$-CW
+        DD      DROP, SRC, CELLP, FETCH
+PPARS8: 
+        DD      LIN, STORE
+        DD SEMIS
+;
+
+;  ***********
+;  *   SRC   *
+;  ***********
+;
+N_SRC:
+        DD      3
+        DB      "SRC"
+SRC:
+        DD    DOUSE
+        DD    (CW*(27))
+        DD    0x0
+        DD    PPARS
+        DD    N_SRC
+      ; And 28 and 29.
+;
+
+
+;  **************
+;  *   SOURCE   *
+;  **************
+;
+N_SOURCE:
+        DD      6
+        DB      "SOURCE"
+SOURCE:
+        DD    DOCOL
+        DD    SOURCE+HEADSIZE
+        DD    0x0
+        DD    SRC
+        DD    N_SOURCE
+
+        DD      SRC, FETCH
+        DD      SRC, CELLP, FETCH
+        DD      OVER, LSUB
+        DD      SEMIS
+;
+
+;  ***********
+;  *   >IN   *
+;  ***********
+;
+N_IIN:
+        DD      3
+        DB      ">IN"
+IIN:
+        DD    DOCOL
+        DD    IIN+HEADSIZE
+        DD    0x0
+        DD    SOURCE
+        DD    N_IIN
+
+        DD      LIN, FETCH
+        DD      SRC, FETCH, LSUB     
+        DD      PIIN, STORE
+        DD      PIIN
+        DD      SEMIS
+;
+;
+
+;  **********
+;  *   CR   *
+;  **********
+;
+N_CR:
+        DD      2
+        DB      "CR"
+CR:
+        DD    DOCOL
+        DD    CR+HEADSIZE
+        DD    0x0
+        DD    IIN
+        DD    N_CR
+
+        DD      LIT,ALF
+        DD      EMIT
+        DD      ZERO, LOUT, STORE
+        DD      SEMIS
+;
+
+;  *************
+;  *   CMOVE   *
+;  *************
+;
+N_LCMOVE:
+        DD      5
+        DB      "CMOVE"
+LCMOVE:
+        DD    LCMOVE+HEADSIZE
+        DD    LCMOVE+HEADSIZE
+        DD    0x0
+        DD    CR
+        DD    N_LCMOVE
+
+        CLD             ;direction
+        MOV     EBX,ESI   ;save 
+        POP     ECX      ;count
+        POP     EDI      ;dest
+        POP     ESI      ;source
+        REP     MOVSB
+        MOV     ESI,EBX   ;get back 
+        JMP NEXT
+;
+
+;  ************
+;  *   MOVE   *
+;  ************
+;
+N_LMOVE:
+        DD      4
+        DB      "MOVE"
+LMOVE:
+        DD    LMOVE+HEADSIZE
+        DD    LMOVE+HEADSIZE
+        DD    0x0
+        DD    LCMOVE
+        DD    N_LMOVE
+
+        MOV     EBX,ESI   ;SAVE 
+        POP     ECX      ;count
+        POP     EDI      ;dest
+        POP     ESI      ;source
+        CMP     ESI,EDI
+        JC    MOVE1
+        CLD             ;INC DIRECTION
+        JMP SHORT MOVE2
+MOVE1:  STD
+        ADD     EDI,ECX
+        DEC     EDI
+        ADD     ESI,ECX
+        DEC     ESI
+MOVE2:
+        REP     MOVSB   ;THAT'S THE MOVE
+        CLD             ;INC DIRECTION
+        MOV     ESI,EBX   ;GET BACK 
+        JMP NEXT
+;
+
+;  ***************
+;  *   FARMOVE   *
+;  ***************
+;
+N_FMOVE:
+        DD      7
+        DB      "FARMOVE"
+FMOVE:
+        DD    FMOVE+HEADSIZE
+        DD    FMOVE+HEADSIZE
+        DD    0x0
+        DD    LMOVE
+        DD    N_FMOVE
+
+        CLD             ;direction
+        MOV     EAX,ESI   ;save 
+        MOV     EBX,DS    ;save 
+        POP     ECX      ;count
+        POP     EDI      ;dest
+        POP     EDX
+        AND     EDX,EDX
+        JZ      FARMV1
+        MOV     ES,EDX
+FARMV1:
+        POP     ESI      ;source
+        POP     EDX
+        PUSH    DS
+        PUSH    EBX      ;ES in fact.
+        AND     EDX,EDX
+        JZ      FARMV2
+        MOV     DS,EDX
+FARMV2:
+        REP     MOVSB
+        MOV     ESI,EAX   ;restore 
+        POP     ES
+        POP     DS
+        JMP NEXT
+;
+
+;  ***********
+;  *   UM*   *
+;  ***********
+;
+N_USTAR:
+        DD      3
+        DB      "UM*"
+USTAR:
+        DD    USTAR+HEADSIZE
+        DD    USTAR+HEADSIZE
+        DD    0x0
+        DD    FMOVE
+        DD    N_USTAR
+
+        POP     EAX
+        POP     EBX
+        MUL     EBX      ;UNSIGNED
+        XCHG    EAX,EDX   ;AX NOW = MSW
+        PUSH    EDX
+        PUSH    EAX
+        JMP NEXT          ;STORE DOUBLE CELL
+;
+
+;  **************
+;  *   UM/MOD   *
+;  **************
+;
+N_USLAS:
+        DD      6
+        DB      "UM/MOD"
+USLAS:
+        DD    USLAS+HEADSIZE
+        DD    USLAS+HEADSIZE
+        DD    0x0
+        DD    USTAR
+        DD    N_USLAS
+
+        POP     EBX      ;DIVISOR
+        POP     EDX      ;MSW OF DIVIDEND
+        POP     EAX      ;LSW OF DIVIDEND
+        DIV     EBX      ;16 BIT DIVIDE
+        PUSH    EDX
+        PUSH    EAX
+        JMP NEXT          ;STORE QUOT/REM
+;
+
+;  ***********
+;  *   AND   *
+;  ***********
+;
+N_LAND:
+        DD      3
+        DB      "AND"
+LAND:
+        DD    LAND+HEADSIZE
+        DD    LAND+HEADSIZE
+        DD    0x0
+        DD    USLAS
+        DD    N_LAND
+
+        POP     EAX
+        POP     EBX
+        AND     EAX,EBX
+        PUSH    EAX
+        JMP NEXT
+;
+
+;  **********
+;  *   OR   *
+;  **********
+;
+N_LOR:
+        DD      2
+        DB      "OR"
+LOR:
+        DD    LOR+HEADSIZE
+        DD    LOR+HEADSIZE
+        DD    0x0
+        DD    LAND
+        DD    N_LOR
+
+        POP     EAX      ; (S1) <- (S1) OR (S2)
+        POP     EBX
+        OR      EAX,EBX
+        PUSH    EAX
+        JMP NEXT
+;
+
+;  ***********
+;  *   XOR   *
+;  ***********
+;
+N_LXOR:
+        DD      3
+        DB      "XOR"
+LXOR:
+        DD    LXOR+HEADSIZE
+        DD    LXOR+HEADSIZE
+        DD    0x0
+        DD    LOR
+        DD    N_LXOR
+
+        POP     EAX      ; (S1) <- (S1) XOR (S2)
+        POP     EBX
+        XOR     EAX,EBX
+        PUSH    EAX
+        JMP NEXT
+;
+
+;  **************
+;  *   INVERT   *
+;  **************
+;
+N_INVERT:
+        DD      6
+        DB      "INVERT"
+INVERT:
+        DD    INVERT+HEADSIZE
+        DD    INVERT+HEADSIZE
+        DD    0x0
+        DD    LXOR
+        DD    N_INVERT
+
+        POP     EAX      ; (S1) <- (S1) XOR (S2)
+        NOT     EAX
+        PUSH    EAX
+        JMP NEXT
+;
+
+;  ************
+;  *   DSP@   *
+;  ************
+;
+N_SPFET:
+        DD      4
+        DB      "DSP@"
+SPFET:
+        DD    SPFET+HEADSIZE
+        DD    SPFET+HEADSIZE
+        DD    0x0
+        DD    INVERT
+        DD    N_SPFET
+
+        MOV     EAX,ESP   ; (S1) <- (SP)
+        PUSH    EAX
+        JMP NEXT
+;
+
+;  ************
+;  *   DSP!   *
+;  ************
+;
+N_SPSTO:
+        DD      4
+        DB      "DSP!"
+SPSTO:
+        DD    SPSTO+HEADSIZE
+        DD    SPSTO+HEADSIZE
+        DD    0x0
+        DD    SPFET
+        DD    N_SPSTO
+
+        POP     EAX
+        MOV     ESP,EAX        ;RESET PARAM STACK POINTER
+        JMP NEXT
+;
+
+
+;  *************
+;  *   DEPTH   *
+;  *************
+;
+N_DEPTH:
+        DD      5
+        DB      "DEPTH"
+DEPTH:
+        DD    DOCOL
+        DD    DEPTH+HEADSIZE
+        DD    0x0
+        DD    SPSTO
+        DD    N_DEPTH
+
+        DD      SZERO, FETCH
+        DD      SPFET
+        DD      LSUB
+        DD      LIT, CW, SLASH
+        DD      ONEM
+        DD      SEMIS
+;
+;
+
+;  ************
+;  *   RSP@   *
+;  ************
+;
+N_RPFET:
+        DD      4
+        DB      "RSP@"
+RPFET:
+        DD    RPFET+HEADSIZE
+        DD    RPFET+HEADSIZE
+        DD    0x0
+        DD    DEPTH
+        DD    N_RPFET
+      ;(S1) <- (RP)
+        PUSH    EBP
+        JMP NEXT
+;
+
+;  ************
+;  *   RSP!   *
+;  ************
+;
+N_RPSTO:
+        DD      4
+        DB      "RSP!"
+RPSTO:
+        DD    RPSTO+HEADSIZE
+        DD    RPSTO+HEADSIZE
+        DD    0x0
+        DD    RPFET
+        DD    N_RPSTO
+
+        POP     EBP
+        JMP NEXT
+;
+
+;  ************
+;  *   EXIT   *
+;  ************
+;
+N_EXIT:
+        DD      4
+        DB      "EXIT"
+EXIT:
+        DD    EXIT+HEADSIZE
+        DD    EXIT+HEADSIZE
+        DD    0x0
+        DD    RPSTO
+        DD    N_EXIT
+
+        MOV     ESI,[EBP] ;(IP) <- (R1)
+        LEA     EBP,[EBP+(CW*(1))]
+        JMP NEXT
+;
+
+;  **********
+;  *   CO   *
+;  **********
+;
+N_CO:
+        DD      2
+        DB      "CO"
+CO:
+        DD    CO+HEADSIZE
+        DD    CO+HEADSIZE
+        DD    0x0
+        DD    EXIT
+        DD    N_CO
+
+        XCHG    ESI,[EBP]
+        JMP NEXT
+;
+
+;  ***********
+;  *   (;)   *
+;  ***********
+;
+N_SEMIS:
+        DD      3
+        DB      "(;)"
+SEMIS:
+        DD    (EXIT+HEADSIZE)
+        DD    SEMIS+HEADSIZE
+        DD    0x0
+        DD    CO
+        DD    N_SEMIS
+
+;
+
+;  *************
+;  *   LEAVE   *
+;  *************
+;
+N_LLEAV:
+        DD      5
+        DB      "LEAVE"
+LLEAV:
+        DD    DOCOL
+        DD    LLEAV+HEADSIZE
+        DD    0x0
+        DD    SEMIS
+        DD    N_LLEAV
+  ;LIMIT <- INDEX
+        DD      RDROP, RDROP, RDROP
+        DD      SEMIS
+;
+
+;  **********
+;  *   >R   *
+;  **********
+;
+N_TOR:
+        DD      2
+        DB      ">R"
+TOR:
+        DD    TOR+HEADSIZE
+        DD    TOR+HEADSIZE
+        DD    0x0
+        DD    LLEAV
+        DD    N_TOR
+        ; (R1) <- (S1)
+        POP     EBX      ;GET STACK PARAMETER
+        LEA     EBP,[EBP - (CW*(1))]    ;MOVE RETURN STACK DOWN
+        MOV     [EBP],EBX ;ADD TO RETURN STACK
+        JMP NEXT
+;
+
+;  **********
+;  *   R>   *
+;  **********
+;
+N_FROMR:
+        DD      2
+        DB      "R>"
+FROMR:
+        DD    FROMR+HEADSIZE
+        DD    FROMR+HEADSIZE
+        DD    0x0
+        DD    TOR
+        DD    N_FROMR
+      ;(S1) <- (R1)
+        MOV     EAX,[EBP] ; GET RETURN STACK VALUE
+        LEA     EBP,[EBP + (CW*(1))]
+        PUSH    EAX
+        JMP NEXT
+;
+
+;  *************
+;  *   RDROP   *
+;  *************
+;
+N_RDROP:
+        DD      5
+        DB      "RDROP"
+RDROP:
+        DD    RDROP+HEADSIZE
+        DD    RDROP+HEADSIZE
+        DD    0x0
+        DD    FROMR
+        DD    N_RDROP
+      ;(S1) <- (R1)
+        LEA     EBP,[EBP+(CW*(1))]
+        JMP NEXT
+;
+
+;  **********
+;  *   R@   *
+;  **********
+;
+N_RR:
+        DD      2
+        DB      "R@"
+RR:
+        DD    (IDO+HEADSIZE)
+        DD    RR+HEADSIZE
+        DD    0x0
+        DD    RDROP
+        DD    N_RR
+
+;
+
+;  **********
+;  *   0=   *
+;  **********
+;
+N_ZEQU:
+        DD      2
+        DB      "0="
+ZEQU:
+        DD    ZEQU+HEADSIZE
+        DD    ZEQU+HEADSIZE
+        DD    0x0
+        DD    RR
+        DD    N_ZEQU
+
+        POP     EAX
+        NEG     EAX
+        CMC
+        SBB     EAX,EAX
+        PUSH    EAX
+        JMP NEXT
+;
+
+;  **********
+;  *   0<   *
+;  **********
+;
+N_ZLESS:
+        DD      2
+        DB      "0<"
+ZLESS:
+        DD    ZLESS+HEADSIZE
+        DD    ZLESS+HEADSIZE
+        DD    0x0
+        DD    ZEQU
+        DD    N_ZLESS
+
+        POP     EAX
+        OR      EAX,EAX   ;SET FLAGS
+        MOV     EAX,0    ;FALSE
+        JNS     ZLESS1
+        DEC     EAX      ;TRUE
+ZLESS1: PUSH    EAX
+        JMP NEXT
+;
+
+;  *********
+;  *   +   *
+;  *********
+;
+N_PLUS:
+        DD      1
+        DB      "+"
+PLUS:
+        DD    PLUS+HEADSIZE
+        DD    PLUS+HEADSIZE
+        DD    0x0
+        DD    ZLESS
+        DD    N_PLUS
+
+        POP     EAX      ;(S1) <- (S1) + (S2)
+        POP     EBX
+        ADD     EAX,EBX
+        PUSH    EAX
+        JMP NEXT
+;
+
+;  **********
+;  *   D+   *
+;  **********
+;
+N_DPLUS:
+        DD      2
+        DB      "D+"
+DPLUS:
+        DD    DPLUS+HEADSIZE
+        DD    DPLUS+HEADSIZE
+        DD    0x0
+        DD    PLUS
+        DD    N_DPLUS
+
+        POP     EAX      ; YHW
+        POP     EDX      ; YLW
+        POP     EBX      ; XHW
+        POP     ECX      ; XLW
+        ADD     EDX,ECX   ; SLW
+        ADC     EAX,EBX   ; SHW
+        PUSH    EDX
+        PUSH    EAX
+        JMP NEXT
+;
+
+;  **************
+;  *   NEGATE   *
+;  **************
+;
+N_NEGATE:
+        DD      6
+        DB      "NEGATE"
+NEGATE:
+        DD    NEGATE+HEADSIZE
+        DD    NEGATE+HEADSIZE
+        DD    0x0
+        DD    DPLUS
+        DD    N_NEGATE
+
+        POP     EAX
+        NEG     EAX
+        PUSH    EAX
+        JMP NEXT
+;
+
+;  ***************
+;  *   DNEGATE   *
+;  ***************
+;
+N_DNEGA:
+        DD      7
+        DB      "DNEGATE"
+DNEGA:
+        DD    DNEGA+HEADSIZE
+        DD    DNEGA+HEADSIZE
+        DD    0x0
+        DD    NEGATE
+        DD    N_DNEGA
+
+        POP     EBX
+        POP     ECX
+        SUB     EAX,EAX
+        MOV     EDX,EAX
+        SUB     EDX,ECX   ; MAKE 2'S COMPLEMENT
+        SBB     EAX,EBX   ; HIGH CELL
+        PUSH    EDX
+        PUSH    EAX
+        JMP NEXT
+        ;
+;
+
+;  ************
+;  *   OVER   *
+;  ************
+;
+N_OVER:
+        DD      4
+        DB      "OVER"
+OVER:
+        DD    OVER+HEADSIZE
+        DD    OVER+HEADSIZE
+        DD    0x0
+        DD    DNEGA
+        DD    N_OVER
+
+        POP     EDX
+        POP     EAX
+        PUSH    EAX
+        PUSH    EDX
+        PUSH    EAX
+        JMP NEXT
+;
+
+;  ************
+;  *   DROP   *
+;  ************
+;
+N_DROP:
+        DD      4
+        DB      "DROP"
+DROP:
+        DD    DROP+HEADSIZE
+        DD    DROP+HEADSIZE
+        DD    0x0
+        DD    OVER
+        DD    N_DROP
+
+        POP     EAX
+        JMP NEXT
+;
+
+;  *************
+;  *   2DROP   *
+;  *************
+;
+N_TDROP:
+        DD      5
+        DB      "2DROP"
+TDROP:
+        DD    TDROP+HEADSIZE
+        DD    TDROP+HEADSIZE
+        DD    0x0
+        DD    DROP
+        DD    N_TDROP
+
+        POP     EAX
+        POP     EAX
+        JMP NEXT
+;
+
+;  ************
+;  *   SWAP   *
+;  ************
+;
+N_SWAP:
+        DD      4
+        DB      "SWAP"
+SWAP:
+        DD    SWAP+HEADSIZE
+        DD    SWAP+HEADSIZE
+        DD    0x0
+        DD    TDROP
+        DD    N_SWAP
+
+        POP     EDX
+        POP     EAX
+        PUSH    EDX
+        PUSH    EAX
+        JMP NEXT
+;
+
+;  ***********
+;  *   DUP   *
+;  ***********
+;
+N_LDUP:
+        DD      3
+        DB      "DUP"
+LDUP:
+        DD    LDUP+HEADSIZE
+        DD    LDUP+HEADSIZE
+        DD    0x0
+        DD    SWAP
+        DD    N_LDUP
+
+        POP     EAX
+        PUSH    EAX
+        PUSH    EAX
+        JMP NEXT
+;
+
+;  ************
+;  *   2DUP   *
+;  ************
+;
+N_TDUP:
+        DD      4
+        DB      "2DUP"
+TDUP:
+        DD    TDUP+HEADSIZE
+        DD    TDUP+HEADSIZE
+        DD    0x0
+        DD    LDUP
+        DD    N_TDUP
+
+        POP     EAX
+        POP     EDX
+        PUSH    EDX
+        PUSH    EAX
+        PUSH    EDX
+        PUSH    EAX
+        JMP NEXT
+;
+
+;  *************
+;  *   2SWAP   *
+;  *************
+;
+N_TSWAP:
+        DD      5
+        DB      "2SWAP"
+TSWAP:
+        DD    TSWAP+HEADSIZE
+        DD    TSWAP+HEADSIZE
+        DD    0x0
+        DD    TDUP
+        DD    N_TSWAP
+
+        POP     EBX
+        POP     ECX
+        POP     EAX
+        POP     EDX
+        PUSH     ECX
+        PUSH     EBX
+        PUSH    EDX
+        PUSH    EAX
+        JMP NEXT
+;
+
+;  *************
+;  *   2OVER   *
+;  *************
+;
+N_TOVER:
+        DD      5
+        DB      "2OVER"
+TOVER:
+        DD    TOVER+HEADSIZE
+        DD    TOVER+HEADSIZE
+        DD    0x0
+        DD    TSWAP
+        DD    N_TOVER
+
+        POP     EBX
+        POP     ECX
+        POP     EAX
+        POP     EDX
+        PUSH     EDX
+        PUSH     EAX
+        PUSH     ECX
+        PUSH     EBX
+        PUSH    EDX
+        PUSH    EAX
+        JMP NEXT
+;
+
+;  **********
+;  *   +!   *
+;  **********
+;
+N_PSTORE:
+        DD      2
+        DB      "+!"
+PSTORE:
+        DD    PSTORE+HEADSIZE
+        DD    PSTORE+HEADSIZE
+        DD    0x0
+        DD    TOVER
+        DD    N_PSTORE
+
+        POP     EBX      ;ADDRESS
+        POP     EAX      ;INCREMENT
+        ADD     [EBX],EAX
+        JMP NEXT
+;
+
+;  **************
+;  *   TOGGLE   *
+;  **************
+;
+N_TOGGL:
+        DD      6
+        DB      "TOGGLE"
+TOGGL:
+        DD    TOGGL+HEADSIZE
+        DD    TOGGL+HEADSIZE
+        DD    0x0
+        DD    PSTORE
+        DD    N_TOGGL
+
+        POP     EAX      ;BIT PATTERN
+        POP     EBX      ;ADDR
+        XOR     [EBX],EAX ;
+        JMP NEXT
+;
+
+;  *********
+;  *   @   *
+;  *********
+;
+N_FETCH:
+        DD      1
+        DB      "@"
+FETCH:
+        DD    FETCH+HEADSIZE
+        DD    FETCH+HEADSIZE
+        DD    0x0
+        DD    TOGGL
+        DD    N_FETCH
+
+        POP     EBX
+        MOV     EAX,[EBX]
+        PUSH    EAX
+        JMP NEXT
+;
+
+;  **********
+;  *   C@   *
+;  **********
+;
+N_CFET:
+        DD      2
+        DB      "C@"
+CFET:
+        DD    CFET+HEADSIZE
+        DD    CFET+HEADSIZE
+        DD    0x0
+        DD    FETCH
+        DD    N_CFET
+
+        POP     EBX
+        XOR     EAX,EAX
+        MOV     AL,[EBX]
+        PUSH    EAX
+        JMP NEXT
+;
+
+;  **********
+;  *   2@   *
+;  **********
+;
+N_TFET:
+        DD      2
+        DB      "2@"
+TFET:
+        DD    TFET+HEADSIZE
+        DD    TFET+HEADSIZE
+        DD    0x0
+        DD    CFET
+        DD    N_TFET
+
+        POP     EBX      ;ADDR
+        MOV     EAX,[EBX] ;MSW
+        MOV     EDX,[EBX+(CW*(1))]        ;LSW
+        PUSH    EDX
+        PUSH    EAX
+        JMP NEXT
+;
+
+;  *********
+;  *   !   *
+;  *********
+;
+N_STORE:
+        DD      1
+        DB      "!"
+STORE:
+        DD    STORE+HEADSIZE
+        DD    STORE+HEADSIZE
+        DD    0x0
+        DD    TFET
+        DD    N_STORE
+
+        POP     EBX      ;ADDR
+        POP     EAX      ;DATA
+        MOV     [EBX],EAX
+        JMP NEXT
+;
+
+;  **********
+;  *   C!   *
+;  **********
+;
+N_CSTOR:
+        DD      2
+        DB      "C!"
+CSTOR:
+        DD    CSTOR+HEADSIZE
+        DD    CSTOR+HEADSIZE
+        DD    0x0
+        DD    STORE
+        DD    N_CSTOR
+
+        POP     EBX      ;ADDR
+        POP     EAX      ;DATA
+        MOV     [EBX],AL
+        JMP NEXT
+;
+
+;  **********
+;  *   2!   *
+;  **********
+;
+N_TSTOR:
+        DD      2
+        DB      "2!"
+TSTOR:
+        DD    TSTOR+HEADSIZE
+        DD    TSTOR+HEADSIZE
+        DD    0x0
+        DD    CSTOR
+        DD    N_TSTOR
+
+        POP     EBX      ;ADDR
+        POP     EAX      ;MSW
+        MOV     [EBX],EAX
+        POP     EAX      ;LSW
+        MOV     [EBX+(CW*(1))],EAX
+        JMP NEXT
+;
+
+;  **************
+;  *   WITHIN   *
+;  **************
+;
+N_WITHIN:
+        DD      6
+        DB      "WITHIN"
+WITHIN:
+        DD    DOCOL
+        DD    WITHIN+HEADSIZE
+        DD    0x0
+        DD    TSTOR
+        DD    N_WITHIN
+
+        DD      OVER, LSUB, TOR
+        DD      LSUB, FROMR
+        DD      ULESS
+        DD      SEMIS
+;
+
+
+;  **********
+;  *   L@   *
+;  **********
+;
+N_LFET:
+        DD      2
+        DB      "L@"
+LFET:
+        DD    LFET+HEADSIZE
+        DD    LFET+HEADSIZE
+        DD    0x0
+        DD    WITHIN
+        DD    N_LFET
+
+        POP     EBX      ;Offset
+        POP     ECX      ;Segment
+        MOV     EDX,DS
+        MOV     DS,ECX
+        MOV     EBX,[EBX]
+        MOV     DS,EDX
+        PUSH    EBX
+        JMP NEXT
+;
+
+;  **********
+;  *   L!   *
+;  **********
+;
+N_LSTORE:
+        DD      2
+        DB      "L!"
+LSTORE:
+        DD    LSTORE+HEADSIZE
+        DD    LSTORE+HEADSIZE
+        DD    0x0
+        DD    LFET
+        DD    N_LSTORE
+
+        POP     EBX
+        POP     ECX
+        POP     EDX
+        MOV     EAX,DS
+        MOV     DS,ECX
+        MOV     [EBX],EDX
+        MOV     DS,EAX
+        JMP NEXT
+;
+;
+
+;  *********
+;  *   :   *
+;  *********
+;
+N_COLON:
+        DD      1
+        DB      ":"
+COLON:
+        DD    DOCOL
+        DD    COLON+HEADSIZE
+        DD    0x0
+        DD    LSTORE
+        DD    N_COLON
+
+        DD      SCSP
+        DD      LPWORD
+        DD      PCREAT
+        DD      LATEST, HIDDEN
+        DD      RBRAC
+        DD      PSCOD
+DOCOL:  LEA     EBP,[EBP - (CW*(1))]  ;Push HIP
+        MOV     [EBP],ESI ;R1 <- (IP)
+         MOV     ESI,[EAX+(CW*(D_HOFFSET - C_HOFFSET))]  ;(IP) <- (PFA)
+;        CALL    DISPLAYSI
+; 
+        JMP NEXT
+;
+
+;  *********
+;  *   ;   *
+;  *********
+;
+N_SEMI:
+        DD      1
+        DB      ";"
+SEMI:
+        DD    DOCOL
+        DD    SEMI+HEADSIZE
+        DD    B_IMMED
+        DD    COLON
+        DD    N_SEMI
+
+        DD      QCSP
+        DD      LIT, SEMIS, COMMA
+        DD      LATEST, HIDDEN
+        DD      LBRAC
+        DD      SEMIS
+;
+
+;  ****************
+;  *   CONSTANT   *
+;  ****************
+;
+N_LCONST:
+        DD      8
+        DB      "CONSTANT"
+LCONST:
+        DD    DOCOL
+        DD    LCONST+HEADSIZE
+        DD    0x0
+        DD    SEMI
+        DD    N_LCONST
+
+        DD      LPWORD
+        DD      PCREAT
+        DD      LATEST, TDFA, STORE
+        DD      PSCOD
+DOCON:  MOV     EAX,[EAX+(CW*((D_HOFFSET)))] ;GET DATA FROM PFA
+        PUSH    EAX
+        JMP NEXT
+;
+
+;  ****************
+;  *   VARIABLE   *
+;  ****************
+;
+N_VAR:
+        DD      8
+        DB      "VARIABLE"
+VAR:
+        DD    DOCOL
+        DD    VAR+HEADSIZE
+        DD    0x0
+        DD    LCONST
+        DD    N_VAR
+
+        DD      LPWORD
+        DD      PCREAT
+        DD      ZERO, COMMA
+        DD      PSCOD
+DOVAR:  MOV     EAX,[EAX+(CW*((D_HOFFSET)))] ;(AX) <- PFA
+        PUSH    EAX
+        JMP NEXT
+;
+
+;  ************
+;  *   USER   *
+;  ************
+;
+N_USER:
+        DD      4
+        DB      "USER"
+USER:
+        DD    DOCOL
+        DD    USER+HEADSIZE
+        DD    0x0
+        DD    VAR
+        DD    N_USER
+
+        DD      LCONST
+        DD      PSCOD
+DOUSE:  MOV     EBX,[EAX+(CW*((D_HOFFSET)))] ;PFA  
+        MOV     EDI, LONG[USINI]
+        LEA     EAX,[EBX+EDI]      ;ADDR OF VARIABLE
+        PUSH    EAX
+        JMP NEXT
+;
+;
+
+;  *********
+;  *   _   *
+;  *********
+;
+N_X:
+        DD      1
+        DB      "_"
+X:
+        DD    X+HEADSIZE
+        DD    X+HEADSIZE
+        DD    0x0
+        DD    USER
+        DD    N_X
+
+        PUSH    EAX
+        JMP NEXT ;Whatever happens to be in EAX, i.e. the dea of ``_''.
+;
+
+;  *********
+;  *   0   *
+;  *********
+;
+N_ZERO:
+        DD      1
+        DB      "0"
+ZERO:
+        DD    DOCON
+        DD    0
+        DD    0x0
+        DD    X
+        DD    N_ZERO
+
+; The data field of 0 is used for an empty string.
+;
+
+;  *********
+;  *   1   *
+;  *********
+;
+N_ONE:
+        DD      1
+        DB      "1"
+ONE:
+        DD    DOCON
+        DD    1
+        DD    0x0
+        DD    ZERO
+        DD    N_ONE
+
+;
+
+;  *********
+;  *   2   *
+;  *********
+;
+N_TWO:
+        DD      1
+        DB      "2"
+TWO:
+        DD    DOCON
+        DD    2
+        DD    0x0
+        DD    ONE
+        DD    N_TWO
+
+;
+
+;  **********
+;  *   BL   *
+;  **********
+;
+N_LBL:
+        DD      2
+        DB      "BL"
+LBL:
+        DD    DOCON
+        DD    ABL
+        DD    0x0
+        DD    TWO
+        DD    N_LBL
+
+;
+
+;
+;  **********
+;  *   $@   *
+;  **********
+;
+N_SFET:
+        DD      2
+        DB      "$@"
+SFET:
+        DD    SFET+HEADSIZE
+        DD    SFET+HEADSIZE
+        DD    0x0
+        DD    LBL
+        DD    N_SFET
+
+        POP   EBX
+        MOV   EAX,[EBX]
+        LEA   EDX, [EBX+(CW*(1))]
+        PUSH    EDX
+        PUSH    EAX
+        JMP NEXT
+;
+
+;  **********
+;  *   $!   *
+;  **********
+;
+N_SSTOR:
+        DD      2
+        DB      "$!"
+SSTOR:
+        DD    DOCOL
+        DD    SSTOR+HEADSIZE
+        DD    0x0
+        DD    SFET
+        DD    N_SSTOR
+
+        DD TDUP, STORE, CELLP, SWAP, LCMOVE
+        DD SEMIS
+;
+
+;  *************
+;  *   $!-BD   *
+;  *************
+;
+N_SSTORBD:
+        DD      5
+        DB      "$!-BD"
+SSTORBD:
+        DD    DOCOL
+        DD    SSTORBD+HEADSIZE
+        DD    0x0
+        DD    SSTOR
+        DD    N_SSTORBD
+
+        DD TDUP, CSTOR, ONEP, SWAP, LCMOVE
+        DD SEMIS
+;
+
+;  ***********
+;  *   $+!   *
+;  ***********
+;
+N_SADD:
+        DD      3
+        DB      "$+!"
+SADD:
+        DD    DOCOL
+        DD    SADD+HEADSIZE
+        DD    0x0
+        DD    SSTORBD
+        DD    N_SADD
+
+        DD   LDUP, FETCH, TOR ; Remember old count.
+        DD   TDUP, PSTORE
+        DD   CELLP, FROMR, PLUS, SWAP, LCMOVE
+        DD SEMIS
+;
+
+;  ***********
+;  *   $C+   *
+;  ***********
+;
+N_CHAPP:
+        DD      3
+        DB      "$C+"
+CHAPP:
+        DD    DOCOL
+        DD    CHAPP+HEADSIZE
+        DD    0x0
+        DD    SADD
+        DD    N_CHAPP
+
+        DD   LDUP, TOR
+        DD   LDUP, FETCH, PLUS, CELLP, CSTOR
+        DD   ONE, FROMR, PSTORE
+        DD SEMIS
+;
+
+;  **********
+;  *   $,   *
+;  **********
+;
+N_SCOMMA:
+        DD      2
+        DB      "$,"
+SCOMMA:
+        DD    DOCOL
+        DD    SCOMMA+HEADSIZE
+        DD    0x0
+        DD    CHAPP
+        DD    N_SCOMMA
+
+        DD HERE, TOR
+        DD LDUP, CELLP, ALLOT
+        DD RR, SSTOR, FROMR
+        DD SEMIS
+;
+
+;  ***********
+;  *   C/L   *
+;  ***********
+;
+N_CSLL:
+        DD      3
+        DB      "C/L"
+CSLL:
+        DD    DOCON
+        DD    64
+        DD    0x0
+        DD    SCOMMA
+        DD    N_CSLL
+
+;
+
+
+;  *************
+;  *   FIRST   *
+;  *************
+;
+N_FIRST:
+        DD      5
+        DB      "FIRST"
+FIRST:
+        DD    DOCON
+        DD    BUF1
+        DD    0x0
+        DD    CSLL
+        DD    N_FIRST
+
+ ;  
+;
+; 
+;
+
+;  *************
+;  *   LIMIT   *
+;  *************
+;
+N_LIMIT:
+        DD      5
+        DB      "LIMIT"
+LIMIT:
+        DD    DOCON
+        DD    BUF1+(KBBUF+2*CW)*NBUF
+        DD    0x0
+        DD    FIRST
+        DD    N_LIMIT
+
+; THE END  OF THE MEMORY 
+
+;  **********
+;  *   EM   *
+;  **********
+;
+N_LEM:
+        DD      2
+        DB      "EM"
+LEM:
+        DD    DOCON
+        DD    ACTUAL_EM
+        DD    0x0
+        DD    LIMIT
+        DD    N_LEM
+
+;
+
+;  **********
+;  *   BM   *
+;  **********
+;
+N_LBM:
+        DD      2
+        DB      "BM"
+LBM:
+        DD    DOCON
+        DD    ORIG
+        DD    0x0
+        DD    LEM
+        DD    N_LBM
+
+;
+
+;  *************
+;  *   B/BUF   *
+;  *************
+;
+N_BBUF:
+        DD      5
+        DB      "B/BUF"
+BBUF:
+        DD    DOCON
+        DD    KBBUF
+        DD    0x0
+        DD    LBM
+        DD    N_BBUF
+
+;
+; All user variables are initialised 
+; with the values from USINI.
+; The implementation relies on the initialisation of 
+; those with numbers (1..11), so change in concord with USINI.
+
+;  **********
+;  *   U0   *
+;  **********
+;
+N_UZERO:
+        DD      2
+        DB      "U0"
+UZERO:
+        DD    DOUSE
+        DD    (CW*(1))
+        DD    0x0
+        DD    BBUF
+        DD    N_UZERO
+
+;
+
+;  **********
+;  *   S0   *
+;  **********
+;
+N_SZERO:
+        DD      2
+        DB      "S0"
+SZERO:
+        DD    DOUSE
+        DD    (CW*(2))
+        DD    0x0
+        DD    UZERO
+        DD    N_SZERO
+
+;
+
+;  **********
+;  *   R0   *
+;  **********
+;
+N_RZERO:
+        DD      2
+        DB      "R0"
+RZERO:
+        DD    DOUSE
+        DD    (CW*(3))
+        DD    0x0
+        DD    SZERO
+        DD    N_RZERO
+
+;
+
+;  ***********
+;  *   TIB   *
+;  ***********
+;
+N_TIB:
+        DD      3
+        DB      "TIB"
+TIB:
+        DD    DOUSE
+        DD    (CW*(4))
+        DD    0x0
+        DD    RZERO
+        DD    N_TIB
+
+;
+
+;  **************
+;  *   RUBOUT   *
+;  **************
+;
+N_RUBOUT:
+        DD      6
+        DB      "RUBOUT"
+RUBOUT:
+        DD    DOUSE
+        DD    (CW*(5))
+        DD    0x0
+        DD    TIB
+        DD    N_RUBOUT
+
+;
+
+;  ***************
+;  *   WARNING   *
+;  ***************
+;
+N_LWARN:
+        DD      7
+        DB      "WARNING"
+LWARN:
+        DD    DOUSE
+        DD    (CW*(7))
+        DD    0x0
+        DD    RUBOUT
+        DD    N_LWARN
+
+;
+
+;  *************
+;  *   FENCE   *
+;  *************
+;
+N_FENCE:
+        DD      5
+        DB      "FENCE"
+FENCE:
+        DD    DOUSE
+        DD    (CW*(8))
+        DD    0x0
+        DD    LWARN
+        DD    N_FENCE
+
+;
+
+;  **********
+;  *   DP   *
+;  **********
+;
+N_LDP:
+        DD      2
+        DB      "DP"
+LDP:
+        DD    DOUSE
+        DD    (CW*(9))
+        DD    0x0
+        DD    FENCE
+        DD    N_LDP
+
+;
+
+;  ****************
+;  *   VOC-LINK   *
+;  ****************
+;
+N_VOCL:
+        DD      8
+        DB      "VOC-LINK"
+VOCL:
+        DD    DOUSE
+        DD    (CW*(10))
+        DD    0x0
+        DD    LDP
+        DD    N_VOCL
+
+;
+
+;  **************
+;  *   OFFSET   *
+;  **************
+;
+N_LOFFSET:
+        DD      6
+        DB      "OFFSET"
+LOFFSET:
+        DD    DOUSE
+        DD    (CW*(11))
+        DD    0x0
+        DD    VOCL
+        DD    N_LOFFSET
+
+;
+; End of user variables with fixed place.
+;
+;
+
+;  *************
+;  *   WHERE   *
+;  *************
+;
+N_LWHERE:
+        DD      5
+        DB      "WHERE"
+LWHERE:
+        DD    DOUSE
+        DD    (CW*(12))
+        DD    0x0
+        DD    LOFFSET
+        DD    N_LWHERE
+    ;  Occupies two CELLS! 
+;
+
+;  ***********
+;  *   SCR   *
+;  ***********
+;
+N_SCR:
+        DD      3
+        DB      "SCR"
+SCR:
+        DD    DOUSE
+        DD    (CW*(33))
+        DD    0x0
+        DD    LWHERE
+        DD    N_SCR
+
+;
+
+;  *************
+;  *   STATE   *
+;  *************
+;
+N_STATE:
+        DD      5
+        DB      "STATE"
+STATE:
+        DD    DOUSE
+        DD    (CW*(18))
+        DD    0x0
+        DD    SCR
+        DD    N_STATE
+
+;
+
+;  ************
+;  *   BASE   *
+;  ************
+;
+N_BASE:
+        DD      4
+        DB      "BASE"
+BASE:
+        DD    DOUSE
+        DD    (CW*(19))
+        DD    0x0
+        DD    STATE
+        DD    N_BASE
+
+;
+
+;  ***********
+;  *   DPL   *
+;  ***********
+;
+N_DPL:
+        DD      3
+        DB      "DPL"
+DPL:
+        DD    DOUSE
+        DD    (CW*(20))
+        DD    0x0
+        DD    BASE
+        DD    N_DPL
+
+;
+
+;  ***********
+;  *   FLD   *
+;  ***********
+;
+N_LFLD:
+        DD      3
+        DB      "FLD"
+LFLD:
+        DD    DOUSE
+        DD    (CW*(21))
+        DD    0x0
+        DD    DPL
+        DD    N_LFLD
+
+;
+
+
+;  ***********
+;  *   CSP   *
+;  ***********
+;
+N_LCSP:
+        DD      3
+        DB      "CSP"
+LCSP:
+        DD    DOUSE
+        DD    (CW*(22))
+        DD    0x0
+        DD    LFLD
+        DD    N_LCSP
+
+;
+;
+
+;  **********
+;  *   R#   *
+;  **********
+;
+N_RNUM:
+        DD      2
+        DB      "R#"
+RNUM:
+        DD    DOUSE
+        DD    (CW*(23))
+        DD    0x0
+        DD    LCSP
+        DD    N_RNUM
+
+;
+
+;  ***********
+;  *   HLD   *
+;  ***********
+;
+N_HLD:
+        DD      3
+        DB      "HLD"
+HLD:
+        DD    DOUSE
+        DD    (CW*(24))
+        DD    0x0
+        DD    RNUM
+        DD    N_HLD
+
+;
+
+;  ***********
+;  *   OUT   *
+;  ***********
+;
+N_LOUT:
+        DD      3
+        DB      "OUT"
+LOUT:
+        DD    DOUSE
+        DD    (CW*(25))
+        DD    0x0
+        DD    HLD
+        DD    N_LOUT
+
+;
+
+;  *************
+;  *   (BLK)   *
+;  *************
+;
+N_PBLK:
+        DD      5
+        DB      "(BLK)"
+PBLK:
+        DD    DOUSE
+        DD    (CW*(26))
+        DD    0x0
+        DD    LOUT
+        DD    N_PBLK
+
+;
+
+;  **********
+;  *   IN   *
+;  **********
+;
+N_LIN:
+        DD      2
+        DB      "IN"
+LIN:
+        DD    DOUSE
+        DD    (CW*(29))
+        DD    0x0
+        DD    PBLK
+        DD    N_LIN
+
+;
+
+
+;  *************
+;  *   (>IN)   *
+;  *************
+;
+N_PIIN:
+        DD      5
+        DB      "(>IN)"
+PIIN:
+        DD    DOUSE
+        DD    (CW*(30))
+        DD    0x0
+        DD    LIN
+        DD    N_PIIN
+
+;
+;
+
+;  ************
+;  *   ARGS   *
+;  ************
+;
+N_ARGS:
+        DD      4
+        DB      "ARGS"
+ARGS:
+        DD    DOUSE
+        DD    (CW*(31))
+        DD    0x0
+        DD    PIIN
+        DD    N_ARGS
+
+;
+
+;  ***************
+;  *   HANDLER   *
+;  ***************
+;
+N_HANDLER:
+        DD      7
+        DB      "HANDLER"
+HANDLER:
+        DD    DOUSE
+        DD    (CW*(32))
+        DD    0x0
+        DD    ARGS
+        DD    N_HANDLER
+
+;
+
+;  ***************
+;  *   CURRENT   *
+;  ***************
+;
+N_CURR:
+        DD      7
+        DB      "CURRENT"
+CURR:
+        DD    DOUSE
+        DD    (CW*(34))
+        DD    0x0
+        DD    HANDLER
+        DD    N_CURR
+
+;
+
+;  *****************
+;  *   REMAINDER   *
+;  *****************
+;
+N_REMAIND:
+        DD      9
+        DB      "REMAINDER"
+REMAIND:
+        DD    DOUSE
+        DD    (CW*(14))
+        DD    0x0
+        DD    CURR
+        DD    N_REMAIND
+
+;      IMPORTANT
+; REQUIRES ONE MORE CELL!
+;
+
+;  ***************
+;  *   CONTEXT   *
+;  ***************
+;
+N_CONTEXT:
+        DD      7
+        DB      "CONTEXT"
+CONTEXT:
+        DD    DOUSE
+        DD    (CW*(37))
+        DD    0x0
+        DD    REMAIND
+        DD    N_CONTEXT
+ ; Up to  37+16
+;      IMPORTANT
+;     16 USER SPACE CELLS MUST BE KEPT FREE
+;     IN ADDITION TO THE ONE FOR CONTEXT
+;
+;========== END USER VARIABLES =============
+;
+
+;  **********
+;  *   1+   *
+;  **********
+;
+N_ONEP:
+        DD      2
+        DB      "1+"
+ONEP:
+        DD    DOCOL
+        DD    ONEP+HEADSIZE
+        DD    0x0
+        DD    CONTEXT
+        DD    N_ONEP
+
+        DD      ONE
+        DD      PLUS
+        DD      SEMIS
+;
+
+;  *************
+;  *   CELL+   *
+;  *************
+;
+N_CELLP:
+        DD      5
+        DB      "CELL+"
+CELLP:
+        DD    DOCOL
+        DD    CELLP+HEADSIZE
+        DD    0x0
+        DD    ONEP
+        DD    N_CELLP
+
+        DD      LIT, CW
+        DD      PLUS
+        DD      SEMIS
+;
+
+;
+;  *************
+;  *   CELLS   *
+;  *************
+;
+N_LCELLS:
+        DD      5
+        DB      "CELLS"
+LCELLS:
+        DD    DOCOL
+        DD    LCELLS+HEADSIZE
+        DD    0x0
+        DD    CELLP
+        DD    N_LCELLS
+
+        DD       TWO
+        DD      LSHIFT
+        DD      SEMIS
+;
+
+;  *************
+;  *   CHAR+   *
+;  *************
+;
+N_CHARP:
+        DD      5
+        DB      "CHAR+"
+CHARP:
+        DD    DOCOL
+        DD    (ONEP+HEADSIZE)
+        DD    0x0
+        DD    LCELLS
+        DD    N_CHARP
+
+;
+
+;  *************
+;  *   CHARS   *
+;  *************
+;
+N_CHARS:
+        DD      5
+        DB      "CHARS"
+CHARS:
+        DD    DOCOL
+        DD    CHARS+HEADSIZE
+        DD    B_IMMED
+        DD    CHARP
+        DD    N_CHARS
+
+        DD      SEMIS
+;
+
+;  *************
+;  *   ALIGN   *
+;  *************
+;
+N_LALIGN:
+        DD      5
+        DB      "ALIGN"
+LALIGN:
+        DD    DOCOL
+        DD    LALIGN+HEADSIZE
+        DD    B_IMMED
+        DD    CHARS
+        DD    N_LALIGN
+
+        DD      SEMIS
+;
+
+;  ***************
+;  *   ALIGNED   *
+;  ***************
+;
+N_ALIGNED :
+        DD      7
+        DB      "ALIGNED"
+ALIGNED :
+        DD    ALIGNED +HEADSIZE
+        DD    ALIGNED +HEADSIZE
+        DD    0x0
+        DD    LALIGN
+        DD    N_ALIGNED 
+
+        JMP NEXT
+;
+
+;  ************
+;  *   HERE   *
+;  ************
+;
+N_HERE:
+        DD      4
+        DB      "HERE"
+HERE:
+        DD    DOCOL
+        DD    HERE+HEADSIZE
+        DD    0x0
+        DD    ALIGNED 
+        DD    N_HERE
+
+        DD      LDP
+        DD      FETCH
+        DD      SEMIS
+;
+
+;  *************
+;  *   ALLOT   *
+;  *************
+;
+N_ALLOT:
+        DD      5
+        DB      "ALLOT"
+ALLOT:
+        DD    DOCOL
+        DD    ALLOT+HEADSIZE
+        DD    0x0
+        DD    HERE
+        DD    N_ALLOT
+
+        DD      LDP
+        DD      PSTORE
+        DD      SEMIS
+;
+
+;  *********
+;  *   ,   *
+;  *********
+;
+N_COMMA:
+        DD      1
+        DB      ","
+COMMA:
+        DD    DOCOL
+        DD    COMMA+HEADSIZE
+        DD    0x0
+        DD    ALLOT
+        DD    N_COMMA
+
+        DD      HERE
+        DD      STORE
+        DD      LIT, CW
+        DD      ALLOT
+        DD      SEMIS
+;
+
+;  **********
+;  *   C,   *
+;  **********
+;
+N_CCOMM:
+        DD      2
+        DB      "C,"
+CCOMM:
+        DD    DOCOL
+        DD    CCOMM+HEADSIZE
+        DD    0x0
+        DD    COMMA
+        DD    N_CCOMM
+
+        DD      HERE
+        DD      CSTOR
+        DD      ONE
+        DD      ALLOT
+        DD      SEMIS
+;
+
+;  *********
+;  *   -   *
+;  *********
+;
+N_LSUB:
+        DD      1
+        DB      "-"
+LSUB:
+        DD    LSUB+HEADSIZE
+        DD    LSUB+HEADSIZE
+        DD    0x0
+        DD    CCOMM
+        DD    N_LSUB
+
+        POP     EDX      ;S1
+        POP     EAX
+        SUB     EAX,EDX
+        PUSH    EAX
+        JMP NEXT   ;S1 = S2 - S1
+;
+
+;  *********
+;  *   =   *
+;  *********
+;
+N_EQUAL:
+        DD      1
+        DB      "="
+EQUAL:
+        DD    DOCOL
+        DD    EQUAL+HEADSIZE
+        DD    0x0
+        DD    LSUB
+        DD    N_EQUAL
+
+        DD      LSUB
+        DD      ZEQU
+        DD      SEMIS
+;
+
+;  *********
+;  *   <   *
+;  *********
+;
+N_LESS:
+        DD      1
+        DB      "<"
+LESS:
+        DD    LESS+HEADSIZE
+        DD    LESS+HEADSIZE
+        DD    0x0
+        DD    EQUAL
+        DD    N_LESS
+
+        POP     EDX      ;S1
+        POP     EBX      ;S2
+        XOR     EAX,EAX   ;0 default RESULT
+        CMP     EBX,EDX
+        JNL     LES1
+        DEC     EAX
+LES1:   PUSH    EAX
+        JMP NEXT
+;
+
+;  **********
+;  *   U<   *
+;  **********
+;
+N_ULESS:
+        DD      2
+        DB      "U<"
+ULESS:
+        DD    ULESS+HEADSIZE
+        DD    ULESS+HEADSIZE
+        DD    0x0
+        DD    LESS
+        DD    N_ULESS
+
+        POP     EAX
+        POP     EDX
+        SUB     EDX,EAX
+        SBB     EAX,EAX
+        PUSH    EAX
+        JMP NEXT
+;
+
+;  *********
+;  *   >   *
+;  *********
+;
+N_GREAT:
+        DD      1
+        DB      ">"
+GREAT:
+        DD    DOCOL
+        DD    GREAT+HEADSIZE
+        DD    0x0
+        DD    ULESS
+        DD    N_GREAT
+
+        DD      SWAP
+        DD      LESS
+        DD      SEMIS
+;
+
+;  **********
+;  *   <>   *
+;  **********
+;
+N_UNEQ:
+        DD      2
+        DB      "<>"
+UNEQ:
+        DD    DOCOL
+        DD    UNEQ+HEADSIZE
+        DD    0x0
+        DD    GREAT
+        DD    N_UNEQ
+
+        DD      LSUB
+        DD      ZEQU
+        DD      ZEQU
+        DD      SEMIS
+;
+
+;  ***********
+;  *   ROT   *
+;  ***********
+;
+N_ROT:
+        DD      3
+        DB      "ROT"
+ROT:
+        DD    ROT+HEADSIZE
+        DD    ROT+HEADSIZE
+        DD    0x0
+        DD    UNEQ
+        DD    N_ROT
+
+        POP     EDX      ;S1
+        POP     EBX      ;S2
+        POP     EAX      ;S3
+        PUSH    EBX
+        PUSH    EDX
+        PUSH    EAX
+        JMP NEXT
+;
+
+;  *************
+;  *   SPACE   *
+;  *************
+;
+N_SPACE:
+        DD      5
+        DB      "SPACE"
+SPACE:
+        DD    DOCOL
+        DD    SPACE+HEADSIZE
+        DD    0x0
+        DD    ROT
+        DD    N_SPACE
+
+        DD      LBL
+        DD      EMIT
+        DD      SEMIS
+;
+
+;  ************
+;  *   ?DUP   *
+;  ************
+;
+N_QDUP:
+        DD      4
+        DB      "?DUP"
+QDUP:
+        DD    DOCOL
+        DD    QDUP+HEADSIZE
+        DD    0x0
+        DD    SPACE
+        DD    N_QDUP
+
+        DD      LDUP
+        DD      ZBRAN
+        DD      QDUP1-$-CW ; IF
+        DD      LDUP    ;THEN
+QDUP1:  DD      SEMIS
+;
+
+;  **************
+;  *   LATEST   *
+;  **************
+;
+N_LATEST:
+        DD      6
+        DB      "LATEST"
+LATEST:
+        DD    DOCOL
+        DD    LATEST+HEADSIZE
+        DD    0x0
+        DD    QDUP
+        DD    N_LATEST
+
+        DD      CURR
+        DD      FETCH
+        DD      TLFA
+        DD      FETCH
+        DD      SEMIS
+;
+
+;  ************
+;  *   >CFA   *
+;  ************
+;
+N_TCFA:
+        DD      4
+        DB      ">CFA"
+TCFA:
+        DD    DOCOL
+        DD    TCFA+HEADSIZE
+        DD    0x0
+        DD    LATEST
+        DD    N_TCFA
+
+        DD      LIT, (CW*(C_HOFFSET))
+        DD      PLUS
+        DD      SEMIS
+;
+
+;  ************
+;  *   >DFA   *
+;  ************
+;
+N_TDFA:
+        DD      4
+        DB      ">DFA"
+TDFA:
+        DD    DOCOL
+        DD    TDFA+HEADSIZE
+        DD    0x0
+        DD    TCFA
+        DD    N_TDFA
+
+        DD      LIT, (CW*(D_HOFFSET))
+        DD      PLUS
+        DD      SEMIS
+;
+
+;  ************
+;  *   >FFA   *
+;  ************
+;
+N_TFFA:
+        DD      4
+        DB      ">FFA"
+TFFA:
+        DD    DOCOL
+        DD    TFFA+HEADSIZE
+        DD    0x0
+        DD    TDFA
+        DD    N_TFFA
+
+        DD      LIT, (CW*(F_HOFFSET))
+        DD      PLUS
+        DD      SEMIS
+;
+
+;  ************
+;  *   >LFA   *
+;  ************
+;
+N_TLFA:
+        DD      4
+        DB      ">LFA"
+TLFA:
+        DD    DOCOL
+        DD    TLFA+HEADSIZE
+        DD    0x0
+        DD    TFFA
+        DD    N_TLFA
+
+        DD      LIT, (CW*(L_HOFFSET))
+        DD      PLUS
+        DD      SEMIS
+;
+
+;  ************
+;  *   >NFA   *
+;  ************
+;
+N_TNFA:
+        DD      4
+        DB      ">NFA"
+TNFA:
+        DD    DOCOL
+        DD    TNFA+HEADSIZE
+        DD    0x0
+        DD    TLFA
+        DD    N_TNFA
+
+        DD      LIT,(CW*(N_HOFFSET))
+        DD      PLUS
+        DD      SEMIS
+;
+;
+;
+
+;  ************
+;  *   >PHA   *
+;  ************
+;
+N_TPHA:
+        DD      4
+        DB      ">PHA"
+TPHA:
+        DD    DOCOL
+        DD    TPHA+HEADSIZE
+        DD    0x0
+        DD    TNFA
+        DD    N_TPHA
+
+        DD      LIT,(CW*(PH_OFFSET))
+        DD      PLUS
+        DD      SEMIS
+;
+
+;  *************
+;  *   >BODY   *
+;  *************
+;
+N_TOBODY:
+        DD      5
+        DB      ">BODY"
+TOBODY:
+        DD    DOCOL
+        DD    TOBODY+HEADSIZE
+        DD    0x0
+        DD    TPHA
+        DD    N_TOBODY
+
+        DD      CTOD
+        DD      TDFA, FETCH
+        DD      CELLP           ; Skip DOES> pointer.
+        DD      SEMIS
+;
+
+;  *************
+;  *   BODY>   *
+;  *************
+;
+N_BODYF:
+        DD      5
+        DB      "BODY>"
+BODYF:
+        DD    DOCOL
+        DD    BODYF+HEADSIZE
+        DD    0x0
+        DD    TOBODY
+        DD    N_BODYF
+
+        DD      LIT,(CW*(BD_OFFSET))
+        DD      LSUB
+        DD      SEMIS
+;
+
+;  ************
+;  *   CFA>   *
+;  ************
+;
+N_CTOD:
+        DD      4
+        DB      "CFA>"
+CTOD:
+        DD    DOCOL
+        DD    CTOD+HEADSIZE
+        DD    0x0
+        DD    BODYF
+        DD    N_CTOD
+
+        DD      LIT,(CW*(C_HOFFSET))
+        DD      LSUB
+        DD      SEMIS
+;
+
+;  ************
+;  *   >WID   *
+;  ************
+;
+N_TWID:
+        DD      4
+        DB      ">WID"
+TWID:
+        DD    DOCOL
+        DD    TWID+HEADSIZE
+        DD    0x0
+        DD    CTOD
+        DD    N_TWID
+
+        DD      TOBODY
+        DD      CELLP ; Skip vfa link.
+        DD      SEMIS
+;
+
+;  ************
+;  *   >VFA   *
+;  ************
+;
+N_TVFA:
+        DD      4
+        DB      ">VFA"
+TVFA:
+        DD    DOCOL
+        DD    TVFA+HEADSIZE
+        DD    0x0
+        DD    TWID
+        DD    N_TVFA
+
+        DD      TOBODY
+        DD      SEMIS
+;
+
+
+;  ************
+;  *   !CSP   *
+;  ************
+;
+N_SCSP:
+        DD      4
+        DB      "!CSP"
+SCSP:
+        DD    DOCOL
+        DD    SCSP+HEADSIZE
+        DD    0x0
+        DD    TVFA
+        DD    N_SCSP
+
+        DD      SPFET
+        DD      LCSP
+        DD      STORE
+        DD      SEMIS
+;
+;
+
+;  **************
+;  *   ?ERROR   *
+;  **************
+;
+N_QERR:
+        DD      6
+        DB      "?ERROR"
+QERR:
+        DD    DOCOL
+        DD    QERR+HEADSIZE
+        DD    0x0
+        DD    SCSP
+        DD    N_QERR
+
+        DD      SWAP
+        DD      ZBRAN
+        DD      QERR1-$-CW ;IF
+        DD      LIN, FETCH
+        DD      SRC, FETCH
+        DD      LWHERE, TSTOR
+        DD      THROW
+        DD      BRAN
+        DD      QERR2-$-CW  ;ELSE
+QERR1:  DD      DROP    ;THEN
+QERR2:  DD      SEMIS
+;
+
+;  **************
+;  *   ?ERRUR   *
+;  **************
+;
+N_QERRUR:
+        DD      6
+        DB      "?ERRUR"
+QERRUR:
+        DD    DOCOL
+        DD    QERRUR+HEADSIZE
+        DD    0x0
+        DD    QERR
+        DD    N_QERRUR
+
+        DD      ZERO, MIN, LDUP, QERR
+        DD      SEMIS
+;
+
+
+;  **************
+;  *   ?DELIM   *
+;  **************
+;
+N_QDELIM:
+        DD      6
+        DB      "?DELIM"
+QDELIM:
+        DD    DOCOL
+        DD    QDELIM+HEADSIZE
+        DD    0x0
+        DD    QERRUR
+        DD    N_QDELIM
+
+        DD      INBRS
+        DD      QBL
+        DD      ZEQU
+        DD      LIT, 10, QERR
+        DD      DROP
+        DD      SEMIS
+;
+
+;  ************
+;  *   ?CSP   *
+;  ************
+;
+N_QCSP:
+        DD      4
+        DB      "?CSP"
+QCSP:
+        DD    DOCOL
+        DD    QCSP+HEADSIZE
+        DD    0x0
+        DD    QDELIM
+        DD    N_QCSP
+
+        DD      SPFET
+        DD      LCSP
+        DD      FETCH
+        DD      LSUB
+        DD      LIT, 20, QERR
+        DD      SEMIS
+;
+
+;  *************
+;  *   ?COMP   *
+;  *************
+;
+N_QCOMP:
+        DD      5
+        DB      "?COMP"
+QCOMP:
+        DD    DOCOL
+        DD    QCOMP+HEADSIZE
+        DD    0x0
+        DD    QCSP
+        DD    N_QCOMP
+
+        DD      STATE
+        DD      FETCH
+        DD      ZEQU
+        DD      LIT, 17, QERR
+        DD      SEMIS
+;
+
+;  *************
+;  *   ?EXEC   *
+;  *************
+;
+N_QEXEC:
+        DD      5
+        DB      "?EXEC"
+QEXEC:
+        DD    DOCOL
+        DD    QEXEC+HEADSIZE
+        DD    0x0
+        DD    QCOMP
+        DD    N_QEXEC
+
+        DD      STATE
+        DD      FETCH
+        DD      LIT, 18, QERR
+        DD      SEMIS
+;
+
+;  **************
+;  *   ?PAIRS   *
+;  **************
+;
+N_QPAIR:
+        DD      6
+        DB      "?PAIRS"
+QPAIR:
+        DD    DOCOL
+        DD    QPAIR+HEADSIZE
+        DD    0x0
+        DD    QEXEC
+        DD    N_QPAIR
+
+        DD      LSUB
+        DD      LIT, 19, QERR
+        DD      SEMIS
+;
+
+
+;  ****************
+;  *   ?LOADING   *
+;  ****************
+;
+N_QLOAD:
+        DD      8
+        DB      "?LOADING"
+QLOAD:
+        DD    DOCOL
+        DD    QLOAD+HEADSIZE
+        DD    0x0
+        DD    QPAIR
+        DD    N_QLOAD
+
+        DD      BLK
+        DD      FETCH
+        DD      ZEQU
+        DD      LIT, 22, QERR
+        DD      SEMIS
+;
+;
+;
+;
+
+;  *********
+;  *   [   *
+;  *********
+;
+N_LBRAC:
+        DD      1
+        DB      "["
+LBRAC:
+        DD    DOCOL
+        DD    LBRAC+HEADSIZE
+        DD    B_IMMED
+        DD    QLOAD
+        DD    N_LBRAC
+
+        DD      ZERO
+        DD      STATE
+        DD      STORE
+        DD      SEMIS
+;
+
+;  *********
+;  *   ]   *
+;  *********
+;
+N_RBRAC:
+        DD      1
+        DB      "]"
+RBRAC:
+        DD    DOCOL
+        DD    RBRAC+HEADSIZE
+        DD    0x0
+        DD    LBRAC
+        DD    N_RBRAC
+
+        DD      ONE
+        DD      STATE
+        DD      STORE
+        DD      SEMIS
+;
+
+;  **************
+;  *   HIDDEN   *
+;  **************
+;
+N_HIDDEN:
+        DD      6
+        DB      "HIDDEN"
+HIDDEN:
+        DD    DOCOL
+        DD    HIDDEN+HEADSIZE
+        DD    0x0
+        DD    RBRAC
+        DD    N_HIDDEN
+
+        DD      TFFA
+        DD      LIT,B_INVIS
+        DD      TOGGL
+        DD      SEMIS
+;
+
+;  ***********
+;  *   HEX   *
+;  ***********
+;
+N_HEX:
+        DD      3
+        DB      "HEX"
+HEX:
+        DD    DOCOL
+        DD    HEX+HEADSIZE
+        DD    0x0
+        DD    HIDDEN
+        DD    N_HEX
+
+        DD      LIT,16
+        DD      BASE
+        DD      STORE
+        DD      SEMIS
+;
+
+;  ***************
+;  *   DECIMAL   *
+;  ***************
+;
+N_DECA:
+        DD      7
+        DB      "DECIMAL"
+DECA:
+        DD    DOCOL
+        DD    DECA+HEADSIZE
+        DD    0x0
+        DD    HEX
+        DD    N_DECA
+
+        DD      LIT,10
+        DD      BASE
+        DD      STORE
+        DD      SEMIS
+;
+
+;  ***************
+;  *   (;CODE)   *
+;  ***************
+;
+N_PSCOD:
+        DD      7
+        DB      "(;CODE)"
+PSCOD:
+        DD    DOCOL
+        DD    PSCOD+HEADSIZE
+        DD    0x0
+        DD    DECA
+        DD    N_PSCOD
+
+        DD      FROMR
+        DD      LATEST
+        DD      TCFA
+        DD      STORE
+        DD      SEMIS
+;
+
+;
+
+;  **************
+;  *   CREATE   *
+;  **************
+;
+N_CREATE:
+        DD      6
+        DB      "CREATE"
+CREATE:
+        DD    DOCOL
+        DD    CREATE+HEADSIZE
+        DD    0x0
+        DD    PSCOD
+        DD    N_CREATE
+
+        DD      LPWORD
+        DD      PCREAT
+        DD      LIT, HLNOOP, COMMA
+        DD      PSCOD
+DODOE:  LEA     EBP,[EBP - (CW*(1))] ;Push HIP.
+        MOV     [EBP],ESI
+        MOV     ESI,[EAX+(CW*((D_HOFFSET)))] ;NEW IP 
+        LEA     EAX,[ESI+(CW*(1))]
+        MOV     ESI,[ESI]
+        PUSH    EAX
+        JMP NEXT
+HLNOOP: DD      SEMIS
+;
+
+;  *************
+;  *   DOES>   *
+;  *************
+;
+N_DOES:
+        DD      5
+        DB      "DOES>"
+DOES:
+        DD    DOCOL
+        DD    DOES+HEADSIZE
+        DD    0x0
+        DD    CREATE
+        DD    N_DOES
+
+        DD      FROMR
+        DD      LATEST
+        DD      TDFA
+        DD      FETCH
+        DD      STORE
+        DD      SEMIS
+;
+
+;  *************
+;  *   COUNT   *
+;  *************
+;
+N_COUNT:
+        DD      5
+        DB      "COUNT"
+COUNT:
+        DD    DOCOL
+        DD    COUNT+HEADSIZE
+        DD    0x0
+        DD    DOES
+        DD    N_COUNT
+
+        DD      LDUP
+        DD      ONEP
+        DD      SWAP
+        DD      CFET
+        DD      SEMIS
+;
+
+;  *****************
+;  *   -TRAILING   *
+;  *****************
+;
+N_DTRAI:
+        DD      9
+        DB      "-TRAILING"
+DTRAI:
+        DD    DOCOL
+        DD    DTRAI+HEADSIZE
+        DD    0x0
+        DD    COUNT
+        DD    N_DTRAI
+
+        DD      LDUP
+        DD      ZERO
+        DD     XQDO
+        DD      DTRA4-$-CW
+DTRA1:  DD      OVER
+        DD      OVER
+        DD      PLUS
+        DD      ONE
+        DD      LSUB
+        DD      CFET
+        DD      QBL
+        DD      ZEQU
+        DD      ZBRAN
+        DD      DTRA2-$-CW ;IF
+        DD      LLEAV
+DTRA2:  DD      ONE
+        DD      LSUB    ; THEN
+        DD     XLOOP
+        DD      DTRA1-$-CW    ; LOOP
+DTRA4:
+        DD      SEMIS
+;
+
+
+;  **********
+;  *   S"   *
+;  **********
+;
+N_SQUOT:
+        DD      2
+        DB      'S"'
+SQUOT:
+        DD    DOCOL
+        DD    SQUOT+HEADSIZE
+        DD    B_IMMED
+        DD    DTRAI
+        DD    N_SQUOT
+
+        DD      DENQ
+        DD      SEMIS
+;
+;
+
+;  **********
+;  *   ."   *
+;  **********
+;
+N_DOTQ:
+        DD      2
+        DB      '."'
+DOTQ:
+        DD    DOCOL
+        DD    DOTQ+HEADSIZE
+        DD    B_IMMED
+        DD    SQUOT
+        DD    N_DOTQ
+
+        DD      DENQ
+        DD      STATE
+        DD      FETCH
+        DD      ZBRAN
+        DD      DOTQ1-$-CW ; IF
+        DD      LIT, LTYPE, COMMA
+        DD      BRAN
+        DD      DOTQ2-$-CW
+DOTQ1:
+        DD      LTYPE
+DOTQ2:
+        DD      SEMIS   ; THEN
+;
+
+;  **********
+;  *   .(   *
+;  **********
+;
+N_DOTP:
+        DD      2
+        DB      ".("
+DOTP:
+        DD    DOCOL
+        DD    DOTP+HEADSIZE
+        DD    B_IMMED
+        DD    DOTQ
+        DD    N_DOTP
+
+        DD      LIT, ')'
+        DD      PPARS
+        DD      LTYPE
+        DD      SEMIS
+;
+
+;  ***************
+;  *   SET-SRC   *
+;  ***************
+;
+N_SETSRC:
+        DD      7
+        DB      "SET-SRC"
+SETSRC:
+        DD    DOCOL
+        DD    SETSRC+HEADSIZE
+        DD    0x0
+        DD    DOTP
+        DD    N_SETSRC
+
+        DD      OVER, PLUS
+        DD      SWAP, SRC, TSTOR
+        DD      SRC, FETCH
+        DD      LIN, STORE ;  IN
+
+;       DD      DOTS
+        DD      SEMIS
+;
+
+;  ****************
+;  *   EVALUATE   *
+;  ****************
+;
+N_EVALUATE:
+        DD      8
+        DB      "EVALUATE"
+EVALUATE:
+        DD    DOCOL
+        DD    EVALUATE+HEADSIZE
+        DD    0x0
+        DD    SETSRC
+        DD    N_EVALUATE
+
+        DD      SAVE
+        DD      SETSRC
+        DD      LIT, INTER, CATCH
+        DD      RESTO
+        DD      THROW
+        DD      SEMIS
+;
+
+;  ************
+;  *   FILL   *
+;  ************
+;
+N_FILL:
+        DD      4
+        DB      "FILL"
+FILL:
+        DD    FILL+HEADSIZE
+        DD    FILL+HEADSIZE
+        DD    0x0
+        DD    EVALUATE
+        DD    N_FILL
+
+;       Assume the extra segment points to the data segment 
+        POP     EAX      ; FILL CHAR
+        POP     ECX      ; FILL COUNT
+        POP     EDI      ; BEGIN ADDR
+        CLD             ; INC DIRECTION
+        REP     STOSB   ;STORE BYTE
+        JMP NEXT
+;
+
+;  ************
+;  *   CORA   *
+;  ************
+;
+N_CORA:
+        DD      4
+        DB      "CORA"
+CORA:
+        DD    CORA+HEADSIZE
+        DD    CORA+HEADSIZE
+        DD    0x0
+        DD    FILL
+        DD    N_CORA
+
+;       Assume the extra segment points to the data segment 
+        MOV     EDX,ESI   ;SAVE
+        XOR     EAX,EAX   ; Result
+        POP     ECX      ; count
+        POP     EDI      ; addr2
+        POP     ESI      ; addr1
+        CLD             ; INC DIRECTION
+        REP     CMPSB   ; Compare BYTE
+        JZ      CORA3
+        MOV     AL,1    ;Remainder is already 0
+        JNC     CORA3
+        NEG     EAX
+CORA3:
+        MOV     ESI,EDX  ;Restore
+        PUSH    EAX
+        JMP NEXT
+;
+
+;  **********
+;  *   $I   *
+;  **********
+;
+N_SINDEX:
+        DD      2
+        DB      "$I"
+SINDEX:
+        DD    SINDEX+HEADSIZE
+        DD    SINDEX+HEADSIZE
+        DD    0x0
+        DD    CORA
+        DD    N_SINDEX
+
+;       Assume the extra segment points to the data segment 
+        POP     EAX      ; char
+        POP     ECX      ; count
+        POP     EDI      ; addr
+        OR      ESI,ESI   ;Clear zero flag.
+        CLD             ; INC DIRECTION
+        REPNZ     SCASB   ; Compare BYTE
+        JZ      SINDEX1
+        XOR     EDI,EDI    ;Not found: 0
+        INC     EDI
+SINDEX1:
+        DEC     EDI
+        PUSH    EDI
+        JMP NEXT
+;
+
+;  **********
+;  *   $S   *
+;  **********
+;
+N_SSPLIT:
+        DD      2
+        DB      "$S"
+SSPLIT:
+        DD    SSPLIT+HEADSIZE
+        DD    SSPLIT+HEADSIZE
+        DD    0x0
+        DD    SINDEX
+        DD    N_SSPLIT
+
+;       Assume the extra segment points to the data segment 
+        POP     EAX      ; char
+        POP     ECX      ; count
+        MOV     EBX,ECX
+        POP     EDI      ; addr
+        OR      EDI,EDI   ;Clear zero flag.
+        MOV     EDX,EDI   ; Copy
+        CLD             ; INC DIRECTION
+        REPNZ     SCASB   ; Compare BYTE
+        JZ      SSPLIT1
+; Not present.
+        PUSH    ECX   ; Nil pointer.
+        JMP SHORT SSPLIT2
+SSPLIT1:
+        PUSH    EDI
+        SUB     EBX,ECX
+        DEC     EBX      ;Delimiter is not part of first string.
+SSPLIT2:
+        PUSH    ECX   ;Remaining length
+        PUSH    EDX   ;Start of first string.
+        PUSH    EBX   ;Skipped length.
+        JMP NEXT
+;
+
+;  *************
+;  *   ERASE   *
+;  *************
+;
+N_LERASE:
+        DD      5
+        DB      "ERASE"
+LERASE:
+        DD    DOCOL
+        DD    LERASE+HEADSIZE
+        DD    0x0
+        DD    SSPLIT
+        DD    N_LERASE
+
+        DD      ZERO
+        DD      FILL
+        DD      SEMIS
+;
+
+
+;  *************
+;  *   BLANK   *
+;  *************
+;
+N_BLANK:
+        DD      5
+        DB      "BLANK"
+BLANK:
+        DD    DOCOL
+        DD    BLANK+HEADSIZE
+        DD    0x0
+        DD    LERASE
+        DD    N_BLANK
+
+        DD      LBL
+        DD      FILL
+        DD      SEMIS
+;
+;
+
+;  ************
+;  *   HOLD   *
+;  ************
+;
+N_HOLD:
+        DD      4
+        DB      "HOLD"
+HOLD:
+        DD    DOCOL
+        DD    HOLD+HEADSIZE
+        DD    0x0
+        DD    BLANK
+        DD    N_HOLD
+
+        DD      LIT,-1
+        DD      HLD
+        DD      PSTORE
+        DD      HLD
+        DD      FETCH
+        DD      CSTOR
+        DD      SEMIS
+;
+
+;  ***********
+;  *   PAD   *
+;  ***********
+;
+N_PAD:
+        DD      3
+        DB      "PAD"
+PAD:
+        DD    DOCOL
+        DD    PAD+HEADSIZE
+        DD    0x0
+        DD    HOLD
+        DD    N_PAD
+
+        DD      HERE
+; Allow for a one line name, a double binary number and some hold char's
+        DD      LIT,84+128+64
+        DD      PLUS
+        DD      SEMIS
+;
+
+
+;  ************
+;  *   WORD   *
+;  ************
+;
+N_IWORD:
+        DD      4
+        DB      "WORD"
+IWORD:
+        DD    DOCOL
+        DD    IWORD+HEADSIZE
+        DD    0x0
+        DD    PAD
+        DD    N_IWORD
+
+        DD      LDUP, LBL, EQUAL
+        DD      ZBRAN
+        DD      IWORD1-$-CW
+         DD      DROP
+         DD      LPWORD
+        DD      BRAN
+        DD      IWORD2-$-CW
+IWORD1: DD      TOR
+IWORD3:  DD      INBRS, RR, EQUAL
+        DD      ZBRAN
+        DD      IWORD4-$-CW
+        DD      DROP
+        DD      BRAN
+        DD      IWORD3-$-CW
+IWORD4:
+        DD      DROP
+        DD      LIT, -1, LIN, PSTORE ; Backtrace to first non-delimiter.
+        DD      FROMR, PPARS
+;        DD      DOTS
+IWORD2:
+        DD      HERE
+        DD      LIT,0x22
+        DD      BLANK
+        DD      HERE
+        DD      SSTORBD     ; FIXME
+        DD      HERE
+;        DD      DOTS
+        DD      SEMIS
+;
+;
+
+;  ************
+;  *   CHAR   *
+;  ************
+;
+N_LCHAR:
+        DD      4
+        DB      "CHAR"
+LCHAR:
+        DD    DOCOL
+        DD    LCHAR+HEADSIZE
+        DD    0x0
+        DD    IWORD
+        DD    N_LCHAR
+
+        DD      LPWORD, DROP, CFET
+        DD      SEMIS
+;
+
+;  **************
+;  *   [CHAR]   *
+;  **************
+;
+N_BCHAR:
+        DD      6
+        DB      "[CHAR]"
+BCHAR:
+        DD    DOCOL
+        DD    BCHAR+HEADSIZE
+        DD    B_IMMED
+        DD    LCHAR
+        DD    N_BCHAR
+
+        DD      LCHAR, LITER
+        DD      SEMIS
+;
+
+;  ****************
+;  *   (NUMBER)   *
+;  ****************
+;
+N_PNUMB:
+        DD      8
+        DB      "(NUMBER)"
+PNUMB:
+        DD    DOCOL
+        DD    PNUMB+HEADSIZE
+        DD    0x0
+        DD    BCHAR
+        DD    N_PNUMB
+
+        DD      ZERO, ZERO
+        DD      ZERO, DPL, STORE
+NPNUM1:  DD      INBRS   ; BEGIN
+        DD      LDUP, LIT, ADOT, EQUAL
+        DD      ZBRAN
+        DD      NPNUM2A-$-CW ; IF
+        DD      DROP, DPL, STORE, ZERO
+        DD      BRAN
+        DD      NPNUM3-$-CW ; ELSE
+NPNUM2A:
+        DD      LDUP, LIT, ',', EQUAL
+        DD      ZBRAN
+        DD      NPNUM2-$-CW ; IF
+        DD      TDROP, ZERO
+        DD      BRAN
+        DD      NPNUM3-$-CW ; ELSE
+NPNUM2:
+        DD      LDUP, QBL
+        DD      ZBRAN
+        DD      NPNUM4-$-CW ; IF
+        DD      DROP, DROP, ONE
+        DD      BRAN
+        DD      NPNUM3-$-CW ; ELSE
+NPNUM4:
+        DD      SWAP, DROP
+        DD      BASE, FETCH, DIGIT
+        DD      ZEQU
+        DD      LIT, 10, QERR
+
+        DD      SWAP
+        DD      BASE
+        DD      FETCH
+        DD      USTAR
+        DD      DROP
+        DD      ROT
+        DD      BASE
+        DD      FETCH
+        DD      USTAR
+        DD      DPLUS
+        DD      ZERO
+NPNUM3:                 ; THEN THEN
+        DD      ZBRAN
+        DD      NPNUM1-$-CW
+        DD      SEMIS
+;
+
+;  **************
+;  *   NUMBER   *
+;  **************
+;
+N_NUMB:
+        DD      6
+        DB      "NUMBER"
+NUMB:
+        DD    DOCOL
+        DD    NUMB+HEADSIZE
+        DD    0x0
+        DD    PNUMB
+        DD    N_NUMB
+
+LNUMB:
+        DD      LIT, -1, LIN, PSTORE
+        DD      PNUMB, SDLITE
+        DD      SEMIS
+;
+
+
+;  ***************
+;  *   >NUMBER   *
+;  ***************
+;
+N_TONUMB:
+        DD      7
+        DB      ">NUMBER"
+TONUMB:
+        DD    DOCOL
+        DD    TONUMB+HEADSIZE
+        DD    0x0
+        DD    NUMB
+        DD    N_TONUMB
+
+        DD      TDUP, PLUS, TOR     ; End available on return stack.
+        DD      ZERO
+        DD     XQDO
+        DD      TONUM9-$-CW
+TONUM1:
+        DD      LDUP, CFET, BASE, FETCH, DIGIT
+        DD      ZEQU
+        DD      ZBRAN
+        DD      TONUM4-$-CW ; IF
+        DD      DROP
+        DD      LLEAV
+TONUM4:
+        DD      SWAP, TOR ; Address out of the way.
+        DD      SWAP
+        DD      BASE
+        DD      FETCH
+        DD      USTAR
+        DD      DROP
+        DD      ROT
+        DD      BASE
+        DD      FETCH
+        DD      USTAR
+        DD      DPLUS
+        DD      FROMR, ONEP     ; Address back.
+        DD     XLOOP
+        DD      TONUM1-$-CW
+TONUM9:
+        DD      FROMR
+        DD      OVER, LSUB
+        DD      SEMIS
+;
+;
+
+;  *************
+;  *   FOUND   *
+;  *************
+;
+N_FOUND:
+        DD      5
+        DB      "FOUND"
+FOUND:
+        DD    DOCOL
+        DD    FOUND+HEADSIZE
+        DD    0x0
+        DD    TONUMB
+        DD    N_FOUND
+
+        DD      CONTEXT, TOR
+FOUND1: DD      RR, FETCH
+;        DD      DOTS
+        DD      PFIND, LDUP, ZEQU
+        DD      ZBRAN
+        DD      FOUND3-$-CW
+        DD      DROP
+        DD      RR, FETCH, LIT, ONLYBODY, LSUB ;Was this ONLY?
+        DD      ZBRAN
+        DD      FOUND2-$-CW
+        DD      FROMR, CELLP, TOR
+        DD      BRAN
+        DD      FOUND1-$-CW
+FOUND2: DD      ZERO
+FOUND3: DD      RDROP
+        DD      SWAP,DROP,SWAP,DROP
+        DD      SEMIS
+;
+
+;  ***************
+;  *   PRESENT   *
+;  ***************
+;
+N_PRESENT:
+        DD      7
+        DB      "PRESENT"
+PRESENT:
+        DD    DOCOL
+        DD    PRESENT+HEADSIZE
+        DD    0x0
+        DD    FOUND
+        DD    N_PRESENT
+
+        DD      LDUP, TOR
+        DD      FOUND
+        DD      LDUP
+        DD      ZBRAN
+        DD      PRES1-$-CW
+        DD      LDUP
+        DD      TNFA, FETCH, FETCH ;  Get precise length.
+        DD      RR, EQUAL
+        DD      LAND
+PRES1:
+        DD      RDROP
+        DD      SEMIS
+;
+
+
+;  ************
+;  *   FIND   *
+;  ************
+;
+N_FIND:
+        DD      4
+        DB      "FIND"
+FIND:
+        DD    DOCOL
+        DD    FIND+HEADSIZE
+        DD    0x0
+        DD    PRESENT
+        DD    N_FIND
+
+        DD      LDUP, COUNT, PRESENT
+        DD      LDUP
+        DD      ZBRAN
+        DD      FIND1-$-CW ;IF
+        DD      SWAP, DROP ; The address.
+        ; Fine point, get xt by TCFA. Even if a NOOP.
+        DD      LDUP, TCFA, SWAP
+        DD      TFFA, FETCH
+        DD      LIT, B_IMMED, LAND
+        DD      LIT, -1, SWAP
+        DD      ZBRAN
+        DD      FIND1-$-CW ;IF
+        DD      NEGATE
+FIND1:               ;THEN THEN
+        DD      SEMIS
+;
+
+;
+
+;  **************
+;  *   (FIND)   *
+;  **************
+;
+N_PFIND:
+        DD      6
+        DB      "(FIND)"
+PFIND:
+        DD    DOCOL
+        DD    PFIND+HEADSIZE
+        DD    0x0
+        DD    FIND
+        DD    N_PFIND
+
+; The idea is to have a fast slim loop.
+; The optimisation tries to skip, using the extra links.
+; At all labels the stack is (sc, dea).
+; PFIND0 : nothing known yet about dea
+; PFINDM1 : dea has no optimisation possibilities any more
+; PFINDM2 : dea has a possible match: ~MATCH returns 0(=equal)
+; PFIND1 : dea is a match, inasfar name and prefix
+; PFIND2 : dea is the match, or null.
+
+PFIND0:                       ;Start of fast loop.
+                DD      NMATCH
+        DD      ZBRAN
+        DD      PFINDM2-$-CW
+PFINDM1:
+        DD      TLFA, FETCH
+        DD      LDUP, ZEQU
+        DD      ZBRAN
+        DD      PFIND0-$-CW      ;End of fast loop.
+
+; Exit for end of chain (fall through)
+        DD      BRAN
+        DD      PFIND2-$-CW
+; Exit for possible match
+; ~MATCH is sure in determining a no-match,
+; a possible match must be investigated closely.
+PFINDM2:
+;
+; Discard, because name too short to match dea, can't be a denotation.
+        DD      TDUP, TNFA, FETCH, FETCH
+        DD      LESS, ZEQU
+        DD      ZBRAN
+        DD      PFINDM1-$-CW
+;
+; Equal: found, barring invisibility and dummy entries.
+        DD      TDUP, TNFA, FETCH, FETCH
+        DD      LSUB
+        DD      ZBRAN
+        DD      PFIND1-$-CW
+;
+; Discard, unless dea is a denotation ("prefix")
+        DD      LDUP, TFFA, FETCH
+        DD      LIT, B_DENOT, LAND
+        DD      ZBRAN
+        DD      PFINDM1-$-CW
+
+; Discard still, if invisible ("smudged") or dummy.
+PFIND1:
+        DD      LDUP, TFFA, FETCH
+        DD      LIT, B_INVIS | B_DUMMY, LAND
+        DD      ZEQU
+        DD      ZBRAN
+        DD      PFINDM1-$-CW
+
+PFIND2:
+        DD      SEMIS
+;
+
+;  *************
+;  *   ERROR   *
+;  *************
+;
+N_ERROR:
+        DD      5
+        DB      "ERROR"
+ERROR:
+        DD    DOCOL
+        DD    ERROR+HEADSIZE
+        DD    0x0
+        DD    PFIND
+        DD    N_ERROR
+
+        DD      LWHERE, TFET
+        DD      OVER, LIT, 20, LSUB
+        DD      MAX
+        DD      SWAP,OVER, LSUB
+        DD      ETYPE
+        DD      SKIP
+         DD      18
+SB3: DB      "? ciforth ERROR # "
+       
+        DD      LIT, SB3
+        DD      LIT, 18
+        DD      ETYPE
+        DD      BASE, FETCH
+        DD      DECA
+        DD      OVER
+        DD      STOD, ZERO, PDDOTR      ;This is about (.) 
+        DD      ETYPE
+        DD      BASE, STORE
+        DD      MESS
+        DD      SEMIS
+;
+
+;  *************
+;  *   CATCH   *
+;  *************
+;
+N_CATCH:
+        DD      5
+        DB      "CATCH"
+CATCH:
+        DD    DOCOL
+        DD    CATCH+HEADSIZE
+        DD    0x0
+        DD    ERROR
+        DD    N_CATCH
+
+        DD      SPFET, CELLP, TOR
+        DD      HANDLER, FETCH, TOR
+        DD      RPFET, HANDLER, STORE
+        DD      EXEC
+        DD      FROMR, HANDLER, STORE
+        DD      RDROP, ZERO
+        DD      SEMIS
+;
+
+;  *************
+;  *   THROW   *
+;  *************
+;
+N_THROW:
+        DD      5
+        DB      "THROW"
+THROW:
+        DD    DOCOL
+        DD    THROW+HEADSIZE
+        DD    0x0
+        DD    CATCH
+        DD    N_THROW
+
+        DD      LDUP
+        DD      ZBRAN
+        DD      THROW1-$-CW
+        DD      HANDLER, FETCH, ZEQU
+        DD      ZBRAN
+        DD      THROW2-$-CW
+        DD      ERROR
+        DD      MTBUF  ; A (too) crude way to remove locks
+        DD      SZERO, FETCH, SPSTO
+        DD      QUIT
+THROW2:
+        DD      HANDLER, FETCH, RPSTO
+        DD      FROMR, HANDLER, STORE
+        DD      FROMR, SWAP, TOR
+        DD      SPSTO
+        DD      FROMR
+        DD      X
+THROW1:
+        DD      DROP
+        DD      SEMIS
+;
+
+
+;  ****************
+;  *   (ABORT")   *
+;  ****************
+;
+N_PABORTQ:
+        DD      8
+        DB      '(ABORT")'
+PABORTQ:
+        DD    DOCOL
+        DD    PABORTQ+HEADSIZE
+        DD    0x0
+        DD    THROW
+        DD    N_PABORTQ
+
+        DD      ROT
+        DD      ZBRAN
+        DD      PABQ1-$-CW ;IF
+        DD      ETYPE
+        DD      SIGNON, ABORT
+        DD      BRAN
+        DD      PABQ2-$-CW ;ELSE
+PABQ1:  DD       TDROP
+PABQ2:   DD      SEMIS
+;
+
+;  **************
+;  *   ABORT"   *
+;  **************
+;
+N_ABORTQ:
+        DD      6
+        DB      'ABORT"'
+ABORTQ:
+        DD    DOCOL
+        DD    ABORTQ+HEADSIZE
+        DD    B_IMMED
+        DD    PABORTQ
+        DD    N_ABORTQ
+
+        DD      QCOMP
+        DD      DENQ
+        DD      LIT, PABORTQ, COMMA
+        DD      SEMIS
+;
+;
+
+;  ***********
+;  *   ID.   *
+;  ***********
+;
+N_IDDOT:
+        DD      3
+        DB      "ID."
+IDDOT:
+        DD    DOCOL
+        DD    IDDOT+HEADSIZE
+        DD    0x0
+        DD    ABORTQ
+        DD    N_IDDOT
+
+        DD      LDUP, TFFA
+        DD      FETCH, LIT, B_DUMMY, LXOR
+        DD      ZBRAN
+        DD      IDDOT1-$-CW
+        DD      TNFA
+        DD      FETCH
+        DD      SFET
+        DD      LTYPE
+        DD      SPACE
+        DD      SPACE
+        DD      SPACE
+        DD      BRAN
+        DD      IDDOT2-$-CW
+IDDOT1:
+        DD      DROP
+IDDOT2:
+        DD      SEMIS
+;
+
+;  ****************
+;  *   (CREATE)   *
+;  ****************
+;
+N_PCREAT:
+        DD      8
+        DB      "(CREATE)"
+PCREAT:
+        DD    DOCOL
+        DD    PCREAT+HEADSIZE
+        DD    0x0
+        DD    IDDOT
+        DD    N_PCREAT
+
+        DD      LDUP
+        DD      ZEQU
+        DD      LIT, 5, QERR
+        DD      TDUP
+        DD      PRESENT
+        DD      LDUP
+        DD      ZBRAN
+        DD      CREA1-$-CW ;IF
+        DD      TNFA, FETCH, SFET
+        DD      ETYPE
+        DD      LIT,4
+        DD      MESS
+        DD      X       ;THEN
+CREA1:  DD      DROP
+        DD      SCOMMA
+        DD      HERE,TOR
+
+        DD      RR, TPHA, COMMA         ; Code field.
+
+        DD      RR, TPHA, COMMA         ; Data field.
+
+        DD      ZERO, COMMA ; Flag field.
+
+        DD      CURR, FETCH, TLFA
+        DD      LDUP, FETCH
+        DD      COMMA   ; Link field.
+        DD      RR, SWAP, STORE
+
+        DD      COMMA   ; Name field.
+
+                DD      RDROP
+        DD      SEMIS
+;
+
+;  *****************
+;  *   [COMPILE]   *
+;  *****************
+;
+N_BCOMP:
+        DD      9
+        DB      "[COMPILE]"
+BCOMP:
+        DD    DOCOL
+        DD    BCOMP+HEADSIZE
+        DD    B_IMMED
+        DD    PCREAT
+        DD    N_BCOMP
+
+        DD      LPWORD
+        DD      PRESENT
+        DD      LDUP
+        DD      ZEQU
+        DD      LIT, 16, QERR
+        DD      TCFA
+        DD      COMMA
+        DD      SEMIS
+;
+
+;  ****************
+;  *   POSTPONE   *
+;  ****************
+;
+N_POSTP:
+        DD      8
+        DB      "POSTPONE"
+POSTP:
+        DD    DOCOL
+        DD    POSTP+HEADSIZE
+        DD    B_IMMED
+        DD    BCOMP
+        DD    N_POSTP
+
+        DD      LPWORD
+        DD      PRESENT
+        DD      LDUP
+        DD      ZEQU
+        DD      LIT, 15, QERR
+        DD      LDUP, TFFA, FETCH
+        DD      LIT, B_IMMED, LAND, ZEQU
+        DD      ZBRAN
+        DD      POSTP1-$-CW
+         DD      LIT, LIT, COMMA
+         DD      COMMA
+         DD      LIT, COMMA, COMMA
+        DD      BRAN
+        DD      POSTP2-$-CW
+POSTP1:
+         DD      COMMA
+POSTP2:
+        DD      SEMIS
+;
+
+;  ***************
+;  *   LITERAL   *
+;  ***************
+;
+N_LITER:
+        DD      7
+        DB      "LITERAL"
+LITER:
+        DD    DOCOL
+        DD    LITER+HEADSIZE
+        DD    B_IMMED
+        DD    POSTP
+        DD    N_LITER
+
+        DD      STATE
+        DD      FETCH
+        DD      ZBRAN
+        DD      LITE1-$-CW ;IF
+        DD      LIT, LIT, COMMA
+        DD      COMMA   ;THEN
+LITE1:  DD      SEMIS
+;
+
+;  ****************
+;  *   DLITERAL   *
+;  ****************
+;
+N_DLITE:
+        DD      8
+        DB      "DLITERAL"
+DLITE:
+        DD    DOCOL
+        DD    DLITE+HEADSIZE
+        DD    B_IMMED
+        DD    LITER
+        DD    N_DLITE
+
+        DD      STATE
+        DD      FETCH
+        DD      ZBRAN
+        DD      DLIT1-$-CW ; IF
+        DD      SWAP
+        DD      LITER
+        DD      LITER   ; THEN
+DLIT1:  DD      SEMIS
+;
+;
+
+;  *****************
+;  *   SDLITERAL   *
+;  *****************
+;
+N_SDLITE:
+        DD      9
+        DB      "SDLITERAL"
+SDLITE:
+        DD    DOCOL
+        DD    SDLITE+HEADSIZE
+        DD    B_IMMED
+        DD    DLITE
+        DD    N_SDLITE
+
+        DD      DPL
+        DD      FETCH
+        DD      ZBRAN
+        DD      SDLIT1-$-CW ; IF
+        DD      DLITE
+        DD      BRAN
+        DD      SDLIT2-$-CW ; IF
+SDLIT1:
+        DD      DROP, LITER
+SDLIT2:
+        DD      SEMIS
+;
+
+
+;  **************
+;  *   ?STACK   *
+;  **************
+;
+N_QSTAC:
+        DD      6
+        DB      "?STACK"
+QSTAC:
+        DD    DOCOL
+        DD    QSTAC+HEADSIZE
+        DD    0x0
+        DD    SDLITE
+        DD    N_QSTAC
+
+        DD      SPFET
+        DD      SZERO
+        DD      FETCH
+        DD      SWAP
+        DD      ULESS
+        DD      ONE, QERR
+        DD      SPFET
+        DD      HERE
+        DD      LIT,0x80
+        DD      PLUS
+        DD      ULESS
+        DD      LIT, 7, QERR
+        DD      SEMIS
+        ;
+;
+;
+
+;  *****************
+;  *   INTERPRET   *
+;  *****************
+;
+N_INTER:
+        DD      9
+        DB      "INTERPRET"
+INTER:
+        DD    DOCOL
+        DD    INTER+HEADSIZE
+        DD    0x0
+        DD    QSTAC
+        DD    N_INTER
+
+INTE1:
+        DD      LPWORD
+        DD      LDUP      ; Zero length.
+        DD      ZBRAN
+        DD      INTE8-$-CW ;WHILE
+;       DD      DOTS
+;       DD      TDUP, LTYPE
+        DD      OVER, TOR       ; Save old parse pointer.
+        DD      FOUND
+        DD      LDUP, ZEQU
+        DD      LIT, 12, QERR
+        DD      LDUP, TFFA, FETCH
+        DD      LDUP, LIT, B_DENOT, LAND ;Retain copy of flags.
+        DD      ZBRAN
+        DD      INTE3B-$-CW ;IF
+        DD      OVER, TNFA, FETCH, FETCH
+        DD      RR, PLUS, LIN, STORE  ;Skip over prefix.
+INTE3B:                  ;THEN 
+        DD      RDROP           ; Drop old parse pointer.
+        DD      LIT, B_IMMED, LAND
+        DD      STATE, FETCH, ZEQU, LOR
+        DD      ZBRAN
+        DD      INTE3-$-CW ;IF
+        DD      EXEC
+        DD      BRAN
+        DD      INTE4-$-CW ;IF
+INTE3:
+        DD      COMMA
+                        ;THEN
+INTE4:
+        DD      QSTAC
+        DD      BRAN
+        DD      INTE1-$-CW  ;AGAIN
+INTE8:  DD      DROP, DROP
+        DD      SEMIS
+;
+
+;  *****************
+;  *   IMMEDIATE   *
+;  *****************
+;
+N_IMMED:
+        DD      9
+        DB      "IMMEDIATE"
+IMMED:
+        DD    DOCOL
+        DD    IMMED+HEADSIZE
+        DD    0x0
+        DD    INTER
+        DD    N_IMMED
+
+        DD      LATEST
+        DD      TFFA
+        DD      LIT, B_IMMED
+        DD      TOGGL
+        DD      SEMIS
+;
+
+;  **************
+;  *   PREFIX   *
+;  **************
+;
+N_PREFX:
+        DD      6
+        DB      "PREFIX"
+PREFX:
+        DD    DOCOL
+        DD    PREFX+HEADSIZE
+        DD    0x0
+        DD    IMMED
+        DD    N_PREFX
+
+        DD      LATEST
+        DD      TFFA
+        DD      LIT, B_DENOT
+        DD      TOGGL
+        DD      SEMIS
+;
+
+;  ******************
+;  *   VOCABULARY   *
+;  ******************
+;
+N_VOCAB:
+        DD      10
+        DB      "VOCABULARY"
+VOCAB:
+        DD    DOCOL
+        DD    VOCAB+HEADSIZE
+        DD    0x0
+        DD    PREFX
+        DD    N_VOCAB
+
+        DD      CREATE
+        DD      LATEST   ; Link this DEA into VOC-LINK chain.
+        DD      VOCL
+        DD      FETCH
+        DD      COMMA
+        DD      VOCL
+        DD      STORE
+        DD      ZERO, COMMA   ; Dummy code field
+        DD      ZERO, COMMA   ; Dummy data field
+        DD      LIT, B_DUMMY, COMMA ; Dummy flag field
+        DD      ZERO, COMMA ;Link field: empty chain
+        DD      LIT, (ZERO+(CW*(D_HOFFSET))), COMMA ;Empty string for name.
+                        DD      DOES
+DOVOC:
+        DD      ALSO
+        DD      CELLP   ; Make it a WID. 
+        DD      CONTEXT
+        DD      STORE
+        DD      SEMIS
+        ;
+;
+;   The link to task is a cold start value only.
+;   It is updated each time a definition is
+;   appended to the 'FORTH' vocabulary.
+;
+
+;
+
+;  *******************
+;  *   DEFINITIONS   *
+;  *******************
+;
+N_DEFIN:
+        DD      11
+        DB      "DEFINITIONS"
+DEFIN:
+        DD    DOCOL
+        DD    DEFIN+HEADSIZE
+        DD    0x0
+        DD    VOCAB
+        DD    N_DEFIN
+
+        DD      CONTEXT
+        DD      FETCH
+        DD      CURR
+        DD      STORE
+        DD      SEMIS
+;
+
+;  ************
+;  *   ALSO   *
+;  ************
+;
+N_ALSO:
+        DD      4
+        DB      "ALSO"
+ALSO:
+        DD    DOCOL
+        DD    ALSO+HEADSIZE
+        DD    0x0
+        DD    DEFIN
+        DD    N_ALSO
+
+        DD      CONTEXT, LDUP, CELLP
+        DD      LIT, (CW*(16-1))
+        DD      LMOVE
+        DD      LIT, ONLYBODY  ;End sentinel for array of word lists.
+        DD      CONTEXT, LIT, (CW*(16)), PLUS
+        DD      STORE ;Trim sets of wordset.
+        DD      SEMIS
+;
+
+;  ****************
+;  *   PREVIOUS   *
+;  ****************
+;
+N_PREVI:
+        DD      8
+        DB      "PREVIOUS"
+PREVI:
+        DD    DOCOL
+        DD    PREVI+HEADSIZE
+        DD    0x0
+        DD    ALSO
+        DD    N_PREVI
+
+        DD      CONTEXT, LDUP, CELLP, SWAP
+        DD      LIT, (CW*(16))
+        DD      LMOVE
+        DD      SEMIS
+;
+
+;  *********
+;  *   (   *
+;  *********
+;
+N_PAREN:
+        DD      1
+        DB      "("
+PAREN:
+        DD    DOCOL
+        DD    PAREN+HEADSIZE
+        DD    B_IMMED
+        DD    PREVI
+        DD    N_PAREN
+
+        DD      LIT,')'
+        DD      PPARS
+        DD      TDROP
+        DD      SEMIS
+;
+;
+
+;  *********
+;  *   \   *
+;  *********
+;
+N_BACKS:
+        DD      1
+        DB      "\"
+BACKS:
+        DD    DOCOL
+        DD    BACKS+HEADSIZE
+        DD    B_IMMED
+        DD    PAREN
+        DD    N_BACKS
+
+; Backup one character, just in case we are at the end of a line.
+        DD      LIT, -1, LIN, PSTORE
+        DD      LIT,ALF
+        DD      PPARS
+        DD      TDROP
+        DD      SEMIS
+;
+
+;  ************
+;  *   QUIT   *
+;  ************
+;
+N_QUIT:
+        DD      4
+        DB      "QUIT"
+QUIT:
+        DD    DOCOL
+        DD    QUIT+HEADSIZE
+        DD    0x0
+        DD    BACKS
+        DD    N_QUIT
+
+        DD      LBRAC
+QUIT1:                  ;BEGIN
+        DD      RZERO
+        DD      FETCH
+        DD      RPSTO
+        DD      LIT
+        DD      PACCEP
+        DD      CATCH
+        DD      LDUP, LIT, -EPIPE, EQUAL
+        DD      ZBRAN
+        DD      ENDIF7-$-CW
+        DD      BYE     ;End of input, no error!
+ENDIF7:
+        DD      QERRUR
+        DD      SETSRC
+        DD      INTER
+        DD      OK
+        DD      BRAN
+        DD      QUIT1-$-CW  ;AGAIN
+        DD      SEMIS   ;Unnecessary, but helpful for decompilation.
+;
+
+;  **********
+;  *   OK   *
+;  **********
+;
+N_OK:
+        DD      2
+        DB      "OK"
+OK:
+        DD    DOCOL
+        DD    OK+HEADSIZE
+        DD    0x0
+        DD    QUIT
+        DD    N_OK
+
+        DD      STATE
+        DD      FETCH
+        DD      ZEQU
+        DD      ZBRAN
+        DD      OK2-$-CW ;IF
+        DD      SKIP
+         DD      3
+SB4: DB      " OK"
+       
+        DD      LIT, SB4
+        DD      LIT, 3
+        DD      LTYPE
+        DD      CR
+OK2:
+        DD      SEMIS
+;
+
+;  *************
+;  *   ABORT   *
+;  *************
+;
+N_ABORT:
+        DD      5
+        DB      "ABORT"
+ABORT:
+        DD    DOCOL
+        DD    ABORT+HEADSIZE
+        DD    0x0
+        DD    OK
+        DD    N_ABORT
+
+        DD      SZERO, FETCH, SPSTO
+        DD      ZERO, HANDLER, STORE
+        DD      DECA
+        DD      ONLY
+        DD      FORTH
+        DD      DEFIN
+        DD      QUIT
+        DD      SEMIS   ;Unnecessary, but helpful for decompilation.
+;
+;      WARM START VECTOR COMES HERE
+;      For booting code we enter here, real mode and using the switchsegment.
+;      BY control BREAK.
+WARM_ENTRY:
+; 
+        
+        MOV     ESI, WRM1
+        JMP NEXT                   ;Hope stacks are still okay.
+;
+WRM1:   DD      WARM
+;
+
+;  ************
+;  *   WARM   *
+;  ************
+;
+N_WARM:
+        DD      4
+        DB      "WARM"
+WARM:
+        DD    DOCOL
+        DD    WARM+HEADSIZE
+        DD    0x0
+        DD    ABORT
+        DD    N_WARM
+
+        DD      MTBUF
+        DD      SIGNON
+        DD      ABORT
+        DD      SEMIS   ;Unnecessary, but helpful for decompilation.
+;
+
+
+;  ***************
+;  *   OPTIONS   *
+;  ***************
+;
+N_OPTIONS:
+        DD      7
+        DB      "OPTIONS"
+OPTIONS:
+        DD    DOCOL
+        DD    OPTIONS+HEADSIZE
+        DD    0x0
+        DD    WARM
+        DD    N_OPTIONS
+
+;       Execute option.
+        DD      ARGS, FETCH, CELLP, CELLP, FETCH, LDUP
+        DD      ZBRAN
+        DD      OPT4-$-CW ; No options  
+
+        DD      FETCH
+        DD      LDUP
+        DD      LIT,  0x0FF , LAND
+        DD      LIT, '-', UNEQ
+        DD      ZBRAN
+        DD      OPT3-$-CW
+        DD      LIT, 3, LDUP, ERROR
+        DD      XCODE, STORE, BYE
+OPT3:
+        DD      LIT, 8, RSHIFT
+        DD      LIT, 0x1F, LAND
+        DD      LOAD
+        DD      ZERO, SWAP ; Sign on suppressed.
+OPT4:
+        DD      DROP
+        DD      SEMIS   ;Unnecessary, but helpful for decompilation.
+;
+
+
+;  ************
+;  *   COLD   *
+;  ************
+;
+N_COLD:
+        DD      4
+        DB      "COLD"
+COLD:
+        DD    DOCOL
+        DD    COLD+HEADSIZE
+        DD    0x0
+        DD    OPTIONS
+        DD    N_COLD
+
+        DD      ZERO, HANDLER, STORE
+        DD      MTBUF
+        DD      FIRST
+        DD      STALEST,STORE
+        DD      FIRST
+        DD      PREV,STORE
+; Fill user area for single task.
+        DD      LIT, USINI
+        DD      LIT, USINI+(CW*(1)), FETCH
+        DD      LIT, US
+        DD      LCMOVE
+
+        DD      LIT, 0, BLINI  ;Default, don't write in the library file!
+;
+        DD      DECA    ; FIXME has to go done by ABORT anyway.
+        DD      ONLY    ; FIXME has to go done by ABORT anyway.
+        DD      FORTH   ; FIXME has to go done by ABORT anyway.
+        DD      DEFIN   ; FIXME has to go done by ABORT anyway.
+        DD      ONE            ; Sign on wanted.
+;
+        DD      OPTIONS
+        DD      ZBRAN
+        DD      COLD5-$-CW
+        DD      SIGNON    ; Suppressed for scripting! Or any options.
+COLD5:
+        DD      ABORT
+        DD      BYE     ; In case of turnkey programs.
+        DD      SEMIS   ; Unnecessary, but helpful for decompilation.
+;
+
+;  ***********
+;  *   S>D   *
+;  ***********
+;
+N_STOD:
+        DD      3
+        DB      "S>D"
+STOD:
+        DD    STOD+HEADSIZE
+        DD    STOD+HEADSIZE
+        DD    0x0
+        DD    COLD
+        DD    N_STOD
+
+        POP     EDX      ;S1
+        SUB     EAX,EAX
+        OR      EDX,EDX
+        JNS     STOD1   ;POS
+        DEC     EAX      ;NEG
+STOD1:
+        PUSH    EDX
+        PUSH    EAX
+        JMP NEXT
+;
+
+;  ***********
+;  *   ABS   *
+;  ***********
+;
+N_LABS:
+        DD      3
+        DB      "ABS"
+LABS:
+        DD    DOCOL
+        DD    LABS+HEADSIZE
+        DD    0x0
+        DD    STOD
+        DD    N_LABS
+
+        DD      LDUP
+        DD      ZLESS
+        DD      ZBRAN
+        DD      PM1-$-CW   ;IF
+        DD      NEGATE   ;THEN
+PM1:
+        DD      SEMIS
+;
+
+;  ************
+;  *   DABS   *
+;  ************
+;
+N_DABS:
+        DD      4
+        DB      "DABS"
+DABS:
+        DD    DOCOL
+        DD    DABS+HEADSIZE
+        DD    0x0
+        DD    LABS
+        DD    N_DABS
+
+        DD      LDUP
+        DD      ZLESS
+        DD      ZBRAN
+        DD      DPM1-$-CW  ;IF
+        DD      DNEGA   ;THEN
+DPM1:
+        DD      SEMIS
+;
+
+;  ***********
+;  *   MIN   *
+;  ***********
+;
+N_MIN:
+        DD      3
+        DB      "MIN"
+MIN:
+        DD    DOCOL
+        DD    MIN+HEADSIZE
+        DD    0x0
+        DD    DABS
+        DD    N_MIN
+
+        DD      TDUP
+        DD      GREAT
+        DD      ZBRAN
+        DD      MIN1-$-CW  ;IF
+        DD      SWAP    ;THEN
+MIN1:   DD      DROP
+        DD      SEMIS
+;
+
+;  ***********
+;  *   MAX   *
+;  ***********
+;
+N_MAX:
+        DD      3
+        DB      "MAX"
+MAX:
+        DD    DOCOL
+        DD    MAX+HEADSIZE
+        DD    0x0
+        DD    MIN
+        DD    N_MAX
+
+        DD      TDUP
+        DD      LESS
+        DD      ZBRAN
+        DD      MAX1-$-CW  ;IF
+        DD      SWAP    ;THEN
+MAX1:   DD      DROP
+        DD      SEMIS
+;
+
+;  **************
+;  *   LSHIFT   *
+;  **************
+;
+N_LSHIFT:
+        DD      6
+        DB      "LSHIFT"
+LSHIFT:
+        DD    LSHIFT+HEADSIZE
+        DD    LSHIFT+HEADSIZE
+        DD    0x0
+        DD    MAX
+        DD    N_LSHIFT
+
+        POP     ECX
+        POP     EAX
+        SHL     EAX,CL
+        PUSH    EAX
+        JMP NEXT
+;
+
+;  **************
+;  *   RSHIFT   *
+;  **************
+;
+N_RSHIFT:
+        DD      6
+        DB      "RSHIFT"
+RSHIFT:
+        DD    RSHIFT+HEADSIZE
+        DD    RSHIFT+HEADSIZE
+        DD    0x0
+        DD    LSHIFT
+        DD    N_RSHIFT
+
+        POP     ECX
+        POP     EAX
+        SHR     EAX,CL
+        PUSH    EAX
+        JMP NEXT
+;
+
+;  **********
+;  *   M*   *
+;  **********
+;
+N_MSTAR:
+        DD      2
+        DB      "M*"
+MSTAR:
+        DD    MSTAR+HEADSIZE
+        DD    MSTAR+HEADSIZE
+        DD    0x0
+        DD    RSHIFT
+        DD    N_MSTAR
+
+        POP     EAX
+        POP     EBX
+        IMUL     EBX      ;SIGNED
+        XCHG    EAX,EDX   ;AX NOW = MSW
+        PUSH    EDX
+        PUSH    EAX
+        JMP NEXT          ;STORE DOUBLE CELL
+;
+
+;  **************
+;  *   SM/REM   *
+;  **************
+;
+N_MSLAS:
+        DD      6
+        DB      "SM/REM"
+MSLAS:
+        DD    MSLAS+HEADSIZE
+        DD    MSLAS+HEADSIZE
+        DD    0x0
+        DD    MSTAR
+        DD    N_MSLAS
+
+        POP     EBX      ;DIVISOR
+        POP     EDX      ;MSW OF DIVIDEND
+        POP     EAX      ;LSW OF DIVIDEND
+        IDIV     EBX      ;16 BIT DIVIDE
+        PUSH    EDX
+        PUSH    EAX
+        JMP NEXT          ;STORE QUOT/REM
+;
+
+
+;  **********
+;  *   2/   *
+;  **********
+;
+N_TWOSL:
+        DD      2
+        DB      "2/"
+TWOSL:
+        DD    DOCOL
+        DD    TWOSL+HEADSIZE
+        DD    0x0
+        DD    MSLAS
+        DD    N_TWOSL
+
+        DD      STOD, TWO, FMSLAS
+        DD      SWAP, DROP
+        DD      SEMIS
+;
+
+;  **********
+;  *   2*   *
+;  **********
+;
+N_TWOST:
+        DD      2
+        DB      "2*"
+TWOST:
+        DD    DOCOL
+        DD    TWOST+HEADSIZE
+        DD    0x0
+        DD    TWOSL
+        DD    N_TWOST
+
+        DD      TWO, STAR
+        DD      SEMIS
+;
+
+;  **********
+;  *   1-   *
+;  **********
+;
+N_ONEM:
+        DD      2
+        DB      "1-"
+ONEM:
+        DD    DOCOL
+        DD    ONEM+HEADSIZE
+        DD    0x0
+        DD    TWOST
+        DD    N_ONEM
+
+        DD      ONE, LSUB
+        DD      SEMIS
+;
+;
+
+;  **************
+;  *   FM/MOD   *
+;  **************
+;
+N_FMSLAS:
+        DD      6
+        DB      "FM/MOD"
+FMSLAS:
+        DD    DOCOL
+        DD    FMSLAS+HEADSIZE
+        DD    0x0
+        DD    ONEM
+        DD    N_FMSLAS
+
+        DD      LDUP, TOR
+        DD      TDUP, LXOR, TOR
+        DD      MSLAS
+        DD      FROMR, ZLESS
+        DD      ZBRAN
+        DD      FMMOD1-$-CW
+        DD      OVER
+        DD      ZBRAN
+        DD      FMMOD1-$-CW
+        DD      ONE, LSUB
+        DD      SWAP, FROMR, PLUS, SWAP
+        DD      BRAN
+        DD      FMMOD2-$-CW
+FMMOD1:
+        DD      RDROP
+FMMOD2:
+        DD      SEMIS
+;
+
+;  *********
+;  *   *   *
+;  *********
+;
+N_STAR:
+        DD      1
+        DB      "*"
+STAR:
+        DD    DOCOL
+        DD    STAR+HEADSIZE
+        DD    0x0
+        DD    FMSLAS
+        DD    N_STAR
+
+        DD      MSTAR
+        DD      DROP
+        DD      SEMIS
+;
+
+;  ************
+;  *   /MOD   *
+;  ************
+;
+N_SLMOD:
+        DD      4
+        DB      "/MOD"
+SLMOD:
+        DD    DOCOL
+        DD    SLMOD+HEADSIZE
+        DD    0x0
+        DD    STAR
+        DD    N_SLMOD
+
+        DD      TOR
+        DD      STOD
+        DD      FROMR
+        DD      MSLAS
+        DD      SEMIS
+;
+
+;  *********
+;  *   /   *
+;  *********
+;
+N_SLASH:
+        DD      1
+        DB      "/"
+SLASH:
+        DD    DOCOL
+        DD    SLASH+HEADSIZE
+        DD    0x0
+        DD    SLMOD
+        DD    N_SLASH
+
+        DD      SLMOD
+        DD      SWAP
+        DD      DROP
+        DD      SEMIS
+;
+
+;  ***********
+;  *   MOD   *
+;  ***********
+;
+N_LMOD:
+        DD      3
+        DB      "MOD"
+LMOD:
+        DD    DOCOL
+        DD    LMOD+HEADSIZE
+        DD    0x0
+        DD    SLASH
+        DD    N_LMOD
+
+        DD      SLMOD
+        DD      DROP
+        DD      SEMIS
+;
+
+;  *************
+;  *   */MOD   *
+;  *************
+;
+N_SSMOD:
+        DD      5
+        DB      "*/MOD"
+SSMOD:
+        DD    DOCOL
+        DD    SSMOD+HEADSIZE
+        DD    0x0
+        DD    LMOD
+        DD    N_SSMOD
+
+        DD      TOR
+        DD      MSTAR
+        DD      FROMR
+        DD      MSLAS
+        DD      SEMIS
+;
+
+;  **********
+;  *   */   *
+;  **********
+;
+N_SSLA:
+        DD      2
+        DB      "*/"
+SSLA:
+        DD    DOCOL
+        DD    SSLA+HEADSIZE
+        DD    0x0
+        DD    SSMOD
+        DD    N_SSLA
+
+        DD      SSMOD
+        DD      SWAP
+        DD      DROP
+        DD      SEMIS
+;
+
+;  *************
+;  *   M/MOD   *
+;  *************
+;
+N_MSMOD:
+        DD      5
+        DB      "M/MOD"
+MSMOD:
+        DD    DOCOL
+        DD    MSMOD+HEADSIZE
+        DD    0x0
+        DD    SSLA
+        DD    N_MSMOD
+
+        DD      TOR
+        DD      ZERO
+        DD      RR
+        DD      USLAS
+        DD      FROMR
+        DD      SWAP
+        DD      TOR
+        DD      USLAS
+        DD      FROMR
+        DD      SEMIS
+;
+
+;  **************
+;  *   (LINE)   *
+;  **************
+;
+N_PLINE:
+        DD      6
+        DB      "(LINE)"
+PLINE:
+        DD    DOCOL
+        DD    PLINE+HEADSIZE
+        DD    0x0
+        DD    MSMOD
+        DD    N_PLINE
+
+        DD      TOR
+        DD      LIT,64
+        DD      MSTAR
+        DD      BBUF
+        DD      FMSLAS
+        DD      FROMR ; This blocks, so is screens.
+        DD      PLUS
+        DD      BLOCK
+        DD      PLUS
+        DD      LIT,63
+        DD      SEMIS
+;
+
+;  **************
+;  *   ERRSCR   *
+;  **************
+;
+N_ERRSCR:
+        DD      6
+        DB      "ERRSCR"
+ERRSCR:
+        DD    DOVAR
+        DD    ERRSCR+HEADSIZE
+        DD    0x0
+        DD    PLINE
+        DD    N_ERRSCR
+
+        DD ERRORSCREEN
+;
+
+;  ***************
+;  *   MESSAGE   *
+;  ***************
+;
+N_MESS:
+        DD      7
+        DB      "MESSAGE"
+MESS:
+        DD    DOCOL
+        DD    MESS+HEADSIZE
+        DD    0x0
+        DD    ERRSCR
+        DD    N_MESS
+
+        DD      LWARN
+        DD      FETCH
+        DD      ZBRAN
+        DD      MESS1-$-CW ;IF
+        DD      ERRSCR, FETCH
+        DD      PLINE, ONEP     ; Also print the '\n' !
+        DD      ETYPE
+        DD      X
+MESS1:                  ;THEN
+        DD      DROP
+        DD      SEMIS
+;
+
+;  ***********
+;  *   PC@   *
+;  ***********
+;
+N_PCFET:
+        DD      3
+        DB      "PC@"
+PCFET:
+        DD    PCFET+HEADSIZE
+        DD    PCFET+HEADSIZE
+        DD    0x0
+        DD    MESS
+        DD    N_PCFET
+
+; FETCH CHARACTER (BYTE) FROM PORT
+        POP     EDX      ; PORT ADDR
+        XOR     EAX,EAX
+        IN      AL,DX  ; BYTE INPUT
+        PUSH    EAX
+        JMP NEXT
+;
+
+;  ***********
+;  *   PC!   *
+;  ***********
+;
+N_PCSTO:
+        DD      3
+        DB      "PC!"
+PCSTO:
+        DD    PCSTO+HEADSIZE
+        DD    PCSTO+HEADSIZE
+        DD    0x0
+        DD    PCFET
+        DD    N_PCSTO
+
+        POP     EDX      ;PORT ADDR
+        POP     EAX      ;DATA
+        OUT     DX,AL   ; BYTE OUTPUT
+        JMP NEXT
+;
+
+;  **********
+;  *   P@   *
+;  **********
+;
+N_PFET:
+        DD      2
+        DB      "P@"
+PFET:
+        DD    PFET+HEADSIZE
+        DD    PFET+HEADSIZE
+        DD    0x0
+        DD    PCSTO
+        DD    N_PFET
+
+        POP     EDX      ;PORT ADDR
+        IN      EAX,DX  ;WORD INPUT
+        PUSH    EAX
+        JMP NEXT
+;
+
+;  **********
+;  *   P!   *
+;  **********
+;
+N_PSTO:
+        DD      2
+        DB      "P!"
+PSTO:
+        DD    PSTO+HEADSIZE
+        DD    PSTO+HEADSIZE
+        DD    0x0
+        DD    PFET
+        DD    N_PSTO
+
+        POP     EDX      ;PORT ADDR
+        POP     EAX      ;DATA
+        OUT     DX,EAX   ;WORD OUTPUT
+        JMP NEXT
+;
+
+;  ***************
+;  *   STALEST   *
+;  ***************
+;
+N_STALEST:
+        DD      7
+        DB      "STALEST"
+STALEST:
+        DD    DOVAR
+        DD    STALEST+HEADSIZE
+        DD    0x0
+        DD    PSTO
+        DD    N_STALEST
+
+        DD BUF1
+;
+
+;  ************
+;  *   PREV   *
+;  ************
+;
+N_PREV:
+        DD      4
+        DB      "PREV"
+PREV:
+        DD    DOVAR
+        DD    PREV+HEADSIZE
+        DD    0x0
+        DD    STALEST
+        DD    N_PREV
+
+        DD      BUF1
+;
+
+;  *************
+;  *   #BUFF   *
+;  *************
+;
+N_NOBUF:
+        DD      5
+        DB      "#BUFF"
+NOBUF:
+        DD    DOCON
+        DD    NBUF
+        DD    0x0
+        DD    PREV
+        DD    N_NOBUF
+
+;
+
+;  ************
+;  *   +BUF   *
+;  ************
+;
+N_PBUF:
+        DD      4
+        DB      "+BUF"
+PBUF:
+        DD    DOCOL
+        DD    PBUF+HEADSIZE
+        DD    0x0
+        DD    NOBUF
+        DD    N_PBUF
+
+        DD      LIT,(KBBUF+2*CW)
+        DD      PLUS,LDUP
+        DD      LIMIT,EQUAL
+        DD      ZBRAN
+        DD      PBUF1-$-CW
+        DD      DROP,FIRST
+PBUF1:  DD      LDUP, PREV, FETCH, LSUB
+        DD      SEMIS
+;
+
+;  **************
+;  *   UPDATE   *
+;  **************
+;
+N_UPDAT:
+        DD      6
+        DB      "UPDATE"
+UPDAT:
+        DD    DOCOL
+        DD    UPDAT+HEADSIZE
+        DD    0x0
+        DD    PBUF
+        DD    N_UPDAT
+
+        DD      PREV, FETCH
+        DD      LDUP, CELLP,CELLP
+        DD      SWAP, FETCH
+        DD      LOFFSET,  FETCH, PLUS
+        DD      ZERO
+        DD      RSLW
+        DD      SEMIS
+;
+
+;  *********************
+;  *   EMPTY-BUFFERS   *
+;  *********************
+;
+N_MTBUF:
+        DD      13
+        DB      "EMPTY-BUFFERS"
+MTBUF:
+        DD    DOCOL
+        DD    MTBUF+HEADSIZE
+        DD    0x0
+        DD    UPDAT
+        DD    N_MTBUF
+
+        DD      FIRST
+        DD      LIMIT,OVER
+        DD      LSUB,LERASE
+        DD      SEMIS
+        ;
+;
+
+;  ****************
+;  *   (BUFFER)   *
+;  ****************
+;
+N_BUFFER:
+        DD      8
+        DB      "(BUFFER)"
+BUFFER:
+        DD    DOCOL
+        DD    BUFFER+HEADSIZE
+        DD    0x0
+        DD    MTBUF
+        DD    N_BUFFER
+
+; Find the buffer, if it is already here.
+    DD      PREV, FETCH
+BUFFER1:
+    DD          TOR, RR, FETCH, OVER, EQUAL
+    DD      ZBRAN
+        DD      BUFFER3-$-CW
+    DD        DROP, FROMR, EXIT
+BUFFER3:
+    DD          FROMR
+    DD      PBUF, ZEQU
+    DD      ZBRAN
+        DD      BUFFER1-$-CW
+    DD       DROP
+; Just allocate the stalest buffer.
+    DD       STALEST,   FETCH, TOR
+; Remember the next stalest buffer. 
+    DD       RR
+BUFFER2:
+    DD       PBUF, OVER, CELLP, FETCH
+    DD       LIT, -1, GREAT, LAND
+    DD      ZBRAN
+        DD      BUFFER2-$-CW
+    DD       STALEST, STORE
+; Fill in the house keeping.
+    DD       RR, STORE
+    DD       ZERO, RR, CELLP, STORE
+    DD       RR, PREV, STORE
+    DD       FROMR
+    DD  SEMIS
+;
+
+
+;  *************
+;  *   BLOCK   *
+;  *************
+;
+N_BLOCK:
+        DD      5
+        DB      "BLOCK"
+BLOCK:
+        DD    DOCOL
+        DD    BLOCK+HEADSIZE
+        DD    0x0
+        DD    BUFFER
+        DD    N_BLOCK
+
+
+        DD      BUFFER
+        DD      LDUP, CELLP, FETCH, ZEQU
+        DD      ZBRAN
+        DD      BLOCK1-$-CW
+        DD      LDUP, CELLP, CELLP
+        DD      OVER, FETCH
+        DD      LOFFSET,  FETCH, PLUS
+        DD      ONE
+        DD      RSLW
+        DD      ONE, OVER, CELLP, STORE
+BLOCK1:
+        DD      LDUP, PREV, STORE
+        DD      CELLP, CELLP
+        DD      SEMIS
+;
+
+;  *************
+;  *   FLUSH   *
+;  *************
+;
+N_FLUSH:
+        DD      5
+        DB      "FLUSH"
+FLUSH:
+        DD    DOCOL
+        DD    (MTBUF+HEADSIZE)
+        DD    0x0
+        DD    BLOCK
+        DD    N_FLUSH
+
+
+; Unlock all buffers
+        DD      LIMIT
+        DD      FIRST, CELLP
+        DD     XDO
+        DD      FLUS2-$-CW
+FLUS1:  DD      ZERO, IDO, STORE
+        DD      LIT,(KBBUF+2*CW)
+        DD      PLOOP
+        DD      (FLUS1-$)
+FLUS2:
+        DD      SEMIS
+;
+
+;  ************
+;  *   SAVE   *
+;  ************
+;
+N_SAVE:
+        DD      4
+        DB      "SAVE"
+SAVE:
+        DD    DOCOL
+        DD    SAVE+HEADSIZE
+        DD    0x0
+        DD    FLUSH
+        DD    N_SAVE
+
+        DD      FROMR
+        DD      SRC, TFET
+        DD      LIN, FETCH
+        DD      TOR, TOR, TOR
+        DD      TOR
+        DD SEMIS
+;
+
+;  ***************
+;  *   RESTORE   *
+;  ***************
+;
+N_RESTO:
+        DD      7
+        DB      "RESTORE"
+RESTO:
+        DD    DOCOL
+        DD    RESTO+HEADSIZE
+        DD    0x0
+        DD    SAVE
+        DD    N_RESTO
+
+        DD      FROMR
+        DD      FROMR, FROMR, FROMR
+        DD      LIN, STORE
+        DD      SRC, TSTOR
+        DD      TOR
+        DD SEMIS
+;
+
+
+;  ******************
+;  *   SAVE-INPUT   *
+;  ******************
+;
+N_SAVEI:
+        DD      10
+        DB      "SAVE-INPUT"
+SAVEI:
+        DD    DOCOL
+        DD    SAVEI+HEADSIZE
+        DD    0x0
+        DD    RESTO
+        DD    N_SAVEI
+
+        DD      SRC, TFET
+        DD      LIN, FETCH
+        DD      LIT, 3
+        DD SEMIS
+;
+
+;  *********************
+;  *   RESTORE-INPUT   *
+;  *********************
+;
+N_RESTOI:
+        DD      13
+        DB      "RESTORE-INPUT"
+RESTOI:
+        DD    DOCOL
+        DD    RESTOI+HEADSIZE
+        DD    0x0
+        DD    SAVEI
+        DD    N_RESTOI
+
+        DD      DROP
+        DD      LIN, STORE
+        DD      SRC, TSTOR
+        DD      LIT, -1
+        DD SEMIS
+;
+;
+
+;  ************
+;  *   LOCK   *
+;  ************
+;
+N_LLOCK:
+        DD      4
+        DB      "LOCK"
+LLOCK:
+        DD    DOCOL
+        DD    LLOCK+HEADSIZE
+        DD    0x0
+        DD    RESTOI
+        DD    N_LLOCK
+
+        DD      BLOCK
+        DD      LIT, CW, LSUB
+        DD      LIT, -2, SWAP, PSTORE
+        DD      SEMIS
+;
+
+;  **************
+;  *   UNLOCK   *
+;  **************
+;
+N_LUNLOCK:
+        DD      6
+        DB      "UNLOCK"
+LUNLOCK:
+        DD    DOCOL
+        DD    LUNLOCK+HEADSIZE
+        DD    0x0
+        DD    LLOCK
+        DD    N_LUNLOCK
+
+        DD      BLOCK
+        DD      LIT, CW, LSUB
+        DD      TWO, SWAP, PSTORE
+        DD      SEMIS
+;
+
+;  ************
+;  *   LOAD   *
+;  ************
+;
+N_LOAD:
+        DD      4
+        DB      "LOAD"
+LOAD:
+        DD    DOCOL
+        DD    LOAD+HEADSIZE
+        DD    0x0
+        DD    LUNLOCK
+        DD    N_LOAD
+
+        DD      LDUP, THRU
+        DD      SEMIS
+;
+
+;  ************
+;  *   THRU   *
+;  ************
+;
+N_THRU:
+        DD      4
+        DB      "THRU"
+THRU:
+        DD    DOCOL
+        DD    THRU+HEADSIZE
+        DD    0x0
+        DD    LOAD
+        DD    N_THRU
+
+        DD      SAVE
+        DD      ONEP, SWAP
+        DD     XDO
+        DD      THRU2-$-CW
+THRU1:
+        DD      IDO, LLOCK
+        DD      IDO, BLOCK
+        DD      LIT, KBBUF
+        DD      SETSRC
+        DD      LIT, INTER, CATCH
+        DD      IDO, LUNLOCK
+        DD      QDUP
+        DD      ZBRAN
+        DD      THRU3-$-CW
+        DD      RDROP, RDROP, RDROP ;UNLOOP.
+        DD      RESTO
+        DD      THROW
+THRU3:
+        DD     XLOOP
+        DD      THRU1-$-CW
+THRU2:
+        DD      RESTO
+        DD      SEMIS
+;
+
+;
+
+;  ***********
+;  *   BLK   *
+;  ***********
+;
+N_BLK:
+        DD      3
+        DB      "BLK"
+BLK:
+        DD    DOCOL
+        DD    BLK+HEADSIZE
+        DD    0x0
+        DD    THRU
+        DD    N_BLK
+
+        DD      LIN, FETCH
+        DD      FIRST, LIMIT, WITHIN
+        DD      SRC, TFET, LSUB
+        DD      LIT, 1024, EQUAL, LAND
+        DD      ZBRAN
+        DD      BLK1-$-CW
+        DD      SRC, FETCH, TWO, LCELLS, LSUB, FETCH
+        DD      BRAN
+        DD      BLK2-$-CW
+BLK1:
+        DD      ZERO
+BLK2:
+        DD      PBLK, STORE
+        DD      PBLK
+        DD      SEMIS
+;
+
+;  ***********
+;  *   -->   *
+;  ***********
+;
+N_ARROW:
+        DD      3
+        DB      "-->"
+ARROW:
+        DD    DOCOL
+        DD    ARROW+HEADSIZE
+        DD    B_IMMED
+        DD    BLK
+        DD    N_ARROW
+
+        DD      QLOAD
+        DD      BLK, FETCH
+        DD      LDUP, LUNLOCK
+        DD      ONEP
+        DD      LDUP, LLOCK
+        DD      LDUP, BLK, STORE
+        DD      BLOCK
+        DD      LIT, KBBUF
+        DD      SETSRC
+        DD      SEMIS
+        ;
+;
+;
+; 
+
+
+;  *************
+;  *   LINOS   *
+;  *************
+;
+N_LINOS:
+        DD      5
+        DB      "LINOS"
+LINOS:
+        DD    LINOS+HEADSIZE
+        DD    LINOS+HEADSIZE
+        DD    0x0
+        DD    ARROW
+        DD    N_LINOS
+
+        POP     EAX        ; Function number
+        POP     EDX        ; Third parameter, if any
+        POP     ECX        ; Second parameter, if any
+        POP     EBX        ; First parameter.
+        INT     0x80        ; Generic call on LINUX 
+        PUSH    EAX
+        JMP NEXT     ; Positive means okay. Negative means -errno.
+;
+
+;  **************
+;  *   LINOS5   *
+;  **************
+;
+N_LINOS5:
+        DD      6
+        DB      "LINOS5"
+LINOS5:
+        DD    LINOS5+HEADSIZE
+        DD    LINOS5+HEADSIZE
+        DD    0x0
+        DD    LINOS
+        DD    N_LINOS5
+
+        LEA     EBP,[EBP - (CW*(1))] ;Save HIP on return stack.
+        MOV     [EBP],ESI
+        POP     EAX        ; Function number
+        POP     EDI        ; 5th parameter, if any
+        POP     ESI        ; 4th parameter, if any
+        POP     EDX        ; Third parameter, if any
+        POP     ECX        ; Second parameter, if any
+        POP     EBX        ; First parameter.
+        INT     0x80        ; Generic call on LINUX 
+        MOV     ESI,[EBP]    ; Restore
+        LEA     EBP,[EBP+(CW*(1))]
+        PUSH    EAX
+        JMP NEXT     ; Positive means okay. Negative means -errno.
+;
+
+;  **********
+;  *   MS   *
+;  **********
+;
+N_MS:
+        DD      2
+        DB      "MS"
+MS:
+        DD    DOCOL
+        DD    MS+HEADSIZE
+        DD    0x0
+        DD    LINOS5
+        DD    N_MS
+
+        DD      LIT, 1000, LIT, 1000000, SSMOD ; (ms -- us s) 
+        DD      LIT, TV, TSTOR
+        DD      ZERO, ZERO
+        DD      ZERO, ZERO
+        DD      LIT, TV
+        DD      LIT, _newselect, LINOS5
+        DD      QERRUR
+        DD      SEMIS
+TV:     RESB    8 
+;
+; 
+; 
+        ;
+;------------------------------------
+;       SYSTEM DEPENDANT CHAR I/O
+;------------------------------------
+;
+;
+;
+
+; Code fields are filled in during bootup. 
+; Lower case labels starting with "c_.." are c-supplied facilities.
+
+;  ****************
+;  *   (ACCEPT)   *
+;  ****************
+;
+N_PACCEP:
+        DD      8
+        DB      "(ACCEPT)"
+PACCEP:
+        DD    DOCOL
+        DD    PACCEP+HEADSIZE
+        DD    0x0
+        DD    MS
+        DD    N_PACCEP
+
+        DD      TIB
+        DD      FETCH
+        DD      LDUP
+        DD      LIT,RTS/2
+        DD      ACCEP
+; Keep the next line in for debugging ACCEPT for MSDOS.
+;        DD      LIT, 0x41, EMIT, TDUP, LTYPE, LIT, 0x41, EMIT
+;        DD      DOTS
+        DD      SEMIS
+;
+
+;  **************
+;  *   ACCEPT   *
+;  **************
+;
+N_ACCEP:
+        DD      6
+        DB      "ACCEPT"
+ACCEP:
+        DD    ACCEP+HEADSIZE
+        DD    ACCEP+HEADSIZE
+        DD    0x0
+        DD    PACCEP
+        DD    N_ACCEP
+
+        CALL    c_expec
+        LEA     ESP,[ESP+(CW*(2))]    ; remove input
+        PUSH    EAX
+        JMP NEXT
+;
+
+;  ***********
+;  *   KEY   *
+;  ***********
+;
+N_KEY:
+        DD      3
+        DB      "KEY"
+KEY:
+        DD    KEY+HEADSIZE
+        DD    KEY+HEADSIZE
+        DD    0x0
+        DD    ACCEP
+        DD    N_KEY
+
+        CALL    c_key
+        PUSH    EAX
+        JMP NEXT
+;
+
+;  ************
+;  *   KEY?   *
+;  ************
+;
+N_KEYQ:
+        DD      4
+        DB      "KEY?"
+KEYQ:
+        DD    KEYQ+HEADSIZE
+        DD    KEYQ+HEADSIZE
+        DD    0x0
+        DD    KEY
+        DD    N_KEYQ
+
+        CALL    c_qterm
+        PUSH    EAX
+        JMP NEXT
+;
+
+;  ************
+;  *   TYPE   *
+;  ************
+;
+N_LTYPE:
+        DD      4
+        DB      "TYPE"
+LTYPE:
+        DD    LTYPE+HEADSIZE
+        DD    LTYPE+HEADSIZE
+        DD    0x0
+        DD    KEYQ
+        DD    N_LTYPE
+
+        CALL    c_type
+        LEA     ESP,[ESP+(CW*(2))]    ; remove input
+        JMP NEXT
+;
+
+;  *************
+;  *   ETYPE   *
+;  *************
+;
+N_ETYPE:
+        DD      5
+        DB      "ETYPE"
+ETYPE:
+        DD    DOCOL
+        DD    ETYPE+HEADSIZE
+        DD    0x0
+        DD    LTYPE
+        DD    N_ETYPE
+
+        DD      LTYPE
+        DD      SEMIS
+;
+ ; 
+;
+
+
+;  ************
+;  *   EMIT   *
+;  ************
+;
+N_EMIT:
+        DD      4
+        DB      "EMIT"
+EMIT:
+        DD    DOCOL
+        DD    EMIT+HEADSIZE
+        DD    0x0
+        DD    ETYPE
+        DD    N_EMIT
+
+        DD      SPFET, ONE, LTYPE
+        DD      DROP
+        DD      SEMIS
+;
+;
+;
+;
+;
+;
+;
+
+        ;
+;------------------------------------
+;       SYSTEM DEPENDANT DISK I/O
+;------------------------------------
+
+
+;  ******************
+;  *   DISK-ERROR   *
+;  ******************
+;
+N_DERR:
+        DD      10
+        DB      "DISK-ERROR"
+DERR:
+        DD    DOVAR
+        DD    DERR+HEADSIZE
+        DD    0x0
+        DD    EMIT
+        DD    N_DERR
+
+        DD      -1
+;
+
+
+;  ******************
+;  *   BLOCK-FILE   *
+;  ******************
+;
+N_BLFL:
+        DD      10
+        DB      "BLOCK-FILE"
+BLFL:
+        DD    DOVAR
+        DD    BLFL+HEADSIZE
+        DD    0x0
+        DD    DERR
+        DD    N_BLFL
+
+        DD      9
+        DB      "forth.lab"
+        RESB    252-9               ; Allow for some path
+
+;  ********************
+;  *   BLOCK-HANDLE   *
+;  ********************
+;
+N_BHAN:
+        DD      12
+        DB      "BLOCK-HANDLE"
+BHAN:
+        DD    DOVAR
+        DD    BHAN+HEADSIZE
+        DD    0x0
+        DD    BLFL
+        DD    N_BHAN
+
+        DD      -1
+;
+
+;  *******************
+;  *   ?DISK-ERROR   *
+;  *******************
+;
+N_QDSKER:
+        DD      11
+        DB      "?DISK-ERROR"
+QDSKER:
+        DD    DOCOL
+        DD    QDSKER+HEADSIZE
+        DD    0x0
+        DD    BHAN
+        DD    N_QDSKER
+
+        DD      LIT, 8, QERR
+        DD      SEMIS
+;
+;
+;
+
+;  *************
+;  *   SHELL   *
+;  *************
+;
+N_SHELL:
+        DD      5
+        DB      "SHELL"
+SHELL:
+        DD    DOVAR
+        DD    SHELL+HEADSIZE
+        DD    0x0
+        DD    QDSKER
+        DD    N_SHELL
+
+                 DD      7
+        DB      "/bin/sh"
+        
+        RESB    252-9               ; Allow for some path
+
+;
+
+;
+;
+
+
+;  ******************
+;  *   BLOCK-INIT   *
+;  ******************
+;
+N_BLINI:
+        DD      10
+        DB      "BLOCK-INIT"
+BLINI:
+        DD    BLINI+HEADSIZE
+        DD    BLINI+HEADSIZE
+        DD    0x0
+        DD    SHELL
+        DD    N_BLINI
+
+        POP     ECX
+        MOV     EAX,[(BLFL+HEADSIZE)]
+        MOV     EBX,(BLFL+HEADSIZE)+CW
+        PUSH    EBX
+        PUSH    EAX
+        PUSH    ECX
+        CALL    c_block_init
+        MOV     [(DERR+HEADSIZE)],EAX
+        LEA     ESP,[ESP+(CW*(3))]    ; remove input
+        JMP NEXT
+;
+
+;  ******************
+;  *   BLOCK-EXIT   *
+;  ******************
+;
+N_BLEXI:
+        DD      10
+        DB      "BLOCK-EXIT"
+BLEXI:
+        DD    BLEXI+HEADSIZE
+        DD    BLEXI+HEADSIZE
+        DD    0x0
+        DD    BLINI
+        DD    N_BLEXI
+
+        CALL    c_block_exit
+        JMP NEXT
+;
+
+;      ( ADDR  BLK#  FLAG (0=W, 1=R)
+;  ***********
+;  *   R\W   *
+;  ***********
+;
+N_RSLW:
+        DD      3
+        DB      "R\W"
+RSLW:
+        DD    RSLW+HEADSIZE
+        DD    RSLW+HEADSIZE
+        DD    0x0
+        DD    BLEXI
+        DD    N_RSLW
+
+        CALL c_rslw
+        MOV     [(DERR+HEADSIZE)],EAX
+        LEA     ESP,[ESP+(CW*(3))]    ; remove input
+        JMP NEXT
+
+
+ ; 
+; 
+;
+;
+;
+; 
+; 
+;
+
+
+;  *********
+;  *   '   *
+;  *********
+;
+N_ITICK:
+        DD      1
+        DB      "'"
+ITICK:
+        DD    DOCOL 
+        DD    ITICK+HEADSIZE
+        DD    0x0
+        DD    RSLW
+        DD    N_ITICK
+
+        DD      LPWORD, PRESENT
+        DD      LDUP, ZEQU
+        DD      LIT, 11, QERR
+        DD      SEMIS
+;
+
+;  ***********
+;  *   [']   *
+;  ***********
+;
+N_BTICK:
+        DD      3
+        DB      "[']"
+BTICK:
+        DD    DOCOL
+        DD    (TICK+HEADSIZE)
+        DD    B_IMMED
+        DD    ITICK
+        DD    N_BTICK
+
+;
+;
+
+;  ******************
+;  *   FORGET-VOC   *
+;  ******************
+;
+N_FORGV:
+        DD      10
+        DB      "FORGET-VOC"
+FORGV:
+        DD    DOCOL
+        DD    FORGV+HEADSIZE
+        DD    0x0
+        DD    BTICK
+        DD    N_FORGV
+
+        DD      TDUP
+        DD      SWAP
+        DD      ULESS
+        DD      ZBRAN
+        DD      FORGV1-$-CW
+;  Forget part of contents.
+        DD      SWAP
+        DD      TOR
+        DD      TWID
+FORGV0:
+        DD      LDUP
+        DD      LDUP
+FORGV3:
+        DD      TLFA,FETCH
+        DD      LDUP
+        DD      RR
+        DD      ULESS
+        DD      ZBRAN
+        DD      FORGV3-$-CW
+        DD      SWAP            ;  Not to be forgotten entry found.
+        DD      TLFA
+        DD      STORE           ;  Short other entries out.
+        DD      TLFA,FETCH
+        DD      LDUP
+        DD      ZEQU
+        DD      ZBRAN
+        DD      FORGV0-$-CW        ;  Repeat until end of wordlist.
+        DD      DROP
+        DD      FROMR
+        DD      BRAN
+        DD      FORGV2-$-CW
+FORGV1:
+;        Vocabulary itself is also forgotten.
+        DD      TVFA
+        DD      FETCH     ; Unlink by linking next vocabulary.
+        DD      VOCL
+        DD      STORE
+        DD      ONLY, FORTH
+        DD      DEFIN
+FORGV2: DD      SEMIS
+;
+
+;  **************
+;  *   FORGET   *
+;  **************
+;
+N_FORG:
+        DD      6
+        DB      "FORGET"
+FORG:
+        DD    DOCOL
+        DD    FORG+HEADSIZE
+        DD    0x0
+        DD    FORGV
+        DD    N_FORG
+
+        DD      TICK
+        DD      LDUP
+        DD      FENCE
+        DD      FETCH
+        DD      LESS
+        DD      LIT, 21, QERR
+        DD      LIT,FORGV
+        DD      FORV
+        DD      TNFA, FETCH, LDP, STORE
+        DD      SEMIS
+;
+
+;  *************
+;  *   (BACK   *
+;  *************
+;
+N_PBACK:
+        DD      5
+        DB      "(BACK"
+PBACK:
+        DD    DOCOL
+        DD    PBACK+HEADSIZE
+        DD    0x0
+        DD    FORG
+        DD    N_PBACK
+
+        DD      HERE
+        DD      SEMIS
+;
+
+;  *************
+;  *   BACK)   *
+;  *************
+;
+N_BACKP:
+        DD      5
+        DB      "BACK)"
+BACKP:
+        DD    DOCOL
+        DD    BACKP+HEADSIZE
+        DD    0x0
+        DD    PBACK
+        DD    N_BACKP
+
+        DD      HERE
+        DD      CELLP
+        DD      LSUB
+        DD      COMMA
+        DD      SEMIS
+;
+
+;  ****************
+;  *   (FORWARD   *
+;  ****************
+;
+N_PFORWARD:
+        DD      8
+        DB      "(FORWARD"
+PFORWARD:
+        DD    DOCOL
+        DD    PFORWARD+HEADSIZE
+        DD    0x0
+        DD    BACKP
+        DD    N_PFORWARD
+
+        DD      HERE
+        DD      X
+        DD      COMMA
+        DD      SEMIS
+;
+
+;  ****************
+;  *   FORWARD)   *
+;  ****************
+;
+N_FORWARDP:
+        DD      8
+        DB      "FORWARD)"
+FORWARDP:
+        DD    DOCOL
+        DD    FORWARDP+HEADSIZE
+        DD    0x0
+        DD    PFORWARD
+        DD    N_FORWARDP
+
+        DD      HERE
+        DD      OVER
+        DD      CELLP
+        DD      LSUB
+        DD      SWAP
+        DD      STORE
+        DD      SEMIS
+;
+
+;  *************
+;  *   BEGIN   *
+;  *************
+;
+N_BEGIN:
+        DD      5
+        DB      "BEGIN"
+BEGIN:
+        DD    DOCOL
+        DD    BEGIN+HEADSIZE
+        DD    B_IMMED
+        DD    FORWARDP
+        DD    N_BEGIN
+
+        DD      PBACK
+        DD      QCOMP, ONE
+        DD      SEMIS
+;
+
+;  ************
+;  *   THEN   *
+;  ************
+;
+N_THEN:
+        DD      4
+        DB      "THEN"
+THEN:
+        DD    DOCOL
+        DD    THEN+HEADSIZE
+        DD    B_IMMED
+        DD    BEGIN
+        DD    N_THEN
+
+        DD      QCOMP, TWO, QPAIR
+        DD      FORWARDP
+        DD      SEMIS
+;
+
+;  **********
+;  *   DO   *
+;  **********
+;
+N_DO:
+        DD      2
+        DB      "DO"
+DO:
+        DD    DOCOL
+        DD    DO+HEADSIZE
+        DD    B_IMMED
+        DD    THEN
+        DD    N_DO
+
+         DD      LIT, XDO, COMMA, PFORWARD, PBACK
+        DD      LIT,3    ; Magic number
+        DD      SEMIS
+;
+
+;  ***********
+;  *   ?DO   *
+;  ***********
+;
+N_QDO:
+        DD      3
+        DB      "?DO"
+QDO:
+        DD    DOCOL
+        DD    QDO+HEADSIZE
+        DD    B_IMMED
+        DD    DO
+        DD    N_QDO
+
+         DD      LIT, XQDO, COMMA, PFORWARD, PBACK
+        DD      LIT,3    ; Magic number
+        DD      SEMIS
+;
+
+;  ************
+;  *   LOOP   *
+;  ************
+;
+N_LLOOP:
+        DD      4
+        DB      "LOOP"
+LLOOP:
+        DD    DOCOL
+        DD    LLOOP+HEADSIZE
+        DD    B_IMMED
+        DD    QDO
+        DD    N_LLOOP
+
+        DD      LIT, 3, QPAIR
+        DD      LIT, XLOOP, COMMA, BACKP
+        DD      FORWARDP ; For DO to push the leave address.
+        DD      SEMIS
+;
+
+;  *************
+;  *   +LOOP   *
+;  *************
+;
+N_PLOOP:
+        DD      5
+        DB      "+LOOP"
+PLOOP:
+        DD    DOCOL
+        DD    PLOOP+HEADSIZE
+        DD    B_IMMED
+        DD    LLOOP
+        DD    N_PLOOP
+
+        DD      LIT, 3, QPAIR
+        DD      LIT, XPLOO, COMMA, BACKP
+        DD      FORWARDP ; For DO to push the leave address.
+        DD      SEMIS
+;
+
+;  *************
+;  *   UNTIL   *
+;  *************
+;
+N_UNTIL:
+        DD      5
+        DB      "UNTIL"
+UNTIL:
+        DD    DOCOL
+        DD    UNTIL+HEADSIZE
+        DD    B_IMMED
+        DD    PLOOP
+        DD    N_UNTIL
+
+        DD      ONE, QPAIR
+        DD      LIT, ZBRAN, COMMA, BACKP
+        DD      SEMIS
+;
+
+;  *************
+;  *   AGAIN   *
+;  *************
+;
+N_AGAIN:
+        DD      5
+        DB      "AGAIN"
+AGAIN:
+        DD    DOCOL
+        DD    AGAIN+HEADSIZE
+        DD    B_IMMED
+        DD    UNTIL
+        DD    N_AGAIN
+
+        DD      ONE, QPAIR
+        DD      LIT, BRAN, COMMA, BACKP
+        DD      SEMIS
+;
+
+;  **************
+;  *   REPEAT   *
+;  **************
+;
+N_REPEA:
+        DD      6
+        DB      "REPEAT"
+REPEA:
+        DD    DOCOL
+        DD    REPEA+HEADSIZE
+        DD    B_IMMED
+        DD    AGAIN
+        DD    N_REPEA
+
+        DD      ONE, QPAIR   ; Matches BEGIN ?
+        DD      LIT, BRAN, COMMA, BACKP
+        DD      QCOMP, LIT, 4, QPAIR ; Matches WHILE ?
+        DD      FORWARDP ; WHILE target. 
+        DD      SEMIS
+;
+
+;  **********
+;  *   IF   *
+;  **********
+;
+N_LIF:
+        DD      2
+        DB      "IF"
+LIF:
+        DD    DOCOL
+        DD    LIF+HEADSIZE
+        DD    B_IMMED
+        DD    REPEA
+        DD    N_LIF
+
+        DD      LIT, ZBRAN, COMMA, PFORWARD
+        DD      TWO     ; Magic number
+        DD      SEMIS
+;
+
+;  ************
+;  *   ELSE   *
+;  ************
+;
+N_LELSE:
+        DD      4
+        DB      "ELSE"
+LELSE:
+        DD    DOCOL
+        DD    LELSE+HEADSIZE
+        DD    B_IMMED
+        DD    LIF
+        DD    N_LELSE
+
+        DD      QCOMP, TWO, QPAIR
+        DD      LIT, BRAN, COMMA, PFORWARD
+        DD      SWAP
+        DD      FORWARDP
+        DD      TWO     ; Magic number
+        DD      SEMIS
+;
+
+;  *************
+;  *   WHILE   *
+;  *************
+;
+N_LWHILE:
+        DD      5
+        DB      "WHILE"
+LWHILE:
+        DD    DOCOL
+        DD    LWHILE+HEADSIZE
+        DD    B_IMMED
+        DD    LELSE
+        DD    N_LWHILE
+
+        DD      TOR    ;  Save backward target. 
+        DD      TOR
+        DD      LIT, ZBRAN, COMMA, PFORWARD
+        DD      LIT, 4 ; Magic number
+        DD      FROMR
+        DD      FROMR
+        DD      SEMIS
+;
+
+;  **************
+;  *   SPACES   *
+;  **************
+;
+N_SPACES:
+        DD      6
+        DB      "SPACES"
+SPACES:
+        DD    DOCOL
+        DD    SPACES+HEADSIZE
+        DD    0x0
+        DD    LWHILE
+        DD    N_SPACES
+
+        DD      ZERO
+        DD      MAX
+        DD      ZERO
+        DD     XQDO
+        DD      SPAX1-$-CW
+SPAX2:  DD      SPACE
+        DD     XLOOP
+        DD      SPAX2-$-CW    ;LOOP
+SPAX1:
+        DD      SEMIS
+;
+
+;  **********
+;  *   <#   *
+;  **********
+;
+N_BDIGS:
+        DD      2
+        DB      "<#"
+BDIGS:
+        DD    DOCOL
+        DD    BDIGS+HEADSIZE
+        DD    0x0
+        DD    SPACES
+        DD    N_BDIGS
+
+        DD      PAD
+        DD      HLD
+        DD      STORE
+        DD      SEMIS
+;
+
+;  **********
+;  *   #>   *
+;  **********
+;
+N_EDIGS:
+        DD      2
+        DB      "#>"
+EDIGS:
+        DD    DOCOL
+        DD    EDIGS+HEADSIZE
+        DD    0x0
+        DD    BDIGS
+        DD    N_EDIGS
+
+        DD      DROP
+        DD      DROP
+        DD      HLD
+        DD      FETCH
+        DD      PAD
+        DD      OVER
+        DD      LSUB
+        DD      SEMIS
+;
+
+;  ************
+;  *   SIGN   *
+;  ************
+;
+N_SIGN:
+        DD      4
+        DB      "SIGN"
+SIGN:
+        DD    DOCOL
+        DD    SIGN+HEADSIZE
+        DD    0x0
+        DD    EDIGS
+        DD    N_SIGN
+
+        DD      ZLESS
+        DD      ZBRAN
+        DD      SIGN1-$-CW ;IF
+        DD      LIT, AMS
+        DD      HOLD    ;THEN
+SIGN1:  DD      SEMIS
+;
+
+;  *********
+;  *   #   *
+;  *********
+;
+N_DIG:
+        DD      1
+        DB      "#"
+DIG:
+        DD    DOCOL
+        DD    DIG+HEADSIZE
+        DD    0x0
+        DD    SIGN
+        DD    N_DIG
+
+        DD      BASE
+        DD      FETCH
+        DD      MSMOD
+        DD      ROT
+        DD      LIT,9
+        DD      OVER
+        DD      LESS
+        DD      ZBRAN
+        DD      DIG1-$-CW  ;IF
+        DD      LIT,7
+        DD      PLUS    ;THEN
+DIG1:   DD      LIT,0x30
+        DD      PLUS
+        DD      HOLD
+        DD      SEMIS
+;
+
+;  **********
+;  *   #S   *
+;  **********
+;
+N_DIGS:
+        DD      2
+        DB      "#S"
+DIGS:
+        DD    DOCOL
+        DD    DIGS+HEADSIZE
+        DD    0x0
+        DD    DIG
+        DD    N_DIGS
+
+DIGS1:  DD      DIG     ;BEGIN
+        DD      OVER
+        DD      OVER
+        DD      LOR
+        DD      ZEQU
+        DD      ZBRAN
+        DD      DIGS1-$-CW ;UNTIL
+        DD      SEMIS
+;
+
+;  *************
+;  *   (D.R)   *
+;  *************
+;
+N_PDDOTR:
+        DD      5
+        DB      "(D.R)"
+PDDOTR:
+        DD    DOCOL
+        DD    PDDOTR+HEADSIZE
+        DD    0x0
+        DD    DIGS
+        DD    N_PDDOTR
+
+        DD      TOR
+        DD      SWAP
+        DD      OVER
+        DD      DABS
+        DD      BDIGS
+        DD      DIGS
+        DD      ROT
+        DD      SIGN
+        DD      EDIGS
+        DD      FROMR
+        DD      OVER
+        DD      LSUB, ZERO, MAX
+        DD      ZERO
+        DD     XQDO
+        DD      PDDOT1-$-CW
+PDDOT2:  DD      LBL, HOLD  ;WARNING: HOLD outside of #>.
+        DD     XLOOP
+        DD      PDDOT2-$-CW
+PDDOT1:
+        DD      EDIGS  ;Drop string instead of number.
+        DD      SEMIS
+;
+
+;  ***********
+;  *   D.R   *
+;  ***********
+;
+N_DDOTR:
+        DD      3
+        DB      "D.R"
+DDOTR:
+        DD    DOCOL
+        DD    DDOTR+HEADSIZE
+        DD    0x0
+        DD    PDDOTR
+        DD    N_DDOTR
+
+        DD      PDDOTR
+        DD      LTYPE
+        DD      SEMIS
+;
+
+;  **********
+;  *   .R   *
+;  **********
+;
+N_DOTR:
+        DD      2
+        DB      ".R"
+DOTR:
+        DD    DOCOL
+        DD    DOTR+HEADSIZE
+        DD    0x0
+        DD    DDOTR
+        DD    N_DOTR
+
+        DD      TOR
+        DD      STOD
+        DD      FROMR
+        DD      DDOTR
+        DD      SEMIS
+;
+
+;  **********
+;  *   D.   *
+;  **********
+;
+N_DDOT:
+        DD      2
+        DB      "D."
+DDOT:
+        DD    DOCOL
+        DD    DDOT+HEADSIZE
+        DD    0x0
+        DD    DOTR
+        DD    N_DDOT
+
+        DD      ZERO
+        DD      DDOTR
+        DD      SPACE
+        DD      SEMIS
+;
+
+;  *********
+;  *   .   *
+;  *********
+;
+N_DOT:
+        DD      1
+        DB      "."
+DOT:
+        DD    DOCOL
+        DD    DOT+HEADSIZE
+        DD    0x0
+        DD    DDOT
+        DD    N_DOT
+
+        DD      STOD
+        DD      DDOT
+        DD      SEMIS
+;
+
+;  *********
+;  *   ?   *
+;  *********
+;
+N_QUES:
+        DD      1
+        DB      "?"
+QUES:
+        DD    DOCOL
+        DD    QUES+HEADSIZE
+        DD    0x0
+        DD    DOT
+        DD    N_QUES
+
+        DD      FETCH
+        DD      DOT
+        DD      SEMIS
+;
+
+;  **********
+;  *   U.   *
+;  **********
+;
+N_UDOT:
+        DD      2
+        DB      "U."
+UDOT:
+        DD    DOCOL
+        DD    UDOT+HEADSIZE
+        DD    0x0
+        DD    QUES
+        DD    N_UDOT
+
+        DD      ZERO
+        DD      DDOT
+        DD      SEMIS
+;
+
+;  *****************
+;  *   FOR-WORDS   *
+;  *****************
+;
+N_FORW:
+        DD      9
+        DB      "FOR-WORDS"
+FORW:
+        DD    DOCOL
+        DD    FORW+HEADSIZE
+        DD    0x0
+        DD    UDOT
+        DD    N_FORW
+
+        DD      SWAP
+        DD      TOR
+        DD      TOR
+FORW1:  DD      FROMR
+        DD      RR
+        DD      OVER
+        DD      TLFA
+        DD      FETCH
+        DD      TOR
+        DD      EXEC
+        DD      RR
+        DD      ZEQU
+        DD      ZBRAN
+        DD      FORW1-$-CW
+        DD      RDROP
+        DD      RDROP
+        DD      SEMIS
+;
+
+;  ****************
+;  *   FOR-VOCS   *
+;  ****************
+;
+N_FORV:
+        DD      8
+        DB      "FOR-VOCS"
+FORV:
+        DD    DOCOL
+        DD    FORV+HEADSIZE
+        DD    0x0
+        DD    FORW
+        DD    N_FORV
+
+        DD      TOR
+        DD      VOCL
+        DD      FETCH
+        DD      TOR
+FORV1:  DD      FROMR
+        DD      RR
+        DD      OVER
+        DD      TVFA
+        DD      FETCH
+        DD      TOR
+        DD      EXEC
+        DD      RR
+        DD      ZEQU
+        DD      ZBRAN
+        DD      FORV1-$-CW
+        DD      RDROP
+        DD      RDROP
+        DD      SEMIS
+;
+
+;  *************
+;  *   WORDS   *
+;  *************
+;
+N_WORDS:
+        DD      5
+        DB      "WORDS"
+WORDS:
+        DD    DOCOL
+        DD    WORDS+HEADSIZE
+        DD    0x0
+        DD    FORV
+        DD    N_WORDS
+
+        DD      CSLL
+        DD      LOUT
+        DD      STORE
+        DD      LIT, IDDOT
+        DD      CONTEXT
+        DD      FETCH
+        DD      FORW
+        DD      SEMIS
+;
+; 
+; 
+
+;  *****************
+;  *   EXIT-CODE   *
+;  *****************
+;
+N_XCODE:
+        DD      9
+        DB      "EXIT-CODE"
+XCODE:
+        DD    DOVAR
+        DD    XCODE+HEADSIZE
+        DD    0x0
+        DD    WORDS
+        DD    N_XCODE
+
+        DD      0
+;
+
+
+;  ***********
+;  *   BYE   *
+;  ***********
+;
+N_BYE:
+        DD      3
+        DB      "BYE"
+BYE:
+        DD    DOCOL
+        DD    BYE+HEADSIZE
+        DD    0x0
+        DD    XCODE
+        DD    N_BYE
+
+; Exit to linux, with okay status. 
+        DD      XCODE, FETCH, X, X, ONE, LINOS
+        DD      SEMIS   ;Unnecessary, but helpful for decompilation.
+; 
+;
+
+;  ************
+;  *   LIST   *
+;  ************
+;
+N_LLIST:
+        DD      4
+        DB      "LIST"
+LLIST:
+        DD    DOCOL
+        DD    LLIST+HEADSIZE
+        DD    0x0
+        DD    BYE
+        DD    N_LLIST
+
+        DD      SCR,STORE
+        DD      SKIP
+         DD      6
+SB5: DB      "SCR # "
+       
+        DD      LIT, SB5
+        DD      LIT, 6
+        DD      LTYPE
+        DD      BASE, FETCH
+        DD      DECA
+        DD      SCR, FETCH, DOT
+        DD      BASE, STORE
+        DD      SCR, FETCH, BLOCK
+        DD      LIT,1024
+LLIST1: DD      LIT, ALF, SSPLIT
+        DD      CR, LTYPE
+        DD      OVER,ZEQU ;DUP would not show a last empty line!
+        DD      ZBRAN
+        DD      LLIST1-$-CW
+        DD      TDROP
+        DD      SEMIS
+;
+
+;  *************
+;  *   INDEX   *
+;  *************
+;
+N_INDEX:
+        DD      5
+        DB      "INDEX"
+INDEX:
+        DD    DOCOL
+        DD    INDEX+HEADSIZE
+        DD    0x0
+        DD    LLIST
+        DD    N_INDEX
+
+        DD      LIT,AFF
+        DD      EMIT,CR
+        DD      ONEP,SWAP
+        DD     XDO
+        DD      INDE9-$-CW
+INDE1:  DD      CR,IDO
+        DD      LIT,3
+        DD      DOTR,SPACE
+        DD      ZERO,IDO
+        DD      PLINE, LTYPE, KEYQ
+        DD      ZBRAN
+        DD      INDE2-$-CW
+        DD      LLEAV
+INDE2:  DD     XLOOP
+        DD      INDE1-$-CW
+INDE9:
+        DD      SEMIS
+;
+
+;  **********
+;  *   .S   *
+;  **********
+;
+N_DOTS:
+        DD      2
+        DB      ".S"
+DOTS:
+        DD    DOCOL
+        DD    DOTS+HEADSIZE
+        DD    0x0
+        DD    INDEX
+        DD    N_DOTS
+
+        DD      CR
+        DD      LIT, 'S', EMIT
+        DD      LIT, ASO, EMIT
+        DD      SPACE
+        DD      SPFET, SZERO, FETCH
+DOC2:   DD      OVER, OVER,  EQUAL, ZEQU
+        DD      ZBRAN
+        DD      DOC1-$-CW
+        DD      ZERO, CELLP, LSUB, LDUP, FETCH, DOT
+        DD      BRAN
+        DD      DOC2-$-CW
+DOC1:    DD DROP, DROP
+        DD      LIT, ASC, EMIT
+        DD SEMIS
+;
+
+;  ********************
+;  *   ENVIRONMENT?   *
+;  ********************
+;
+N_ENVQ:
+        DD      12
+        DB      "ENVIRONMENT?"
+ENVQ:
+        DD    DOCOL
+        DD    ENVQ+HEADSIZE
+        DD    0x0
+        DD    DOTS
+        DD    N_ENVQ
+
+        DD      LIT, ENV, TWID, PFIND
+        DD      TOR, TDROP, FROMR
+        DD      LDUP
+        DD      ZBRAN
+        DD      ENVQ1-$-CW
+        DD      EXEC
+        DD      LIT, -1
+ENVQ1:
+        DD      SEMIS
+;
+
+
+;  *************
+;  *   TRIAD   *
+;  *************
+;
+N_TRIAD:
+        DD      5
+        DB      "TRIAD"
+TRIAD:
+        DD    DOCOL
+        DD    TRIAD+HEADSIZE
+        DD    0x0
+        DD    ENVQ
+        DD    N_TRIAD
+
+        DD      LIT,AFF
+        DD      EMIT
+        DD      LIT,3
+        DD      SLASH
+        DD      LIT,3
+        DD      STAR
+        DD      LIT,3
+        DD      OVER,PLUS
+        DD      SWAP
+        DD     XDO
+        DD      TRIA9-$-CW
+TRIA1:  DD      CR,IDO
+        DD      LLIST
+        DD      KEYQ
+        DD      ZBRAN
+        DD      TRIA2-$-CW
+        DD      LLEAV   ;LEAVE
+TRIA2:  DD     XLOOP
+        DD      TRIA1-$-CW    ;THEN
+TRIA9:
+        DD      CR
+        DD      ZERO, MESS
+        DD      SEMIS
+;
+;
+; This word is not even fig!
+
+;  ***************
+;  *   .SIGNON   *
+;  ***************
+;
+N_SIGNON:
+        DD      7
+        DB      ".SIGNON"
+SIGNON:
+        DD    DOCOL
+        DD    SIGNON+HEADSIZE
+        DD    0x0
+        DD    TRIAD
+        DD    N_SIGNON
+
+; PRINT CPU TYPE (8088)
+        DD      CR
+        DD      BASE,FETCH
+        DD      LIT,36, BASE,STORE
+        DD      LCPU, DDOT
+        DD      BASE,STORE
+;
+        DD      LNAME, LTYPE, SPACE
+        DD      LVERSION, LTYPE, SPACE
+        DD      CR
+        DD      SEMIS
+;
+; 
+;
+;**** LAST DICTIONARY WORD ****
+
+;  ************
+;  *   TASK   *
+;  ************
+;
+N_TASK:
+        DD      4
+        DB      "TASK"
+TASK:
+        DD    DOCOL
+        DD    TASK+HEADSIZE
+        DD    0x0
+        DD    SIGNON
+        DD    N_TASK
+
+        DD      SEMIS
+;
+ ;  
+
+%if 0
+
+The remaining memory ( up to 'EM' ) is
+used for:
+
+        1. EXTENSION DICTIONARY
+        2. PARAMETER STACK
+        3. TERMINAL INPUT BUFFER
+        4. RETURN STACK
+        5. USER VARIABLE AREA
+        6. DISK BUFFERS (UNLESS REQUIRED <1 MBYTE)
+
+
+%endif
+
+
+;       This is the proper way to do it.
+;       No memory addresses should be arrived at through equates.
+;       However now we must teach the linker to keep the
+;       two sections together.
+
+FORTHSIZE       EQU     $ - _start
+        section dictionary nobits write exec alloc
+
+INITDP:                 ;  It may be that it is not consecutive with TASK.
+                        ;  Because of bad linking, resulting in a unusable Forth.
+        BUFFERSIZE      EQU  (KBBUF+2*CW)*NBUF
+
+       RESB    EM - FORTHSIZE - RTS - US - BUFFERSIZE 
+INITS0:                         ; Grows down
+STRTIB: RESB    RTS             ; Start return stack area
+INITR0:                         ; Grows down
+STRUSA: RESB    US              ; User area
+BUF1:   RESB    BUFFERSIZE      ; FIRST DISK BUFFER
+ACTUAL_EM:  ; Differs from EM if code is relocated.
+; 
+;
+
+ ;    ENDS
+        ;
+%if 0
+
+  MISC. NOTES AND SCATTERED THOUGHTS
+
+- Remember that all the FORTH words in this version are
+  upper case letters.  Use <CAPS LOCK> when in FORTH.
+
+; 
+
+- Subscribe to FORTH Dimensions.  It is a valuable source
+  of system and application ideas.  Talking with fellow
+  FORTH programmers is sure to stir up some exciting ideas.
+  Consider joining a FIG chapter.  See the back of FORTH
+  Dimensions for more info.
+
+%endif
+
+; Define the entry point, not valid for auto booting.
+        ;     ORIG
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+;
+
+
+
+
