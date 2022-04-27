@@ -3151,7 +3151,7 @@ ZZZZ	fdb	0,0,0,0,0,0,0,0	;end of rom program
 		; FDB SWI
 		; FDB POWDWN
 ;		ORG $0FFE
-ENDPAD	rmb	$4000-ZZZZ-$12
+; ENDPAD	rmb	$4000-ZZZZ-$12
 ;ENDPAD 	rmb $1898		; PAD out to end of ROM
-		FDB ORIG
+		; FDB ORIG
 	END
