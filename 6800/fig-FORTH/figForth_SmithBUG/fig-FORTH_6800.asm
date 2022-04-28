@@ -1,7 +1,9 @@
 ; fig-FORTH FOR 6800
 ;
-; Runs along side SmithBug
-; Running on USB-Serial port (J3 installed)
+; Assemble using A68 Assembler
+; 	"..\..\A68 6800 Assembler\a68.exe" fig-FORTH_6800.asm -l fig-FORTH_6800.lst -s fig-FORTH_6800.s
+; Downloaded through SmithBug
+; USB-Serial port selected (J3 installed)
 ; & Copy-paste S record into Serial terminal
 ; J 1000
 ;

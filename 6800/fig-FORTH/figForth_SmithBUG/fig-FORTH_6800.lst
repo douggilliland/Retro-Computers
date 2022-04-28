@@ -1,4 +1,12 @@
                         ; fig-FORTH FOR 6800
+                        ;
+                        ; Assemble using A68 Assembler
+                        ; 	"..\..\A68 6800 Assembler\a68.exe" fig-FORTH_6800.asm -l fig-FORTH_6800.lst -s fig-FORTH_6800.s
+                        ; Downloaded through SmithBug
+                        ; USB-Serial port selected (J3 installed)
+                        ; & Copy-paste S record into Serial terminal
+                        ; J 1000
+                        ;
                         ; ASSEMBLY SOURCE LISTING
                         ;
                         ; http://www.forth.org/fig-forth/fig-forth_6800.pdf
@@ -63,17 +71,8 @@
                         ; DGG, APR 2022
                         ; Ported to A68 Assembler
                         ; Running on MULTICOMP
-                        
-   0004                 NBLK	equ	4		;# of disc buffer blocks for virtual memory
-   3210                 MEMEND	equ	132*NBLK+$3000	;end of ram
-                        
-                        ;  each block is 132 bytes in size,
-                        ;  holding 128 characters
-                        
-   7bff                 MEMTOP	equ	$7BFF	;32K system absolute end of RAM with 1K spare
-   fc18                 ACIAC	equ	$FC18	;MultiComp ACIA control address
-   fc19                 ACIAD	equ	ACIAC+1	;MultiComp ACIA data address
-                        
+                        ; 
+                        ;
                         ;  MEMORY MAP for this 32K system:
                         ;  (positioned so that systems with 4k byte write-
                         ;   protected segments can write protect FORTH)
@@ -133,12 +132,22 @@
                         ; CONVENTIONS USED IN THIS PROGRAM ARE AS FOLLOWS :
                         ;
                         ; IP points to the current instruction (pre-increment mode)
-                        ; RP points to second free byte (first free word) in return sta a ck
-                        ; SP (hardware SP) points to first free byte in data sta a ck
+                        ; RP points to second free byte (first free word) in return stack
+                        ; SP (hardware SP) points to first free byte in data stack
                         ;
                         ;	when A and B hold one 16 bit FORTH data word,
                         ;	A contains the high byte, B, the low byte.
                         ;**
+                        
+   0004                 NBLK	equ	4		;# of disc buffer blocks for virtual memory
+   3210                 MEMEND	equ	132*NBLK+$3000	;end of ram
+                        
+                        ;  each block is 132 bytes in size,
+                        ;  holding 128 characters
+                        
+   7bff                 MEMTOP	equ	$7BFF	;32K system absolute end of RAM with 1K spare
+   fc18                 ACIAC	equ	$FC18	;MultiComp ACIA control address
+   fc19                 ACIAD	equ	ACIAC+1	;MultiComp ACIA data address
                         
    00e0                 	org	$E0	;variables
                         
@@ -159,7 +168,7 @@
                         
    00f0                 W	rmb	2	;the instruction register points to 6800 code
    00f2                 IP	rmb	2	;the instruction pointer points to pointer to 6800 code
-   00f4                 RP	rmb	2	;the return sta a ck pointer
+   00f4                 RP	rmb	2	;the return stack pointer
    00f6                 UP	rmb	2	;the pointer to base of current user's 'USER' table
                         ;           		 (altered during multi-tasking)
                         
@@ -174,8 +183,8 @@
    0100                 	org	$100
                         
    0100                 UORIG	rmb	6	;3 reserved variables
-   0106                 XSPZER	rmb	2	;initial top of data sta a ck for this user
-   0108                 XRZERO	rmb	2	;initial top of return sta a ck
+   0106                 XSPZER	rmb	2	;initial top of data stack for this user
+   0108                 XRZERO	rmb	2	;initial top of return stack
    010a                 XTIB	rmb	2	;sta a rt of terminal input buffer
    010c                 XWIDTH	rmb	2	;name field width
    010e                 XWARN	rmb	2	;warning message mode (0 = no disc)
@@ -193,7 +202,7 @@
    0126                 XBASE	rmb	2	;number base for I/O numeric conversion
    0128                 XDPL	rmb	2	;DECIMAl point place
    012a                 XFLD	rmb	2	
-   012c                 XCSP	rmb	2	;current sta a ck position, for COMPILE checks
+   012c                 XCSP	rmb	2	;current stack position, for COMPILE checks
    012e                 XRNUM	rmb	2	
    0130                 XHLD	rmb	2	
    0132                 XDELAY	rmb	2	;carriage return delay count
@@ -266,16 +275,18 @@
    100c   00 00         	fdb	0	;topmost word in FORTH vocabulary
    100e   00 7f         BACKSP	fdb	$7F	;backspace character for editing
    1010   01 00         UPINIT	fdb	UORIG	;initial user area
-   1012   0f 30         SINIT	fdb	ORIG-$D0	;initial top of data sta a ck
-   1014   0f fe         RINIT	fdb	ORIG-2	;initial top of return sta a ck
+   1012   0f 30         SINIT	fdb	ORIG-$D0	;initial top of data stack
+   1014   0f fe         RINIT	fdb	ORIG-2	;initial top of return stack
    1016   0f 30         	fdb	ORIG-$D0	;terminal input buffer
    1018   00 1f         	fdb	31	;initial name field width
    101a   00 00         	fdb	0	;initial warning mode (0 = no disc)
    101c   01 83         FENCIN	fdb	REND	;initial fence
    101e   01 83         DPINIT	fdb	REND	;cold sta a rt value for DP
    1020   01 58         VOCINT	fdb	FORTH+8	
-   1022   00 84         COLINT	fdb	132	;initial terminal carriage width
-   1024   00 04         DELINT	fdb	4	;initial carriage return delay
+                        ; COLINT	fdb	132	;initial terminal carriage width
+                        ; DELINT	fdb	4	;initial carriage return delay
+   1022   00 50         COLINT	fdb	80	;initial terminal carriage width
+   1024   00 00         DELINT	fdb	0	;initial carriage return delay
                         ;
                         ;***************************************************
                         ;
@@ -351,7 +362,7 @@
    1071   10 73         EXEC	fdb	*+2
    1073   30            	tsx
    1074   ee 00         	ldx	0,x	;get code field address (CFA)
-   1076   31            	ins		;pop sta a ck
+   1076   31            	ins		;pop stack
    1077   31            	ins
    1078   7e 10 3c      	jmp	NEXT3
    107b   01            	nop		;to compensate for assembler substituting BRA
@@ -708,7 +719,7 @@
    1255   12 57         QTERM	fdb	*+2
    1257   bd 23 3c      	jsr	PQTER
    125a   5f            	clrb
-   125b   7e 10 32      	jmp	PUSHBA	;sta a ck the flag
+   125b   7e 10 32      	jmp	PUSHBA	;stack the flag
                         ;
                         ; ======>>  16  <<
    125e   82            	fcb	$82
@@ -764,9 +775,9 @@
    12ad   7e 10 32      	jmp	PUSHBA
                         ;
                         ; The following is a subroutine which 
-                        ; multiplies top 2 words on sta a ck,
+                        ; multiplies top 2 words on stack,
                         ; leaving 32-bit result:  high order word in A,B
-                        ; low order word in 2nd word of sta a ck.
+                        ; low order word in 2nd word of stack.
                         ;
    12b0   86 10         USTARS	lda	a #16	;bits/word counter
    12b2   36            	psha
@@ -1126,7 +1137,7 @@
    14a9   ee 00         	ldx	0,x
    14ab   31            	ins
    14ac   31            	ins
-   14ad   32            	pula		;get sta a ck data
+   14ad   32            	pula		;get stack data
    14ae   33            	pulb
    14af   eb 01         	addb	1,x	;add & store low byte
    14b1   e7 01         	sta b	1,x
@@ -1213,7 +1224,7 @@
                         ; nested words in the virtual machine:
                         ; ( ;S is the equivalent un-nester )
                         
-   152a   de f4         DOCOL	ldx	RP	;make room in the sta a ck
+   152a   de f4         DOCOL	ldx	RP	;make room in the stack
    152c   09            	dex
    152d   09            	dex
    152e   df f4         	stx	RP
@@ -1969,7 +1980,7 @@
    19f8   19 aa         	fdb	PSCODE
    19fa   96 f2         DODOES	lda	a IP
    19fc   d6 f3         	lda b	IP+1
-   19fe   de f4         	ldx	RP	;make room on return sta a ck
+   19fe   de f4         	ldx	RP	;make room on return stack
    1a00   09            	dex
    1a01   09            	dex
    1a02   df f4         	stx	RP
@@ -1985,7 +1996,7 @@
    1a13   c6 02         	lda b	#2
    1a15   db e1         	addb	N+1
    1a17   99 e0         	adca	N
-   1a19   37            	pshb		;and push it on data sta a ck
+   1a19   37            	pshb		;and push it on data stack
    1a1a   36            	psha
    1a1b   7e 10 3a      	jmp	NEXT2
                         ;
@@ -2093,7 +2104,7 @@
    1af9   13 3c 17 86   
    1afd   15 af         
    1aff   18 a9         	fdb	QERR
-                        ; prints 'empty sta a ck'
+                        ; prints 'empty stack'
                         ;
    1b01   13 3c         QSTAC2	fdb	SPAT
                         ; Here, we compare with a value at least 128
@@ -2105,7 +2116,7 @@
    1b0e   00 06         	fdb	QSTAC3-*
    1b10   15 b7         	fdb	TWO
    1b12   18 a9         	fdb	QERR
-                        ; prints 'full sta a ck'
+                        ; prints 'full stack'
                         ;
    1b14   13 6c         QSTAC3	fdb	SEMIS
                         ;
@@ -2636,7 +2647,7 @@
    1fad   8c 1f ff      	cpx	#RAM
    1fb0   26 f7         	bne	COLD2
                         ;
-   1fb2   8e 01 0f      	lds	#XFENCE-1	;put sta a ck at a safe place for now
+   1fb2   8e 01 0f      	lds	#XFENCE-1	;put stack at a safe place for now
    1fb5   fe 10 22      	ldx	COLINT
    1fb8   ff 01 34      	stx	XCOLUM
    1fbb   fe 10 24      	ldx	DELINT
