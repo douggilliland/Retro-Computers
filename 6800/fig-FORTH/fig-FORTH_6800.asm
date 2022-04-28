@@ -1,4 +1,10 @@
 ; fig-FORTH FOR 6800
+;
+; Runs along side SmithBug
+; Running on USB-Serial port (J3 installed)
+; & Copy-paste S record into Serial terminal
+; J 1000
+;
 ; ASSEMBLY SOURCE LISTING
 ;
 ; http://www.forth.org/fig-forth/fig-forth_6800.pdf
@@ -63,17 +69,8 @@
 ; DGG, APR 2022
 ; Ported to A68 Assembler
 ; Running on MULTICOMP
-
-NBLK	equ	4		;# of disc buffer blocks for virtual memory
-MEMEND	equ	132*NBLK+$3000	;end of ram
-
-;  each block is 132 bytes in size,
-;  holding 128 characters
-
-MEMTOP	equ	$7BFF	;32K system absolute end of RAM with 1K spare
-ACIAC	equ	$FC18	;MultiComp ACIA control address
-ACIAD	equ	ACIAC+1	;MultiComp ACIA data address
-
+; 
+;
 ;  MEMORY MAP for this 32K system:
 ;  (positioned so that systems with 4k byte write-
 ;   protected segments can write protect FORTH)
@@ -133,12 +130,22 @@ ACIAD	equ	ACIAC+1	;MultiComp ACIA data address
 ; CONVENTIONS USED IN THIS PROGRAM ARE AS FOLLOWS :
 ;
 ; IP points to the current instruction (pre-increment mode)
-; RP points to second free byte (first free word) in return sta a ck
-; SP (hardware SP) points to first free byte in data sta a ck
+; RP points to second free byte (first free word) in return stack
+; SP (hardware SP) points to first free byte in data stack
 ;
 ;	when A and B hold one 16 bit FORTH data word,
 ;	A contains the high byte, B, the low byte.
 ;**
+
+NBLK	equ	4		;# of disc buffer blocks for virtual memory
+MEMEND	equ	132*NBLK+$3000	;end of ram
+
+;  each block is 132 bytes in size,
+;  holding 128 characters
+
+MEMTOP	equ	$7BFF	;32K system absolute end of RAM with 1K spare
+ACIAC	equ	$FC18	;MultiComp ACIA control address
+ACIAD	equ	ACIAC+1	;MultiComp ACIA data address
 
 	org	$E0	;variables
 
@@ -159,7 +166,7 @@ VECT	rmb	2	;vector to machine code
 
 W	rmb	2	;the instruction register points to 6800 code
 IP	rmb	2	;the instruction pointer points to pointer to 6800 code
-RP	rmb	2	;the return sta a ck pointer
+RP	rmb	2	;the return stack pointer
 UP	rmb	2	;the pointer to base of current user's 'USER' table
 ;           		 (altered during multi-tasking)
 
@@ -174,8 +181,8 @@ UP	rmb	2	;the pointer to base of current user's 'USER' table
 	org	$100
 
 UORIG	rmb	6	;3 reserved variables
-XSPZER	rmb	2	;initial top of data sta a ck for this user
-XRZERO	rmb	2	;initial top of return sta a ck
+XSPZER	rmb	2	;initial top of data stack for this user
+XRZERO	rmb	2	;initial top of return stack
 XTIB	rmb	2	;sta a rt of terminal input buffer
 XWIDTH	rmb	2	;name field width
 XWARN	rmb	2	;warning message mode (0 = no disc)
@@ -193,7 +200,7 @@ XSTATE	rmb	2	;flag for 'interpret' or 'COMPILE' modes
 XBASE	rmb	2	;number base for I/O numeric conversion
 XDPL	rmb	2	;DECIMAl point place
 XFLD	rmb	2	
-XCSP	rmb	2	;current sta a ck position, for COMPILE checks
+XCSP	rmb	2	;current stack position, for COMPILE checks
 XRNUM	rmb	2	
 XHLD	rmb	2	
 XDELAY	rmb	2	;carriage return delay count
@@ -258,16 +265,18 @@ ORIG	nop
 	fdb	0	;topmost word in FORTH vocabulary
 BACKSP	fdb	$7F	;backspace character for editing
 UPINIT	fdb	UORIG	;initial user area
-SINIT	fdb	ORIG-$D0	;initial top of data sta a ck
-RINIT	fdb	ORIG-2	;initial top of return sta a ck
+SINIT	fdb	ORIG-$D0	;initial top of data stack
+RINIT	fdb	ORIG-2	;initial top of return stack
 	fdb	ORIG-$D0	;terminal input buffer
 	fdb	31	;initial name field width
 	fdb	0	;initial warning mode (0 = no disc)
 FENCIN	fdb	REND	;initial fence
 DPINIT	fdb	REND	;cold sta a rt value for DP
 VOCINT	fdb	FORTH+8	
-COLINT	fdb	132	;initial terminal carriage width
-DELINT	fdb	4	;initial carriage return delay
+; COLINT	fdb	132	;initial terminal carriage width
+; DELINT	fdb	4	;initial carriage return delay
+COLINT	fdb	80	;initial terminal carriage width
+DELINT	fdb	0	;initial carriage return delay
 ;
 ;***************************************************
 ;
@@ -342,7 +351,7 @@ CLITER	fdb	*+2	;(this is an invisible word, with no header)
 EXEC	fdb	*+2
 	tsx
 	ldx	0,x	;get code field address (CFA)
-	ins		;pop sta a ck
+	ins		;pop stack
 	ins
 	jmp	NEXT3
 	nop		;to compensate for assembler substituting BRA
@@ -692,7 +701,7 @@ KEY	fdb	*+2
 QTERM	fdb	*+2
 	jsr	PQTER
 	clrb
-	jmp	PUSHBA	;sta a ck the flag
+	jmp	PUSHBA	;stack the flag
 ;
 ; ======>>  16  <<
 	fcb	$82
@@ -748,9 +757,9 @@ USTAR	fdb	*+2
 	jmp	PUSHBA
 ;
 ; The following is a subroutine which 
-; multiplies top 2 words on sta a ck,
+; multiplies top 2 words on stack,
 ; leaving 32-bit result:  high order word in A,B
-; low order word in 2nd word of sta a ck.
+; low order word in 2nd word of stack.
 ;
 USTARS	lda	a #16	;bits/word counter
 	psha
@@ -1109,7 +1118,7 @@ PSTORE	fdb	*+2
 	ldx	0,x
 	ins
 	ins
-	pula		;get sta a ck data
+	pula		;get stack data
 	pulb
 	addb	1,x	;add & store low byte
 	sta b	1,x
@@ -1190,7 +1199,7 @@ COLON	fdb	DOCOL,QEXEC,SCSP,CURENT,AT,CONTXT,STORE
 ; nested words in the virtual machine:
 ; ( ;S is the equivalent un-nester )
 
-DOCOL	ldx	RP	;make room in the sta a ck
+DOCOL	ldx	RP	;make room in the stack
 	dex
 	dex
 	stx	RP
@@ -1871,7 +1880,7 @@ DOES	fdb	DOCOL,FROMR,TWOP,LATEST,PFA,STORE
 	fdb	PSCODE
 DODOES	lda	a IP
 	lda b	IP+1
-	ldx	RP	;make room on return sta a ck
+	ldx	RP	;make room on return stack
 	dex
 	dex
 	stx	RP
@@ -1887,7 +1896,7 @@ DODOES	lda	a IP
 	lda b	#2
 	addb	N+1
 	adca	N
-	pshb		;and push it on data sta a ck
+	pshb		;and push it on data stack
 	psha
 	jmp	NEXT2
 ;
@@ -1972,7 +1981,7 @@ QSTACK	fdb	DOCOL,CLITER
 	fcb	$12
 	fdb	PORIG,AT,TWO,SUB,SPAT,LESS,ONE
 	fdb	QERR
-; prints 'empty sta a ck'
+; prints 'empty stack'
 ;
 QSTAC2	fdb	SPAT
 ; Here, we compare with a value at least 128
@@ -1983,7 +1992,7 @@ QSTAC2	fdb	SPAT
 	fdb	QSTAC3-*
 	fdb	TWO
 	fdb	QERR
-; prints 'full sta a ck'
+; prints 'full stack'
 ;
 QSTAC3	fdb	SEMIS
 ;
@@ -2378,7 +2387,7 @@ COLD2	dex
 	cpx	#RAM
 	bne	COLD2
 ;
-	lds	#XFENCE-1	;put sta a ck at a safe place for now
+	lds	#XFENCE-1	;put stack at a safe place for now
 	ldx	COLINT
 	stx	XCOLUM
 	ldx	DELINT

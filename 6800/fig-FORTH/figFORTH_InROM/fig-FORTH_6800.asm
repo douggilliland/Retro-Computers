@@ -1,18 +1,20 @@
-; fig-FORTH FOR 6800
-; In ROM
+; fig-FORTH FOR 6800 in ROM on 6800 Multicomp
 ; 
-; Assemble using
-; "..\..\A68 6800 Assembler\a68.exe" fig-FORTH_6800.asm -l fig-FORTH_6800.lst -s fig-FORTH_6800.s
-; Shift down
-; srec_cat fig-FORTH_6800.s -offset - -minimum-addr fig-FORTH_6800.s -o fig-FORTH_6800.hex -Intel
+; Assemble using A68 Assembler
+; 	"..\..\A68 6800 Assembler\a68.exe" fig-FORTH_6800.asm -l fig-FORTH_6800.lst -s fig-FORTH_6800.s
+; 	Delete top few lines of fig-FORTH_6800.s S-Records file which have RAM initialization
+; Shift down to base for ROM, make Intel Hex file
+; 	srec_cat fig-FORTH_6800.s -offset - -minimum-addr fig-FORTH_6800.s -o fig-FORTH_6800.hex -Intel
 ;
-; Memory Map
-; 0x0000-0x0FFF - 4KB SRAM
-; 0x1000-0x2FFF - 6K ROM (using 8KB entity, but only using 6KB)
-; 0x3000-0x3FFF - 4KB SRAM
-; 0x4000-0x7FFF - 8KB SRAM
-; 0xFC00-0xFCFF - I/O Space
-; 0xFFFE-0xFFFF - ROM start vector (physically top of the 8KB ROM)
+; Multicomp-6800 Memory Map
+;	0x0000-0x0FFF - 4KB SRAM
+;	0x1000-0x2FFF - 6K ROM (using 8KB entity, but only using 6KB)
+;	0x3000-0x3FFF - 4KB SRAM
+;	0x4000-0x7FFF - 8KB SRAM
+;	0xFC00-0xFCFF - I/O Space
+;		0xFC18 - ACIA (+0=C/S, +1=D)
+;		0xFC28 - VDU (+0=C/S, +1=D)
+;	0xFFFE-0xFFFF - ROM start vector (physically top of the 8KB ROM)
 ;
 ; ASSEMBLY SOURCE LISTING
 ;
@@ -52,9 +54,7 @@
 ; === 1134-K Aster Ave.
 ; === Sunnyvale, CA 94086
 ;
-;  This version was developed on an AMI EVK 300 PROTO
-;  system using an ACIA for the I/O. All terminal 1/0
-;  is done in three subroutines:
+;  All terminal 1/0 is done in three subroutines:
 ;   PEMIT  ( word # 182 )
 ;   PKEY   (        183 )
 ;   PQTERM (        184 )
@@ -63,11 +63,7 @@
 ;  of the FORTH Interest Group, but have not been
 ;  tested using a real disc.
 ;
-;  Addresses in this implementation reflect the fact that,
-;  on the development system, it was convenient to
-;  write-protect memory at hex 1000, and leave the first
-;  4K bytes write-enabled. As a consequence, code from
-;  location $1000 to lable ZZZZ could be put in ROM.
+;  Code from location $1000 to lable ZZZZ are in ROM.
 ;  Minor deviations from the model were made in the
 ;  initialization and words ?STACK and FORGET
 ;  in order to do this.
@@ -75,20 +71,11 @@
 ; smp, June 2018
 ; Modified to assemble properly with the AS02 6800 cross-assembler
 ; Modified to operate on Corsham Technologies 6800 system (SWTPC replica)
+;
 ; DGG, APR 2022
 ; Ported to A68 Assembler
-; Running on MULTICOMP
-
-NBLK	equ	4		;# of disc buffer blocks for virtual memory
-MEMEND	equ	132*NBLK+$3000	;end of ram
-
-;  each block is 132 bytes in size,
-;  holding 128 characters
-
-MEMTOP	equ	$7BFF	;32K system absolute end of RAM with 1K spare
-ACIAC	equ	$FC18	;MultiComp ACIA control address
-ACIAD	equ	ACIAC+1	;MultiComp ACIA data address
-
+; Running on MULTICOMP 6800
+; Runs from ROM
 ;  MEMORY MAP for this 32K system:
 ;  (positioned so that systems with 4k byte write-
 ;   protected segments can write protect FORTH)
@@ -148,13 +135,24 @@ ACIAD	equ	ACIAC+1	;MultiComp ACIA data address
 ; CONVENTIONS USED IN THIS PROGRAM ARE AS FOLLOWS :
 ;
 ; IP points to the current instruction (pre-increment mode)
-; RP points to second free byte (first free word) in return sta a ck
-; SP (hardware SP) points to first free byte in data sta a ck
+; RP points to second free byte (first free word) in return stack
+; SP (hardware SP) points to first free byte in data stack
 ;
 ;	when A and B hold one 16 bit FORTH data word,
 ;	A contains the high byte, B, the low byte.
 ;**
 
+NBLK	equ	4		;# of disc buffer blocks for virtual memory
+MEMEND	equ	132*NBLK+$3000	;end of ram
+
+;  each block is 132 bytes in size,
+;  holding 128 characters
+
+MEMTOP	equ	$7BFF	;32K system absolute end of RAM with 1K spare
+ACIAC	equ	$FC18	;MultiComp ACIA control address
+ACIAD	equ	ACIAC+1	;MultiComp ACIA data address
+
+; RAM below - Manually delete from S-records file
 	org	$E0	;variables
 
 N	rmb	10	;used as scratch by (FIND),ENCLOSE,CMOVE,EMIT,KEY,
@@ -174,7 +172,7 @@ VECT	rmb	2	;vector to machine code
 
 W	rmb	2	;the instruction register points to 6800 code
 IP	rmb	2	;the instruction pointer points to pointer to 6800 code
-RP	rmb	2	;the return sta a ck pointer
+RP	rmb	2	;the return stack pointer
 UP	rmb	2	;the pointer to base of current user's 'USER' table
 ;           		 (altered during multi-tasking)
 
@@ -189,8 +187,8 @@ UP	rmb	2	;the pointer to base of current user's 'USER' table
 	org	$100
 
 UORIG	rmb	6	;3 reserved variables
-XSPZER	rmb	2	;initial top of data sta a ck for this user
-XRZERO	rmb	2	;initial top of return sta a ck
+XSPZER	rmb	2	;initial top of data stack for this user
+XRZERO	rmb	2	;initial top of return stack
 XTIB	rmb	2	;sta a rt of terminal input buffer
 XWIDTH	rmb	2	;name field width
 XWARN	rmb	2	;warning message mode (0 = no disc)
@@ -208,12 +206,12 @@ XSTATE	rmb	2	;flag for 'interpret' or 'COMPILE' modes
 XBASE	rmb	2	;number base for I/O numeric conversion
 XDPL	rmb	2	;DECIMAl point place
 XFLD	rmb	2	
-XCSP	rmb	2	;current sta a ck position, for COMPILE checks
+XCSP	rmb	2	;current stack position, for COMPILE checks
 XRNUM	rmb	2	
 XHLD	rmb	2	
 XDELAY	rmb	2	;carriage return delay count
 XCOLUM	rmb	2	;carriage width
-IOSTAT	rmb	2	;last acia sta a tus from write/read
+IOSTAT	rmb	2	;last acia status from write/read
 	rmb	2	;(4 spares!)
 	rmb	2	
 	rmb	2	
@@ -273,16 +271,18 @@ ORIG	nop
 	fdb	0	;topmost word in FORTH vocabulary
 BACKSP	fdb	$7F	;backspace character for editing
 UPINIT	fdb	UORIG	;initial user area
-SINIT	fdb	ORIG-$D0	;initial top of data sta a ck
-RINIT	fdb	ORIG-2	;initial top of return sta a ck
+SINIT	fdb	ORIG-$D0	;initial top of data stack
+RINIT	fdb	ORIG-2	;initial top of return stack
 	fdb	ORIG-$D0	;terminal input buffer
 	fdb	31	;initial name field width
 	fdb	0	;initial warning mode (0 = no disc)
 FENCIN	fdb	REND	;initial fence
 DPINIT	fdb	REND	;cold sta a rt value for DP
 VOCINT	fdb	FORTH+8	
-COLINT	fdb	132	;initial terminal carriage width
-DELINT	fdb	4	;initial carriage return delay
+; COLINT	fdb	132	;initial terminal carriage width
+; DELINT	fdb	4	;initial carriage return delay
+COLINT	fdb	80	;initial terminal carriage width
+DELINT	fdb	0	;initial carriage return delay
 ;
 ;***************************************************
 ;
@@ -357,7 +357,7 @@ CLITER	fdb	*+2	;(this is an invisible word, with no header)
 EXEC	fdb	*+2
 	tsx
 	ldx	0,x	;get code field address (CFA)
-	ins		;pop sta a ck
+	ins		;pop stack
 	ins
 	jmp	NEXT3
 	nop		;to compensate for assembler substituting BRA
@@ -707,7 +707,7 @@ KEY	fdb	*+2
 QTERM	fdb	*+2
 	jsr	PQTER
 	clrb
-	jmp	PUSHBA	;sta a ck the flag
+	jmp	PUSHBA	;stack the flag
 ;
 ; ======>>  16  <<
 	fcb	$82
@@ -763,9 +763,9 @@ USTAR	fdb	*+2
 	jmp	PUSHBA
 ;
 ; The following is a subroutine which 
-; multiplies top 2 words on sta a ck,
+; multiplies top 2 words on stack,
 ; leaving 32-bit result:  high order word in A,B
-; low order word in 2nd word of sta a ck.
+; low order word in 2nd word of stack.
 ;
 USTARS	lda	a #16	;bits/word counter
 	psha
@@ -1124,7 +1124,7 @@ PSTORE	fdb	*+2
 	ldx	0,x
 	ins
 	ins
-	pula		;get sta a ck data
+	pula		;get stack data
 	pulb
 	addb	1,x	;add & store low byte
 	sta b	1,x
@@ -1205,7 +1205,7 @@ COLON	fdb	DOCOL,QEXEC,SCSP,CURENT,AT,CONTXT,STORE
 ; nested words in the virtual machine:
 ; ( ;S is the equivalent un-nester )
 
-DOCOL	ldx	RP	;make room in the sta a ck
+DOCOL	ldx	RP	;make room in the stack
 	dex
 	dex
 	stx	RP
@@ -1886,7 +1886,7 @@ DOES	fdb	DOCOL,FROMR,TWOP,LATEST,PFA,STORE
 	fdb	PSCODE
 DODOES	lda	a IP
 	lda b	IP+1
-	ldx	RP	;make room on return sta a ck
+	ldx	RP	;make room on return stack
 	dex
 	dex
 	stx	RP
@@ -1902,7 +1902,7 @@ DODOES	lda	a IP
 	lda b	#2
 	addb	N+1
 	adca	N
-	pshb		;and push it on data sta a ck
+	pshb		;and push it on data stack
 	psha
 	jmp	NEXT2
 ;
@@ -1987,7 +1987,7 @@ QSTACK	fdb	DOCOL,CLITER
 	fcb	$12
 	fdb	PORIG,AT,TWO,SUB,SPAT,LESS,ONE
 	fdb	QERR
-; prints 'empty sta a ck'
+; prints 'empty stack'
 ;
 QSTAC2	fdb	SPAT
 ; Here, we compare with a value at least 128
@@ -1998,7 +1998,7 @@ QSTAC2	fdb	SPAT
 	fdb	QSTAC3-*
 	fdb	TWO
 	fdb	QERR
-; prints 'full sta a ck'
+; prints 'full stack'
 ;
 QSTAC3	fdb	SEMIS
 ;
@@ -2393,7 +2393,7 @@ COLD2	dex
 	cpx	#RAM
 	bne	COLD2
 ;
-	lds	#XFENCE-1	;put sta a ck at a safe place for now
+	lds	#XFENCE-1	;put stack at a safe place for now
 	ldx	COLINT
 	stx	XCOLUM
 	ldx	DELINT
@@ -2710,10 +2710,6 @@ PEMIT	sta b	N	;save B
 	ldx	N+1
 	rts		;only A register may change
 
-;PEMIT	jmp	$E1D1	;for MIKBUG
-;  PEMIT	fcb	$3F,$11,$39	;for PROTO
-;  PEMIT	jmp	$D286 ;for Smoke Signal DOS
-;
 ; ======>>  183  << code for KEY
 PKEY	sta b	N
 	stx	N+1

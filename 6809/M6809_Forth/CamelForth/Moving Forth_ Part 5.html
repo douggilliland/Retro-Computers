@@ -1,0 +1,193 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD HTML 3.2//EN">
+<!-- saved from url=(0048)https://www.bradrodriguez.com/papers/moving5.htm -->
+<html><head><meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+   <title>Moving Forth: Part 5</title>
+   <meta name="GENERATOR" content="Mozilla/3.01Gold (Win95; U) [Netscape]">
+   <meta name="Author" content="Bradford J. Rodriguez">
+</head>
+<body>
+
+<h1 align="CENTER">MOVING FORTH</h1>
+
+<h2 align="CENTER">Part 5: The Z80 Primitives</h2>
+
+<h3 align="CENTER">by Brad Rodriguez</h3>
+
+<p><font size="-1">This article first appeared in <a href="http://www.psyber.com/~tcj">The
+Computer Journal</a> #67 (May/June 1994).</font></p>
+
+<h2>THE CODE I PROMISED </h2>
+
+<p>At long last, I am ready to present the complete source code for an
+(I hope) ANSI compliant Forth, CamelForth[1]. As an intellectual exercise
+-- and to ensure a clear copyright -- I've written this code entirely from
+scratch. (Do you know how hard it is to <i>not</i> look at excellent code
+examples?) Of course, my experience with various Forths has no doubt influenced
+some design decisions. </p>
+
+<p>Due to space limitations, the source code will be presented in four
+installments (if you can't wait, complete files will be on GEnie): </p>
+
+<ol>
+<li>Z80 Forth "primitives," in assembler source </li>
+
+<li>8051 Forth "primitives," likewise </li>
+
+<li>Z80/8051 high-level kernel, likewise </li>
+
+<li>complete 6809 kernel, in metacompiler source </li>
+</ol>
+
+<p>For CamelForth I'm trying to use exclusively public-domain tools: for
+the Z80, the Z80MR assembler under CP/M [3]; for the 8051, the A51 cross-assembler
+on an IBM PC [4], and for the 6809, my own metacompiler under F83 for CP/M,
+IBM PC, or Atari ST. </p>
+
+<p>By "kernel" I mean the set of words that comprises a basic
+Forth system, including compiler and interpreter. For CamelForth this is
+the ANS Forth Core word set, plus any non-ANSI words necessary to implement
+the Core word set. A Forth kernel is usually written partly in machine
+code (as CODE words), and partly in high-level Forth. The words which are
+written in machine code are called the "primitives," since, in
+the final analysis, the entire Forth system is defined in terms of just
+these words. </p>
+
+<p>Exactly <i>which</i> words should be written in machine code? The selection
+of the optimal set of primitives is an interesting debate. A smaller set
+of primitives makes for easier porting, but poorer performance. I've been
+told that a set of 13 primitives is sufficient to define all of Forth --
+a <i>very slow</i> Forth. eForth [2], designed for easy porting, had a
+more generous set of 31 primitives. My rules are these: </p>
+
+<ol>
+<li>Fundamental arithmetic, logic, and memory operators are CODE. </li>
+
+<li>If a word <i>can't</i> be easily or efficiently written (or written
+at all) in terms of other Forth words, it should be CODE (e.g., U&lt;,
+RSHIFT). </li>
+
+<li>If a simple word is used frequently, CODE may be worthwhile (e.g.,
+NIP, TUCK). </li>
+
+<li>If a word requires fewer bytes when written in CODE, do so (a rule
+I learned from Charles Curley). </li>
+
+<li>If the processor includes instruction support for a word's function,
+put it in CODE (e.g. CMOVE or SCAN on a Z80 or 8086). </li>
+
+<li>If a word juggles many parameters on the stack, but has relatively
+simple logic, it may be better in CODE, where the parameters can be kept
+in registers. </li>
+
+<li>If the logic or control flow of a word is complex, it's probably better
+in high-level Forth. </li>
+</ol>
+
+<p>For Z80 CamelForth I have a set of about 70 primitives. (See <a href="https://www.bradrodriguez.com/papers/glosslo.txt">Table
+1</a>.) Having already decided on the Forth model and CPU usage (see my
+previous TCJ articles), I followed this development procedure: </p>
+
+<ol>
+<li>Select the subset of the ANSI Core word set which will be primitives.
+(Subject to revision, of course.) </li>
+
+<li>From the ANSI descriptions, write assembler definitions of these words,
+plus the processor initialization code. </li>
+
+<li>Run this through the assembler, fixing source code errors. </li>
+
+<li>Test that you can produce working machine code. I usually add a few
+lines of assembler code to output a character once the initialization is
+complete. This seemingly trivial test is crucial! It ensures that your
+hardware, assembler, "downloader" (EPROM emulator or whatever),
+and serial communications are all working! </li>
+
+<li>(Embedded systems only.) Add another assembler code fragment to read
+the serial port and echo it back...thus testing <i>both</i> directions
+of communications. </li>
+
+<li>Write a <i>high-level</i> Forth fragment to output a character, using
+<i>only</i> Forth primitives. (Usually something like "LIT,33h,EMIT,BYE".)
+This tests the Forth register initialization, the stacks, and the threading
+mechanism. Problems at this stage can usually be traced to logic errors
+in NEXT or in the initialization, or data stack goofs (e.g. stack in ROM).
+</li>
+
+<li>Write a colon definition to output a character, and include it in the
+high-level fragment from step 6. (E.g., define BLIP as "LIT,34h,EMIT,EXIT"
+and then test the fragment "LIT,33h,EMIT, BLIP,BYE".) Problems
+at this stage are usually with DOCOLON or EXIT logic, or return stack goofs.
+</li>
+
+<li>At this point you can write some tools to help you with debugging,
+such as words to display in hex a number on the stack. <a href="https://www.bradrodriguez.com/papers/cameltst.txt">Listing
+1</a> shows a simple test routine to do a never-ending memory dump (useful
+even if your keyboard doesn't work). This tests the primitives DUP, EMIT,
+EXIT, C@, &gt;&lt;, LIT, 1+, and BRANCH, as well as several levels of nesting.
+Plus, it doesn't use DO..LOOP, which are often difficult to get working.
+When this code works, you have some confidence that your basic Forth model
+is valid. </li>
+
+<li>From here on it's just testing the remaining primitives -- DO..LOOP,
+UM/MOD, UM*, and DODOES are particularly tricky -- and adding high-level
+definitions. I like to get a rudimentary interpreter going next, so that
+I can test words interactively. </li>
+</ol>
+
+<p>With this set of primitives you can begin writing Forth code. Sure,
+you have to use an assembler instead of a Forth compiler, but -- as <a href="https://www.bradrodriguez.com/papers/cameltst.txt">Listing
+1</a> suggests -- you can use high-level control flow and nesting to write
+useful code that would be more difficult to write in assembler. </p>
+
+<h2>READ THE CODE! </h2>
+
+<p>I've run out of abstractions for today. If you want to learn more about
+how a Forth kernel works and is written, study <a href="https://www.bradrodriguez.com/papers/camel80.txt">Listing
+2</a>. It follows the Forth convention for documentation: </p>
+
+<pre>WORD-NAME    stack in -- stack out    description</pre>
+
+<p><u>WORD-NAME</u> is the name by which <i>Forth</i> knows the word. Often
+these names include peculiar ASCII characters, so an approximation must
+be used when defining assembler labels (such as ONEPLUS for the Forth word
+1+). </p>
+
+<p><u>stack in</u> are the arguments this word expects to see on the stack,
+with the topmost stack item always on the right. <u>stack out</u> are the
+arguments this word will leave on the stack, likewise. </p>
+
+<p>If the word has a return stack effect (other than nesting, that is),
+an additional return stack comment will be added after "R:" </p>
+
+<pre>stack in -- stack out    R: stack in -- stack out </pre>
+
+<p>ANSI Forth defines a number of useful abbreviations for stack arguments,
+such as "n" for a signed single-cell number, "u" for
+an unsigned single-cell number, "c" for a character, and so on.
+See <a href="https://www.bradrodriguez.com/papers/glosslo.txt">Table 1</a>. </p>
+
+<h2>REFERENCES </h2>
+
+<p>[1] Definition of a camel: a horse designed by committee. </p>
+
+<p>[2] Ting, C. H., <u>eForth Implementation Guide</u>, July 1990, available
+from Offete Enterprises, 1306 South B Stret, San Mateo, CA 94402 USA. </p>
+
+<p>[3] Z80MR, a Z80 Macro Assembler by Mike Rubenstein, is public-domain,
+available on the GEnie CP/M Roundtable as file Z80MR-A.LBR. Warning: do
+<i>not</i> use the supplied Z1.COM program, use only Z80MR and LOAD. Z1
+has a problem with conditional jumps. </p>
+
+<p>[4] A51, PseudoCorp's freeware Level 1 cross-assembler for the 8051,
+is available from the Realtime and Control Forth Board, (303) 278-0364,
+or on the GEnie Forth Roundtable as file A51.ZIP. PseudoCorp's commercial
+products are advertised here in TCJ. </p>
+
+<p><i>Source code for Z80 CamelForth is available on this site at <a href="http://www.camelforth.com/public_ftp/cam80-12.zip">http://www.camelforth.com/public_ftp/cam80-12.zip</a>.</i></p>
+
+<p><a href="https://www.bradrodriguez.com/papers/moving6.htm">Continue with Part 6</a> |
+<a href="https://www.bradrodriguez.com/papers/index.html">Back to publications page</a></p>
+
+
+
+</body></html>
