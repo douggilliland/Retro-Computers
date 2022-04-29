@@ -1,0 +1,3963 @@
+         .title vtbr - terminal microcode
+
+;--
+;-- Copyright (c) 2008-2021 Sytse van Slooten
+;--
+;-- Permission is hereby granted to any person obtaining a copy of these VHDL source files and
+;-- other language source files and associated documentation files ("the materials") to use
+;-- these materials solely for personal, non-commercial purposes.
+;-- You are also granted permission to make changes to the materials, on the condition that this
+;-- copyright notice is retained unchanged.
+;--
+;-- The materials are distributed in the hope that they will be useful, but WITHOUT ANY WARRANTY;
+;-- without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+;--
+lc       =.
+         jmp t42
+;
+; -------------------------------------------------------------------
+;
+; misc definitions
+;
+; -------------------------------------------------------------------
+;
+r0       = %0
+r1       = %1
+r2       = %2
+r3       = %3
+r4       = %4
+r5       = %5
+r6       = %6
+r7       = %7
+sp       = %6
+pc       = %7
+;
+; serial port
+;
+rcsr     = 177560                 ; serial port receive csr
+rbuf     = 177562                 ; serial port receive buffer
+xcsr     = 177564                 ; serial port transmit csr
+xbuf     = 177566                 ; serial port transmit buffer
+;
+; vga component control registers
+;
+vgacur   = 140000                 ; cursor address - pointer to cursor position in buffer space
+vgacr    = 140002                 ; control register - flag bits
+vgash0   = 140004                 ; shade line 0 value
+vgash1   = 140006                 ; shade line 1 value
+vgaxp    = 140010                 ; x position for strip charts
+vgavtt   = 140012                 ; vt type - 100 or 105
+vgaact   = 140014                 ; activity counter
+vgaacl   = 140014                 ; activity counter low byte - count keyboard activity
+vgaach   = 140015                 ; activity counter high byte - count serial receive activity
+vgadb    = 140016                 ; debug output for logic analyzer capture
+vgadbl   = 140016                 ; debug output low byte
+vgadbh   = 140017                 ; debug output high byte
+vgadwh   = 140040                 ; double width/double height flags
+;
+; parser states - see vt100.net at https://vt100.net/emu/dec_ansi_parser for explanation
+;
+psg      = 0                      ; ground
+pscsip   = 2                      ; csi param
+pscsii   = 4                      ; csi ignore
+pscsin   = 6                      ; csi intermediate
+pscsie   = 10                     ; csi entry
+psei     = 12                     ; escape intermediate
+psesc    = 14                     ; escape
+psosc    = 16                     ; osc string (not used yet)
+psstr    = 20                     ; sos/pm/apc string (not used yet)
+psdcse   = 22                     ; dcs entry (not used yet)
+psdcsp   = 24                     ; dcs param (not used yet)
+psdcsi   = 26                     ; dcs ignore (not used yet)
+psdcsn   = 30                     ; dcs intermediate (not used yet)
+psdcst   = 32                     ; dcs passthrough (not used yet)
+psdummy  = 34                     ; dummy to make table size a power of 2
+;
+; screen coordinate constants
+;
+colmin   = 1                      ; the minimum column address
+colmax   = 120                    ; the maximum column address, 80 decimal
+colhmx   = 50                     ; half colmax, 40 decimal - for double-width lines
+rowmin   = 1                      ; minimum row number
+rowmax   = 30                     ; maximum row number, 24 decimal
+dtmarg   = 1                      ; default top margin row number
+dbmarg   = 30                     ; default bottom margin row number
+dwsize   = 30                     ; default window/scroll area size
+;
+; character set ids
+;
+chruk    = 101                    ; uk special set - pound signal instead of dollar
+chrasc   = 102                    ; default set
+chrgra   = 60                     ; default set with graphics instead of lower case
+chra1    = 61                     ; alternate rom standard (same as default for now)
+chra2    = 62                     ; alternate rom special (same as default for now)
+;
+; max csi sequence parameters
+;
+mxcsip   = 16                     ; actually: the max byte offset of the last parm.
+;
+; -------------------------------------------------------------------
+; -------------------------------------------------------------------
+;
+; writable data
+;
+; -------------------------------------------------------------------
+; -------------------------------------------------------------------
+;
+; this source is translated into vtbrt42.vhd - a blockram component that has an
+; extra trick in it: only the bytes 0-1000 are writable. writes to higher addresses
+; are silently ignored. Thus, code in the 1000 and up region can not be self modifying,
+; and all variable data must be below address 1000.
+;
+; low (writable) data layout
+;
+; +-------------------------+ 0
+; | vector area             |
+; +-------------------------+ 100
+; | rcvbuf                  |
+; | ps2buf                  |
+; +-------------------------+
+; | variables               |
+; +-------------------------+ <=700
+; | stack                   |
+; +-------------------------+ 1000
+;
+;
+;
+; -------------------------------------------------------------------
+;
+; reserve space for vectors
+;
+; the cpu that runs this is 11/20 - no mmu, no pirq, no fpu, and the highest vector on the bus
+; is for the ps/2 keyboard peripheral @ 70 - only the first 100(oct) bytes need to be reserved
+;
+         .=lc+100
+;
+; buffers
+;
+rcvbln   = 200
+rcvbuf:  .blkb rcvbln             ; circular buffer for characters received from the serial interface
+ps2bln   = 40
+ps2buf:  .blkb ps2bln             ; circular buffer for codes received from the keyboard
+;
+;
+;
+rcvbfc:  .word 0                  ; actual receive buffer count
+rcvbhi   = 120                    ; receive buffer high water mark
+rcvblo   = 20                     ; receive buffer low water mark
+xoff:    .byte 0                  ; current xon/xoff state
+xoffm:   .byte 0                  ; current xon/xoff manual state
+;
+; pointers in circular buffers
+;
+         .even
+rcvcons: .word 0
+rcvprod: .word 0
+ps2cons: .word 0
+ps2prod: .word 0
+;
+; -------------------------------------------------------------------
+; -------------------------------------------------------------------
+;
+; variables
+;
+; -------------------------------------------------------------------
+; -------------------------------------------------------------------
+;
+;
+; current status: cursor position, lcf, attributes, charset
+;
+         .even
+curr:    .word 0                  ; row
+scurr:   .word 0                  ; saved row
+curc:    .word 0                  ; col
+scurc:   .word 0                  ; saved col
+lcf:     .byte 0                  ; last-column flag
+slcf:    .byte 0                  ; saved lcf
+;
+; atth: current attribute byte
+;
+atth:    .byte 0                  ; attribute high byte
+satth:   .byte 0                  ; saved atth
+;
+; character sets
+;
+g0set:   .byte 0                  ; set0
+g1set:   .byte 0                  ; set1
+chrset:  .byte 0                  ; current
+schrst:  .byte 0                  ; saved char set
+;
+; scroll window
+;
+         .even
+tmarg:   .word dtmarg             ; top margin
+bmarg:   .word dbmarg             ; bottom margin
+wsize:   .word dwsize             ; window size
+;
+; tab stops
+;
+;              1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0
+tabtab:  .byte 0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0
+         .byte 1,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0
+;
+; keyboard state flags
+;
+ps2up:   .byte 0                  ; nonzero if last scancode was a f0 - key up event
+ps2ex:   .byte 0                  ; nonzero if last scancode was a e0 - extended key
+ps2lc:   .byte 0                  ; nonzero if left control key is down
+ps2rc:   .byte 0                  ; nonzero if right control key is down
+ps2ls:   .byte 0                  ; nonzero if left shift key is down
+ps2rs:   .byte 0                  ; nonzero if right shift key is down
+ps2cl:   .byte 0                  ; nonzero if caps lock is on
+;
+; vt52 mode flag
+;
+vt52:    .byte 0                  ; master vt52 mode flag
+vt52yl:  .byte 0                  ; temp storage for ESCYlc direct cursor address sequence
+;
+; graphics data
+;
+vt105g:  .byte 0                  ; graphics mode
+grshl1:  .byte 0                  ; shade line load flag marker
+         .even
+gpload:  .word 0                  ; address of processing routine
+gpch1:   .word 0                  ; value of first character in sequence
+gplx:    .word 0                  ; x-coord for loading graph memories
+;
+; mode flags
+;
+anslnm:  .byte 0                  ; line feed/new line mode
+ansins:  .byte 0                  ; insert/replace : 0=replace,1=insert
+decawm:  .byte 0                  ; autowrap mode
+decckm:  .byte 0                  ; cursor keys mode
+deckpam: .byte 0                  ; keypad application mode
+deccolm: .byte 0                  ; column mode - 80 or 132. Default 80, 132 is not supported
+decom:   .byte 0                  ; origin mode
+;
+; escape intermediate char
+;
+eichar:  .byte 0
+         .even
+;
+; csi parameters
+;
+parmc:   .word 0
+parmt:   .word 0,0,0,0,0,0,0,0,0  ; the raw parm values (converted from decimal characters, or default: 0)
+parm1:   .word 0                  ; normalized parm 1 - default 1 if missing or 0
+parm2:   .word 0                  ; normalized parm 2
+;
+; parse state
+;
+pstate:  .word 0                       ;
+;
+; -------------------------------------------------------------------
+;
+; start of code
+;
+; -------------------------------------------------------------------
+;
+         .=lc+1000
+t42:
+         mov #340,@#177776        ; set psw prio to 7 - block interrupts
+         mov #1000,sp
+;
+; setup receive buffers
+;
+         clr rcvcons              ; consume equal produce means buffer empty
+         clr rcvprod              ; receive is what we receive on our slu port
+         clr rcvbfc               ; clear buffer count
+         clrb xoff                ; clear xon/xoff state
+         clrb xoffm               ; clear xon/xoff manual state
+         clr ps2cons              ; first we consume, then we produce
+         clr ps2prod              ; xmit is what we received from the ps2 port
+;
+; setup interrupt vectors
+;
+         mov #ivecrcv,@#60        ; slu receive vector
+         mov #340,@#62            ; 340 - isr runs disabled
+         mov #ivecxmt,@#64        ; slu xmit vector (not used)
+         mov #340,@#66            ; 340 - isr runs disabled
+         mov #ivecps2,@#70        ; ps2 receive vector
+         mov #340,@#72            ; 340 - isr runs disabled
+         mov #100,@#rcsr          ; set interrupt enable in slu
+         mov #100,@#150000        ; set interrupt enable in ps2
+         mov #0,@#177776          ; allow interrupts on all levels
+;
+; setup frame buffer etc
+;
+         clr pstate
+         jsr pc,clrdwh            ; clear double height/double width
+         mov #100000,r3           ; start of buffer
+1$:
+         mov #40,(r3)+            ; fill the buffer with spaces
+         cmp r3,#107400           ; at the end yet?
+         bne 1$                   ; branch if no
+
+         mov #hello,r2            ; set up for hello world
+         mov #100000,r3           ; at the start of the screen
+2$:
+         movb (r2)+,r0            ; load char
+         mov r0,(r3)+             ; write in buffer
+         bne 2$                   ; end of the string done yet? branch if not
+         mov #40,-(r3)            ; erase error char caused by zero terminated string
+
+         cmp #105.,@#vgavtt       ; check for vt type
+         bne 3$
+         mov #65,@#100044         ; move type into banner
+3$:
+;
+; init more
+;
+         clrb ps2up               ; clear up/break status
+         clrb ps2ex               ; clear extended status
+         clrb ps2lc               ; clear left control
+         clrb ps2rc               ; clear right control
+         clrb ps2ls               ; clear left shift
+         clrb ps2rs               ; clear right shift
+         clrb ps2cl               ; clear caps
+         jsr pc,gbclr             ; clear graph memories
+         mov #3,curr              ; init cursor position, should probably be 1,1 at some point but the hello world is there
+         mov #1,curc              ; init column
+         mov #1,scurr             ; init saved row
+         mov #1,scurc             ; init saved col
+         movb #chrasc,chrset      ; default char set is ascii
+         movb #chrasc,g0set       ; set g0 set to ascii default too
+         movb #chrasc,g1set       ; set g1 set to ascii default too
+         movb #chrasc,schrst      ; init saved char set
+         mov #dtmarg,tmarg        ; default scroll window from line 1
+         mov #dbmarg,bmarg        ; to 24
+         mov #dwsize,wsize        ; init wsize
+         clrb atth                ; init attribute
+         clrb satth               ; init saved attribute
+         clrb decom               ; clear origin mode
+         movb #1,decawm           ; set awm, seems the most reasonable default
+         clrb ansins              ; clear insert mode
+         clrb anslnm              ; clear new line mode
+         clrb deccolm             ; clear 132-column mode (not implemented for now)
+         clrb decckm              ; clear cursor key mode (not implemented for now)
+         clrb lcf                 ; clear last column flag
+         clrb slcf                ; clear saved last column flag
+         clrb vt105g              ; clear graphics mode flag
+         clrb grshl1              ; clear shade load flag
+         clrb vt52                ; clear vt52 mode flag
+         clrb vt52yl              ; clear vt52 direct cursor address temp storage
+         clrb deckpam             ; clear keypad application mode
+         clr @#vgacr              ; set all control register flags off
+         clr @#vgash0             ; clear shade line 0
+         clr @#vgash1             ; clear shade line 1
+         clr @#vgaact             ; clear activity counter
+;
+; mainline code
+;
+4$:
+         jsr pc,fba               ; get buffer address of current pos
+         mov r0,@#vgacur          ; write cursor position into control register
+;
+; check keyboard for input
+;
+         jsr pc,ps2getc           ; try to read keyboard
+         tst r0                   ; anything?
+         beq 6$                   ; branch if not
+         incb @#vgaacl            ; show activity
+         jsr pc,ps2xlt            ; try to translate scan code into character or code for routine
+         tst r0                   ; anything?
+         beq 6$                   ; branch if not
+         cmpb r1,#kcminc          ; did ps2xlt return a character or a function code?
+         blo 5$                   ; branch if character
+         jsr pc,kcproc            ; process key codes
+         br 4$                    ; done
+5$:
+         mov r1,r0                ; regular char, move it to r0
+         jsr pc,xmit              ; and xmit to the host
+         br 4$                    ; done
+;
+; check serial port for input
+;
+6$:
+         jsr pc,rcvgetc           ; try to read a char
+         tst r0                   ; did we get one?
+         beq 4$                   ; r0 zero means no
+         incb @#vgaach            ; show activity
+         bic #177600,r1           ; make sure only 7 bits left
+         jsr pc,cntrl             ; process control character
+         tst r1                   ; did cntrl clear r1?
+         beq 4$                   ; yes - it dealt with the character
+7$:
+         movb ptrans(r1),r0       ; check state transition table
+         tst r0                   ; zero means not
+         beq 8$
+         mov r0,pstate            ; load new state
+8$:
+         mov pstate,r0            ; load parser state
+         bic #177761,r0           ; make sure even and in range
+         add #ptab,r0             ; add start of table
+         mov (r0),r0              ; load address of parser routine from table
+         jsr pc,(r0)              ; go there
+
+         br 4$
+;
+; -------------------------------------------------------------------
+;
+; gparse - parse graphics instructions
+;
+gparse:
+         cmpb r1,#100             ; @ - lowest value graphics mode designator
+         blo 10$                  ; lower?
+         cmpb r1,#114             ; L - highest value
+         bhi 10$                  ; higher?
+         sub #100,r1              ; base from 0
+         asl r1                   ; make word index
+         mov gpt(r1),r1           ; load address
+         mov r1,gpload            ; set routine
+         clr gpch1
+         br 90$
+10$:
+         cmpb r1,#40              ; space - lowest value graphics value
+         blo 80$                  ; lower?
+         cmpb r1,#77              ; ? - highest value
+         bhi 80$                  ; higher?
+         tst gpch1                ; first char already set?
+         bne 20$                  ; branch if yes
+         mov r1,gpch1             ; set it now
+         mov gpload,r0            ; load routine address
+         cmp r0,#gcr0             ; is it A?
+         beq 15$                  ; yes
+         cmp r0,#gcr1             ; is it I?
+         beq 15$                  ; yes
+         br 90$                   ; not one of those, done here
+15$:
+         jsr pc,(0)               ; for A or I commands, call already after the first char
+         br 90$                   ; done for now
+20$:
+         bic #177740,r1           ; leave only 5 bits
+         asl r1                   ; shift left 1
+         asl r1                   ; shift left 2
+         asl r1                   ; shift left 3
+         asl r1                   ; shift left 4
+         asl r1                   ; shift left 5
+         bic #177740,gpch1        ; make sure only low 5 bits remain set in gpch1
+         add gpch1,r1             ; add in low char from gpch1
+         clr gpch1                ; and make sure it is cleared for the next round
+         tst gpload               ; check if gpload set?
+         beq 80$                  ; no, error exit
+         mov gpload,r0            ; load routine address
+         jsr pc,(r0)              ; go there
+         br 90$                   ; and done here
+80$:
+         clr gpch1                ; clear first char, start from start
+         rts pc                   ; unhappy return
+90$:
+         clr r0                   ; show we handled things
+         rts pc                   ; happy return path
+;
+; -------------------------------------------------------------------
+;
+; routine table for graphics parser
+;
+gpt:    .word gsh                 ; @ - shade line
+        .word gcr0                ; A - control register 0
+        .word ggr0                ; B - graph 0
+        .word ggm0                ; C - marker 0
+        .word ggh                 ; D - horizontal line
+        .word gno                 ; E
+        .word gno                 ; F
+        .word gno                 ; G
+        .word gsx                 ; H - starting X
+        .word gcr1                ; I - control register 1
+        .word ggr1                ; J - graph 1
+        .word ggm1                ; K - marker 1
+        .word ggv                 ; L - vertical line
+;
+; -------------------------------------------------------------------
+;
+; load shade line position
+;
+gsh:
+         bic #177400,r1           ; mask off high bits
+         tstb grshl1              ; check flag
+         bne 10$                  ; if not clear, then we're loading sh1
+         mov r1,@#vgash0          ; load sh0
+         br 90$
+10$:
+         mov r1,@#vgash1          ; load sh1
+         br 90$
+90$:
+         rts pc
+;
+; -------------------------------------------------------------------
+;
+; cr0
+;
+gcr0:
+         bit #1,r1                ; check master enable bit
+         beq 10$                  ; branch if not on
+         bis #1,@#vgacr           ; set it in the control register
+         br 11$
+10$:
+         bic #1,@#vgacr           ; clear it
+11$:
+;
+         bit #2,r1                ; graph0 enable bit
+         beq 20$                  ; branch if not on
+         bis #2,@#vgacr           ; set it in the control register
+         br 21$
+20$:
+         bic #2,@#vgacr           ; clear it
+21$:
+;
+         bit #4,r1                ; graph1 enable bit
+         beq 30$                  ; branch if not on
+         bis #4,@#vgacr           ; set it in the control register
+         br 31$
+30$:
+         bic #4,@#vgacr           ; clear it
+31$:
+;
+         bit #10,r1               ; hist0 enable bit
+         beq 40$                  ; branch if not on
+         bis #10,@#vgacr          ; set it in the control register
+         br 41$
+40$:
+         bic #10,@#vgacr          ; clear it
+41$:
+;
+         bit #20,r1               ; hist1 enable bit
+         beq 50$                  ; branch if not on
+         bis #20,@#vgacr          ; set it in the control register
+         br 51$
+50$:
+         bic #20,@#vgacr          ; clear it
+51$:
+;
+         bit #100,r1              ; graph0 ref shade line 0
+         beq 60$                  ; branch if not on
+         bis #2000,@#vgacr        ; set it in the control register
+         br 61$
+60$:
+         bic #2000,@#vgacr        ; clear it
+61$:
+;
+         tst gpch1                ; check if the gpch1 is nonzero - then we've been called vt52-style, and then there is no 3rd byte
+         bne 999$                 ; branch if so
+;
+         bit #200,r1              ; graph1 ref shade line 1
+         beq 70$                  ; branch if not on
+         bis #4000,@#vgacr        ; set it in the control register
+         br 71$
+70$:
+         bic #4000,@#vgacr        ; clear it
+71$:
+;
+         bit #40,r1               ; set up to load shade line 0 or 1?
+         beq 80$                  ; branch if not on
+         movb #1,grshl1           ; set flag
+         br 81$
+80$:
+         clrb grshl1              ; clear flag
+81$:
+;
+         bit #400,r1              ; single strip
+         beq 90$                  ; branch if not on
+         bis #10000,@#vgacr       ; set it in the control register
+         br 91$
+90$:
+         bic #10000,@#vgacr       ; clear it
+91$:
+;
+         bit #1000,r1             ; dual strip
+         beq 100$                 ; branch if not on
+         bis #20000,@#vgacr       ; set it in the control register
+         br 101$
+100$:
+         bic #20000,@#vgacr       ; clear it
+101$:
+;
+999$:
+         rts pc
+;
+; -------------------------------------------------------------------
+;
+; load graph0
+;
+ggr0:
+         mov gplx,r0              ; load last x coordinate
+         asl r0                   ; make word index
+         bic #176000,r0           ; make doubly sure no inappropriate bits left
+         bis #110000,r0           ; set bits for graph0
+         movb r1,(r0)             ; put it there
+         bit #20000,@#vgacr       ; check the control register for dual strip mode
+         bne 10$                  ; dual strip - suspend update x coord until graph1 is loaded
+         inc gplx                 ; increment x coord
+         bic #177000,gplx         ; mask off anything over 511
+         mov gplx,@#vgaxp         ; copy gplx into the control register
+10$:
+         rts pc
+;
+; -------------------------------------------------------------------
+;
+; load graph markers 0
+;
+ggm0:
+         cmp #511.,r1             ; check for max value
+         blo 10$                  ; go to setting marks if higher
+         asl r1                   ; word index
+         bic #176000,r1           ; make sure only the low 10 bits are left
+         bis #110001,r1           ; set bits for graph0/marker0 buffer, upper byte
+         bicb #1,(r1)             ; clear the bit
+         br 90$
+10$:
+         bic #177000,r1           ; mask off high bits
+         asl r1                   ; word index
+         bic #176000,r1           ; make sure only the low 10 bits are left
+         bis #110001,r1           ; set bits for graph0/marker0 buffer, upper byte
+         bisb #1,(r1)             ; set the bit
+         br 90$
+90$:
+         rts pc
+;
+; -------------------------------------------------------------------
+;
+; load or clear horizontal lines
+;
+ggh:
+         cmp #511.,r1             ; check for max value
+         blo 10$                  ; go to setting marks if higher
+         asl r1                   ; word index
+         bic #176000,r1           ; make sure only the low 10 bits are left
+         bis #110001,r1           ; set bits for graph0/marker0 buffer, upper byte
+         bicb #10,(r1)            ; clear the bit
+         br 90$
+10$:
+         bic #177000,r1           ; mask off high bits
+         asl r1                   ; word index
+         bic #176000,r1           ; make sure only the low 10 bits are left
+         bis #110001,r1           ; set bits for graph0/marker0 buffer, upper byte
+         bisb #10,(r1)            ; set the bit
+         br 90$
+90$:
+         rts pc
+;
+; -------------------------------------------------------------------
+;
+; dummy placeholder
+;
+gno:
+         rts pc
+;
+; -------------------------------------------------------------------
+;
+; set x coord for graph0/1 loading
+;
+gsx:
+         mov r1,gplx              ; store value in gplx, that's all there is to it
+         mov r1,@#vgaxp           ; and set it in the control register too
+         rts pc
+;
+; -------------------------------------------------------------------
+;
+; process control register 1
+;
+gcr1:
+;
+         bit #1,r1                ; hline enable bit
+         beq 10$                  ; branch if not on
+         bis #40,@#vgacr          ; set it in the control register
+         br 11$
+10$:
+         bic #40,@#vgacr          ; clear it
+11$:
+;
+         bit #2,r1                ; vline enable bit
+         beq 20$                  ; branch if not on
+         bis #100,@#vgacr         ; set it in the control register
+         br 21$
+20$:
+         bic #100,@#vgacr          ; clear it
+21$:
+;
+         bit #4,r1                ; marker0 enable bit
+         beq 30$                  ; branch if not on
+         bis #400,@#vgacr         ; set it in the control register
+         br 31$
+30$:
+         bic #400,@#vgacr         ; clear it
+31$:
+;
+         bit #10,r1               ; marker1 enable bit
+         beq 40$                  ; branch if not on
+         bis #1000,@#vgacr        ; set it in the control register
+         br 41$
+40$:
+         bic #1000,@#vgacr        ; clear it
+41$:
+;
+         bit #20,r1               ; graph memories reset bit
+         beq 50$                  ; branch if not on
+         jsr pc,gbclr             ; clear graph memories
+50$:
+;
+         tst gpch1                ; check for 3rd byte?
+         bne 999$                 ; if gpch1 is nonzero, then we're called for two bytes
+;
+         bit #40,r1               ; rectangle/square bit
+         beq 60$                  ; branch if not on
+         bis #100000,@#vgacr      ; set it
+         br 61$
+60$:
+         bic #100000,@#vgacr      ; clear it
+61$:
+;
+999$:
+         rts pc
+;
+; -------------------------------------------------------------------
+;
+; load graph1
+;
+ggr1:
+         mov gplx,r0              ; load last x coordinate
+         asl r0                   ; make word index
+         bic #176000,r0           ; make doubly sure no inappropriate bits left
+         bis #112000,r0           ; set bits for graph1
+         movb r1,(r0)             ; put it there
+         inc gplx                 ; increment x coord
+         bic #177000,gplx         ; mask off anything over 511
+         mov gplx,@#vgaxp         ; copy gplx into the control register
+         rts pc
+;
+; -------------------------------------------------------------------
+;
+; load graph markers 1
+;
+ggm1:
+         cmp #511.,r1             ; check for max value
+         blo 10$                  ; go to setting marks if higher
+         asl r1                   ; word index
+         bic #176000,r1           ; make sure only the low 10 bits are left
+         bis #110001,r1           ; set bits for graph0/marker0 buffer, upper byte
+         bicb #2,(r1)             ; clear the bit
+         br 90$
+10$:
+         bic #177000,r1           ; mask off high bits
+         asl r1                   ; word index
+         bic #176000,r1           ; make sure only the low 10 bits are left
+         bis #110001,r1           ; set bits for graph0/marker0 buffer, upper byte
+         bisb #2,(r1)             ; set the bit
+         br 90$
+90$:
+         rts pc
+;
+; -------------------------------------------------------------------
+;
+; load or clear vertical lines
+;
+ggv:
+         cmp #511.,r1             ; check for max value
+         blo 10$                  ; go to setting marks if higher
+         asl r1                   ; word index
+         bic #176000,r1           ; make sure only the low 10 bits are left
+         bis #110001,r1           ; set bits for graph0/marker0 buffer, upper byte
+         bicb #4,(r1)             ; clear the bit
+         br 90$
+10$:
+         bic #177000,r1           ; mask off high bits
+         asl r1                   ; word index
+         bic #176000,r1           ; make sure only the low 10 bits are left
+         bis #110001,r1           ; set bits for graph0/marker0 buffer, upper byte
+         bisb #4,(r1)             ; set the bit
+         br 90$
+90$:
+         rts pc
+;
+; -------------------------------------------------------------------
+;
+; kcproc - deal with keystrokes that require to xmit mult bytes
+;
+kcproc:
+         bic #177400,r1
+         sub #kcminc,r1           ; subtract offset from code
+         bic #177700,r1           ; make sure only 6 bits left
+         asl r1                   ; make word index
+         mov kctab(r1),r0         ; find address of routine
+         jsr pc,(r0)              ; go there
+         rts pc
+;
+; left arrow
+;
+fclar:
+         jsr pc,xmitcsi           ; ESC [
+         mov #104,r0              ; D
+         jsr pc,xmit
+         rts pc
+;
+; down arrow
+;
+fcdar:
+         jsr pc,xmitcsi           ; ESC [
+         mov #102,r0              ; B
+         jsr pc,xmit
+         rts pc
+;
+; right arrow
+;
+fcrar:
+         jsr pc,xmitcsi           ; ESC [
+         mov #103,r0              ; C
+         jsr pc,xmit
+         rts pc
+;
+; up arrow
+;
+fcuar:
+         jsr pc,xmitcsi           ; ESC [
+         mov #101,r0              ; A
+         jsr pc,xmit
+         rts pc
+;
+; page down - there's no such thing on a real vt, so let's just do 20 down arrows
+;
+fcpgdn:
+         mov #20.,r1
+10$:
+         jsr pc,xmitcsi           ; ESC [
+         mov #102,r0              ; B
+         jsr pc,xmit
+         dec r1
+         bne 10$
+         rts pc
+;
+; page up - there's no such thing on a real vt, so let's just do 20 up arrows
+;
+fcpgup:
+         mov #20.,r1              ; weirdly, from the tests I've done it seems esc[20A is not accepted inbound. Hence 20 times esc[A
+10$:
+         jsr pc,xmitcsi           ; ESC [
+         mov #101,r0              ; A
+         jsr pc,xmit
+         dec r1
+         bne 10$
+         rts pc
+;
+; enter - either just cr, or crlf
+;
+fcentr:
+         mov #15,r0               ; cr
+         jsr pc,xmit
+         tst anslnm
+         beq 10$
+         mov #12,r0               ; lf
+         jsr pc,xmit
+10$:
+         rts pc
+;
+; numlock - F1
+;
+fcnlck:
+         mov #33,r0               ; escape
+         jsr pc,xmit
+         tstb vt52                ; vt52 mode?
+         bne 52$                  ; yes, skip capital o
+         mov #117,r0              ; capital o
+         jsr pc,xmit
+52$:
+         mov #120,r0              ; capital p
+         jsr pc,xmit
+         rts pc
+;
+; num pad div / - F2
+;
+fcndiv:
+         mov #33,r0               ; escape
+         jsr pc,xmit
+         tstb vt52                ; vt52 mode?
+         bne 52$                  ; yes, skip capital o
+         mov #117,r0              ; capital o
+         jsr pc,xmit
+52$:
+         mov #121,r0              ; capital q
+         jsr pc,xmit
+         rts pc
+;
+; num pad asterisk - F3
+;
+fcnast:
+         mov #33,r0               ; escape
+         jsr pc,xmit
+         tstb vt52                ; vt52 mode?
+         bne 52$                  ; yes, skip capital o
+         mov #117,r0              ; capital o
+         jsr pc,xmit
+52$:
+         mov #122,r0              ; capital r
+         jsr pc,xmit
+         rts pc
+;
+; num pad minus - F4
+;
+fcnmin:
+         mov #33,r0               ; escape
+         jsr pc,xmit
+         tstb vt52                ; vt52 mode?
+         bne 52$                  ; yes, skip capital o
+         mov #117,r0              ; capital o
+         jsr pc,xmit
+52$:
+         mov #123,r0              ; capital s
+         jsr pc,xmit
+         rts pc
+;
+; num pad plus
+;
+fcnpls:
+         tstb deckpam             ; check keypad application mode flag
+         bne 10$                  ; on, go there
+         mov #53,r0               ; plus
+         jsr pc,xmit
+         rts pc
+10$:                              ; not sure what to do with this yet. Nothing, for now
+         rts pc
+;
+; num pad enter
+;
+fcnent:
+         tstb deckpam             ; check keypad application mode flag
+         bne 10$                  ; on, go there
+         jsr pc,fcentr
+         rts pc
+10$:
+         jsr pc,xkpad
+         mov #115,r0              ; M
+         jsr pc,xmit
+         rts pc
+;
+; num pad dot
+;
+fcndot:
+         tstb deckpam             ; check keypad application mode flag
+         bne 10$                  ; on, go there
+         mov #56,r0               ; dot
+         jsr pc,xmit
+         rts pc
+10$:
+         jsr pc,xkpad
+         mov #156,r0              ; n
+         jsr pc,xmit
+         rts pc
+;
+; num pad 0
+;
+fcn0:
+         tstb deckpam             ; check keypad application mode flag
+         bne 10$                  ; on, go there
+         mov #60,r0               ; 0
+         jsr pc,xmit
+         rts pc
+10$:
+         jsr pc,xkpad
+         mov #160,r0              ; p
+         jsr pc,xmit
+         rts pc
+;
+; num pad 1
+;
+fcn1:
+         tstb deckpam             ; check keypad application mode flag
+         bne 10$                  ; on, go there
+         mov #61,r0               ; 1
+         jsr pc,xmit
+         rts pc
+10$:
+         jsr pc,xkpad
+         mov #161,r0              ; q
+         jsr pc,xmit
+         rts pc
+;
+; num pad 2
+;
+fcn2:
+         tstb deckpam             ; check keypad application mode flag
+         bne 10$                  ; on, go there
+         mov #62,r0               ; 2
+         jsr pc,xmit
+         rts pc
+10$:
+         jsr pc,xkpad
+         mov #162,r0              ; r
+         jsr pc,xmit
+         rts pc
+;
+; num pad 3
+;
+fcn3:
+         tstb deckpam             ; check keypad application mode flag
+         bne 10$                  ; on, go there
+         mov #63,r0               ; 3
+         jsr pc,xmit
+         rts pc
+10$:
+         jsr pc,xkpad
+         mov #163,r0              ; s
+         jsr pc,xmit
+         rts pc
+;
+; num pad 4
+;
+fcn4:
+         tstb deckpam             ; check keypad application mode flag
+         bne 10$                  ; on, go there
+         mov #64,r0               ; 4
+         jsr pc,xmit
+         rts pc
+10$:
+         jsr pc,xkpad
+         mov #164,r0              ; t
+         jsr pc,xmit
+         rts pc
+;
+; num pad 5
+;
+fcn5:
+         tstb deckpam             ; check keypad application mode flag
+         bne 10$                  ; on, go there
+         mov #65,r0               ; 5
+         jsr pc,xmit
+         rts pc
+10$:
+         jsr pc,xkpad
+         mov #165,r0              ; u
+         jsr pc,xmit
+         rts pc
+;
+; num pad 6
+;
+fcn6:
+         tstb deckpam             ; check keypad application mode flag
+         bne 10$                  ; on, go there
+         mov #66,r0               ; 6
+         jsr pc,xmit
+         rts pc
+10$:
+         jsr pc,xkpad
+         mov #166,r0              ; v
+         jsr pc,xmit
+         rts pc
+;
+; num pad 7
+;
+fcn7:
+         tstb deckpam             ; check keypad application mode flag
+         bne 10$                  ; on, go there
+         mov #67,r0               ; 7
+         jsr pc,xmit
+         rts pc
+10$:
+         jsr pc,xkpad
+         mov #167,r0              ; w
+         jsr pc,xmit
+         rts pc
+;
+; num pad 8
+;
+fcn8:
+         tstb deckpam             ; check keypad application mode flag
+         bne 10$                  ; on, go there
+         mov #70,r0               ; 8
+         jsr pc,xmit
+         rts pc
+10$:
+         jsr pc,xkpad
+         mov #170,r0              ; x
+         jsr pc,xmit
+         rts pc
+;
+; num pad 9
+;
+fcn9:
+         tstb deckpam             ; check keypad application mode flag
+         bne 10$                  ; on, go there
+         mov #71,r0               ; 9
+         jsr pc,xmit
+         rts pc
+10$:
+         jsr pc,xkpad
+         mov #171,r0              ; y
+         jsr pc,xmit
+         rts pc
+;
+; ins
+;
+fcins:
+         rts pc
+;
+; home
+;
+fchome:
+         rts pc
+;
+; del
+;
+fcdel:
+         mov #177,r0
+         jsr pc,xmit
+         rts pc
+;
+; end
+;
+fcend:
+         rts pc
+;
+; f1
+;
+fcf1:
+         jsr pc,xkpad
+         mov #120,r0              ; P
+         jsr pc,xmit
+         rts pc
+;
+; f2
+;
+fcf2:
+         jsr pc,xkpad
+         mov #121,r0              ; Q
+         jsr pc,xmit
+         rts pc
+;
+; f3
+;
+fcf3:
+         jsr pc,xkpad
+         mov #122,r0              ; R
+         jsr pc,xmit
+         rts pc
+;
+; f4
+;
+fcf4:
+         jsr pc,xkpad
+         mov #123,r0              ; S
+         jsr pc,xmit
+         rts pc
+;
+; dummy for unused table entries
+;
+fcnull:
+         rts pc
+;
+; xmit escape-[
+; except when in vt52 mode, then just xmit escape
+;
+xmitcsi:
+         mov #33,r0               ; esc
+         jsr pc,xmit
+         tstb vt52                ; check for vt52 mode
+         bne 90$                  ; skip the rest if yes
+         tstb decckm              ; cursor key mode flag set?
+         bne 10$
+         mov #133,r0              ; [
+         jsr pc,xmit
+         br 90$
+10$:
+         mov #117,r0              ; capital o
+         jsr pc,xmit
+         br 90$
+90$:
+         rts pc
+;
+; xmit escape-? or escape-O depending on ansi-vt52 switch for the numeric keypad
+;
+xkpad:
+         mov #33,r0               ; escape
+         jsr pc,xmit
+         tstb vt52                ; in vt52 mode?
+         bne 52$                  ; yes, go there
+         mov #117,r0              ; capital o
+         jsr pc,xmit
+         rts pc
+52$:
+         mov #77,r0               ; question mark
+         jsr pc,xmit
+         rts pc
+;
+; key codes for keys that need more than a one-to-one translation
+;
+kcminc   = 340
+kcf4     = 340
+kclar    = 341
+kcdar    = 342
+kcrar    = 343
+kcuar    = 344
+kcpgdn   = 345
+kcpgup   = 346
+kcentr   = 347
+kcndiv   = 350
+kcnlck   = 351
+kcnent   = 352
+kcnast   = 353
+kcnmin   = 354
+kcnpls   = 355
+kcndot   = 356
+kcn0     = 357
+kcn1     = 360
+kcn2     = 361
+kcn3     = 362
+kcn4     = 363
+kcn5     = 364
+kcn6     = 365
+kcn7     = 366
+kcn8     = 367
+kcn9     = 370
+kcins    = 371
+kchome   = 372
+kcdel    = 373
+kcend    = 374
+kcf1     = 375
+kcf2     = 376
+kcf3     = 377
+;
+; kctab - function table for mult-byte keys
+;
+kctab:
+         .word fcf4               ; 340 f4
+         .word fclar              ; 341 left arrow
+         .word fcdar              ; 342 down arrow
+         .word fcrar              ; 343 right arrow
+         .word fcuar              ; 344 up arrow
+         .word fcpgdn             ; 345 pg dn
+         .word fcpgup             ; 346 pg up
+         .word fcentr             ; 347 enter
+         .word fcndiv             ; 350 num pad div
+         .word fcnlck             ; 351 numlock
+         .word fcnent             ; 352 num pad enter
+         .word fcnast             ; 353 num pad asterisk
+         .word fcnmin             ; 354 num pad minus
+         .word fcnpls             ; 355 num pad plus
+         .word fcndot             ; 356 num pad dot/del
+         .word fcn0               ; 357 num pad 0
+         .word fcn1               ; 360 num pad 1
+         .word fcn2               ; 361 num pad 2
+         .word fcn3               ; 362 num pad 3
+         .word fcn4               ; 363 num pad 4
+         .word fcn5               ; 364 num pad 5
+         .word fcn6               ; 365 num pad 6
+         .word fcn7               ; 366 num pad 7
+         .word fcn8               ; 367 num pad 7
+         .word fcn9               ; 370 num pad 9
+         .word fcins              ; 371 ins
+         .word fchome             ; 372 home
+         .word fcdel              ; 373 del
+         .word fcend              ; 374 end
+         .word fcf1               ; 375 f1
+         .word fcf2               ; 376 f2
+         .word fcf3               ; 377 f3
+;
+; -------------------------------------------------------------------
+;
+; decaln - fill buffer with E
+;
+decaln:
+         jsr pc,clrdwh            ; clear double height/double width
+         mov #100000,r0           ; setup r0 as start address
+         mov #107400,r1           ; setup r1 as end condition
+80$:
+         mov #105,(r0)+           ; E
+         cmp r0,r1
+         blo 80$
+         rts pc
+;
+; -------------------------------------------------------------------
+;
+; decdhl t - double height, top half
+;
+decdht:
+         mov curr,r0              ; get current line
+         dec r0                   ; subtract one to get to offset from start
+         movb #5,vgadwh(r0)       ; set double height bit and double width bit
+         jsr pc,adjdwh            ; adjust cursor and clear 2nd half of line
+         rts pc
+;
+; -------------------------------------------------------------------
+;
+; decdhl b - double height, bottom half
+;
+decdhb:
+         mov curr,r0              ; get current line
+         dec r0                   ; subtract one to get to offset from start
+         movb #7,vgadwh(r0)       ; set double height plus low, and double width bits
+         jsr pc,adjdwh            ; adjust cursor and clear 2nd half of line
+         rts pc
+;
+; -------------------------------------------------------------------
+;
+; decdwl - double width
+;
+decdwl:
+         mov curr,r0              ; get current line
+         dec r0                   ; subtract one to get to offset from start
+         movb #4,vgadwh(r0)       ; set double width bit
+         jsr pc,adjdwh            ; adjust cursor and clear 2nd half of line
+         rts pc
+;
+; -------------------------------------------------------------------
+;
+; decswl - single width/single height
+;
+decswl:
+         mov curr,r0              ; get current line
+         dec r0                   ; subtract one to get to offset from start
+         clrb vgadwh(r0)          ; clear both double height and the double width bit
+         rts pc
+;
+; -------------------------------------------------------------------
+;
+; adjdwh - adjust cursor pos and line content on changing a line to double height/width
+;
+adjdwh:
+         cmp curc,#40.            ; is the cursor past column 40 decimal?
+         blos 10$                 ; no
+         mov #40.,curc            ; set it at 40
+10$:
+         mov curr,r0              ; get current row
+         mov r0,r1                ; copy
+         dec r0                   ; correct for offset
+         asl r0                   ; make word index
+         mov ltab(r0),r0          ; pick up the offset
+         add #80.,r0              ; add half the screen width - two bytes per pos, hence 80.
+         asl r1                   ; word index of current line+1 - the +1 is implicit
+         mov ltab(r1),r1          ; pick up the offset
+20$:
+         mov #40,(r0)+            ; erase here
+         cmp r0,r1                ; at the end yet?
+         blo 20$                  ; branch if not
+         rts pc                   ; done
+;
+; -------------------------------------------------------------------
+;
+; clrdwh - clear all double height/width bits
+;
+clrdwh:
+         mov r1,-(r6)             ; push r1
+         mov r0,-(r6)             ; push r0
+         mov #vgadwh,r0           ; load start
+         mov #vgadwh+24.,r1       ; load end
+10$:
+         clr (r0)+                ; clear (two bytes at a time)
+         cmp r0,r1                ; at end yet?
+         blo 10$
+         mov (r6)+,r0             ; pop r0
+         mov (r6)+,r1             ; pop r1
+         rts pc
+;
+; -------------------------------------------------------------------
+;
+; clrdw0 - clear double height/width bits from (including) cursor line
+;
+clrdw0:
+         mov r1,-(r6)             ; push r1
+         mov r0,-(r6)             ; push r0
+         mov #vgadwh,r0           ; load start
+         add curr,r0              ; add cursor line
+         dec r0                   ; correct line number to offset
+         mov #vgadwh+24.,r1       ; load end
+10$:
+         clrb (r0)+               ; clear
+         cmp r0,r1                ; at end yet?
+         blo 10$
+         mov (r6)+,r0             ; pop r0
+         mov (r6)+,r1             ; pop r1
+         rts pc
+;
+; -------------------------------------------------------------------
+;
+; clrdw1 - clear double height/width bits up to (including) cursor line
+;
+clrdw1:
+         mov r1,-(r6)             ; push r1
+         mov r0,-(r6)             ; push r0
+         mov #vgadwh,r0           ; load start
+         mov r0,r1                ; copy
+         add curr,r1              ; add cursor line number
+10$:
+         clrb (r0)+               ; clear
+         cmp r0,r1                ; at end yet?
+         blo 10$
+         mov (r6)+,r0             ; pop r0
+         mov (r6)+,r1             ; pop r1
+         rts pc
+;
+; -------------------------------------------------------------------
+;
+; clrscr - clear entire screen
+;
+clrscr:
+         mov r1,-(r6)             ; push r1
+         mov r0,-(r6)             ; push r0
+         mov #100000,r0           ; setup r0 as start address
+         mov #107400,r1           ; setup r1 as end condition
+10$:
+         mov #40,(r0)+            ; space, no attributes
+         cmp r0,r1                ; reached end?
+         blo 10$                  ; no again
+         mov #rowmin,curr         ; cursor to row 1
+         mov #colmin,curc         ; cursor to col 1
+         clrb lcf                 ; clear lcf flag
+         jsr pc,clrdwh            ; clear line attributes too
+         mov (r6)+,r0             ; pop r0
+         mov (r6)+,r1             ; pop r1
+         rts pc
+;
+; -------------------------------------------------------------------
+;
+; ESC 1 - DECGON - Graphics Waveform Generator On
+;
+esc1:
+         cmp #105.,@#vgavtt       ; check for vt type
+         bne 10$                  ; not 105, skip setting graph mode
+         movb #1,vt105g           ; this enables the graphic parser
+10$:
+         rts pc
+;
+; -------------------------------------------------------------------
+;
+; ESC 2 - DECGOFF - Graphics Waveform Generator Off
+;
+esc2:
+         clrb vt105g
+         rts pc
+;
+; -------------------------------------------------------------------
+;
+; ESC 7 - DECSC - Save Cursor
+;
+esc7:
+         mov curr,scurr
+         mov curc,scurc
+         movb lcf,slcf
+         movb chrset,schrst
+         movb atth,satth
+         rts pc
+;
+; -------------------------------------------------------------------
+;
+; ESC 8 - DECRC - Restore Cursor
+;
+esc8:
+         mov scurr,curr
+         mov scurc,curc
+         movb slcf,lcf
+         movb schrst,chrset
+         movb satth,atth
+         jsr pc,fba
+         rts pc
+;
+; -------------------------------------------------------------------
+;
+; ESC 3c - VT52 Enter ANSI Mode
+;
+esc3c:
+         clrb vt52
+         rts pc
+;
+; -------------------------------------------------------------------
+;
+; ESC 3d - DECKPAM set keypad application mode
+;
+esc3d:
+         movb #1,deckpam
+         rts pc
+;
+; -------------------------------------------------------------------
+;
+; ESC 3e - DECKPNM set keupad numeric mode - reset keypad application mode
+;
+esc3e:
+         clrb deckpam
+         rts pc
+;
+; -------------------------------------------------------------------
+;
+; ESC A - VT52 Cursor Up
+;
+escua:
+         dec curr                 ; subtract one
+         jsr pc,fba               ; normalize
+         rts pc
+;
+; -------------------------------------------------------------------
+;
+; ESC B - VT52 Cursor Down
+;
+escub:
+         inc curr                 ; add one
+         jsr pc,fba               ; normalize
+         rts pc
+;
+; -------------------------------------------------------------------
+;
+; ESC C - VT52 Cursor Right
+;
+escuc:
+         inc curc                 ; add one
+         jsr pc,fba               ; normalize
+         rts pc
+;
+; -------------------------------------------------------------------
+;
+; ESC D - IND - Index; VT52 Cursor Left
+;
+escud:
+         tstb vt52                ; check for vt52 mode
+         bne 52$                  ; on, go there
+         cmp wsize,curr           ; at last row?
+         beq 10$                  ; yes
+         inc curr                 ; no, just move the cursor one down
+         br 90$
+10$:
+         jsr pc,scrl              ; scroll the screen up
+90$:
+         clrb lcf                 ; not for vt100
+         rts pc
+;
+52$:
+         dec curc                 ; subtract one
+         jsr pc,fba               ; normalize
+         rts pc
+;
+; -------------------------------------------------------------------
+;
+; ESC E - NEL - Next Line
+;
+escue:
+         mov #colmin,curc         ; set first col
+         cmp wsize,curr           ; at last row?
+         beq 10$                  ; yes
+         inc curr                 ; no, just move the cursor one down
+         br 90$
+10$:
+         jsr pc,scrl              ; scroll the screen up
+90$:
+         clrb lcf                 ; not for vt100
+         rts pc
+;
+; -------------------------------------------------------------------
+;
+; ESC F - VT52 Enter Special Graphic Character Mode
+;
+; dummy for now; these characters are not in the current set, nor is there space in the font rom for them
+;
+escuf:
+         rts pc
+;
+; -------------------------------------------------------------------
+;
+; ESC G - VT52 Exit Special Graphic Character Mode
+;
+escug:
+         rts pc
+;
+;
+; -------------------------------------------------------------------
+;
+; ESC H - Set Tab; VT52 Cursor to Home
+;
+escuh:
+         tstb vt52                ; vt52 mode on?
+         bne 52$                  ; yes, go there
+         mov curc,r0              ; pickup current column
+         dec r0                   ; adjust
+         movb #1,tabtab(r0)       ; set tab
+         rts pc
+52$:
+         mov #colmin,curc         ; set home pos in current column
+         mov #rowmin,curr         ; set home pos in current row
+         rts pc
+;
+; -------------------------------------------------------------------
+;
+; ESC I - VT52 Reverse Line Feed
+;
+escui:
+         cmp #rowmin,curr         ; at first row?
+         beq 10$                  ; yes
+         dec curr                 ; no, just move the cursor one up
+         br 90$
+10$:
+         jsr pc,rscrl             ; scroll the screen down
+90$:
+         clrb lcf
+         rts pc
+;
+; -------------------------------------------------------------------
+;
+; ESC J - VT52 Erase to End of Screen
+;
+escuj:
+         jsr pc,fba               ; get buffer address of cursor
+         mov #107400,r1           ; setup r1 as end condition
+80$:
+         mov #40,(r0)+            ; erase here
+         cmp r0,r1                ; done with loop?
+         blo 80$                  ; branch if not
+90$:
+         rts pc
+;
+; -------------------------------------------------------------------
+;
+; ESC K - VT52 Erase to End of Line
+;
+escuk:
+         jsr pc,fba               ; get buffer address of cursor
+         mov curr,r1              ; erase from cursor to end of line; start with finding the end of the current line
+         asl r1                   ; word index of current line+1 - the +1 is implicit
+         mov ltab(r1),r1          ; pick up the offset
+80$:
+         mov #40,(r0)+            ; erase here
+         cmp r0,r1                ; at the end yet?
+         blo 80$                  ; branch if not
+90$:
+         rts pc
+;
+; -------------------------------------------------------------------
+;
+; ESC M - RI - Reverse Index
+;
+escum:
+         tstb decom               ; is origin mode on?
+         bne 10$                  ; yes
+         cmp tmarg,curr           ; at top of viewport?
+         beq 80$                  ; yes
+         dec curr                 ; no, just move the cursor one up
+         br 90$
+;
+10$:
+         cmp #rowmin,curr         ; at first row?
+         beq 80$                  ; yes
+         dec curr                 ; no, just move the cursor one up
+         br 90$
+
+80$:
+         jsr pc,rscrl             ; scroll the screen down
+90$:
+         clrb lcf                 ; not for vt100
+         rts pc
+;
+; -------------------------------------------------------------------
+;
+; ESC Z - DECID - Identify Terminal; VT52 Identify
+;
+escuz:
+         tstb vt52                ; in vt52 mode?
+         bne 52$                  ; branch if we are
+         jsr pc,csilc             ; go to CSI c routine
+         rts pc                   ; done
+52$:
+         movb #33,r0              ; escape
+         jsr pc,xmit              ; send it
+         movb #57,r0              ; /
+         jsr pc,xmit              ; send it
+         movb #132,r0             ; Z
+         jsr pc,xmit              ; send it
+         rts pc                   ; done
+;
+; -------------------------------------------------------------------
+;
+; ESC c - RIS - Reset to Initial State
+;
+esclc:
+         jmp t42
+;
+; -------------------------------------------------------------------
+;
+; CSI @ - ICH Insert Characters (VT200)
+;
+csiat:
+         mov r2,-(r6)             ; push r2
+         jsr pc,fba               ; get cursor address
+         mov r0,r2                ; move cursor address into r2
+10$:
+         mov curr,r0              ; load curr
+         asl r0                   ; word index
+         mov ltab(r0),r0          ; get start address of next line
+         mov r0,r1                ; copy
+         dec r1                   ; two
+         dec r1                   ; ... less
+         cmp r1,r2                ; same? then we'd be on colmax
+         beq 80$                  ; skip rest if so - no action if on last col
+60$:
+         mov -(r1),-(r0)          ; do the move
+         cmp r1,r2                ; compare addresses
+         bhi 60$                  ; loop if r1>r2 still
+         mov #40,(r2)             ; insert blank, no attributes at cursor
+         cmp #1,parm1             ; check if we need to do more?
+         beq 80$                  ; no, exit
+         dec parm1                ; subtract one
+         br 10$                   ; go do another round
+80$:
+         mov (r6)+,r2             ; pop r2
+         rts pc
+;
+; -------------------------------------------------------------------
+;
+; CSI A - CUU Cursor Up
+;
+csiua:
+         sub parm1,curr
+         jsr pc,fba
+         clrb lcf
+         rts pc
+;
+; -------------------------------------------------------------------
+;
+; CSI B - CUD Cursor Down
+;
+csiub:
+         add parm1,curr
+         jsr pc,fba
+         clrb lcf                 ; not sure about this
+         rts pc
+;
+; -------------------------------------------------------------------
+;
+; CSI C - CUF Cursor Forward
+;
+csiuc:
+         add parm1,curc
+         jsr pc,fba
+         clrb lcf                 ; not for vt100
+         rts pc
+;
+; -------------------------------------------------------------------
+;
+; CSI D - CUD Cursor Backward
+;
+csiud:
+         sub parm1,curc
+         jsr pc,fba
+         clrb lcf                ; not sure about this
+         rts pc
+;
+; -------------------------------------------------------------------
+;
+; CSI H - CUP Cursor Position
+;
+csiuh:
+         mov parm1,curr
+         mov parm2,curc
+         jsr pc,fba
+         clrb lcf                 ; not for vt100
+         rts pc
+;
+; -------------------------------------------------------------------
+;
+; CSI J - ED Erase In Display
+;
+csiuj:
+         jsr pc,fba               ; get buffer address of cursor
+         tst parmt                ; check raw parameter for zero - means from (including) cursor to end of screen
+         bne 10$                  ; no, other form
+         jsr pc,clrdw0            ; clear double heigth/double width bits
+         mov #107400,r1           ; setup r1 as end condition
+         br 80$
+;
+10$:
+         cmp #1,parmt             ; 1? means from start of screen up to (including) cursor
+         bne 20$                  ; no
+         jsr pc,clrdw1            ; clear double heigth/double width bits
+         mov r0,r1                ; setup cursor buffer address as end condition
+         inc r1                   ; add one
+         mov #100000,r0           ; setup r0 as start address
+         br 80$
+;
+20$:
+         cmp #2,parmt             ; 2? means clear whole screen
+         beq 21$                  ; yes, deal with it
+         cmp #3,parmt             ; 3? this means clear everything including scrollback. Not vt100/105/200/220, but lets do it anyway.
+         beq 21$
+         br 80$
+21$:
+         jsr pc,clrdwh            ; clear double height/double width
+         mov #100000,r0           ; setup r0 as start address
+         mov #107400,r1           ; setup r1 as end condition
+         br 80$
+80$:
+         mov #40,(r0)+            ; erase here
+         cmp r0,r1
+         blo 80$
+         br 90$
+90$:
+         clrb lcf                 ; not for vt100
+         rts pc
+;
+; -------------------------------------------------------------------
+;
+; CSI K - EL Erase In Line
+;
+csiuk:
+         jsr pc,fba               ; get buffer address of cursor
+         tst parmt                ; check raw parameter for zero
+         bne 10$                  ; no - other form
+         mov curr,r1              ; 0 or default: erase from cursor to end of line
+         asl r1                   ; word index of current line+1 - the +1 is implicit
+         mov ltab(r1),r1          ; pick up the offset
+         br 80$
+10$:
+         cmp #1,parmt             ; check raw parameter for one
+         bne 20$                  ; no
+         mov r0,r1                ; setup r1 as ending condition
+         inc r1                   ; add one
+         mov curr,r0              ; 1 : erase from beginning of line to cursor
+         dec r0                   ; start from zero
+         asl r0                   ; word index of current line
+         mov ltab(r0),r0          ; pick up the offset
+         br 80$
+20$:
+         cmp #2,parmt             ; check raw parameter for two
+         bne 90$                  ; no - outtahere
+         mov curr,r0              ; 1 : erase from beginning of line to cursor
+         dec r0                   ; start from zero
+         asl r0                   ; word index of current line
+         mov ltab(r0),r0          ; pick up the offset
+         mov curr,r1              ; 0 or default: erase from cursor to end of line
+         asl r1                   ; word index of current line+1 - the +1 is implicit
+         mov ltab(r1),r1          ; pick up the offset
+         br 80$
+80$:
+         mov #40,(r0)+            ; erase here
+         cmp r0,r1
+         blo 80$
+         br 90$
+90$:
+         clrb lcf                 ; not for vt100
+         rts pc
+;
+; -------------------------------------------------------------------
+;
+; CSI L - IL Insert Line (VT102)
+;
+csiul:
+         mov r2,-(r6)             ; push r2
+         cmp curr,wsize           ; check if we are in the current scroll area
+         bhi 90$                  ; no, done here - IL is not effective outside the scroll area
+         mov bmarg,r0             ; get bottom margin
+         asl r0                   ; word index
+         mov ltab(r0),r0          ; get address of where to
+
+         mov bmarg,r1             ; get bottom margin
+         sub parm1,r1             ; minus number of lines
+         asl r1                   ; word index
+         mov ltab(r1),r1          ; get address of where from
+
+         mov tmarg,r2             ; get top margin
+         dec r2                   ; minus offset
+         add curr,r2              ; add current row
+         dec r2                   ; minus offset
+         asl r2                   ; make word index
+         mov ltab(r2),r2          ; get ending address
+         cmp r1,r2                ; check if we're overrunning the end of the scroll region?
+         blos 20$                 ; yes, skip the move
+10$:
+         mov -(r1),-(r0)          ; move
+         cmp r1,r2                ; should end move at the start of line below tmarg
+         bhi 10$                  ; repeat
+20$:
+         dec r0                   ; skip data byte
+         dec r0                   ; skip attribute byte
+         movb #40,(r0)            ; clear the newly scrolled-in line - roll spaces over it; but leave attributes intact as per spec?
+         cmp r0,r2                ; check for end
+         bhi 20$                  ; repeat
+         mov #colmin,curc         ; set cursor to first column
+90$:
+         mov (r6)+,r2             ; pop r2
+         rts pc
+;
+; -------------------------------------------------------------------
+;
+; CSI M - DL Delete Line (VT102)
+;
+csium:
+         mov r2,-(r6)             ; push r2
+         cmp curr,wsize           ; check if we are in the current scroll area
+         bhi 90$                  ; no, done here - DL is not effective outside the scroll area
+         mov tmarg,r0             ; get top margin
+         add curr,r0              ; add current row
+         dec r0                   ; correct for 1 bias
+         dec r0                   ; correct for double 1 bias
+         mov r0,r1                ; copy to r1
+         add parm1,r1             ; add number of lines to delete
+         mov wsize,r2             ; compute max number of lines to delete
+         sub curr,r2              ; wsize-curr
+         cmp r2,r1                ; check for illegal value
+         bhis 10$                 ; ok, no need to correct
+         mov r2,r1                ; correct
+10$:
+         asl r1                   ; word index
+         asl r0                   ; word index
+         mov ltab(r1),r1          ; get address of source
+         mov ltab(r0),r0          ; get address of target
+
+         mov bmarg,r2             ; get bottom margin
+         asl r2                   ; make word index
+         mov ltab(r2),r2          ; get ending address
+20$:
+         mov (r1)+,(r0)+          ; move
+         cmp r1,r2                ; check for end
+         blo 20$                  ; branch if not yet at end
+30$:
+         movb #40,(r0)+           ; clear the newly scrolled-in line - roll spaces over it, but leave attributes in place
+         inc r0                   ; skip attribute
+         cmp r0,r2                ; check for end
+         blo 30$                  ; branch if not yet at end
+         mov #colmin,curc         ; set cursor to first column
+90$:
+         mov (r6)+,r2             ; pop r2
+         rts pc
+;
+; -------------------------------------------------------------------
+;
+; CSI P - DCH Delete Character (VT102)
+;
+csiup:
+         mov r2,-(r6)             ; push r2
+         mov curr,r2              ; find current row
+         asl r2                   ; make into word index - no debiasing, because we need the start of the next line
+         mov ltab(r2),r2          ; load the address from the table
+         jsr pc,fba               ; retrieve current cursor address in r0
+         mov r0,r1                ; copy
+         add parm1,r1             ; add number of to be deleted chars
+         add parm1,r1             ; twice, because we need a word offset
+         cmp r1,r2                ; check we're not going to the next line
+         blo 10$                  ; no, branch if we're ok
+         mov r2,r1                ; yes, set start address of next line as max
+         br 20$                   ; and skip moving
+10$:
+         mov (r1)+,(r0)+          ; move the chars towards the cursor pos
+         cmp r1,r2                ; check if we're there yet
+         blo 10$                  ; no, another
+20$:
+         mov #40,(r0)+            ; clear new chars - and attributes too
+         cmp r0,r2                ; check if we're there yet
+         blo 20$
+         mov (r6)+,r2             ; pop r2
+         rts pc
+;
+; -------------------------------------------------------------------
+;
+; CSI X - ECH Erase Character (VT200)
+;
+csiux:
+         mov r2,-(r6)             ; push r2
+         mov curr,r2              ; find current row
+         asl r2                   ; make into word index - no debiasing, because we need the start of the next line
+         mov ltab(r2),r2          ; load the address from the table
+         jsr pc,fba               ; retrieve current cursor address in r0
+         mov r0,r1                ; copy
+         add parm1,r1             ; add number of to be deleted chars
+         add parm1,r1             ; twice, because we need a word offset
+         cmp r1,r2                ; check we're not going to the next line
+         blo 10$                  ; no, branch if we're ok
+         mov r2,r1                ; yes, set start address of next line as max
+10$:
+         mov #40,(r0)+            ; clear the chars
+         cmp r0,r1                ; check if we're there yet
+         blo 10$                  ; no, another
+20$:
+         mov (r6)+,r2             ; pop r2
+         rts pc
+;
+; -------------------------------------------------------------------
+;
+; CSI c - DA Device Attributes
+;
+csilc:
+         mov #csilcs,r1           ; set up start of string
+10$:
+         movb (r1)+,r0            ; pick up byte
+         jsr pc,xmit              ; xmit it
+         cmp r1,#csilce
+         bne 10$
+         rts pc
+csilcs:
+         .byte 33,133,77,61,73,66,143                 ; this says that we're a vt10x, with a bitmask in the char before the c - 4:graphic waveform generator (yes) 2:advanced video (yes) 1:processor option (no).
+csilce:
+         .even
+;
+; -------------------------------------------------------------------
+;
+; CSI f - HVP Horizontal and Vertical Position
+;
+csilf:
+         jsr pc,csiuh             ; csi lower case f is the same as csi upper case h
+         rts pc
+;
+; -------------------------------------------------------------------
+;
+; CSI g - TBC Tabulation Clear
+;
+csilg:
+         cmp #0,parmt             ; 0? where 0 means clear tab at current pos
+         bne 10$                  ; no, something else
+         mov curc,r0              ; pickup current column
+         dec r0                   ; adjust
+         clrb tabtab(r0)          ; clear tab
+         br 90$
+10$:
+         cmp #3,parmt             ; clear all tabs?
+         bne 90$                  ; no, skip
+         mov #colmax,r0           ; load max col
+         dec r0                   ; adjust
+20$:
+         clrb tabtab(r0)          ; clear this tab
+         dec r0                   ; move one down
+         tst r0
+         bne 20$                  ; done?
+90$:
+         rts pc
+;
+; -------------------------------------------------------------------
+;
+; CSI h - Set mode
+;
+csilh:
+         clr r0
+5$:
+         cmp r0,parmc             ; pick up parm count, well, offset
+         bhi 95$                  ; that far? then done
+         mov parmt(r0),r1         ; load the value
+         cmp #20.,r1              ; line feed/new line
+         bne 10$
+         movb #1,anslnm           ; set
+         br 90$
+10$:
+         cmp #1,r1                ; cursor key mode
+         bne 20$
+         movb #1,decckm
+         br 90$
+20$:
+         cmp #3,r1                ; deccolm - 80/132. We don't do 132, but... switching clears the screen, and we should definitely do that.
+         bne 30$
+         movb #1,deccolm
+         jsr pc,clrscr            ; clear screen
+         br 90$
+30$:
+         cmp #4,r1
+         bne 40$
+         movb #1,ansins           ; IRM ie ansi insert mode
+         br 90$
+40$:
+         cmp #6,r1                ; origin mode
+         bne 50$
+         movb #1,decom
+         clrb lcf
+         br 90$
+50$:
+         cmp #7,r1                ; wraparound
+         bne 60$
+         movb #1,decawm
+         br 90$
+60$:
+         cmp #25.,r1              ; DECTCEM
+         bne 70$
+         bic #200,@#vgacr         ; set DECTCTEM mode clears the hide cursor bit
+         br 90$
+70$:
+90$:
+         inc r0                   ; inc parm index
+         inc r0                   ; twice, it's a word
+         br 5$                   ; go for the next round
+95$:
+         rts pc
+;
+; -------------------------------------------------------------------
+;
+; CSI l - Reset mode
+;
+csill:
+         clr r0
+5$:
+         cmp r0,parmc             ; pick up parm count, well, offset
+         bhi 95$                  ; that far? then done
+         mov parmt(r0),r1         ; load the value
+;
+         cmp #2,r1                ; DECANM - ANSI/VT52 mode - special case for Reset Mode only
+         bne 7$
+         movb #1,vt52             ; set vt52 mode. There is no corresponding set mode for this - vt52 would not know that; instead that is done by esc3c
+         br 90$
+7$:
+         cmp #20.,r1              ; ANSI line feed/new line
+         bne 10$
+         movb #0,anslnm
+         br 90$
+10$:
+         cmp #1,r1                ; cursor key mode
+         bne 20$
+         movb #0,decckm
+         br 90$
+20$:
+         cmp #3,r1                ; deccolm - 80/132. We don't do 132, but... switching clears the screen, and we should definitely do that.
+         bne 30$
+         movb #0,deccolm
+         jsr pc,clrscr            ; clear screen
+         br 90$
+30$:
+         cmp #4,r1
+         bne 40$
+         movb #0,ansins           ; IRM ie ANSI insert mode
+         br 90$
+40$:
+         cmp #6,r1                ; origin mode
+         bne 50$
+         movb #0,decom
+         clrb lcf
+         br 90$
+50$:
+         cmp #7,r1                ; wraparound
+         bne 60$
+         movb #0,decawm
+         br 90$
+60$:
+         cmp #25.,r1              ; DECTCEM
+         bne 70$
+         bis #200,@#vgacr         ; reset DECTCTEM mode sets the hide cursor bit
+         br 90$
+70$:
+90$:
+         inc r0                   ; inc parm index
+         inc r0                   ; twice, it's a word
+         br 5$                   ; go for the next round
+95$:
+         rts pc
+;
+; -------------------------------------------------------------------
+;
+; CSI m - SGR Select Graphic Rendition
+;
+csilm:
+         clr r0
+10$:
+         cmp r0,parmc             ; pick up parm count, well, offset
+         bhi 90$                  ; that far? then done
+         mov parmt(r0),r1         ; load the value
+         cmp #0,r1                ; 0 - clear attr
+         bne 20$                  ;
+         clrb atth                ; clear
+         br 70$
+20$:
+         cmp #1,r1                ; 1, bold
+         bne 21$
+         bisb #1,atth             ; bit 0 is bold
+         br 70$
+21$:
+         cmp #4,r1                ; 4, underscore
+         bne 22$
+         bisb #2,atth             ; bit 1 is underscore
+         br 70$
+22$:
+         cmp #5,r1                ; 5, blink
+         bne 23$
+         bisb #4,atth             ; bit 2 is blink
+         br 70$
+23$:
+         cmp #7,r1                ; 7, reverse video
+         bne 24$
+         bisb #10,atth            ; bit 3 is rv
+         br 70$
+24$:
+30$:
+         cmp #22.,r1              ; 22 *decimal, not bold
+         bne 31$
+         bicb #1,atth             ; bit 0 is bold
+         br 70$
+31$:
+         cmp #24.,r1              ; 24 *decimal, not underscore
+         bne 32$
+         bicb #2,atth             ; bit 1 is underscore
+         br 70$
+32$:
+         cmp #25.,r1              ; 25 *decimal, not blink
+         bne 33$
+         bicb #4,atth             ; bit 2 is blink
+         br 70$
+33$:
+         cmp #27.,r1              ; 27 *decimal, not reverse
+         bne 34$
+         bicb #10,atth            ; bit 3 is rv
+         br 70$
+34$:
+70$:
+         inc r0                   ; inc parm index
+         inc r0                   ; twice, it's a word
+         br 10$                   ; go for the next round
+90$:
+         rts pc
+;
+; -------------------------------------------------------------------
+;
+; CSI n - DSR Device Status Report
+;
+csiln:
+         cmp #5,parmt             ; report terminal status
+         beq 10$
+         cmp #6,parmt             ; report cursor position
+         beq 20$
+         br 90$
+10$:
+         mov #33,r0               ; esc
+         jsr pc,xmit
+         mov #133,r0              ; [
+         jsr pc,xmit
+         mov #60,r0               ; 0 - means all ok
+         jsr pc,xmit
+         mov #156,r0              ; n
+         jsr pc,xmit
+         br 90$
+20$:
+         mov #33,r0               ; esc
+         jsr pc,xmit
+         mov #133,r0              ; [
+         jsr pc,xmit
+;
+; calculate row decimal position
+;
+         mov curr,r1              ; get row
+         clr r0                   ; keep loop counter in r0
+         dec r0                   ; start at -1
+30$:
+         inc r0                   ; increment loop counter
+         sub #10.,r1              ; subtract 10 decimal
+         bpl 30$                  ; another loop?
+         add #72,r1               ; add 10 decimal to correct the last subtraction, plus 60 octal to make a char in the range 0-9
+         tst r0                   ; loop counter zero?
+         beq 40$                  ; yes, then skip leading zero
+         add #60,r0               ; make char in range 0-9
+         jsr pc,xmit              ; transmit
+40$:
+         mov r1,r0                ; move calculated char into r0
+         jsr pc,xmit              ; transmit
+         mov #73,r0               ; ;
+         jsr pc,xmit
+;
+; now the col
+;
+         mov curc,r1              ; get column
+         clr r0                   ; keep loop counter in r0
+         dec r0                   ; start at -1
+50$:
+         inc r0                   ; inc loopcounter
+         sub #10.,r1              ; loop while subtracting 10 decimal
+         bpl 50$                  ; need another go?
+         add #72,r1               ; add 10 decimal to correct the last subtraction, plus 60 octal to make a char in the range 0-9
+         tst r0                   ; check loop counter for zero
+         beq 60$                  ; if it is, it doesn't need printing - some software doesnt't handle leading zeros
+         add #60,r0               ; offset 10-unit by octal 60 to make char in the range 0-9
+         jsr pc,xmit              ; xmit 10-unit
+60$:
+         mov r1,r0                ; move last digit char into r0
+         jsr pc,xmit              ; xmit
+         mov #122,r0              ; R
+         jsr pc,xmit
+90$:
+         rts pc
+;
+; -------------------------------------------------------------------
+;
+; CSI r - DECSTBM - Set Top and Bottom Margins
+;
+csilr:
+         mov parmt,r0             ; pickup first parm
+         tst r0
+         beq 80$
+         mov parmt+2,r1           ; pickup second parm
+         tst r1
+         beq 80$
+         cmp r0,r1                ; check: top can not be greater or equal than bottom; viewport must have at least two lines
+         bhis 80$                 ; if not, set defaults. or maybe ignore instead? FIXME
+         mov r0,tmarg             ; store top
+         mov r1,bmarg             ; store bottom
+         sub r0,r1                ; r1=bmarg-tmarg
+         inc r1                   ; adjust to get scroll window size
+         mov r1,wsize             ; store
+         br 90$
+80$:
+         mov #dtmarg,tmarg        ; restore default
+         mov #dbmarg,bmarg        ; restore default
+         mov #dwsize,wsize        ; restore default
+90$:
+         mov #1,r0                ; load home coordinate
+         mov r0,curr              ; set cursor to home row in new viewport
+         mov r0,curc              ; set cursor to home col in new viewport
+         jsr pc,fba               ; normalize
+         clrb lcf
+         rts pc
+;
+; -------------------------------------------------------------------
+;
+; CSI x - DECREQTPARM - Request Terminal Parameters
+;
+csilx:
+         cmp #0,parmt             ; 0 - report and allow unsolicited
+         bne 20$
+         mov #csilx0,r1
+10$:
+         movb (r1)+,r0
+         jsr pc,xmit
+         cmp r1,#csilx1
+         bne 10$
+         br 90$
+20$:
+         cmp #1,parmt             ; 1 - report and don't allow unsolicited
+         bne 90$
+         mov #csilxs,r1
+30$:
+         movb (r1)+,r0
+         jsr pc,xmit
+         cmp r1,#csilxe
+         bne 30$
+         br 90$
+90$:
+         rts pc
+csilxs:
+         .byte 33,133             ; csi
+         .ascii /3/               ; this message is a report and the terminal is only reporting on request
+         .ascii /;/               ; separator
+         .ascii /1/               ; no parity
+         .ascii /;/               ; separator
+         .ascii /1/               ; 8 bits per character
+         .ascii /;/               ; separator
+         .ascii /112/             ; xspeed 9600
+         .ascii /;/               ; separator
+         .ascii /112/             ; rspeed 9600
+         .ascii /;/               ; separator
+         .ascii /1/               ; multiplier
+         .ascii /;/               ; separator
+         .ascii /0/               ; flags
+         .ascii /x/               ; end
+csilxe:
+csilx0:
+         .byte 33,133             ; csi
+         .ascii /2/               ; this message is a report and the terminal will send unsolicited (except we won't, there's no logic for it)
+         .ascii /;/               ; separator
+         .ascii /1/               ; no parity
+         .ascii /;/               ; separator
+         .ascii /1/               ; 8 bits per character
+         .ascii /;/               ; separator
+         .ascii /112/             ; xspeed 9600
+         .ascii /;/               ; separator
+         .ascii /112/             ; rspeed 9600
+         .ascii /;/               ; separator
+         .ascii /1/               ; multiplier
+         .ascii /;/               ; separator
+         .ascii /0/               ; flags
+         .ascii /x/               ; end
+csilx1:
+         .even
+;
+; -------------------------------------------------------------------
+;
+; CSI y - DECTST - Invoke Confidence Test
+;
+csily:
+         jmp t42
+;
+; -------------------------------------------------------------------
+;
+; csinul - dummy
+;
+csinul:
+         rts pc
+;
+; -------------------------------------------------------------------
+;
+; fba - find buffer address
+;
+; cursor coordinates will be normalized, returns buffer address in r0
+; note that before coming here, signed arithmetic might have been done
+; on curr, curc and wsize, so this routine must use the signed branches.
+;
+fba:
+         mov r1,-(r6)             ; push r1
+         cmp curc,#colmin         ; not lower than min?
+         bge 10$
+         mov #colmin,curc         ; set min value
+10$:
+         cmp curc,#colmax         ; not larger than max?
+         ble 20$
+         mov #colmax,curc         ; set max value
+20$:
+         mov curr,r0
+         cmp r0,#rowmin           ; not lower than min?
+         bge 30$
+         mov #rowmin,curr         ; set min
+         br 20$                   ; go back
+30$:
+         cmp r0,#rowmax           ; not larger than max?
+         ble 40$
+         mov #rowmax,curr         ; set max
+         br 20$                   ; go back
+40$:
+         tstb decom               ; is origin mode on?
+         beq 60$                  ; no
+         cmp r0,wsize             ; check row against window size
+         ble 50$
+         mov wsize,r0             ; set min
+         mov r0,curr              ; normalize curr
+50$:
+         add tmarg,r0             ; add top margin to row offset
+         dec r0                   ; correct for offset
+60$:
+         dec r0                   ; correct for offset
+         asl r0                   ; make word index
+         mov ltab(r0),r0          ; load address from table
+         mov curc,r1              ; get column
+         dec r1                   ; correct
+         asl r1                   ; make word address
+         add r1,r0                ; add column to address
+         mov (r6)+,r1             ; pop r1
+         rts pc
+;
+; -------------------------------------------------------------------
+;
+; scrl - scroll up one line
+;
+scrl:
+         mov r2,-(r6)             ; push r2
+         mov r1,-(r6)             ; push r1
+         mov r0,-(r6)             ; push r0
+         mov tmarg,r1             ; get top margin
+         mov r1,r0                ; copy
+         dec r0                   ; minus one - r0 is now top row - 1, r1 is now row.
+         asl r1                   ; make word index
+         asl r0                   ; make word index
+         mov ltab(r1),r1          ; get address of from position for scroll
+         mov ltab(r0),r0          ; get address of to position for scroll
+         mov bmarg,r2             ; get bottom margin
+         asl r2                   ; make word index
+         mov ltab(r2),r2          ; get ending address
+10$:
+         mov (r1)+,(r0)+          ; move
+         cmp r1,r2                ; check for end
+         blo 10$                  ; not yet
+20$:
+         mov #40,(r0)+            ; clear the newly scrolled-in line - roll spaces over it
+         cmp r0,r2                ; check for end
+         blo 20$
+;
+         mov tmarg,r1             ; get top margin
+         mov r1,r0                ; copy
+         dec r0                   ; minus one - r0 is now top row - 1, r1 is now row.
+         add #vgadwh,r1           ; get address of from position for scroll
+         add #vgadwh,r0           ; get address of to position for scroll
+         mov bmarg,r2             ; get bottom margin
+         add #vgadwh,r2           ; get ending address
+30$:
+         movb (r1)+,(r0)+         ; move line attributes
+         cmp r1,r2                ; check for end
+         blo 30$                  ; not yet
+         clrb (r0)                ; clear line attributes for new line
+;
+         mov (r6)+,r0             ; pop r0
+         mov (r6)+,r1             ; pop r1
+         mov (r6)+,r2             ; pop r2
+         rts pc
+;
+; -------------------------------------------------------------------
+;
+; rscrl - scroll down one line
+;
+rscrl:
+         mov r2,-(r6)             ; push r2
+         mov r1,-(r6)             ; push r1
+         mov r0,-(r6)             ; push r0
+         mov bmarg,r1             ; get bottom margin
+         mov r1,r0                ; copy
+         dec r1                   ; one less; r1 is now bottom -1, r0 is bottom
+         asl r1                   ; word index
+         asl r0                   ; word index
+         mov ltab(r1),r1          ; get address of where from
+         mov ltab(r0),r0          ; get address of where to
+         mov tmarg,r2             ; get top margin
+         dec r2                   ; correct
+         asl r2                   ; make word index
+         mov ltab(r2),r2          ; get ending address
+10$:
+         mov -(r1),-(r0)          ; move
+         cmp r1,r2                ; should end move at the start of line below tmarg
+         bhi 10$
+20$:
+         mov #40,-(r0)            ; clear the newly scrolled-in line - roll spaces over it
+         cmp r0,r2                ; check for end
+         bhi 20$
+;
+         mov bmarg,r1             ; get bottom margin
+         mov r1,r0                ; copy
+         dec r1                   ; one less; r1 is now bottom -1, r0 is bottom
+         add #vgadwh,r1           ; get address of where from
+         add #vgadwh,r0           ; get address of where to
+         mov tmarg,r2             ; get top margin
+         dec r2                   ; correct
+         add #vgadwh,r2           ; get ending address
+30$:
+         movb -(r1),-(r0)         ; move
+         cmp r1,r2                ; end move at the line below tmarg
+         bhi 30$
+         clrb -(r0)               ; clear the line attributes for the newly scrolled in line
+;
+         mov (r6)+,r0             ; pop r0
+         mov (r6)+,r1             ; pop r1
+         mov (r6)+,r2             ; pop r2
+         rts pc
+;
+; -------------------------------------------------------------------
+;
+; dolcf
+;
+dolcf:
+         tstb lcf                 ; is the flag on?
+         beq 90$                  ; no, out of here
+         tstb vt52                ; check for vt52 mode
+         bne 90$                  ; vt52 mode - no lcf processing
+         cmp curc,#colmax         ; check to be sure that we're in the last col
+         bne 90$                  ; no, out of here
+;
+         cmp curr,bmarg           ; so we need the next line. Are we on the last?
+         bhis 60$                 ; yes, need to scroll
+         mov #colmin,curc         ; first pos on
+         add #1,curr              ; next line
+         br 90$
+60$:
+         jsr pc,scrl              ; do the scroll
+         mov #colmin,curc         ; set the cursor back in column 1
+90$:
+         clrb lcf                 ; clear the lcf flag
+         jsr pc,fba               ; update cursor address
+         rts pc
+;
+; -------------------------------------------------------------------
+;
+; gprint
+;
+gprint:
+         jsr pc,dolcf             ; normalize addresses and pickup r0
+         cmpb chrset,#chrgra      ; graphics set current?
+         bne 3$                   ; nope
+         cmp r1,#137              ; in graphics range?
+         blo 3$                   ; before low bound
+         cmp r1,#177              ; del?
+         beq 3$
+         sub #137,r1               ; shift by 137 into fontrom
+         br 5$
+3$:
+         cmpb chrset,#chruk       ; uk set?
+         bne 4$                   ; nope
+         cmp r1,#44               ; $?
+         bne 4$
+         mov #36,r1               ; set code for pound symbol
+         br 5$
+4$:
+5$:
+         tstb ansins              ; check if we're in insert mode?
+         beq 9$                   ; no
+         mov r0,-(r6)             ; push r0
+         mov r1,-(r6)             ; push r1
+         mov r2,-(r6)             ; push r2
+         mov r0,r2                ; copy cursor address
+         mov curr,r0              ; load curr
+         asl r0                   ; word index
+         mov ltab(r0),r0          ; get start address of next line
+         mov r0,r1                ; copy
+         dec r1                   ; two
+         dec r1                   ; ... less
+         cmp r1,r2                ; same? then we'd be on colmax
+         beq 7$                   ; skip rest if so - no action if on last col
+6$:
+         mov -(r1),-(r0)          ; do the move
+         cmp r1,r2                ; compare addresses
+         bhi 6$                   ; loop if r1>r2 still
+7$:
+         mov (r6)+,r2             ; pop r2
+         mov (r6)+,r1             ; pop r1
+         mov (r6)+,r0             ; pop r0
+9$:
+         movb r1,(r0)+            ; write the char
+         movb atth,(r0)           ; write the attribute bits
+         dec r0                   ; set r0 back to where we were - not sure if that is necessary?
+;
+         cmp curc,#colmax         ; space left on this line?
+         beq 10$                  ; not quite
+         blo 20$                  ; yes sure
+10$:
+         tstb decawm              ; check for decawm autowrap mode
+         beq 90$                  ; if not on, no lcf processing - stay on this line
+         movb #1,lcf              ; set last column flag
+         br 90$
+20$:
+         add #1,curc              ; next pos on same line
+         br 90$
+90$:
+         rts pc
+;
+; -------------------------------------------------------------------
+;
+; control character processing
+;
+cntrl:
+         cmp r1,#40               ; control character?
+         bhis 90$                 ; no, done here
+         mov r1,r0                ; copy
+         asl r0                   ; make word index
+         mov ctab(r0),r0          ; pick up address of routine
+         tst r0                   ; zero?
+         beq 90$                  ; yes, not handled
+         jsr pc,(r0)              ; go there
+         clr r1                   ; processing done
+90$:
+         rts pc
+;
+; -------------------------------------------------------------------
+;
+; cnul - the nul control character
+;
+cnul:
+         rts pc
+;
+; -------------------------------------------------------------------
+;
+; cenq - enquire
+;
+cenq:
+         rts pc                   ; not sure I like the enq function very much. Oh well, it's here, it's tested, it's, ehh, disabled.
+
+         cmp #105.,@#vgavtt       ; check for vt type
+         beq 20$                  ; 105 check, go there
+         mov #cenq0,r1            ; setup for string copy
+10$:
+         movb (r1)+,r0            ; copy
+         jsr pc,xmit              ; xmit the character
+         cmp r1,#cenq1            ; at the end?
+         bne 10$                  ; branch if not
+         rts pc                   ; done here
+20$:
+         mov #cenq2,r1            ; setup for string copy, vt105 version
+30$:
+         movb (r1)+,r0            ; get the char
+         jsr pc,xmit              ; xmit it
+         cmp r1,#cenq3            ; at the end of the string yet?
+         bne 30$                  ; no not yet
+         rts pc                   ; done here
+;
+cenq0:
+         .ascii /vt100[pdp2011]/
+cenq1:
+cenq2:
+         .ascii /vt105[pdp2011]/
+cenq3:
+         .even
+;
+; -------------------------------------------------------------------
+;
+; cbs - backspace handler
+;
+cbs:
+         sub #1,curc              ; backspace
+         jsr pc,fba               ; normalize
+         clrb lcf
+         rts pc
+;
+; -------------------------------------------------------------------
+;
+; cht - tab handler
+;
+cht:
+         mov curc,r0              ; get current col
+         mov #tabtab,r1           ; tab table
+         add r0,r1                ; set offset in tabtab
+         dec r1                   ; adjust
+         mov curr,r0              ; get row
+         dec r0                   ; one less
+         movb vgadwh(r0),r0       ; pick up double width bits
+10$:
+         tstb r0                  ; check if we're on a double-width line
+         beq 12$                  ; r0 flat, so no
+         cmp #colhmx,curc         ; check if we're at half colmax?
+         beq 90$                  ; yes, stop there
+         br 14$                   ; no, do the work
+12$:
+         cmp #colmax,curc         ; check if at right limit?
+         beq 90$                  ; yes, stop there
+14$:
+         inc curc                 ; move one up
+         inc r1                   ; move tabtab pointer
+         tstb (r1)                ; check if it is set?
+         beq 10$                  ; no, again
+90$:
+         jsr pc,fba               ; normalize
+         clrb lcf                 ; not for vt100
+         rts pc
+;
+; -------------------------------------------------------------------
+;
+; clf - lf handler
+;
+clf:
+         tstb anslnm              ; new-line mode on?
+         beq 10$                  ; no
+         mov #1,curc              ; set col 1 if it is on
+10$:
+         tstb decom               ; are we in origin mode?
+         beq 15$                  ; no
+         cmp curr,wsize           ; then wsize would be the last line
+         blo 20$                  ; if curr below wsize, then no need to scroll
+         jsr pc,scrl              ; do it
+         br 90$
+15$:
+         cmp curr,tmarg           ; are we within the scroll area?
+         blo 20$                  ; above
+         cmp curr,bmarg           ; maybe below?
+         bhi 20$                  ; below
+         bne 20$                  ; or not the same, also no need to scroll
+         jsr pc,scrl              ; go do
+         br 90$
+20$:
+         add #1,curr
+         br 90$
+90$:
+         clrb lcf                 ; not for vt100
+         rts pc
+;
+; -------------------------------------------------------------------
+;
+; ccr - cr handler
+;
+ccr:
+         mov #colmin,curc
+         jsr pc,fba
+         clrb lcf
+         rts pc
+;
+; -------------------------------------------------------------------
+;
+; cso - so handler
+;
+cso:
+         movb g1set,chrset
+         rts pc
+;
+; -------------------------------------------------------------------
+;
+; csi - si handler
+;
+csi:
+         movb g0set,chrset
+         rts pc
+;
+; -------------------------------------------------------------------
+;
+; ccan - can handler FIXME 'it also causes the error character to be displayed'
+;
+ccan:
+         mov #psg,pstate
+         clrb lcf                 ; FIXME, only sub should clear LCF acc documentation
+         rts pc
+;
+; -------------------------------------------------------------------
+;
+; ground
+;
+lsg:
+         tstb vt105g              ; check if we're in graphics mode?
+         beq 10$                  ; no
+         jsr pc,gparse            ; go do the work
+         br 90$
+10$:
+         cmpb r1,#40              ; control character?
+         blo 90$                  ; yes, we don't do those here anymore
+         cmpb r1,#177             ; out of 7 bit range?
+         bhis 90$                 ; yes
+;
+; regular printable characters
+;
+         jsr pc,gprint
+         br 90$
+;
+; exit
+;
+90$:
+         rts pc
+;
+; -------------------------------------------------------------------
+;
+; csi param
+;
+lscsip:
+         cmpb r1,#100             ; is this the ending char of the csi sequence?
+         blo 20$                  ; no
+         cmpb r1,#177             ; yes but check it is in range
+         bhis 20$                 ; no, probably an error
+         bic #177700,r1           ; make sure only lowest 6 bits left
+         asl r1                   ; mult by 2
+         add #csitab,r1           ; add start of table
+         mov (r1),r1              ; load address of routine from table
+         mov parmt,parm1          ; make normalized copy of 1st parm
+         tst parm1
+         bne 5$
+         mov #1,parm1             ; set default
+5$:
+         mov parmt+2,parm2        ; make normalized copy of 2nd parm - more isn't necessary, only the editor commands need normalizing
+         tst parm2
+         bne 6$
+         mov #1,parm2
+6$:
+         jsr pc,(r1)              ; go to the csi routine
+         mov #psg,pstate          ; back to ground
+         br 90$
+;
+20$:
+         cmpb r1,#60              ; 30 0
+         blo 30$
+         cmpb r1,#71              ; 39 9
+         bhi 30$
+         mov parmc,r0             ; load parm count
+         cmp r0,#mxcsip           ; check for reasonable value
+         blo 22$                  ; ok?
+         mov #mxcsip,r0           ; if not, load largest offset we can handle
+22$:
+         mov parmt(r0),r2         ; load old value
+         asl r2                   ; multiply by 10, the hard way. Possibly cheaper than moving to a cpu model that has eis.
+         asl r2
+         asl r2
+         add parmt(r0),r2
+         add parmt(r0),r2
+         bic #177760,r1           ; clear irrelevant bits in the input char
+         add r1,r2                ; add to the total
+         mov r2,parmt(r0)         ; store back
+         br 90$
+;
+30$:
+         cmpb r1,#73              ; 3b ;
+         bne 40$
+         add #2,parmc
+         br 90$
+40$:
+         cmpb r1,#77              ; 3f ?
+         bne 50$
+;
+; FIXME, I think I can probably get away with ignoring the question mark in ESC[? kind of sequences. If not, then the next plan is to store them in the parm list.
+;
+50$:
+90$:
+         rts pc
+;
+; csi ignore
+;
+lscsii:
+         mov #psg,pstate
+         rts pc
+;
+; csi intermediate
+;
+lscsin:
+         mov #psg,pstate
+         rts pc
+;
+; csi entry
+;
+lscsie:
+         clr parmc
+         mov #parmt,r0            ; setup for loop
+5$:
+         clr (r0)+                ; clear parm
+         cmp r0,#parmt+mxcsip+2   ; hmm this had better be right
+         bne 5$                   ; loop
+         cmpb r1,#72              ; 3a -> transition to csi ignore
+         bne 10$
+         mov #pscsii,pstate
+         br 90$
+10$:
+         cmpb r1,#60              ; 30
+         blo 20$
+         cmpb r1,#176             ; 7e
+         bhi 20$
+         mov #pscsip,pstate       ; between 30 and 3f inclusive, except 3a that we tested before; and 40-7e too
+         jsr pc,lscsip            ; and process this character too
+         br 90$
+20$:
+90$:
+         rts pc
+;
+; escape intermediate
+;
+; I might be able to get away with just mapping this directly from the table and skipping this state. But maybe for later expansion to higher number vt...
+;
+lsei:
+         cmpb eichar,#43          ; 23, #
+         bne 20$
+         cmpb r1,#70              ; # 8 - DECALN
+         bne 12$
+         jsr pc,decaln
+         br 90$
+12$:
+         cmpb r1,#63              ; # 3 - DECDHL top
+         bne 14$
+         jsr pc,decdht
+         br 90$
+14$:
+         cmpb r1,#64              ; # 4 - DECDHL bottom
+         bne 16$
+         jsr pc,decdhb
+         br 90$
+16$:
+         cmpb r1,#65              ; # 5 - DECSWL
+         bne 18$
+         jsr pc,decswl
+         br 90$
+18$:
+         cmpb r1,#66              ; # 6 - DECDWL
+         bne 20$
+         jsr pc,decdwl
+         br 90$
+20$:
+         cmpb eichar,#50          ; 50, ( means font g0 switch
+         bne 30$
+         movb r1,g0set            ; store
+         movb r1,chrset           ; and activate too
+         br 90$
+30$:
+         cmpb eichar,#51          ; 51, ) means font g1 switch
+         bne 40$
+         movb r1,g1set            ; store
+         movb r1,chrset           ; and activate too
+         br 90$
+40$:
+         cmpb eichar,#131         ; Y; VT52 direct cursor address
+         bne 50$                  ; no, check next option
+         tstb vt52                ; check if in vt52 mode?
+         beq 90$                  ; no - that's an error, exit and reset mode to ground
+         tstb vt52yl              ; has the l in ESC-Ylc been set already
+         bne 42$                  ; yes, skip setting it now
+         sub #37,r1               ; debase row number
+         movb r1,vt52yl           ; store it for now
+         br 99$                   ; done, but leave state as is
+42$:
+         sub #37,r1               ; debase column number
+         mov r1,curc              ; set it in current column
+         movb vt52yl,r1           ; pick up the saved row
+         mov r1,curr              ; set the stored row number
+         clrb vt52yl              ; clear yl for next round
+         jsr pc,fba               ; make sure row and col are normalized
+         br 90$
+50$:
+90$:
+         mov #psg,pstate
+99$:
+         rts pc
+;
+; escape
+;
+lsesc:
+         cmpb r1,#33              ; 1b
+         bne 10$
+         br 90$                   ; ignore
+10$:
+         movb r1,eichar           ; save the char
+         mov r1,r0                ; make index
+         bic #177600,r0           ; make sure only low 7 bits left
+         asl r0                   ; word index
+         mov esctab(r0),r0        ; get the value
+         cmp r0,#100              ; state value or routine address?
+         bhis 20$                 ; branch for routine
+         mov r0,pstate            ; set new state
+         br 90$
+20$:
+         jsr pc,(r0)              ; go to esc routine
+         mov #psg,pstate          ; set ground
+90$:
+         rts pc
+;
+; osc string
+;
+lsosc:
+         mov #psg,pstate
+         rts pc
+;
+; sos/pm/apc string
+;
+lsstr:
+         mov #psg,pstate
+         rts pc
+;
+; dcs entry
+;
+lsdcse:
+         mov #psg,pstate
+         rts pc
+;
+; dcs param
+;
+lsdcsp:
+         mov #psg,pstate
+         rts pc
+;
+; dcs ignore
+;
+lsdcsi:
+         mov #psg,pstate
+         rts pc
+;
+; dcs intermediate
+;
+lsdcsn:
+         mov #psg,pstate
+         rts pc
+;
+; dcs passthrough
+;
+lsdcst:
+         mov #psg,pstate
+         rts pc
+;
+; error/dummy state
+;
+lsdummy:
+         mov #psg,pstate
+         rts pc
+;
+; gbclr - clear the graph buffers
+;
+gbclr:
+         mov r2,-(r6)                  ; push r2
+         mov r1,-(r6)                  ; push r1
+         clr r0                        ; zero
+         mov #110000,r1                ; start of graph0
+         mov #114000,r2                ; end of graph1
+10$:
+         mov r0,(r1)+                  ; loop over buffer; word write so this clears both graph points and markers
+         cmp r2,r1                     ; check for end
+         bne 10$                       ; branch if not yet
+80$:
+         mov (r6)+,r1                  ; pop r1
+         mov (r6)+,r2                  ; pop r2
+         rts pc
+;
+; rcvgetc - routine to consume a character from the slu rcv buf. Clobbers r0,r1; r0 is nonzero if a character is produced in r1
+;
+rcvgetc:
+         mov #340,@#177776             ; disable interrupts
+         mov rcvprod,r0                ; get produce pointer in r0
+         mov rcvcons,r1                ; get consume pointer in r1
+         cmp r0,r1                     ; equal?
+         bne 10$                       ; no, continue
+         clr r0                        ; equal, signal buffer was empty
+         br 90$                        ; goto exit
+10$:
+         dec rcvbfc                    ; decrement buffer count
+         inc r0                        ; increment produce pointer - we're producing
+         cmp r0,#rcvbln                ; need to wrap?
+         blo 20$                       ; no, jump
+         clr r0                        ; wrap in buffer
+20$:
+         mov r0,rcvprod                ; store updated produce pointer
+         add #rcvbuf,r0                ; add address to offset
+         movb (r0),r1                  ; load byte into r1; r0 - success flag - is certain to be nonzero after using it as the address
+         bic #177400,r1                ; make sure upper byte is clear
+;
+         tstb xoff                     ; check xoff state
+         beq 30$                       ; not on, nothing to do
+         cmp rcvbfc,#rcvblo            ; check against low water mark
+         bhis 30$                      ; still over, then branch
+         tstb xoffm                    ; check xoff-manual state
+         bne 30$                       ; on, then don't send xon automatically
+         mov #21,r0                    ; load dc1/control-q
+         jsr pc,xmit                   ; send it
+         clrb xoff                     ; clear flag
+30$:
+90$:
+         mov #0,@#177776               ; enable interrupts
+         rts pc
+;
+; ps2getc - routine to consume a character from the ps2 rcv buf. Clobbers r0,r1; r0 is nonzero if a character is produced in r1
+;
+ps2getc:
+         mov #340,@#177776             ; disable interrupts
+         mov ps2prod,r0                ; get produce pointer in r0
+         mov ps2cons,r1                ; get consume pointer in r1
+         cmp r0,r1                     ; equal?
+         bne 10$                       ; no, continue
+         clr r0                        ; equal, signal buffer was empty
+         br 90$                        ; goto exit
+10$:
+         inc r0                        ; increment produce pointer - we're producing
+         cmp r0,#ps2bln                ; need to wrap?
+         blo 20$                       ; no, jump
+         clr r0                        ; wrap in buffer
+20$:
+         mov r0,ps2prod                ; store updated produce pointer
+         add #ps2buf,r0                ; add address to offset
+         movb (r0),r1                  ; load byte into r1; r0 - success flag - is certain to be nonzero after using it as the address
+         bic #177400,r1                ; make sure upper byte is clear
+90$:
+         mov #0,@#177776               ; enable interrupts
+         rts pc
+;
+; ps2xku - routine to maintain status flags for key up events
+;
+ps2xku:
+         cmpb r1,#24                   ; left control
+         bne 14$
+         tstb ps2ex
+         bne 10$
+         clrb ps2lc
+         br 20$
+10$:
+         clrb ps2rc
+         br 20$
+14$:
+         cmpb r1,#22                   ; left shift
+         bne 18$
+         clrb ps2ls
+18$:
+         cmpb r1,#131                  ; right shift
+         bne 20$
+         clrb ps2rs
+20$:
+         rts pc
+;
+; ps2xkd - routine to maintain status flags for key down events
+;
+ps2xkd:
+         mov r1,r0                     ; set return code to nonzero
+         cmpb r1,#24                   ; left control, or right control if extended flag is on
+         bne 14$
+         tstb ps2ex                    ; extended flag on?
+         bne 10$
+         movb #1,ps2lc                 ; hex 14 - left control down
+         clr r0
+         br 90$
+10$:
+         movb #1,ps2rc                 ; hex e0 14 - right control down
+         clr r0
+         br 90$
+14$:
+         cmpb r1,#22                   ; left shift
+         bne 18$
+         movb #1,ps2ls
+         clr r0
+         br 90$
+18$:
+         cmpb r1,#131                  ; right shift
+         bne 20$
+         movb #1,ps2rs
+         clr r0
+         br 90$
+20$:
+         cmpb r1,#130                  ; caps lock
+         bne 30$
+         tstb ps2cl
+         beq 25$
+         clrb ps2cl
+         clr r0
+         br 90$
+25$:
+         movb #1,ps2cl
+         clr r0
+         br 90$
+30$:
+90$:
+         rts pc
+;
+; ps2xlt - routine to translate ps2 scan code to ascii. Input scancode in r1; output code or ascii in r1, r0 nonzero if valid
+;
+ps2xlt:
+         tstb ps2up                    ; check up flag
+         beq 1$                        ; skip if not set
+         jsr pc,ps2xku                 ; call routine for break processing - all others can be skipped
+         clrb ps2up                    ; clear up flag
+         clrb ps2ex                    ; clear ext flag
+;         br 99$                        ; done, no production
+         clr r0                        ; set flag for no production
+         rts pc                        ; return
+
+1$:
+         cmpb r1,#340                  ; check if the current code is e0
+         bne 2$
+         movb r1,ps2ex                 ; set marker
+;         br 99$                        ; done, no production
+         clr r0                        ; set flag for no production
+         rts pc                        ; return
+2$:
+         cmpb r1,#360                  ; check if the current code is f0
+         bne 3$
+         movb r1,ps2up                 ; set marker
+;         br 99$                        ; done, no production
+         clr r0                        ; set flag for no production
+         rts pc                        ; return
+3$:
+10$:
+         tstb ps2ex                    ; extended key code flag set?
+         beq 12$                       ; no
+         tstb ps2up                    ; key up flag set?
+         bne 99$                       ; already did those, done here
+         jsr pc,ps2xkd                 ; check for extended key down. Right control only, really
+         clrb ps2ex                    ; clear the extended code flag
+         tst r0                        ; did we get anything?
+         beq 99$                       ; done, no production
+         clrb ps2ex                    ; clear extended key code flag
+         bic #177600,r1                ; mask to low 7 bits
+         movb ps2tb3(r1),r1            ; load the code
+         tstb r1                       ; check if we got anything
+         beq 12$                       ; no
+         br 98$                        ; done, exit with result
+12$:
+         cmpb r1,#360                  ; key up - f0?
+         bne 14$                       ; no
+         movb #1,ps2up                 ; set flag
+         br 99$
+14$:
+         cmpb r1,#340                  ; extended key - e0?
+         bne 16$                       ; no
+         movb #1,ps2ex                 ; set flag
+         br 99$
+16$:
+         jsr pc,ps2xkd                 ; process key down status events
+         tst r0                        ; result?
+         bne 18$                       ; no
+         br 99$
+18$:
+         bitb #200,r1                  ; check if bit is set
+         bne 99$                       ; yes, skip rest - don't know what to do with it
+20$:
+         bic #177600,r1                ; mask to low 7 bits
+         tstb ps2lc                    ; left control down?
+         bne 30$                       ; yes
+         tstb ps2rc                    ; right control down?
+         bne 30$                       ; yes
+         br 60$                        ; neither control key active, onwards
+30$:
+         tstb ps2ls                    ; left shift down?
+         bne 32$                       ; yes, load from shifted table
+         tstb ps2rs                    ; right shift down?
+         bne 32$                       ; yes, load from shifted table
+         movb ps2tb1(r1),r1            ; load byte from unshifted table
+         br 33$                        ; skip forward
+32$:
+         movb ps2tb2(r1),r1            ; load from shifted table
+33$:
+         tstb r1                       ; was something nonzero there?
+         beq 99$                       ; no, then done without result
+         cmpb r1,#141                  ; lower case a
+         blo 40$                       ; below? then check the other ranges
+         cmpb r1,#172                  ; lower case z
+         bhi 99$                       ; over? then done without result
+         sub #140,r1                   ; controllify
+         cmpb r1,#23                   ; is it xoff/ctrl-s?
+         bne 35$                       ; no, continue
+         incb xoffm                    ; set xoff-manual flag
+         br 39$                        ; done
+35$:
+         cmpb r1,#21                   ; is it xon/ctrl-q?
+         bne 39$                       ; no, continue
+         clrb xoffm                    ; clear xoff-manual flag
+         clrb xoff                     ; and also clear xoff flag
+         br 39$                        ; done
+39$:
+         br 98$                        ; exit and produce
+40$:
+         cmpb r1,#100                  ; @
+         beq 41$                       ; equal? then go
+         cmpb r1,#133                  ; [
+         blo 99$                       ; lower? then no result
+         cmpb r1,#137                  ; _
+         bhi 99$                       ; higher? then no result
+41$:
+         sub #100,r1                   ; controllify
+         br 98$                        ; exit and produce
+60$:
+         tstb ps2ls                    ; left shift down?
+         bne 70$                       ; yes
+         tstb ps2rs                    ; right shift down?
+         bne 70$                       ; yes
+         tstb ps2cl                    ; caps lock on?
+         bne 70$                       ; yes
+         movb ps2tb1(r1),r1            ; load from regular translate table
+         br 72$
+70$:
+         movb ps2tb2(r1),r1            ; load from shifted translate table
+72$:
+         bic #177400,r1                ; clear upper byte
+         tstb r1                       ; was something nonzero there?
+         beq 99$                       ; no - finished
+         br 98$
+
+98$:                                   ; exit path, code translated, make sure r0 is nonzero
+         mov #1,r0
+         rts pc
+
+99$:                                   ; exit path, no code - make sure r0 is zero
+         clr r0
+         rts pc
+
+;
+; interrupt service routine - receive from slu
+;
+ivecrcv:
+         tstb @#rcsr                   ; check slu - did we really receive something?
+         bpl 90$                       ; positive means ready bit is not set
+         mov r0,-(sp)                  ; save r0
+         mov r1,-(sp)                  ; save r1
+
+         movb @#rbuf,r1                ; copy received character into r1 - this also resets the receiver for the next byte
+
+         mov rcvcons,r0                ; get consume pointer in r0
+         inc r0                        ; increment consume pointer - we're about to consume
+         cmp r0,#rcvbln                ; check for max size of buffer
+         blo 20$                       ; less?
+         clr r0                        ; if not less, then start at zero
+20$:
+         cmp r0,rcvprod                ; after incrementing consume, produce and consume should not be the same - that would mean a buffer overrun
+         beq 80$                       ; skip storing if buffer overrun
+         inc rcvbfc                    ; increment buffer count
+         mov r0,rcvcons                ; update consume pointer
+         add #rcvbuf,r0                ; add base to pointer
+         movb r1,(r0)                  ; store the received character into buffer
+80$:
+         cmp rcvbfc,#rcvbhi            ; above high water mark?
+         blo 85$                       ; no, go on
+         tstb xoff                     ; are we in xoff state already?
+         bne 85$                       ; yes, don't send again
+         incb xoff                     ; set xoff flag
+         mov #23,r0                    ; load ctrl-s/dc3
+         jsr pc,xmit                   ; send
+85$:
+         mov (sp)+,r1                  ; restore r1
+         mov (sp)+,r0                  ; restore r0
+90$:
+         mov #100,@#rcsr               ; make sure interrupt enable is set again
+         rti
+;
+; xmit - for now, the bare minimum to get stuff out. May need to be reworked to a queue and interrupt thing later
+;
+xmit:
+10$:
+         tstb @#xcsr                   ; check if xmit ready bit is set
+         bpl 10$                       ; jump if not
+         movb r0,@#xbuf                ; write the xmit register
+         rts pc
+;
+; interrupt service routine - slu xmit
+;
+ivecxmt:
+         rti
+
+;
+; interrupt service routine - receive from ps2
+;
+ivecps2:
+         tstb @#150000                 ; check ps2 - did we really receive something?
+         bpl 90$                       ; positive means ready bit is not set
+         mov r0,-(sp)                  ; save r0
+         mov r1,-(sp)                  ; save r1
+
+         mov ps2cons,r0                ; get consume pointer in r0
+         mov ps2prod,r1                ; get produce pointer in r1
+         inc r0                        ; increment consume pointer - we're about to consume
+         cmp r0,#ps2bln                ; check for max size of buffer
+         blo 20$                       ; less?
+         clr r0                        ; if yes, then start at zero
+20$:
+         cmp r0,r1                     ; after incrementing consume, produce and consume should not be the same - that would mean a buffer overrun
+         beq 80$                       ; skip storing if buffer overrun
+
+         mov r0,ps2cons                ; update consume pointer
+         movb @#150002,r1              ; copy received character into r1
+         add #ps2buf,r0                ; add base to pointer
+         movb r1,(r0)                  ; store into buffer
+
+80$:
+         mov (sp)+,r1                  ; restore r1
+         mov (sp)+,r0                  ; restore r0
+90$:
+         mov #100,@#150000             ; make sure interrupt enable is set again
+         rti
+
+hello:   .asciz /Hello, world: vt100 t42 /
+
+         .even
+;
+; parser jump table
+;
+ptab:    .word lsg                ; parse state: ground                     ; 0
+         .word lscsip             ; parse state: csi param                  ; 2
+         .word lscsii             ; parse state: csi ignore                 ; 4
+         .word lscsin             ; parse state: csi intermediate           ; 6
+         .word lscsie             ; parse state: csi entry                  ; 10
+         .word lsei               ; parse state: escape intermediate        ; 12
+         .word lsesc              ; parse state: escape                     ; 14
+         .word lsosc              ; parse state: osc string                 ; 16
+         .word lsstr              ; parse state: sos/pm/apc string          ; 20
+         .word lsdcse             ; parse state: dcs entry                  ; 22
+         .word lsdcsp             ; parse state: dcs param                  ; 24
+         .word lsdcsi             ; parse state: dcs ignore                 ; 26
+         .word lsdcsn             ; parse state: dcs intermediate           ; 30
+         .word lsdcst             ; parse state: dcs passthrough            ; 32
+         .word lsdummy            ; parse state: dummy                      ; 34
+         .word lsdummy            ; parse state: dummy                      ; 36
+;
+; table for state transitions from anywhere
+;
+ptrans:
+;                   0      1      2      3      4      5      6      7      8      9      a      b      c      d      e      f
+         .byte      0,     0,     0,     0,     0,     0,     0,     0,     0,     0,     0,     0,     0,     0,     0,     0   ; 00-0f
+         .byte      0,     0,     0,     0,     0,     0,     0,     0,   psg,     0,   psg, psesc,     0,     0,     0,     0   ; 10-1f
+         .byte      0,     0,     0,     0,     0,     0,     0,     0,     0,     0,     0,     0,     0,     0,     0,     0   ; 20-2f
+         .byte      0,     0,     0,     0,     0,     0,     0,     0,     0,     0,     0,     0,     0,     0,     0,     0   ; 30-3f
+         .byte      0,     0,     0,     0,     0,     0,     0,     0,     0,     0,     0,     0,     0,     0,     0,     0   ; 40-4f
+         .byte      0,     0,     0,     0,     0,     0,     0,     0,     0,     0,     0,     0,     0,     0,     0,     0   ; 50-5f
+         .byte      0,     0,     0,     0,     0,     0,     0,     0,     0,     0,     0,     0,     0,     0,     0,     0   ; 60-6f
+         .byte      0,     0,     0,     0,     0,     0,     0,     0,     0,     0,     0,     0,     0,     0,     0,     0   ; 70-7f
+         .byte    psg,   psg,   psg,   psg,   psg,   psg,   psg,   psg,   psg,   psg,   psg,   psg,   psg,   psg,   psg,   psg   ; 80-8f
+         .byte psdcse,   psg,   psg,   psg,   psg,   psg,   psg,   psg, psstr,   psg,   psg,pscsie,   psg, psosc, psstr, psstr   ; 90-9f
+         .byte      0,     0,     0,     0,     0,     0,     0,     0,     0,     0,     0,     0,     0,     0,     0,     0   ; a0-af
+         .byte      0,     0,     0,     0,     0,     0,     0,     0,     0,     0,     0,     0,     0,     0,     0,     0   ; b0-bf
+         .byte      0,     0,     0,     0,     0,     0,     0,     0,     0,     0,     0,     0,     0,     0,     0,     0   ; c0-cf
+         .byte      0,     0,     0,     0,     0,     0,     0,     0,     0,     0,     0,     0,     0,     0,     0,     0   ; d0-df
+         .byte      0,     0,     0,     0,     0,     0,     0,     0,     0,     0,     0,     0,     0,     0,     0,     0   ; e0-ef
+         .byte      0,     0,     0,     0,     0,     0,     0,     0,     0,     0,     0,     0,     0,     0,     0,     0   ; f0-ff
+;
+; esctab - states and routines for escape state
+;
+esctab:
+;                   0      1      2      3      4      5      6      7      8      9      a      b      c      d      e      f
+         .word      0,     0,     0,     0,     0,     0,     0,     0,     0,     0,     0,     0,     0,     0,     0,     0   ; 00-0f
+         .word      0,     0,     0,     0,     0,     0,     0,     0,     0,     0,     0,     0,     0,     0,     0,     0   ; 10-1f
+         .word   psei,  psei,  psei,  psei,  psei,  psei,  psei,  psei,  psei,  psei,  psei,  psei,  psei,  psei,  psei,  psei   ; 20-2f
+         .word      0,  esc1,  esc2,     0,     0,     0,     0,  esc7,  esc8,     0,     0,     0, esc3c, esc3d, esc3e,     0   ; 30-3f
+         .word      0, escua, escub, escuc, escud, escue, escuf, escug, escuh, escui, escuj, escuk,     0, escum,     0,     0   ; 40-4f
+         .word      0,     0,     0,     0,     0,     0,     0,     0,     0,  psei, escuz,pscsie,     0,     0,     0,     0   ; 50-5f
+         .word      0,     0,     0, esclc,     0,     0,     0,     0,     0,     0,     0,     0,     0,     0,     0,     0   ; 60-6f
+         .word      0,     0,     0,     0,     0,     0,     0,     0,     0,     0,     0,     0,     0,     0,     0,     0   ; 70-7f
+;
+; ctab - a routine for each control character
+;
+ctab:
+         .word cnul                    ; NUL - 000
+         .word 0                       ;     - 001
+         .word 0                       ;     - 002
+         .word 0                       ;     - 003
+         .word 0                       ;     - 004
+         .word cenq                    ; ENQ - 005
+         .word 0                       ;     - 006
+         .word 0                       ;     - 007
+         .word cbs                     ; BS  - 010
+         .word cht                     ; HT  - 011
+         .word clf                     ; LF  - 012
+         .word clf                     ; VT  - 013
+         .word clf                     ; FF  - 014
+         .word ccr                     ; CR  - 015
+         .word cso                     ; SO  - 016
+         .word csi                     ; SI  - 017
+         .word 0                       ;     - 020
+         .word 0                       ; DC1 - 021 - XON
+         .word 0                       ;     - 022
+         .word 0                       ; DC3 - 023 - XOFF
+         .word 0                       ;     - 024
+         .word 0                       ;     - 025
+         .word 0                       ;     - 026
+         .word 0                       ;     - 027
+         .word ccan                    ; CAN - 030
+         .word 0                       ;     - 031
+         .word ccan                    ; SUB - 032
+         .word 0                       ; ESC - 033
+         .word 0                       ;     - 034
+         .word 0                       ;     - 035
+         .word 0                       ;     - 036
+         .word 0                       ;     - 037
+;
+; csitab - a routine for each control sequence
+;
+csitab:
+         .word csiat                   ; @  - 100
+         .word csiua                   ; A  - 101
+         .word csiub                   ; B  - 102
+         .word csiuc                   ; C  - 103
+         .word csiud                   ; D  - 104
+         .word csinul                  ; E  - 105
+         .word csinul                  ; F  - 106
+         .word csinul                  ; G  - 107
+         .word csiuh                   ; H  - 110
+         .word csinul                  ; I  - 111
+         .word csiuj                   ; J  - 112
+         .word csiuk                   ; K  - 113
+         .word csiul                   ; L  - 114
+         .word csium                   ; M  - 115
+         .word csinul                  ; N  - 115
+         .word csinul                  ; O  - 116
+         .word csiup                   ; P  - 120
+         .word csinul                  ; Q  - 121
+         .word csinul                  ; R  - 122
+         .word csinul                  ; S  - 123
+         .word csinul                  ; T  - 124
+         .word csinul                  ; U  - 125
+         .word csinul                  ; V  - 126
+         .word csinul                  ; W  - 127
+         .word csiux                   ; X  - 130
+         .word csinul                  ; Y  - 131
+         .word csinul                  ; Z  - 132
+         .word csinul                  ; [  - 133
+         .word csinul                  ; \  - 134
+         .word csinul                  ; ]  - 135
+         .word csinul                  ; ^  - 136
+         .word csinul                  ; _  - 137
+         .word csinul                  ; `  - 140
+         .word csinul                  ; a  - 141
+         .word csinul                  ; b  - 142
+         .word csilc                   ; c  - 143
+         .word csinul                  ; d  - 144
+         .word csinul                  ; e  - 145
+         .word csilf                   ; f  - 146
+         .word csilg                   ; g  - 147
+         .word csilh                   ; h  - 150
+         .word csinul                  ; i  - 151
+         .word csinul                  ; j  - 152
+         .word csinul                  ; k  - 153
+         .word csill                   ; l  - 154
+         .word csilm                   ; m  - 155
+         .word csiln                   ; n  - 156
+         .word csinul                  ; o  - 157
+         .word csinul                  ; p  - 160
+         .word csinul                  ; q  - 161
+         .word csilr                   ; r  - 162
+         .word csinul                  ; s  - 163
+         .word csinul                  ; t  - 164
+         .word csinul                  ; u  - 165
+         .word csinul                  ; v  - 166
+         .word csinul                  ; w  - 167
+         .word csilx                   ; x  - 170
+         .word csily                   ; y  - 171
+         .word csinul                  ; z  - 172
+         .word csinul                  ; {  - 173
+         .word csinul                  ; |  - 174
+         .word csinul                  ; }  - 175
+         .word csinul                  ; ~  - 176
+         .word csinul                  ; DEL  - 177
+;
+; ltab: a table of the starting address of each line within the buffer
+;
+ltab:
+         .word 100000                  ; line 1
+         .word 100240                  ; line 2
+         .word 100500                  ; line 3
+         .word 100740                  ; line 4
+         .word 101200                  ; line 5
+         .word 101440                  ; line 6
+         .word 101700                  ; line 7
+         .word 102140                  ; line 8
+         .word 102400                  ; line 9
+         .word 102640                  ; line 10
+         .word 103100                  ; line 11
+         .word 103340                  ; line 12
+         .word 103600                  ; line 13
+         .word 104040                  ; line 14
+         .word 104300                  ; line 15
+         .word 104540                  ; line 16
+         .word 105000                  ; line 17
+         .word 105240                  ; line 18
+         .word 105500                  ; line 19
+         .word 105740                  ; line 20
+         .word 106200                  ; line 21
+         .word 106440                  ; line 22
+         .word 106700                  ; line 23
+         .word 107140                  ; line 24
+         .word 107400                  ; line 25
+;
+; ps2 scancode translate table - normal case
+;
+ps2tb1:
+         .byte 0                       ; 00 - unused
+         .byte 0                       ; 01 - f9
+         .byte 0                       ; 02 -
+         .byte 0                       ; 03 - f5
+         .byte kcf3                    ; 04 - f3
+         .byte kcf1                    ; 05 - f1
+         .byte kcf2                    ; 06 - f2
+         .byte 0                       ; 07 - f12
+         .byte 0                       ; 08 -
+         .byte 0                       ; 09 - f10
+         .byte 0                       ; 0a - f8
+         .byte 0                       ; 0b - f6
+         .byte kcf4                    ; 0c - f4
+         .ascii <11>                   ; 0d - tab
+         .ascii /`/                    ; 0e - backtick/tilde
+         .byte 0                       ; 0f -
+         .byte 0                       ; 10 -
+         .byte 0                       ; 11 -
+         .byte 0                       ; 12 -
+         .byte 0                       ; 13 -
+         .byte 0                       ; 14 -
+         .ascii /q/                    ; 15 - q
+         .ascii /1/                    ; 16 - 1
+         .byte 0                       ; 17 -
+         .byte 0                       ; 18 -
+         .byte 0                       ; 19 -
+         .ascii /z/                    ; 1a - z
+         .ascii /s/                    ; 1b - s
+         .ascii /a/                    ; 1c - a
+         .ascii /w/                    ; 1d - w
+         .ascii /2/                    ; 1e - 2
+         .byte 0                       ; 1f -
+         .byte 0                       ; 20 -
+         .ascii /c/                    ; 21 - c
+         .ascii /x/                    ; 22 - x
+         .ascii /d/                    ; 23 - d
+         .ascii /e/                    ; 24 - e
+         .ascii /4/                    ; 25 - 4
+         .ascii /3/                    ; 26 - 3
+         .byte 0                       ; 27 -
+         .byte 0                       ; 28 -
+         .ascii / /                    ; 29 - space
+         .ascii /v/                    ; 2a - v
+         .ascii /f/                    ; 2b - f
+         .ascii /t/                    ; 2c - t
+         .ascii /r/                    ; 2d - r
+         .ascii /5/                    ; 2e - 5
+         .byte 0                       ; 2f -
+         .byte 0                       ; 30 -
+         .ascii /n/                    ; 31 - n
+         .ascii /b/                    ; 32 - b
+         .ascii /h/                    ; 33 - h
+         .ascii /g/                    ; 34 - g
+         .ascii /y/                    ; 35 - y
+         .ascii /6/                    ; 36 - 6
+         .byte 0                       ; 37 -
+         .byte 0                       ; 38 -
+         .byte 0                       ; 39 -
+         .ascii /m/                    ; 3a - m
+         .ascii /j/                    ; 3b - j
+         .ascii /u/                    ; 3c - u
+         .ascii /7/                    ; 3d - 7
+         .ascii /8/                    ; 3e - 8
+         .byte 0                       ; 3f -
+         .byte 0                       ; 40 -
+         .ascii /,/                    ; 41 - comma, lt
+         .ascii /k/                    ; 42 - k
+         .ascii /i/                    ; 43 - i
+         .ascii /o/                    ; 44 - o
+         .ascii /0/                    ; 45 - 0
+         .ascii /9/                    ; 46 - 9
+         .byte 0                       ; 47 -
+         .byte 0                       ; 48 -
+         .ascii /./                    ; 49 - period, gt
+         .byte 57                      ; 4a - slash, question mark
+         .ascii /l/                    ; 4b - l
+         .ascii /;/                    ; 4c - semicolon, colon
+         .ascii /p/                    ; 4d - p
+         .ascii /-/                    ; 4e - minus, underscore
+         .byte 0                       ; 4f -
+         .byte 0                       ; 50 -
+         .byte 0                       ; 51 -
+         .ascii /'/                    ; 52 - quote, double quote
+         .byte 0                       ; 53 -
+         .ascii /[/                    ; 54 - left square bracket, left curly bracket
+         .ascii /=/                    ; 55 - equals, plus
+         .byte 0                       ; 56 -
+         .byte 0                       ; 57 -
+         .byte 0                       ; 58 - caps lock
+         .byte 0                       ; 59 - right shift
+         .byte kcentr                  ; 5a - enter
+         .ascii /]/                    ; 5b - right square bracket, right curly bracket
+         .byte 0                       ; 5c -
+         .ascii /\/                    ; 5d - backslash, vertical bar
+         .byte 0                       ; 5e -
+         .byte 0                       ; 5f -
+         .byte 0                       ; 60 -
+         .byte 0                       ; 61 -
+         .byte 0                       ; 62 -
+         .byte 0                       ; 63 -
+         .byte 0                       ; 64 -
+         .byte 0                       ; 65 -
+         .ascii <177>                  ; 66 - backspace - sends del
+         .byte 0                       ; 67 -
+         .byte 0                       ; 68 -
+         .byte kcn1                    ; 69 - num pad 1
+         .byte 0                       ; 6a -
+         .byte kcn4                    ; 6b - num pad 4
+         .byte kcn7                    ; 6c - num pad 7
+         .byte 0                       ; 6d -
+         .byte 0                       ; 6e -
+         .byte 0                       ; 6f -
+         .byte kcn0                    ; 70 - num pad 0
+         .byte kcndot                  ; 71 - num pad dot
+         .byte kcn2                    ; 72 - num pad 2
+         .byte kcn5                    ; 73 - num pad 5
+         .byte kcn6                    ; 74 - num pad 6
+         .byte kcn8                    ; 75 - num pad 8
+         .ascii <33>                   ; 76 - escape
+         .byte kcnlck                  ; 77 - num lock
+         .byte 0                       ; 78 - f11
+         .byte kcnpls                  ; 79 - num pad plus
+         .byte kcn3                    ; 7a - num pad 3
+         .byte kcnmin                  ; 7b - num pad minus
+         .byte kcnast                  ; 7c - num pad asterisk
+         .byte kcn9                    ; 7d - num pad 9
+         .byte 0                       ; 7e -
+         .byte 0                       ; 7f -
+;
+; ps2 scancode translate table - shifted case
+;
+ps2tb2:
+         .byte 0                       ; 00 - unused
+         .byte 0                       ; 01 - f9
+         .byte 0                       ; 02 -
+         .byte 0                       ; 03 - f5
+         .byte 0                       ; 04 - f3
+         .byte 0                       ; 05 - f1
+         .byte 0                       ; 06 - f2
+         .byte 0                       ; 07 - f12
+         .byte 0                       ; 08 -
+         .byte 0                       ; 09 - f10
+         .byte 0                       ; 0a - f8
+         .byte 0                       ; 0b - f6
+         .byte 0                       ; 0c - f4
+         .ascii <11>                   ; 0d - tab
+         .ascii /~/                    ; 0e - backtick/tilde
+         .byte 0                       ; 0f -
+         .byte 0                       ; 10 -
+         .byte 0                       ; 11 -
+         .byte 0                       ; 12 -
+         .byte 0                       ; 13 -
+         .byte 0                       ; 14 -
+         .ascii /Q/                    ; 15 - q
+         .ascii /!/                    ; 16 - 1
+         .byte 0                       ; 17 -
+         .byte 0                       ; 18 -
+         .byte 0                       ; 19 -
+         .ascii /Z/                    ; 1a - z
+         .ascii /S/                    ; 1b - s
+         .ascii /A/                    ; 1c - a
+         .ascii /W/                    ; 1d - w
+         .ascii /@/                    ; 1e - 2
+         .byte 0                       ; 1f -
+         .byte 0                       ; 20 -
+         .ascii /C/                    ; 21 - c
+         .ascii /X/                    ; 22 - x
+         .ascii /D/                    ; 23 - d
+         .ascii /E/                    ; 24 - e
+         .ascii /$/                    ; 25 - 4
+         .ascii /#/                    ; 26 - 3
+         .byte 0                       ; 27 -
+         .byte 0                       ; 28 -
+         .ascii / /                    ; 29 - space
+         .ascii /V/                    ; 2a - v
+         .ascii /F/                    ; 2b - f
+         .ascii /T/                    ; 2c - t
+         .ascii /R/                    ; 2d - r
+         .ascii /%/                    ; 2e - 5
+         .byte 0                       ; 2f -
+         .byte 0                       ; 30 -
+         .ascii /N/                    ; 31 - n
+         .ascii /B/                    ; 32 - b
+         .ascii /H/                    ; 33 - h
+         .ascii /G/                    ; 34 - g
+         .ascii /Y/                    ; 35 - y
+         .ascii /^/                    ; 36 - 6
+         .byte 0                       ; 37 -
+         .byte 0                       ; 38 -
+         .byte 0                       ; 39 -
+         .ascii /M/                    ; 3a - m
+         .ascii /J/                    ; 3b - j
+         .ascii /U/                    ; 3c - u
+         .ascii /&/                    ; 3d - 7
+         .byte 52                      ; 3e - 8     asterisk - can't use the ascii code here, it messes up the editor
+         .byte 0                       ; 3f -
+         .byte 0                       ; 40 -
+         .ascii /</                    ; 41 - comma, lt
+         .ascii /K/                    ; 42 - k
+         .ascii /I/                    ; 43 - i
+         .ascii /O/                    ; 44 - o
+         .ascii /)/                    ; 45 - 0
+         .ascii /(/                    ; 46 - 9
+         .byte 0                       ; 47 -
+         .byte 0                       ; 48 -
+         .ascii />/                    ; 49 - period, gt
+         .ascii /?/                    ; 4a - slash, question mark
+         .ascii /L/                    ; 4b - l
+         .ascii /:/                    ; 4c - semicolon, colon
+         .ascii /P/                    ; 4d - p
+         .ascii /_/                    ; 4e - minus, underscore
+         .byte 0                       ; 4f -
+         .byte 0                       ; 50 -
+         .byte 0                       ; 51 -
+         .byte 42                      ; 52 - quote, double quote - can't use the ascii code here, it messes up the editor
+         .byte 0                       ; 53 -
+         .ascii /{/                    ; 54 - left square bracket, left curly bracket
+         .ascii /+/                    ; 55 - equals, plus
+         .byte 0                       ; 56 -
+         .byte 0                       ; 57 -
+         .byte 0                       ; 58 - caps lock
+         .byte 0                       ; 59 -
+         .ascii <15>                   ; 5a - enter
+         .ascii /}/                    ; 5b - right square bracket, right curly bracket
+         .byte 0                       ; 5c -
+         .ascii /|/                    ; 5d - backslash, vertical bar
+         .byte 0                       ; 5e -
+         .byte 0                       ; 5f -
+         .byte 0                       ; 60 -
+         .byte 0                       ; 61 -
+         .byte 0                       ; 62 -
+         .byte 0                       ; 63 -
+         .byte 0                       ; 64 -
+         .byte 0                       ; 65 -
+         .ascii <10>                   ; 66 - backspace
+         .byte 0                       ; 67 -
+         .byte 0                       ; 68 -
+         .byte 0                       ; 69 -
+         .byte 0                       ; 6a -
+         .byte 0                       ; 6b -
+         .byte 0                       ; 6c -
+         .byte 0                       ; 6d -
+         .byte 0                       ; 6e -
+         .byte 0                       ; 6f -
+         .byte 0                       ; 70 -
+         .byte 0                       ; 71 -
+         .byte 0                       ; 72 -
+         .byte 0                       ; 73 -
+         .byte 0                       ; 74 -
+         .byte 0                       ; 75 -
+         .ascii <33>                   ; 76 - escape
+         .byte 0                       ; 77 -
+         .byte 0                       ; 78 - f11
+         .byte 0                       ; 79 -
+         .byte 0                       ; 7a -
+         .byte 0                       ; 7b -
+         .byte 0                       ; 7c -
+         .byte 0                       ; 7d -
+         .byte 0                       ; 7e -
+         .byte 0                       ; 7f -
+;
+; ps2 scancode translate table - extended case
+;
+ps2tb3:
+         .byte 0                       ; 00 -
+         .byte 0                       ; 01 -
+         .byte 0                       ; 02 -
+         .byte 0                       ; 03 -
+         .byte 0                       ; 04 -
+         .byte 0                       ; 05 -
+         .byte 0                       ; 06 -
+         .byte 0                       ; 07 -
+         .byte 0                       ; 08 -
+         .byte 0                       ; 09 -
+         .byte 0                       ; 0a -
+         .byte 0                       ; 0b -
+         .byte 0                       ; 0c -
+         .byte 0                       ; 0d -
+         .byte 0                       ; 0e -
+         .byte 0                       ; 0f -
+         .byte 0                       ; 10 -
+         .byte 0                       ; 11 -
+         .byte 0                       ; 12 -
+         .byte 0                       ; 13 -
+         .byte 0                       ; 14 -
+         .byte 0                       ; 15 -
+         .byte 0                       ; 16 -
+         .byte 0                       ; 17 -
+         .byte 0                       ; 18 -
+         .byte 0                       ; 19 -
+         .byte 0                       ; 1a -
+         .byte 0                       ; 1b -
+         .byte 0                       ; 1c -
+         .byte 0                       ; 1d -
+         .byte 0                       ; 1e -
+         .byte 0                       ; 1f -
+         .byte 0                       ; 20 -
+         .byte 0                       ; 21 -
+         .byte 0                       ; 22 -
+         .byte 0                       ; 23 -
+         .byte 0                       ; 24 -
+         .byte 0                       ; 25 -
+         .byte 0                       ; 26 -
+         .byte 0                       ; 27 -
+         .byte 0                       ; 28 -
+         .byte 0                       ; 29 -
+         .byte 0                       ; 2a -
+         .byte 0                       ; 2b -
+         .byte 0                       ; 2c -
+         .byte 0                       ; 2d -
+         .byte 0                       ; 2e -
+         .byte 0                       ; 2f -
+         .byte 0                       ; 30 -
+         .byte 0                       ; 31 -
+         .byte 0                       ; 32 -
+         .byte 0                       ; 33 -
+         .byte 0                       ; 34 -
+         .byte 0                       ; 35 -
+         .byte 0                       ; 36 -
+         .byte 0                       ; 37 -
+         .byte 0                       ; 38 -
+         .byte 0                       ; 39 -
+         .byte 0                       ; 3a -
+         .byte 0                       ; 3b -
+         .byte 0                       ; 3c -
+         .byte 0                       ; 3d -
+         .byte 0                       ; 3e -
+         .byte 0                       ; 3f -
+         .byte 0                       ; 40 -
+         .byte 0                       ; 41 -
+         .byte 0                       ; 42 -
+         .byte 0                       ; 43 -
+         .byte 0                       ; 44 -
+         .byte 0                       ; 45 -
+         .byte 0                       ; 46 -
+         .byte 0                       ; 47 -
+         .byte 0                       ; 48 -
+         .byte 0                       ; 49 -
+         .byte kcndiv                  ; 4a - keypad slash
+         .byte 0                       ; 4b -
+         .byte 0                       ; 4c -
+         .byte 0                       ; 4d -
+         .byte 0                       ; 4e -
+         .byte 0                       ; 4f -
+         .byte 0                       ; 50 -
+         .byte 0                       ; 51 -
+         .byte 0                       ; 52 -
+         .byte 0                       ; 53 -
+         .byte 0                       ; 54 -
+         .byte 0                       ; 55 -
+         .byte 0                       ; 56 -
+         .byte 0                       ; 57 -
+         .byte 0                       ; 58 -
+         .byte 0                       ; 59 -
+         .byte kcnent                  ; 5a - keypad enter
+         .byte 0                       ; 5b -
+         .byte 0                       ; 5c -
+         .byte 0                       ; 5d -
+         .byte 0                       ; 5e -
+         .byte 0                       ; 5f -
+         .byte 0                       ; 60 -
+         .byte 0                       ; 61 -
+         .byte 0                       ; 62 -
+         .byte 0                       ; 63 -
+         .byte 0                       ; 64 -
+         .byte 0                       ; 65 -
+         .byte 0                       ; 66 -
+         .byte 0                       ; 67 -
+         .byte 0                       ; 68 -
+         .byte kcend                   ; 69 - end
+         .byte 0                       ; 6a -
+         .byte kclar                   ; 6b - left arrow
+         .byte kchome                  ; 6c - home
+         .byte 0                       ; 6d -
+         .byte 0                       ; 6e -
+         .byte 0                       ; 6f -
+         .byte kcins                   ; 70 - insert
+         .byte kcdel                   ; 71 - delete
+         .byte kcdar                   ; 72 - down arrow
+         .byte 0                       ; 73 -
+         .byte kcrar                   ; 74 - right arrow
+         .byte kcuar                   ; 75 - up arrow
+         .byte 0                       ; 76 -
+         .byte 0                       ; 77 -
+         .byte 0                       ; 78 - f11
+         .byte 0                       ; 79 -
+         .byte kcpgdn                  ; 7a - pg dn
+         .byte 0                       ; 7b -
+         .byte 0                       ; 7c -
+         .byte kcpgup                  ; 7d - pg up
+         .byte 0                       ; 7e -
+         .byte 0                       ; 7f -

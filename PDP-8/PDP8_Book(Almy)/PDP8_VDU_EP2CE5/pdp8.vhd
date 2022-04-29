@@ -47,10 +47,10 @@ entity pdp8 is
 --		btnc			: in std_logic;		-- display select button
 --		btnu			: in std_logic;		-- step button
 --		btnr			: in std_logic;		-- load AC button
---		btnd			: in std_logic;		-- deposit button--
+--		btnd			: in std_logic;		-- deposit button
 --		btnl			: in std_logic;		-- load PC button
 		-- Outs
-		runLED		: out  STD_LOGIC;									-- led 15 is Running light
+		runLED		: out  STD_LOGIC;									-- LED DS1 on EP2C5 board is Running light
 --		selLEDs		: out  STD_LOGIC_VECTOR (3 downto 0);		-- 3 to 0 is display selection
 		RsRx			: in  STD_LOGIC;
 		RsTx			: out  STD_LOGIC;
@@ -64,11 +64,12 @@ entity pdp8 is
 		n_sRamWE		: out  STD_LOGIC := '1';
 		n_sRamCS		: out  STD_LOGIC := '1';
 		n_sRamOE		: out  STD_LOGIC := '1';
-		sramAddress	: out  STD_LOGIC_VECTOR (16 downto 0) := "00000000000000000";
+		sramAddress	: out  STD_LOGIC_VECTOR (16 downto 0) := '0'&x"0000";
 		
 		-- Not using SD card pulling to levels that make SD card inactive
 		sdSCLK		: out  STD_LOGIC := '0';
 		sdMOSI		: out  STD_LOGIC := '0';
+		sdMISO		: in   STD_LOGIC := '0';
 		sdCS			: out  STD_LOGIC := '1';
 		
 		-- Video out XGA
@@ -320,7 +321,7 @@ begin
 
 	-- Cut the fron panel connection down to bare minimum
 	-- hardcoded start address
-	runLED <= led(15);
+	runLED <= led(15);						-- LED DS1 on EP2C5 board is Running light
 --	selLEDs <= led(3 downto 0);			-- Select LEDS
 	sw(11 downto 0) <= "000010000000"; 	-- 200 (start address)
 	sw(14 downto 12) <= "000";

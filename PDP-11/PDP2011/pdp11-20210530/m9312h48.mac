@@ -1,0 +1,255 @@
+         .title   M9312 boot roms
+;
+;
+; boot code taken from http://ak6dn.dyndns.org/PDP-11/M9312/ and modified to work with m9312l47.mac
+; which does not include diagnostics, does not use the rom code letters.
+;
+
+bit0     =000001              ; plain old bit definitions
+bit1     =000002              ;
+bit2     =000004              ;
+bit3     =000010              ;
+bit4     =000020              ;
+bit5     =000040              ;
+bit6     =000100              ;
+bit7     =000200              ;
+bit8     =000400              ;
+bit9     =001000              ;
+bit10    =002000              ;
+bit11    =004000              ;
+bit12    =010000              ;
+bit13    =020000              ;
+bit14    =040000              ;
+bit15    =100000              ;
+
+BL       =040                 ; ascii SPACE
+CR       =015                 ; ascii CR
+LF       =012                 ; ascii LF
+U        =bit8                ; upperbyte multiplier
+L        =bit0                ; lowerbyte multiplier
+
+         .asect
+         .=173000
+;
+;
+;
+         jmp   @#boot         ; 173000
+         jmp   @#prtoct       ; 173004
+bprtascz:
+         jmp   @#prtascz      ; 173010
+;
+; boot: boot from first controller that exists in the system out of rk,rl,rh
+;
+boot:
+         mov   #1000,sp
+         clr   @#6
+         mov   #nork,@#4
+         tst   @#177400
+         mov   #bootrk,r2
+         mov   pc,r1
+         br    bprtascz
+         br    rkgo
+;
+nork:
+         mov   #norl,@#4
+         tst   @#174400
+         mov   #bootrl,r2
+         mov   pc,r1
+         br    bprtascz
+         br    rlgo
+;
+norl:
+         mov   #norp,@#4
+         tst   @#176700
+         mov   #bootrp,r2
+         mov   pc,r1
+         br    bprtascz
+         br    rpgo
+;
+norp:
+         mov   #nodev,r2
+         mov   pc,r1
+         br    bprtascz
+         halt
+
+; --------------------------------------------------
+; rl
+; --------------------------------------------------
+
+rlcsr     =174400             ; std RL11 csrbase
+
+rlcs      =+0                 ; control/status
+rlba      =+2                 ; bus address
+rlda      =+4                 ; disk address
+rlmp      =+6                 ; multipurpose
+
+cmstat    =2*2                ; get status
+cmseek    =3*2                ; seek
+cmrdhd    =4*2                ; read header
+cmrdda    =6*2                ; read data
+
+rlgo:    mov   #rlcsr,r1
+         clr   (r1)           ; clear unit number etc
+         mov   #013,rlda(r1)  ; subcmd reset+getstatus
+         mov   #cmstat,(r1)   ; execute
+1$:      tstb  (r1)           ; test for ready
+         bpl   1$             ; wait
+
+         mov   #cmrdhd,(r1)   ; execute
+2$:      tstb  (r1)           ; test for ready
+         bpl   2$             ; wait
+
+         mov   rlmp(r1),r2    ; retrieve cyl/head/sector
+         bic   #77,r2         ; set sector to zero
+         inc   r2             ; set head 0, seek to cyl 0
+         mov   r2,rlda(r1)    ; into da for seek
+         mov   #cmseek,(r1)        ; execute
+3$:      tstb  (r1)           ; test for ready
+         bpl   3$             ; wait
+
+         clr   rlda(r1)       ; select cyl0/head0/sector0
+         mov   #-512.,rlmp(r1)      ; set word count
+         mov   #cmrdda,(r1)        ; execute
+4$:      tstb  (r1)           ; test for ready
+         bpl   4$             ; wait
+
+         tst   (r1)           ; test for error
+         bpl   5$             ; br if ok
+         reset                ; ERROR - reset the world
+         br rlgo              ; retry
+
+5$:      bic   #377,(r1)      ; execute nop cmd
+         clr   pc             ; jump to bootstrap at zero
+
+; --------------------------------------------------
+; rk
+; --------------------------------------------------
+
+rkcsr    =177400              ; std RK03/05 DECdisk csrbase
+
+rkwc     =+6-4                ; word count
+rkba     =+10-4               ; bus address
+rkda     =+12-4               ; disk address
+
+tccsr    =177340              ; std TU55/56 DECtape csrbase
+
+tccs     =+0-2                ; control/status
+tcwc     =+4-2                ; word count
+
+xxwc     =rkwc                ; common word count offset
+
+diags    =165564              ; console diags phase2 entry
+
+
+rkgo:    mov   #rkcsr+4,r1    ; boot std csr, unit <R0>
+         clr rkba(r1)         ; clear bus address
+         clr rkda(r1)         ; unit number, sector 0 to disk addr
+
+common:  mov   #-512.,xxwc(r1)   ; set word count
+         mov   #5,(r1)        ; execute READ+GO
+2$:      tstb  (r1)           ; test ready
+         bpl   2$             ; loop
+
+         tst   (r1)           ; check error
+         bpl   3$             ; br if no error
+
+         reset                ; reset the world
+         br    rkgo           ; and retry
+
+3$:      bic   #377,(r1)      ; nop command
+         clr   pc             ; jump to loaded boot sector
+
+
+; --------------------------------------------------
+; rp
+; --------------------------------------------------
+
+rmcsr    =176700              ; std RH11 csrbase
+
+rpcs  =+0                     ; control status offset
+rpwc  =+2                     ; word count offset
+rpba  =+4                     ; bus addr offset
+rpcs2 =+10                    ; control status 2 offset
+rpas  =+16                    ; atten summary offset
+rpof  =+32                    ; offset register offset
+
+
+rpgo:    mov   #rmcsr,r1      ; boot std csr, unit <R0>
+
+         clr   rpcs2(r1)   ; set unit number into controller
+         mov   #071,r2        ; READ+GO command code
+         mov   #021,(r1)      ; RIP+GO command
+         mov   #014000,rpof(r1)  ; set 16b mode, inhibit ECC mode
+         mov   rpas(r1),rpas(r1) ; clear attention bits
+
+         mov   #-512.,rpwc(r1)      ; set word count
+         mov   r2,(r1)        ; execute read command
+2$:      tstb  (r1)           ; test unit ready
+         bpl   2$             ; br if not yet
+
+         tst   (r1)           ; test any error
+         bpl   3$             ; br if not
+
+         reset                ; error, reset the world
+         br rpgo              ; and jump back to restart
+
+3$:      bic   #377,(r1)      ; nop command, clear controller
+         clr   pc             ; jump to bootstrap start
+
+
+;
+; prtascz
+; r1 - return address
+; r2 - pointer to asciz string
+;
+prtascz:
+$10:
+         tstb  @#177564
+         bpl   $10
+         tstb  (r2)
+         beq   $20
+         movb  (r2)+,@#177566
+         br    $10
+$20:
+         jmp   2(r1)
+;
+; prtoct
+;
+; R0 = register value to print
+; R1 = return address
+; R2 = temp char
+; R3 = temp addr
+
+prtoct:  mov   #<'0/bit1>,r2  ; ascii 0 right 1b
+         sec                  ; shift a 1 into R0 lsb as done bit
+1$:      rol   r0             ; msb out of R0
+         rolb  r2             ; into lsb of R2
+         tstb  @#177564
+         bpl   .-4
+         movb  r2,@#177566
+         mov   #<BL*bit8>+200+<'0/bit3>,r2 ; ascii SP upper, ascii 0 right 3b lower
+2$:      asl   r0             ; msb out of R0
+         beq   3$             ; when R0 has gone to zero we are done
+         rolb  r2             ; into lsb of R2
+         bcs   2$             ; loop once more if flagbit was set
+         br    1$             ; go get last bit and print char
+3$:
+         jmp   2(r1)          ; return
+;
+;
+;
+bootrk:  .ascii <15><12>
+         .ascii /boot from rk:/
+         .asciz <15><12>
+bootrl:  .ascii <15><12>
+         .ascii /boot from rl:/
+         .asciz <15><12>
+bootrp:  .ascii <15><12>
+         .ascii /boot from rp:/
+         .asciz <15><12>
+nodev:   .ascii <15><12>
+         .ascii /boot: no dev/
+         .asciz <15><12>
+         .even
+
+   .end

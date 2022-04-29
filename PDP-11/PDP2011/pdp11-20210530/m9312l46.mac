@@ -1,0 +1,399 @@
+         .title   M9312 11/04-34-etc Console/Diagnostic PROM
+
+; This source code is a modified copy of the DEC M9312 23-248F1 console PROM
+; taken from copied from http://ak6dn.dyndns.org/PDP-11/M9312/
+;
+; I've made a change to the original source to allow lower case input, but
+; in such a way that almost everything is still at the same address, since
+; at least the high rom code branches directly to a number of places.
+;
+; This console/diagnostic PROM is for 11/04-34-etc CPUs, but works in every 11.
+;
+; $Revision$
+
+dlbase   =177560              ; console DL11 base
+dlrcsr   =dlbase+0            ; console RX status
+dlrbuf   =dlbase+2            ; console RX data
+dlxcsr   =dlbase+4            ; console TX status
+dlxbuf   =dlbase+6            ; console TX data
+
+memloc   =500                 ; low memory test location
+btprom   =173000              ; lowest boot PROM base address
+
+bit0     =000001              ; plain old bit definitions
+bit1     =000002              ;
+bit2     =000004              ;
+bit3     =000010              ;
+bit4     =000020              ;
+bit5     =000040              ;
+bit6     =000100              ;
+bit7     =000200              ;
+bit8     =000400              ;
+bit9     =001000              ;
+bit10    =002000              ;
+bit11    =004000              ;
+bit12    =010000              ;
+bit13    =020000              ;
+bit14    =040000              ;
+bit15    =100000              ;
+
+BL       =040                 ; ascii SPACE
+CR       =015                 ; ascii CR
+LF       =012                 ; ascii LF
+U        =bit8                ; upperbyte multiplier
+L        =bit0                ; lowerbyte multiplier
+
+         .asect
+         .=165000
+
+         base     =.
+
+data0:   .word data0          ; test data structures
+         .word data0          ;
+data1:   .byte 000            ;
+         .byte 200            ;
+data2:   .word 177777         ;
+         .word data2          ;
+         .word data2          ;
+         .word memloc+0       ;
+         .word memloc+1       ;
+
+; ------------------------------------------------------------
+; ------------------------------------------------------------
+
+;         .=base+20
+DIAG: ; PRIMARY DIAGNOSTIC ENTRY POINT
+
+; ------------------------------------------------------------
+; ------------------------------------------------------------
+
+
+T1:      clr   r3          ; R3=000000 C=0
+         inc   r3          ; R3=000001 C=0
+         com   r3          ; R3=177776 C=1
+         asr   r3          ; R3=177777 C=0
+         asl   r3          ; R3=177776 C=1
+         ror   r3          ; R3=177777 C=0
+         tst   r3          ; R3=177777 C=0
+         neg   r3          ; R3=000001 C=1
+         dec   r3          ; R3=000000 C=1
+         sbc   r3          ; R3=177777 C=1
+         rol   r3          ; R3=177777 C=1
+         adc   r3          ; R3=000000 C=1
+         swab  r3          ; R3=000000 C=0
+         bne   .           ; br . if FAIL
+
+; ------------------------------------------------------------
+
+T2:      mov   #data0,r2   ; R2=165000
+         mov   (r2),r3     ; R2=165000 R3=165000
+         cmp   (r2)+,r3    ; R2=165002 R3=165000
+         bne   .           ; br . if FAIL
+         add   @(r2)+,r3   ; R2=165004 R3=152000
+         sub   @-(r2),r3   ; R2=165002 R3=165000
+         bic   -(r2),r3    ; R2=165000 R3=000000
+         bis   12(r2),r3   ; R2=165000 R3=165006
+         bit   @12(r2),r3  ; R2=165000 R3=165006
+         beq   .           ; br . if FAIL
+
+; ------------------------------------------------------------
+
+T3:      mov   pc,r3       ; R3=165110
+         jmp   (r3)+       ; jmp self, R3=165112
+         mov   #T3B,r3     ; R3=165122
+         jmp   @(r3)+      ; R3=165124 PC=165120
+T3A:     jmp   (r3)        ; R3=165124 PC=165124
+T3B:     .word T3A         ; point to previous instr
+
+; ------------------------------------------------------------
+
+T4:      tstb  @#data1     ; test a byte, if we get here... ;; original: tstb data1, causes an internal relocation which genblkram does not handle
+         bne   .           ; br . if FAIL
+         cmp   (r2)+,(r2)+    ; (R2)+=165000 (R2)+=165002 R2=165004
+         tstb  (r2)+       ; (R2)+=000 R2=165005
+         bne   .           ; br . if FAIL
+         tstb  (r2)        ; R2=165005 (R2)=200
+         bpl   .           ; br . if fail
+
+; ------------------------------------------------------------
+; ------------------------------------------------------------
+
+         .=base+144
+NODIAG:  ; NO DIAGNOSTIC ENTRY POINT
+
+         mov   pc,r1          ; ret addr
+         br    prteol         ; print EOL
+
+         mov   pc,r1          ; ret addr
+         br    prtoct         ; print 6 octal R0 + space
+
+         mov   r4,r0          ; get R4 value
+         br    prtoct         ; print 6 octal R4 + space
+
+nxtdpy:  mov   sp,r0          ; get R6 value
+         mov   pc,r1          ; ret addr
+         br    prtoct         ; print 6 octal R6 + space
+
+         mov   r5,r0          ; get R5 value
+         br    prtoct         ; print 6 octal R5 + space
+
+         mov   sp,r5          ; save old pc in R5
+
+nxtcmd:  mov   pc,r1          ; ret addr
+         br    prteol         ; print EOL
+
+         movb  #<'@>,r2       ; prompt char @
+         mov   pc,r3          ; ret addr
+         br    txchar         ; print char in R2
+         mov   pc,sp          ; save pc for display
+         br    rxchar         ; read one char into R2 low
+         swab  r2             ; save old char in high
+         br    rxchar         ; read next char into R2 low
+
+         cmp   r2,#<'L*U>+<BL*L>       ; check for 'L ' load address
+         beq   cmdlda         ; br if yes
+
+         cmp   r4,r2          ; same cmd this time as last time?
+         bne   1$             ; br if not
+         tst   (r5)+          ; yes, bump stored load addr for autoinc
+1$:      mov   r2,r4          ; remember cmd for next time
+
+         cmp   r2,#<'E*U>+<BL*L>       ; check for 'E ' examine memory
+         beq   cmdexm         ; br if yes
+
+         cmp   r2,#<'D*U>+<BL*L>       ; check for 'D ' deposit memory
+         beq   cmddep         ; br if yes
+
+         cmp   r2,#<'S*U>+<CR*L>       ; check for 'S<CR>' start
+         bne   2$             ; br if not
+
+         reset                ; start; reset the world
+         jmp   (r5)           ; jump to saved value from 'load address'
+
+2$:      mov   #btprom,r4     ; address of first boot prom
+3$:      ;bit   (r4),#200      ; check for next prom exists                    ??? FIXME
+         ;bne   NODIAG         ; nope, go back to start                        ??? FIXME
+         cmp   (r4)+,r2       ; compare command vs boot prom id code
+         beq   cmdboo         ; br if a match
+         add   (r4),r4        ; else offset to next boot prom header
+         cmp   r4,#btprom+<4*200>      ; check if ran off the end
+         beq   nxtcmd         ; br if yes
+         br    3$             ; not yet, loop for next prom
+
+cmdboo:  mov   pc,r1          ; ret addr
+         br    getoct         ; get unit number (or zero) in R0
+;         reset                ; reset the world
+;
+; FIXME, I'm guessing the next 3 insn are meant to take the carry bit from the prom (board?) to govern diagnostics
+; changed to always cause diagnostics
+;
+;         movb  @#btprom+24,r5    ; (?WHY?) grab byte at offset 24 in 1st prom
+;         rolb  r5             ; (?WHY?) rotate left
+;         rolb  r5             ; (?WHY?) and again
+         clc
+         jmp   10(r4)         ; jump into boot prom at actual offset +12
+                              ; which is boot std CSR and unit in R0
+
+cmddep:  mov   pc,r1          ; ret addr
+         br    getoct         ; get octal data into R0
+         mov   r0,(r5)        ; store data at saved load address
+         br    nxtcmd         ; get another command
+
+cmdlda:  mov   pc,r1          ; ret addr
+         br    getoct         ; get octal addr into R0
+         mov   r0,r5          ; save load address in R5
+
+cmdnxt:  clr   r4             ; clear out command memory
+         br    nxtcmd         ; get another command
+
+cmdexm:  mov   r5,sp          ; save load address into SP for display
+         mov   (r5),r5        ; get memory data into R5 for display
+         br    nxtdpy         ; go display SP and R5 as addr/data
+
+; --------------------------------------------------
+
+; character RX routine
+;
+; R2 = new 7bit character returned in R2<7:0>, R2<15:08> n/c
+; R3 = return address
+   
+rxchar:  tstb  @#dlrcsr       ; wait for RX ready
+         bpl   rxchar         ; no character yet, loop
+         clrb  r2             ; clear low byte only
+         bisb  @#dlrbuf,r2    ; insert character in low byte
+         br    rxc2
+
+; --------------------------------------------------
+
+; get a new octal number, terminate input by CR
+;
+; R0 = input octal value
+; R1 = return address
+; R2 = temp char
+; R3 = temp addr
+
+getoct:  clr   r0             ; accumulate value here
+1$:      clr   r2             ; new character goes here
+         mov   pc,r3          ; ret addr
+         br    rxchar         ; read a char into R2
+         cmpb  r2,#CR         ; was the char a CR
+         beq   retR1          ; yes, return
+         sub   #<'8>,r2       ; offset by ascii 8 code
+         add   #<'8>-<'0>,r2  ; good char now in range 0..7
+         bcc   cmdnxt         ; br if bad char - FAIL exit
+         asl   r0             ; shift old value left 3b
+         asl   r0             ;
+         asl   r0             ;
+         bis   r2,r0          ; insert 3 new bits in lsb
+         br    1$             ; loop for more char
+
+; print an octal number followed by one <SP>
+;
+; R0 = register value to print
+; R1 = return address
+; R2 = temp char
+; R3 = temp addr
+
+prtoct:  mov   #<'0/bit1>,r2  ; ascii 0 right 1b
+         sec                  ; shift a 1 into R0 lsb as done bit
+1$:      rol   r0             ; msb out of R0
+         rolb  r2             ; into lsb of R2
+         mov   pc,r3          ; ret addr
+         br    txchar         ; print char in R2
+         mov   #<BL*bit8>+200+<'0/bit3>,r2 ; ascii SP upper, ascii 0 right 3b lower
+2$:      asl   r0             ; msb out of R0
+         beq   3$             ; when R0 has gone to zero we are done
+         rolb  r2             ; into lsb of R2
+         bcs   2$             ; loop once more if flagbit was set
+         br    1$             ; go get last bit and print char
+3$:      swab  r2             ; move the SP from upper byte to lower
+         mov   pc,r3          ; ret addr
+         br    txchar         ; print the space char in R2
+retR1:   cmp   (r1)+,(r1)+    ; bump return address ptr R1 by +4
+         jmp   -2(r1)         ; return to (R1)-2
+
+; print 1*<LF> followed by 12*<CR>
+;
+; R1 = return address
+; R2 = temp char
+; R3 = temp addr
+
+prteol:  mov   #<30*U>+<LF*L>,r2       ; LSB is LF, MSB is count
+1$:      mov   pc,r3          ; ret addr
+         br    txchar         ; print char in R2
+         add   (pc),r2        ; bump count
+         ble   retR1          ; done if expired
+         clrb  r2             ;
+         bisb  #CR,r2         ; set char to CR
+         br 1$                ; loop
+;
+;
+;
+rxc2:
+         nop
+         bitb  #100,r2        ; check if high half of ascii set
+         beq   $10            ; no
+         bicb  #40,r2         ; clear bit to make into upper case
+$10:                          ; fall thru for auto echo
+; character TX routine
+;
+; R2 = 8b character to TX in R2<7:0>
+; R3 = return address
+
+txchar:  tstb  @#dlxcsr       ; wait for TX ready
+         bpl   txchar         ; not ready yet, loop
+         movb  r2,@#dlxbuf    ; TX exactly what we RX'ed
+         bicb  #<200*U>+<200*L>,r2     ; clear MSB upper/lower characters
+
+retR3:   cmp   (r3)+,(r3)+    ; bump return address ptr R3 by +4
+         jmp   -2(r3)         ; return to (R3)-2
+
+; ------------------------------------------------------------
+; ------------------------------------------------------------
+
+         .=base+564
+RESTRT:                       ; SECONDARY DIAGNOSTIC ENTRY POINT
+
+; ------------------------------------------------------------
+; ------------------------------------------------------------
+
+T6:      mov   #data2,r5      ; ptr to data R5=165006
+         mov   #memloc,r2     ; ptr to memory R2=500
+         mov   (r5),r3        ; R3=177777
+         clr   (r2)           ; M[500]=0
+         movb  (r5)+,(r2)     ; M[500]=377 R5=165007
+         inc   r2             ; R2=501
+         movb  (r5)+,(r2)     ; M[501]=377 R5=165010
+         dec   r2             ; R2=500
+         cmp   @(r5)+,(r2)    ; @M[DATA2]=M[500]? R5=165012
+         bne   T6Z            ; br if FAIL
+         inc   r2             ; R2=501
+         bicb  @(r5)+,(r2)+   ; R5=165014 R2=502
+         cmp   -(r5),-(r2)    ; R5=165012 R2=500
+         bicb  @(r5)+,(r2)+   ; R5=165014 R2=501
+         bne   T6Z            ; br if FAIL
+         mov   r5,r2          ; R2=500
+         mov   -6(r5),r5      ; R5=177777
+         movb  r5,@(r2)+      ; R5=177777 R2=502
+         bisb  r5,@0(r2)      ; R5=177777
+         cmp   r3,@-(r2)      ; R5=177777 R2=500
+         beq   T7             ; br if PASS
+T6Z:     halt                 ; FAILED
+
+; ------------------------------------------------------------
+
+T7A:     tst   (r3)+          ; bump return pc, test HALT instr
+         bne   T7Z            ; br in not a halt to HALT
+T7B:     cmp   (sp),r5        ; top of stack word whould match
+         bne   T7Z            ; br if FAIL
+         rts   r3             ; return to caller
+         halt                 ; die
+
+T7:      mov   (r2),sp        ; setup stack pointer
+         mov   #T7A,r2        ; addr of subr
+         tst   (sp)+          ; test sp pop
+         jsr   r3,(r2)        ; jsr to test code entry T7A
+T7Z:     halt                 ; should bump past this
+         jsr   r3,4(r2)       ; jsr to test code entry T7B
+
+; ------------------------------------------------------------
+
+T8:      mov   #160000,r5     ; 28KW memory boundary
+         clr   @#6            ; zap trap priority level
+         mov   #T8A,@#4       ; point trap handler at next instr
+T8A:     mov   #memloc+2,sp   ; reset the stack pointer
+         tst   -(r5)          ; set R5 as last memory address
+                              ; will continue to trap thru 4 until OK
+                              ; this effectively sizes memory in R5
+
+         clr   r3             ; init memory addr at zero
+T8B:     mov   r3,(r3)        ; ADDR -> (ADDR)
+         tst   (r3)+          ; reread and bump pointer
+         cmp   r3,r5          ; hit memsize limit?
+         blos  T8B            ; loop until done
+
+         clr   r3             ; init memory addr at zero
+T8C:     neg   (r3)           ; negate current data to -ADDR
+         add   r3,(r3)        ; add ADDR + (-ADDR) to get ZERO
+         tst   (r3)+          ; reread, test for zero, bump pointer
+         bne   T8D            ; br if FAIL
+         cmp   r3,r5          ; hit memsize limit?
+         blos  T8C            ; loop until done
+
+         jmp   2(r4)          ; PASS - return to CALLER at offset+2
+
+T8D:     mov   -(r3),r4       ; memory FAIL, put bad data to R4
+         mov   r3,r0          ; put bad addr to R0
+         clr   sp             ; zap SP
+         halt                 ; and DIE
+
+   ; ------------------------------------------------------------
+
+
+         .=base+774
+verson:  .ascii   "0A"        ; version ID
+
+         .=base+776
+crc16:   .word <123162>       ; CRC-16 will go here
+
+   .end
