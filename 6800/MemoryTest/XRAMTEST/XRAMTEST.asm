@@ -1,17 +1,20 @@
 ; ------------------------------------------------------------------------------
 ; XRAMTEST.ASM - Extended RAM Test
 ; RETRO-EP4CE15 card has (2) 8KB windows with 64 banks in each window
-; Tests both banks in both windows
+; Tests all banks in both windows
 ; Prints:
-; S0++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-; 1+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++D
-; S = start
-; 0/1 = block numbers
-; + = block good
-; D - done 
+;	S0++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+;	1+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++D
+;	S = start
+;	0/1 = block number
+;	+ = block good
+;	X = bad
+;	D = done
+; Hit a key at end to avoid resetting the Serial port until done
+; Jumps to SmithBUG when done
 ; 
 ; Assembled using A68 assembler
-; "..\..\A68 6800 Assembler\a68.exe" XRAMTEST.ASM -l XRAMTEST.LST -s XRAMTEST.SRE
+; 	"..\..\A68 6800 Assembler\a68.exe" XRAMTEST.ASM -l XRAMTEST.LST -s XRAMTEST.SRE
 ;
 ; Memory Map
 ;	0xA000-0xBFFF - 512KB External SRAM
@@ -22,10 +25,10 @@
 ;		8KB Window, 64 frames
 ;		MMU2 provides additional address bits
 ;		MMU2 initialized to 0
-;	0xFC18-0xFC19 - VDU (serSelect J3 JUMPER REMOVED)
+;	0xFC18-0xFC19 - VDU  (serSelect J3 JUMPER REMOVED)
 ;	0xFC28-0xFC19 - ACIA (serSelect J3 JUMPER INSTALLED)
-;	0xFC30 - MMU1 Latch 7-bits
-;	0xFC31 - MMU2 Latch 7-bits
+;	0xFC30 - MMU0 Latch 6-bits
+;	0xFC31 - MMU1 Latch 6-bits
 ; ------------------------------------------------------------------------------
 
 ; I/O
@@ -39,8 +42,10 @@ XRAMEND0:	EQU	$BFFF
 XRAMST1:	EQU	$C000
 XRAMEND1:	EQU	$DFFF
 TOPBANKNUM:	EQU	$3F
-; 
+; SmithBUG re-start address
 SMITHBUGSTART:	EQU $f01f
+
+; The variables memory
 	ORG	$0
 STARTADR:	RMB	2
 ENDADR:		RMB	2
@@ -48,19 +53,18 @@ BANKNUM:	RMB 1
 BANK0VAL:	RMB	1
 BANK1VAL:	RMB	1
 
-	ORG	$100
-; Print out space S
+	ORG	$100		; Program starts here
 	jsr	CRLF
 	lda	a	#'S'	; Start test
 	jsr OUTEEE
-	lda	a	#'0'	; Start test
+	lda	a	#'0'	; Print Bank Number
 	jsr OUTEEE
 
 ; Inits
 	lda	a #0		; init bank number, bank values
 	sta a BANKNUM
 	sta a BANK0VAL
-; loop through the banks
+; loop through the first bank
 LOOP_BNK0:
 	jsr	SETENDS
 	jsr	testRAM		; Do RAM test
@@ -73,14 +77,14 @@ LOOP_BNK0:
 	sta a BANK0VAL
 	cmp a #TOPBANKNUM
 	ble	LOOP_BNK0
-	
+; Init for 2nd bank
 	jsr	CRLF
-	lda	a	#'1'	; Start test
+	lda	a	#'1'	; Print Bank Number
 	jsr OUTEEE
 	lda	a #1		; init bank number, bank values
 	sta a BANKNUM
 	sta a BANK1VAL
-; loop through the banks
+; loop through the second bank
 LOOP_BNK1:
 	jsr	SETENDS
 	jsr	testRAM		; Do RAM test
@@ -95,16 +99,26 @@ LOOP_BNK1:
 	ble	LOOP_BNK1
 	
 DONETEST:
+	lda a #0
+	sta a MMUREG0		; Reset back bank
+	sta a MMUREG1
 	lda	a	#'D'		; PASSED TEST
 	jsr OUTEEE
+	jsr	CRLF
 	jsr	INEEE			; Hit a char to end
 	JMP	SMITHBUGSTART	; Restart SmithBUG
 
 GOTERR:
+	lda a #0
+	sta a MMUREG0		; Reset back bank
+	sta a MMUREG1
 	lda	a	#'X'	; Error
 	jsr OUTEEE
+	jsr	CRLF
+	jsr	INEEE			; Hit a char to end
 	rts
 
+; Set up the RAM variables for the test boundaries
 SETENDS:
 	lda	a BANKNUM
 	cmp	a #0
