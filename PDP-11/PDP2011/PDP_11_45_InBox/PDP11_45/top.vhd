@@ -1,7 +1,11 @@
--- PDP-11/70 build
+-- PDP-11/45 build
+-- Runs in MultiComp in Box on Cyclone V card
 --
--- Wiki page: 	http://land-boards.com/blwiki/index.php?title=PDP-11_ON_RETRO-EP4CE15
---	Front Panel: 
+-- Wiki pages:
+--		http://land-boards.com/blwiki/index.php?title=PDP-11_ON_RETRO-EP4CE15
+-- 	http://land-boards.com/blwiki/index.php?title=Multicomp_in_a_Box
+--		http://land-boards.com/blwiki/index.php?title=RETRO-EP4CE15
+--		http://land-boards.com/blwiki/index.php?title=QM_Tech_Cyclone_V_FPGA_Board
 --	Hackaday page - https://hackaday.io/project/179642-pdp-11-on-a-fpga
 --
 -- Copyright (c) 2008-2021 Sytse van Slooten
@@ -15,6 +19,8 @@
 -- The materials are distributed in the hope that they will be useful, but WITHOUT ANY WARRANTY;
 -- without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 --
+-- Doug Gilliland 2022
+--		I did stuff, mostly porting to my card
 
 
 -- $Revision$
@@ -421,15 +427,15 @@ begin
 -- Mapping to SWITCHES-LEDS-2 Card
 
 -- Pushbuttons (left to right)
-resetbtn	<= i_PB(8);				-- CPU Reset button
+resetbtn	<= i_PB(8);				-- CPU Reset button - Front of box
 
 -- Slide Switches (left to right)
 sw(5)		<= i_SS(6);				-- Unused
 sw(4)		<= i_SS(5);				-- unused
-sw(3)		<= i_SS(4);				-- 1 = K11 Serial TTY present
-sw(2)		<= not i_SS(3);		-- RH (RP) drive when on
-sw(1)		<= not i_SS(2);		-- RK drive when on
-sw(0)		<= not i_SS(1);		-- PL drive when on
+sw(3)		<= i_SS(4);				-- 1 = K11 Serial TTY present - SS4 on bottom of box
+sw(2)		<= not i_SS(3);		-- RH (RP) drive when on - SS3 on bottom of box
+sw(1)		<= not i_SS(2);		-- RK drive when on - SS2 on bottom of box
+sw(0)		<= not i_SS(1);		-- PL drive when on - SS1 on bottom of box
 
 -- LEDs (left to right)
 o_LED(8) <= '1';					-- POWER LED
