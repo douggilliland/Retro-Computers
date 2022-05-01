@@ -433,16 +433,14 @@ signal dram_fsm : dram_fsm_type := dram_init;
 
 begin
 
--- Pushbuttons (left to right)
+-- Pushbuttons (Front Panel of box)
 resetbtn	<= i_PB8;				-- CPU Reset button - Front of box
 
--- Slide Switches (left to right)
---sw(5)		<= i_SS(6);				-- Unused
---sw(4)		<= i_SS(5);				-- unused
+-- Slide Switches (bottom of box)
 sw(3)		<= i_SS(4);				-- 1 = K11 Serial TTY present - SS4 on bottom of box
-sw(2)		<= not i_SS(3);		-- RH (RP) drive when on - SS3 on bottom of box
-sw(1)		<= not i_SS(2);		-- RK drive when on - SS2 on bottom of box
-sw(0)		<= not i_SS(1);		-- RL drive when on - SS1 on bottom of box
+sw(2)		<= i_SS(3);		-- RH (RP) drive when on - SS3 on bottom of box
+sw(1)		<= i_SS(2);		-- RK drive when on - SS2 on bottom of box
+sw(0)		<= i_SS(1);		-- RL drive when on - SS1 on bottom of box
 
 -- LEDs (left to right)
 --o_LED(8) <= '1';					-- POWER LED
