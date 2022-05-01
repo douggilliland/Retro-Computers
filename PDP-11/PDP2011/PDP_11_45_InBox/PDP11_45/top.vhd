@@ -383,7 +383,7 @@ signal rh_miso : std_logic;
 signal rh_sclk : std_logic;
 signal rh_sddebug : std_logic_vector(3 downto 0);
 
-signal have_kl11		: integer range 0 to 1;
+signal have_kl11		: integer range 0 to 4;
 signal have_xu			: integer range 0 to 1;
 
 signal sddebug : std_logic_vector(3 downto 0);
@@ -599,9 +599,9 @@ begin
 					have_rh <= 1;
             end if;
 				if sw(3) = '1' then 
-					have_kl11 <= 1;
+					have_kl11 <= 2;
 				else
-					have_kl11 <= 0;
+					have_kl11 <= 1;
             end if;
 				if sw(4) = '1' then 
 					have_xu <= 1;
