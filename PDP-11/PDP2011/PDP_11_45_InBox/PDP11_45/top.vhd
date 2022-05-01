@@ -21,7 +21,16 @@
 --
 -- Doug Gilliland 2022
 --		I did stuff, mostly porting to my card
-
+--- Slide Switches (left to right)
+		--RL drive when on - SS1 on bottom of box
+		--RK drive when on - SS2 on bottom of box
+		--RH (RP) drive when on - SS3 on bottom of box
+		--K11 Serial TTY - SS4 on bottom of box
+	-- LEDs (left to right)
+			--	greenled(1) - Off = SD card. On = SDHC card
+			--	greenled(3) - Write to SD Card?
+			--	greenled(2) - Read from SD card?
+			--	greenled(4) - Instruction Fetch
 
 -- $Revision$
 
@@ -38,7 +47,7 @@ entity top is
  		-- Switches and PEDs
 		i_SS			: in std_logic_vector(8 downto 1);
 		i_PB			: in std_logic_vector(8 downto 1);
-		o_LED			: OUT std_logic_vector(8 downto 1);
+		-- o_LED			: OUT std_logic_vector(8 downto 1);
 		
 		-- VGA (2:2:2)
       vgar : out std_logic_vector(1 downto 0);
@@ -424,28 +433,26 @@ signal dram_fsm : dram_fsm_type := dram_init;
 
 begin
 
--- Mapping to SWITCHES-LEDS-2 Card
-
 -- Pushbuttons (left to right)
 resetbtn	<= i_PB(8);				-- CPU Reset button - Front of box
 
 -- Slide Switches (left to right)
-sw(5)		<= i_SS(6);				-- Unused
-sw(4)		<= i_SS(5);				-- unused
+--sw(5)		<= i_SS(6);				-- Unused
+--sw(4)		<= i_SS(5);				-- unused
 sw(3)		<= i_SS(4);				-- 1 = K11 Serial TTY present - SS4 on bottom of box
 sw(2)		<= not i_SS(3);		-- RH (RP) drive when on - SS3 on bottom of box
 sw(1)		<= not i_SS(2);		-- RK drive when on - SS2 on bottom of box
 sw(0)		<= not i_SS(1);		-- PL drive when on - SS1 on bottom of box
 
 -- LEDs (left to right)
-o_LED(8) <= '1';					-- POWER LED
-o_LED(7)	<= not greenled(1);	-- Off = SD card. On = SDHC card
-o_LED(6) <= greenled(4);		-- Instruction Fetch
-o_LED(5) <= greenled(3);		-- Write to SD Card?
-o_LED(4)	<= greenled(2);		-- Read from SD card?
-o_LED(3)	<= i_SS(3);				-- RH (RP) drive when on
-o_LED(2)	<= i_SS(2);				-- RK drive when on
-o_LED(1)	<= i_SS(1);				-- RL drive when on
+--o_LED(8) <= '1';					-- POWER LED
+--o_LED(7)	<= not greenled(1);	-- Off = SD card. On = SDHC card
+--o_LED(6) <= greenled(4);		-- Instruction Fetch
+--o_LED(5) <= greenled(3);		-- Write to SD Card?
+--o_LED(4)	<= greenled(2);		-- Read from SD card?
+--o_LED(3)	<= i_SS(3);				-- RH (RP) drive when on
+--o_LED(2)	<= i_SS(2);				-- RK drive when on
+--o_LED(1)	<= i_SS(1);				-- RL drive when on
 
 
    pll0: pll port map(

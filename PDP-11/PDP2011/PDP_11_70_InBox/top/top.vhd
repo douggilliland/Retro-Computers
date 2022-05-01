@@ -1,5 +1,11 @@
--- PDP-11 build
---	http://land-boards.com/blwiki/index.php?title=PDP-11_ON_RETRO-EP4CE15
+-- Runs in MultiComp in Box on Cyclone V card
+--
+-- Wiki pages:
+--		http://land-boards.com/blwiki/index.php?title=PDP-11_ON_RETRO-EP4CE15
+-- 	http://land-boards.com/blwiki/index.php?title=Multicomp_in_a_Box
+--		http://land-boards.com/blwiki/index.php?title=RETRO-EP4CE15
+--		http://land-boards.com/blwiki/index.php?title=QM_Tech_Cyclone_V_FPGA_Board
+--	Hackaday page - https://hackaday.io/project/179642-pdp-11-on-a-fpga
 --
 -- Copyright (c) 2008-2021 Sytse van Slooten
 --
@@ -12,6 +18,8 @@
 -- The materials are distributed in the hope that they will be useful, but WITHOUT ANY WARRANTY;
 -- without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 --
+-- Doug Gilliland 2022
+--		I did stuff, mostly porting to my card
 
 -- $Revision$
 
