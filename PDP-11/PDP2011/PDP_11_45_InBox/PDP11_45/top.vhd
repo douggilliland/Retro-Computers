@@ -1,5 +1,6 @@
 -- PDP-11/45 build
 -- Runs in MultiComp in Box on Cyclone V card
+-- Does not need Front Panel card
 --
 -- Wiki pages:
 --		http://land-boards.com/blwiki/index.php?title=PDP-11_ON_RETRO-EP4CE15
@@ -21,16 +22,11 @@
 --
 -- Doug Gilliland 2022
 --		I did stuff, mostly porting to my card
---- Slide Switches (left to right)
-		--RL drive when on - SS1 on bottom of box
-		--RK drive when on - SS2 on bottom of box
-		--RH (RP) drive when on - SS3 on bottom of box
+--- Slide Switches (on bottom of box)
+		--RL drive when on - SS1 Top slide switch
+		--RK drive when on - SS2
+		--RH (RP) drive when on - SS3Bottom slide switch
 		--K11 Serial TTY - SS4 on bottom of box
-	-- LEDs (left to right)
-			--	greenled(1) - Off = SD card. On = SDHC card
-			--	greenled(3) - Write to SD Card?
-			--	greenled(2) - Read from SD card?
-			--	greenled(4) - Instruction Fetch
 
 -- $Revision$
 
@@ -172,7 +168,7 @@ component unibus is
       cts1 : in std_logic := '0';
       kl1_bps : in integer range 1200 to 230400 := 9600;
       kl1_force7bit : in integer range 0 to 1 := 1;
-      kl1_rtscts : in integer range 0 to 1 := 0;
+      kl1_rtscts : in integer range 0 to 1 := 1;
 
       tx2 : out std_logic;
       rx2 : in std_logic := '1';
@@ -353,10 +349,10 @@ signal iwait: std_logic;
 signal reset: std_logic;
 signal txtx0 : std_logic;
 signal rxrx0 : std_logic;
-signal txtx1 : std_logic;
-signal rxrx1 : std_logic;
-signal rtsrts1				: std_logic;
-signal ctscts1				: std_logic;
+--signal txtx1 : std_logic;
+--signal rxrx1 : std_logic;
+--signal rtsrts1				: std_logic;
+--signal ctscts1				: std_logic;
 
 signal addr : std_logic_vector(21 downto 0);
 signal addrq : std_logic_vector(21 downto 0);
@@ -433,24 +429,14 @@ signal dram_fsm : dram_fsm_type := dram_init;
 
 begin
 
--- Pushbuttons (Front Panel of box)
-resetbtn	<= i_PB8;				-- CPU Reset button - Front of box
+	-- RESET pushbutton (Front of box)
+	resetbtn	<= i_PB8;				-- CPU Reset button
 
--- Slide Switches (bottom of box)
-sw(3)		<= i_SS(4);				-- 1 = K11 Serial TTY present - SS4 on bottom of box
-sw(2)		<= i_SS(3);		-- RH (RP) drive when on - SS3 on bottom of box
-sw(1)		<= i_SS(2);		-- RK drive when on - SS2 on bottom of box
-sw(0)		<= i_SS(1);		-- RL drive when on - SS1 on bottom of box
-
--- LEDs (left to right)
---o_LED(8) <= '1';					-- POWER LED
---o_LED(7)	<= not greenled(1);	-- Off = SD card. On = SDHC card
---o_LED(6) <= greenled(4);		-- Instruction Fetch
---o_LED(5) <= greenled(3);		-- Write to SD Card?
---o_LED(4)	<= greenled(2);		-- Read from SD card?
---o_LED(3)	<= i_SS(3);				-- RH (RP) drive when on
---o_LED(2)	<= i_SS(2);				-- RK drive when on
---o_LED(1)	<= i_SS(1);				-- RL drive when on
+	-- Slide Switches (bottom of box)
+	sw(3)		<= i_SS(4);		-- 1 = K11 Serial TTY present - SS4 on bottom of box
+	sw(2)		<= i_SS(3);		-- RH (RP) drive when on - SS3 on bottom of box
+	sw(1)		<= i_SS(2);		-- RK drive when on - SS2 on bottom of box
+	sw(0)		<= i_SS(1);		-- RL drive when on - SS1 on bottom of box
 
 
    pll0: pll port map(
@@ -500,13 +486,13 @@ sw(0)		<= i_SS(1);		-- RL drive when on - SS1 on bottom of box
       rh_sdcard_miso => rh_miso,
       rh_sdcard_debug => rh_sddebug,
 
-      have_kl11 => 1,
+      have_kl11 => have_kl11,
       rx0 => rxrx0,
       tx0 => txtx0,
-      rx1					=> rxrx1,
-      tx1					=> txtx1,
-		rts1					=> rtsrts1,
-		cts1					=> ctscts1,
+      rx1					=> rx1,
+      tx1					=> tx1,
+		rts1					=> rts1,
+		cts1					=> cts1,
 
       have_xu => 0,
       xu_cs => xu_cs,
@@ -516,7 +502,8 @@ sw(0)		<= i_SS(1);		-- RL drive when on - SS1 on bottom of box
       xu_debug_tx => xu_debug_tx
    );
 
-   vt0: vt port map(
+   -- Serial port 0 is vt
+	vt0: vt port map(
       vga_hsync => vga_hsync,
       vga_vsync => vga_vsync,
       vga_fb => vga_fb,
@@ -542,10 +529,10 @@ sw(0)		<= i_SS(1);		-- RL drive when on - SS1 on bottom of box
    greenled <= ifetch & sddebug;
 
    -- Map to FPGA pins
-   tx1 <= txtx1;
-   rxrx1 <= rx1;
-	rts1 <= rtsrts1;
-	ctscts1 <= cts1;
+--   tx1 <= txtx1;
+--   rxrx1 <= rx1;
+--	rts1 <= rtsrts1;
+--	ctscts1 <= cts1;
 
    sddebug <=	rh_sddebug when have_rh = 1 else
 					rl_sddebug when have_rl = 1 else

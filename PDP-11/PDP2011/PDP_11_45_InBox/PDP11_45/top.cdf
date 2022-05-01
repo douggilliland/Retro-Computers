@@ -4,7 +4,7 @@ JedecChain;
 	DefaultMfr(6E);
 
 	P ActionCode(Cfg)
-		Device PartName(5CEFA2F23) Path("C:/Users/HPz420/Documents/GitHub/Doug Gilliland/Retro-Computers/PDP-11/PDP2011/PDP_11_45_InBox/PDP11_45/") File("top.sof") MfrSpec(OpMask(1));
+		Device PartName(5CEFA2) Path("C:/Users/HPz420/Documents/GitHub/Doug Gilliland/Retro-Computers/PDP-11/PDP2011/PDP_11_45_InBox/PDP11_45/") File("output_file.jic") MfrSpec(OpMask(1) SEC_Device(MT25QL128) Child_OpMask(1 1));
 
 ChainEnd;
 
