@@ -1,4 +1,6 @@
 -- Runs in MultiComp in Box on Cyclone V card
+-- Runs in MultiComp in Box on Cyclone V card
+-- Does not need Front Panel card
 --
 -- Wiki pages:
 --		http://land-boards.com/blwiki/index.php?title=PDP-11_ON_RETRO-EP4CE15
@@ -20,6 +22,11 @@
 --
 -- Doug Gilliland 2022
 --		I did stuff, mostly porting to my card
+--- Slide Switches (on bottom of box)
+		--RL drive when on - SS1 Top slide switch
+		--RK drive when on - SS2
+		--RH (RP) drive when on - SS3Bottom slide switch
+		--K11 Serial TTY - SS4 on bottom of box
 
 -- $Revision$
 
@@ -33,8 +40,8 @@ entity top is
       clkin 		: in std_logic;
 
       resetbtn 	: in std_logic;
-      sw 			: in std_logic_vector(5 downto 0);
-      greenled 	: out std_logic_vector(4 downto 0);
+      sw 			: in std_logic_vector(3 downto 0);
+--      greenled 	: out std_logic_vector(4 downto 0);
 
       vgar : out std_logic_vector(1 downto 0);
       vgag : out std_logic_vector(1 downto 0);
@@ -333,8 +340,8 @@ signal iwait: std_logic;
 signal reset: std_logic;
 signal txtx0 : std_logic;
 signal rxrx0 : std_logic;
-signal txtx1 : std_logic;
-signal rxrx1 : std_logic;
+--signal txtx1 : std_logic;
+--signal rxrx1 : std_logic;
 
 signal addr : std_logic_vector(21 downto 0);
 signal addrq : std_logic_vector(21 downto 0);
@@ -364,6 +371,9 @@ signal rh_mosi : std_logic;
 signal rh_miso : std_logic;
 signal rh_sclk : std_logic;
 signal rh_sddebug : std_logic_vector(3 downto 0);
+
+signal have_kl11		: integer range 0 to 4;
+signal have_xu			: integer range 0 to 1;
 
 signal sddebug : std_logic_vector(3 downto 0);
 
@@ -412,6 +422,9 @@ begin
 --   c0 <= clkin;
 
    pdp11: unibus port map(
+	
+      modelcode => 70,
+
       addr => addr,
       dati => dati,
       dato => dato,
@@ -455,8 +468,6 @@ begin
       xu_miso => xu_miso,
       xu_debug_tx => xu_debug_tx,
 
-      modelcode => 70,
-
       reset => cpureset,
       clk50mhz => clkin,
       clk => cpuclk
@@ -484,10 +495,10 @@ begin
 
    reset <= (not resetbtn) ; -- or power_on_reset;
 
-   greenled <= ifetch & sddebug;
+--   greenled <= ifetch & sddebug;
 
-   tx1 <= txtx1;
-   rxrx1 <= rx1;
+--   tx1 <= txtx1;
+--   rxrx1 <= rx1;
 
    sddebug <= rh_sddebug when have_rh = 1 else rl_sddebug when have_rl = 1 else rk_sddebug;
    sdcard_cs <= rh_cs when have_rh = 1 else rl_cs when have_rl = 1 else rk_cs;
