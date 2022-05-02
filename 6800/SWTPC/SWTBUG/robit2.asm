@@ -1,0 +1,54 @@
+       NAM     ROBIT-2
+*ROTATING BIT MEMORY TEST FOR MIKBUG
+*OR SWTBUG 6800 COMPUTER SYSTEM
+
+LOTEMP EQU     $A002
+HITEMP EQU     $A004
+PDATA1 EQU     $E07E
+OUT4HS EQU     $E0C8
+OUT2HS EQU     $E0CA
+MCL    EQU     $E19D
+OUTEEE EQU     $E1D1
+
+       ORG     $A014
+START  LDX     LOTEMP
+LODREG LDA A   #1      STORE 1 IN MEMORY
+       STA A   0,X
+       CMP A   0,X     WAS 1 WRITTEN
+       BNE     ERRPNT
+LOOP1  ASL A
+       ASL     0,X
+       CMP A   0,X
+       BNE     ERRPNT
+       CMP A   #$80    SHIFT UNTIL 80
+       BNE     LOOP1
+       BRA     INCR1
+ERRPNT STX     INXMSB
+       LDX     #MCL    PRINT C/R L/F
+       BRA     SKIP1
+
+       ORG     $A048
+       FDB     START
+SKIP1  STA A   ACCA
+       JSR     PDATA1
+       LDX     #INXMSB LOAD ERROR ADDRESS
+       JSR     OUT4HS
+       LDX     #ACCA
+       JSR     OUT2HS  OUTPUT WHAT SHOULD BE STORED
+       LDX     INXMSB
+       JSR     OUT2HS
+       LDX     #MCL
+       JSR     PDATA1 
+       LDX     INXMSB
+INCR1  CPX     HITEMP  COMPARE TO END ADDRESS
+       BEQ     FINISH
+       INX
+       BRA     LODREG
+FINISH LDA A   FLAG
+       JSR     OUTEEE
+       BRA     START
+INXMSB RMB 1
+INXLSB RMB 1
+ACCA   RMB 1
+FLAG   FCB '+       
+       END
