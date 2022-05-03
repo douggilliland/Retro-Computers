@@ -1,5 +1,5 @@
 /****************************************************************************
-* Retro Assembler Sample Code                      Last changed on 5/13/2020
+* Retro Assembler Sample Code                      Last changed on 6/16/2020
 * ==========================================================================
 *
 * Title: Hello Atari 800
@@ -20,6 +20,10 @@
 
                 //Use the Atari DOS "XEX" binary output format.
                 .format "AtariDOS"
+				
+                //Save the Info file with the memory usage values.
+                .setting "OutputSaveInfoFile", true
+
 
 Command         = $0342
 Buffer          = $0344
@@ -61,6 +65,10 @@ MessageEnd
 //(Put this to the end of the code, or before another Segment definition/selection.)
 
                 .segment "Launcher"
+
+                //This is not strictly necessary, but it will make the optional
+                //Info file look correct for this segment's memory address.
+                .org $02e0
 
                 //It only needs a pointer to the program's Start address ($0600 here).
                 //The system will jump to it after loading the program file.

@@ -37,7 +37,9 @@ Label           nop
                 adc ($12,x)
                 adc ($12),y
                 adc ($12)
+                adc $12,sp
                 adc $12,s
+                adc ($12,sp),y
                 adc ($12,s),y
                 adc [$12]
                 adc [$12],y
@@ -55,7 +57,9 @@ Label           nop
                 and ($12,x)
                 and ($12),y
                 and ($12)
+                and $12,sp
                 and $12,s
+                and ($12,sp),y
                 and ($12,s),y
                 and [$12]
                 and [$12],y
@@ -88,7 +92,9 @@ Label           nop
                 cmp ($12,x)
                 cmp ($12),y
                 cmp ($12)
+                cmp $12,sp
                 cmp $12,s
+                cmp ($12,sp),y
                 cmp ($12,s),y
                 cmp [$12]
                 cmp [$12],y
@@ -125,7 +131,9 @@ Label           nop
                 eor ($12,x)
                 eor ($12),y
                 eor ($12)
+                eor $12,sp
                 eor $12,s
+                eor ($12,sp),y
                 eor ($12,s),y
                 eor [$12]
                 eor [$12],y
@@ -143,7 +151,9 @@ Label           nop
                 xor ($12,x)
                 xor ($12),y
                 xor ($12)
+                xor $12,sp
                 xor $12,s
+                xor ($12,sp),y
                 xor ($12,s),y
                 xor [$12]
                 xor [$12],y
@@ -206,7 +216,9 @@ Label           nop
                 lda ($12,x)
                 lda ($12),y
                 lda ($12)
+                lda $12,sp
                 lda $12,s
+                lda ($12,sp),y
                 lda ($12,s),y
                 lda [$12]
                 lda [$12],y
@@ -251,7 +263,9 @@ Label           nop
                 ora ($12,x)
                 ora ($12),y
                 ora ($12)
+                ora $12,sp
                 ora $12,s
+                ora ($12,sp),y
                 ora ($12,s),y
                 ora [$12]
                 ora [$12],y
@@ -294,7 +308,9 @@ Label           nop
                 sbc ($12,x)
                 sbc ($12),y
                 sbc ($12)
+                sbc $12,sp
                 sbc $12,s
+                sbc ($12,sp),y
                 sbc ($12,s),y
                 sbc [$12]
                 sbc [$12],y
