@@ -1,0 +1,216 @@
+ca65 V2.17 - Git de519b9
+Main file   : screen-c1p-48x16.s
+Current file: screen-c1p-48x16.s
+
+000000r 1               ;
+000000r 1               ; Implementation of 48x16 screen-layout related functions for Challenger 1P
+000000r 1               ;
+000000r 1               
+000000r 1                       .include        "osiscreen.inc"
+000000r 2               ;
+000000r 2               ; Macro definitions for screen layout modules
+000000r 2               ;
+000000r 2               
+000000r 2                       .include        "extzp.inc"
+000000r 3               ;
+000000r 3               ; Additional zero page locations for the Challenger 1P.
+000000r 3               ;
+000000r 3               
+000000r 3               ; ------------------------------------------------------------------------
+000000r 3               
+000000r 3                       .globalzp       CURS_X, CURS_Y, SCREEN_PTR, CHARBUF
+000000r 3               
+000000r 2               
+000000r 2               .linecont +
+000000r 2               
+000000r 2               ;
+000000r 2               ; Internal function for screensize()
+000000r 2               ;
+000000r 2               .macro  osi_screensize ScrWidth, ScrHeight
+000000r 2                                               ; Macro implementation of internal screensize
+000000r 2                                               ; function for given width and height in
+000000r 2                                               ; characters
+000000r 2               
+000000r 2                       .export         screensize
+000000r 2               
+000000r 2               .proc   screensize
+000000r 2                       ldx     #ScrWidth
+000000r 2                       ldy     #ScrHeight
+000000r 2                       rts
+000000r 2               .endproc
+000000r 2               .endmacro
+000000r 2               
+000000r 2               ;
+000000r 2               ; void clrscr (void);
+000000r 2               ;
+000000r 2               .macro  osi_clrscr ScrBase, ScrRamSize
+000000r 2               
+000000r 2                       .export         _clrscr
+000000r 2               
+000000r 2               .proc   _clrscr
+000000r 2                       lda     #<ScrBase       ; Fill whole video RAM with blanks by calling
+000000r 2                       ldx     #>ScrBase       ; memset appropriately
+000000r 2                       jsr     pushax
+000000r 2               
+000000r 2                       lda     #' '
+000000r 2                       ldx     #$00
+000000r 2                       jsr     pushax
+000000r 2               
+000000r 2                       lda     #<ScrRamSize
+000000r 2                       ldx     #>ScrRamSize
+000000r 2                       jsr     _memset
+000000r 2               
+000000r 2                       lda     #$00            ; Cursor in upper left corner
+000000r 2                       sta     CURS_X
+000000r 2                       sta     CURS_Y
+000000r 2               
+000000r 2                       jmp     plot            ; Set the cursor position
+000000r 2               .endproc
+000000r 2               
+000000r 2               .endmacro
+000000r 2               
+000000r 2               ;
+000000r 2               ; cputc/cputcxy for Challenger 1P
+000000r 2               ; Based on PET/CBM implementation
+000000r 2               ;
+000000r 2               
+000000r 2               .macro  osi_cputfuncs ScrBase, ScrFirstChar, ScrWidth, ScrHeight, \
+000000r 2                                        ScrollDist, ScrLo, ScrHi
+000000r 2               
+000000r 2                                               ; Number of characters to move for scrolling
+000000r 2                                               ; by one line
+000000r 2               ScrollLength    = (ScrHeight - 1) * ScrollDist
+000000r 2               
+000000r 2               ;
+000000r 2               ; void cputcxy (unsigned char x, unsigned char y, char c);
+000000r 2               ; void cputc (char c);
+000000r 2               ;
+000000r 2                       .export         _cputcxy, _cputc, cputdirect, putchar
+000000r 2                       .export         newline, plot
+000000r 2               
+000000r 2               _cputcxy:
+000000r 2                       pha                     ; Save C
+000000r 2                       jsr     gotoxy          ; Set cursor, drop x and y
+000000r 2                       pla                     ; Restore C
+000000r 2               
+000000r 2               ; Plot a character - also used as internal function
+000000r 2               
+000000r 2               _cputc: cmp     #$0A            ; CR?
+000000r 2                       bne     L1
+000000r 2                       lda     #0
+000000r 2                       sta     CURS_X
+000000r 2                       beq     plot            ; Recalculate pointers
+000000r 2               
+000000r 2               L1:     cmp     #$0D            ; LF?
+000000r 2                       beq     newline         ; Recalculate pointers
+000000r 2               
+000000r 2               cputdirect:
+000000r 2                       jsr     putchar         ; Write the character to the screen
+000000r 2               
+000000r 2               ; Advance cursor position, register Y contains horizontal position after
+000000r 2               ; putchar
+000000r 2               
+000000r 2                       cpy     #(ScrWidth - 1) ; Check whether line is full
+000000r 2                       bne     L3
+000000r 2                       jsr     newline         ; New line
+000000r 2                       ldy     #$FF            ; + cr
+000000r 2               L3:     iny
+000000r 2                       sty     CURS_X
+000000r 2                       rts
+000000r 2               
+000000r 2               newline:
+000000r 2                       inc     CURS_Y
+000000r 2                       lda     CURS_Y
+000000r 2                       cmp     #ScrHeight      ; Screen height
+000000r 2                       bne     plot
+000000r 2                       dec     CURS_Y          ; Bottom of screen reached, scroll
+000000r 2               
+000000r 2                                               ; Scroll destination address
+000000r 2                       lda     #<(ScrBase + ScrFirstChar)
+000000r 2                       ldx     #>(ScrBase + ScrFirstChar)
+000000r 2                       jsr     pushax
+000000r 2               
+000000r 2                                               ; Scroll source address
+000000r 2                       lda     #<(ScrBase + ScrFirstChar + ScrollDist)
+000000r 2                       ldx     #>(ScrBase + ScrFirstChar + ScrollDist)
+000000r 2                       jsr     pushax
+000000r 2               
+000000r 2                                               ; Number of characters to move
+000000r 2                       lda     #<ScrollLength
+000000r 2                       ldx     #>ScrollLength
+000000r 2                       jsr     _memmove
+000000r 2               
+000000r 2                                               ; Address of first character in last line
+000000r 2                                               ; of screen
+000000r 2                       lda     #<(ScrBase + ScrFirstChar + ScrollLength)
+000000r 2                       sta     ptr1
+000000r 2                       lda     #>(ScrBase + ScrFirstChar + ScrollLength)
+000000r 2                       sta     ptr1+1
+000000r 2               
+000000r 2                       ldy     #ScrWidth       ; Fill last line with blanks
+000000r 2                       lda     #' '
+000000r 2               clrln:  sta     (ptr1),y
+000000r 2                       dey
+000000r 2                       bpl     clrln
+000000r 2               
+000000r 2               plot:   ldy     CURS_Y
+000000r 2                       lda     ScrLo,y
+000000r 2                       sta     SCREEN_PTR
+000000r 2                       lda     ScrHi,y
+000000r 2                       sta     SCREEN_PTR+1
+000000r 2                       rts
+000000r 2               
+000000r 2               ; Write one character to the screen without doing anything else, return X
+000000r 2               ; position in register Y
+000000r 2               
+000000r 2               putchar:
+000000r 2                       ldy     CURS_X
+000000r 2                       sta     (SCREEN_PTR),y  ; Set char
+000000r 2                       rts
+000000r 2               
+000000r 2               .endmacro
+000000r 2               
+000000r 2               .macro osi_screen_funcs ScrBase, ScrRamSize, ScrFirstChar, \
+000000r 2                                       ScrWidth, ScrHeight, ScrollDist
+000000r 2               
+000000r 2                       .import         gotoxy
+000000r 2                       .import         _memmove, _memset, pushax
+000000r 2                       .importzp       ptr1
+000000r 2               
+000000r 2               .rodata
+000000r 2               
+000000r 2               ; Screen address tables - offset to real screen
+000000r 2               ScrTabLo:
+000000r 2                       .repeat ScrHeight, I
+000000r 2                       .byte <(ScrBase + ScrFirstChar + I * ScrollDist)
+000000r 2                       .endrep
+000000r 2               
+000000r 2               ScrTabHi:
+000000r 2                       .repeat ScrHeight, I
+000000r 2                       .byte >(ScrBase + ScrFirstChar + I * ScrollDist)
+000000r 2                       .endrep
+000000r 2               
+000000r 2               .code
+000000r 2               
+000000r 2               osi_cputfuncs   ScrBase, ScrFirstChar, ScrWidth, ScrHeight, \
+000000r 2                                        ScrollDist, ScrTabLo, ScrTabHi
+000000r 2               osi_screensize  ScrWidth, ScrHeight
+000000r 2               osi_clrscr      ScrBase, ScrRamSize
+000000r 2               
+000000r 2               .endmacro
+000000r 2               
+000000r 1               
+000000r 1               C1P_SCR_BASE    := $D040        ; Base of C1P video RAM
+000000r 1               								; offset due to hidden lines
+000000r 1               C1P_VRAM_SIZE   = $0400         ; Size of C1P video RAM (1 kB)
+000000r 1               C1P_SCR_WIDTH   = $30           ; Screen width (48)
+000000r 1               C1P_SCR_HEIGHT  = $10           ; Screen height (16)
+000000r 1               C1P_SCR_FIRSTCHAR = $0b         ; Offset of cursor position (0, 0) from base
+000000r 1                                               ; of video RAM
+000000r 1               C1P_SCROLL_DIST = $40           ; Memory distance for scrolling by one line (64 chars/line)
+000000r 1               
+000000r 1  4B 8B CB 0B  osi_screen_funcs C1P_SCR_BASE, C1P_VRAM_SIZE, C1P_SCR_FIRSTCHAR, \
+000004r 1  4B 8B CB 0B  
+000008r 1  4B 8B CB 0B  
+000000r 1               		C1P_SCR_WIDTH, C1P_SCR_HEIGHT, C1P_SCROLL_DIST
+000000r 1               
