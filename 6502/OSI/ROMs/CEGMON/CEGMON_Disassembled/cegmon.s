@@ -845,7 +845,7 @@ MCACIA: jsr     TAPIN		; $FE80 MCACIA get char from ACIA, strip off top bit befo
         and     #$7F
         rts
 
-LFE86:  ldy     #$08
+LFE86:  ldy     #$08		; Keyboard?
 LFE88:  dey
         asl     a
         bcc     LFE88
