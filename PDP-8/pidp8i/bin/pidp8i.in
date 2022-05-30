@@ -1,0 +1,222 @@
+#!/bin/bash
+########################################################################
+# pidp8i.in - Collection of scriptlets for dealing with the pidp8i
+#   systemd user service and its associated screen manager session.
+#
+# Copyright © 2015-2020 Oscar Vermeulen and Warren Young
+#
+# Permission is hereby granted, free of charge, to any person obtaining
+# a copy of this software and associated documentation files (the
+# "Software"), to deal in the Software without restriction, including
+# without limitation the rights to use, copy, modify, merge, publish,
+# distribute, sublicense, and/or sell copies of the Software, and to
+# permit persons to whom the Software is furnished to do so, subject to
+# the following conditions:
+#
+# The above copyright notice and this permission notice shall be
+# included in all copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+# EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+# MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+# IN NO EVENT SHALL THE AUTHORS LISTED ABOVE BE LIABLE FOR ANY CLAIM,
+# DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT
+# OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
+# OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+#
+# Except as contained in this notice, the names of the authors above
+# shall not be used in advertising or otherwise to promote the sale,
+# use or other dealings in this Software without prior written
+# authorization from those authors.
+########################################################################
+
+bootdir="@BOOTDIR@"
+prefix="@ABSPREFIX@"
+sim="$prefix/bin/pidp8i-sim"
+scanswitch="$prefix/libexec/scanswitch"
+systemctl=$(uname -r | grep -qw Microsoft && echo /bin/nothing || echo /bin/systemctl)
+ggrep=$(which ggrep grep 2> /dev/null | head -1)
+
+if [ -e "$prefix/etc/pidp8i.rc" ]
+then
+    . "$prefix/etc/pidp8i.rc"
+fi
+[ -n "$SCREEN_MANAGER" ] || SCREEN_MANAGER=screen
+if [ ! -t 1 ] && [ "$SCREEN_MANAGER" = "none" ]
+then
+    echo "The 'none' screen manager mode is meant for interactive use only!"
+    exit 1
+fi
+
+is_running() {
+    if [ "$SCREEN_MANAGER" = "none" ]
+    then
+        return 1
+    elif [ "$SCREEN_MANAGER" = "tmux" ]
+    then
+        tmux has-session -t pidp8i 2>/dev/null
+    else
+        procs=`screen -list pidp8i | $ggrep -Pc '\d\.pidp8i'`
+        test -n "$procs" && test $procs -gt 0 && return 0 || return 1
+    fi
+}
+
+sim_child_pid() {
+    if [ "$SCREEN_MANAGER" = "none" ]
+    then
+        echo ""
+    elif [ "$SCREEN_MANAGER" = "tmux" ]
+    then
+        tmux list-sessions -F '#{session_name} #{pid}' | awk '/^pidp8i / {print $2}'
+    else
+        screen -ls pidp8i | grep -Eo '[[:digit:]]+\.pidp8i' | grep -Eo '^[[:digit:]]+'
+    fi
+}
+
+# Were we given a command line argument?
+if [ -z "$1" ]
+then
+    # No, so try to run or attach to the running simulator
+    if [ "$SCREEN_MANAGER" = "none" ]
+    then
+        exec $0 start
+    elif is_running
+    then
+        echo Joining simulator session already in progress...
+        if [ "$SCREEN_MANAGER" = "tmux" ]
+        then
+            exec tmux attach-session -d -t pidp8i
+        else
+            exec screen -r -S pidp8i
+        fi
+    else
+        cat <<ERROR
+Either the simulator isn't running, or it isn't running under a ${SCREEN_MANAGER}
+session owned by @INSTUSR@.  Did you start the simulator via systemd?
+
+ERROR
+		exit 1
+    fi
+fi
+
+# Take first parameter as a command verb.  Lowercase it in case we're
+# connected to an all-caps terminal; it's a common wish to attach a real
+# ASR-33 to a PiDP-8/I, for example.
+verb="$(echo $1 | awk '{print tolower($0)}')"
+shift
+
+if [ "$verb" = "install" ]
+then
+    # "sudo make install" is running us with root perms dropped.  We do
+    # a bunch of things for it that would be awkward to do from within
+    # the Makefile, which must be done as @INSTUSR@.
+	test -x $systemctl || exit 0
+    set -e
+    cd @abs_top_builddir@
+    export XDG_RUNTIME_DIR=/run/user/$(id -u)
+    unitdir=~@INSTUSR@/.local/share/systemd/user
+    @INSTALL@ -d $unitdir
+    @INSTALL@ -m 644 @srcdir@/etc/pidp8i.service $unitdir
+    $systemctl --user daemon-reload
+    $systemctl --user enable pidp8i
+elif test -t 1 -a -x $systemctl
+then
+    # We were given some other arg(s) and we're attached to a terminal,
+    # so build a systemctl command with those args so the user doesn't
+    # have to type out the canonical form of the command.
+    $systemctl --user $verb "$@" pidp8i
+    exit $?
+elif [ "$verb" = "start" ]
+then
+    # systemd is telling us to start the background simulator
+    if is_running
+    then
+        echo "PiDP-8/I is already running, not starting again." >&2
+        exit 0
+    fi
+
+    # User is asking us to start the PiDP-8/I simulator. First step:
+    # check for special front panel switch combos which control us.
+    $scanswitch >/dev/null 2>&1
+    rv=$?
+    if [ $rv -eq 8 ]; then
+        echo "PiDP-8/I STOP switch detected, aborting." >&2
+        exit 0
+    elif [ $rv -lt 8 ]; then
+        bscript="$bootdir/""$rv"".script"
+        echo "Booting from $bscript..."
+    elif [ $rv -eq 127 ]; then
+        echo "PiDP-8/I panel not present.  Booting 0.script with pure SIMH..."
+        sim="$prefix/bin/pdp8"
+        bscript="$bootdir/0.script"
+    else
+        echo "Bad return value $rv from $scanswitch!"
+        exit 1
+    fi
+
+    # We want SIMH to have a sensible working directory: somewhere the
+    # user can write files and which makes sense when giving SIMH
+    # commands involving file paths.  This default is chosen because it
+    # satisfies both criteria.
+    # If you change the default here, change that script as well.
+    set -e
+    cd "$prefix/share/media"
+
+    # Start the simulator
+    if [ "$SCREEN_MANAGER" = "none" ]
+    then
+        exec "$sim" "$bscript"
+    elif [ "$SCREEN_MANAGER" = "tmux" ]
+    then
+        tmux new-session -s pidp8i -d "$sim" "$bscript"
+    else
+        screen -dm -S pidp8i "$sim" "$bscript"
+    fi
+
+    # Tell systemd where to find the backgrounded simulator so it can
+    # stop it via systemctl.  Skipped on non-systemd systems and where
+    # SCREEN_MANAGER=none.
+    scpid=$(sim_child_pid)
+    if [ -x $systemctl ] && [ -n "$scpid" ] && [ $scpid -gt 0 ]
+    then
+        systemd-notify --ready --pid=$scpid
+    fi
+
+    exit 0
+elif [ "$verb" = "stop" ]
+then
+    # Someone (maybe the user via "pidp8i stop", maybe systemd via
+    # "systemctl pidp8i stop") is telling us to stop the background
+    # simulator.
+    #
+    # First figure out what the simulator is called and send it the
+    # signal that shuts it down gracefully.
+    for sim in pdp8 pidp8i-sim
+    do
+        if pkill -0 $sim
+        then
+            # Give it the signal to start shutting down gracefully: stop
+            # GPIO thread, save simulator state if savestate enabled...
+            # Give it time to complete, then kill it hard in case it
+            # doesn't die on its own.
+            echo -n "Stopping $sim simulator..."
+            for sig in TERM KILL ; do pkill -$sig $sim ; sleep 1 ; done
+
+            # The screen manager might still be running despite its
+            # only child dying.  Nuke it hard if so.
+            if ! is_running || [ "$SCREEN_MANAGER" = "none" ]
+            then
+                echo "The PiDP-8/I simulator is stopped."
+            elif [ "$SCREEN_MANAGER" = "tmux" ]
+            then
+                tmux kill-session -t pidp8i
+            else
+                screen -S pidp8i -X quit
+            fi
+
+            exit 0
+        fi
+    done 
+
+    exit 1
+fi

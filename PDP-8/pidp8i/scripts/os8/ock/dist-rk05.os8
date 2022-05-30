@@ -1,0 +1,200 @@
+# Creates an OS/8 Combined Kit binary rk05 image from compiled
+# Object rk05 images.
+# Based on v3d-dist-rk05.os8, and the v3f stuff in all-tu56.os8
+
+# I'm not sure if we can build an RK05 system from scratch
+# when booted from RK05, so we'll bootstrap using the OS/8
+# distribution DECtape
+mount dt0 $os8mi/al-4711c-ba-os8-v3d-1.1978.tu56 required scratch
+
+# rk0 holds the media we build
+mount rk0 $os8mo/ock-dist.rk05 new
+# rk1  holds the system object image.
+mount rk1 $os8mo/ock-sys-obj.rk05
+# rk2 holds the CUSPS object image
+mount rk2 $os8mo/ock-cusps-obj.rk05
+
+boot dt0
+
+# Our built image inherits whether or not INIT is set.
+# A blank tape will complain "NO CCL!" on first boot.
+# So first thing SET SYS NO INIT
+
+os8 SET SYS NO INIT
+
+print BUILD the system head
+# BUILD requires our OS8.BN and CD.BN to be on DSK:
+os8 COPY DSK:<RKB1:OS8.BN,CD.BN
+
+begin build RKB1:BUILD
+# But our build has no handlers
+LOAD RKB1:RK8ESY.BN
+LOAD RKB1:RK8ENS.BN
+LOAD RKB1:RXNS.BN
+LOAD RKB1:KL8E.BN
+LOAD RKB1:LPSV.BN
+LOAD RKB1:TC08SY.BN
+LOAD RKB1:TC08NS.BN
+LOAD RKB1:PT8E.BN
+LOAD RKB1:TD8ESY.BN
+LOAD RKB1:ROMMSY.BN
+LOAD RKB1:TD8EA.BN
+# We could load more TD8E non-system drivers
+# But there is limited space, so we elect not to.
+# LOAD RKB1:TD8EB.BN
+# LOAD RKB1:TD8EC.BN
+# LOAD RKB1:TD8ED.BN
+SYSTEM RK8E
+INSERT KL8E,TTY
+INSERT LPSV,LPT
+INSERT PT8E,PTR
+INSERT PT8E,PTP
+INSERT RK8E,RKA0,RKB0
+INSERT RK05,RKA1,RKB1
+INSERT RK05,RKA2,RKB2
+INSERT TC,DTA0,DTA1
+DSK RK8E:RKB0
+PRINT
+BUILD DSK:OS8.BN DSK:CD.BN
+BOOT
+end build
+
+os8 SAVE SYS BUILD.SV
+# There is stuff we have to do to get a batch-literate BUILD here.
+
+print copying in CUSPS.
+
+begin cdprog RKB2:FOTP.SV
+RKA0:<RKB1:CCL.SV
+RKA0:<RKB1:RESORC.SV
+RKA0:<RKB1:BATCH.SV
+RKA0:<RKB2:FOTP.SV
+RKA0:<RKB2:DIRECT.SV
+RKA0:<RKB2:BOOT.SV
+RKA0:<RKB2:EDIT.SV
+RKA0:<RKB2:EPIC.SV
+RKA0:<RKB2:PIP.SV
+RKA0:<RKB2:SET.SV
+RKA0:<RKB2:FUTIL.SV
+RKA0:<RKB2:PAL8.SV
+RKA0:<RKB2:BITMAP.SV
+RKA0:<RKB2:CREF.SV
+RKA0:<RKB2:SRCCOM.SV
+RKA0:<RKB2:HELP.SV
+RKA0:<RKB2:RXCOPY.SV
+RKA0:<RKA1:HELP.HL
+RKA0:<RKB2:TECO.SV
+RKA0:<RKB2:CAMP.SV
+RKA0:<RKB2:DTCOPY.SV
+RKA0:<RKB2:DTFRMT.SV
+RKA0:<RKB2:MCPIP.SV
+RKA0:<RKB2:MSBAT.SV
+RKA0:<RKB2:PIP10.SV
+RKA0:<RKB2:RKLFMT.SV
+RKA0:<RKB2:TDCOPY.SV
+RKA0:<RKB2:TDFRMT.SV
+RKA0:<RKA1:??SYS.BI
+end cdprog RKB2:FOTP.SV
+
+os8 R CCL
+
+# Initialize RKB0:
+os8 ZERO DSK:
+
+os8 SET TTY COL 3
+begin default crt
+  os8 SET TTY SCOPE
+end default crt
+
+umount rk1
+umount rk2
+# rk1  holds the BASIC/FORTRAN II object image.
+mount rk1 $os8mo/ock-bf2-obj.rk05
+
+# We install SABR and LOADER even if F2 disabled because
+# we use them for the C compiler.
+print copying in BASIC and SABR and LOADER
+begin cdprog SYS:FOTP.SV
+RKA0:<RKB1:BLOAD.SV
+RKA0:<RKB1:BRTS.SV
+RKA0:<RKB1:EABRTS.BN
+RKA0:<RKB1:BCOMP.SV
+RKA0:<RKB1:BASIC.*
+RKA0:<RKB1:SABR.SV
+RKA0:<RKB1:LOADER.SV
+RKA0:<RKA1:RESEQ.BA
+RKA0:<RKA1:?CBAS.BI
+# Copy in the BASIC UF.PA source. Maybe make it later
+# Note it's starting address on the v3d dist is 7605.
+RKB0:<RKA1:UF.PA
+end cdprog SYS:FOTP.SV
+
+print Bringing in optional packages build from Combined Kit source
+
+begin default fortran-ii
+begin cdprog SYS:FOTP.SV
+RKA0:<RKB1:FORT.SV
+RKA0:<RKB1:LIBSET.SV
+RKA0:<RKB1:*.RL
+RKA0:<RKA1:GENIOX.SB
+end cdprog SYS:FOTP.SV
+end default fortran-ii
+
+# We're done with BASIC and FORTRAN II object rk05.
+
+# Build from source the OCOMP Octal Compare/Dump utility.
+# And install it.
+print Build and install OCOMP
+cpto $src/src/os8/tools/ocomp/ocomp.pa RKB0:OCOMP.HL
+cpto $src/src/os8/tools/ocomp/ocomp.pa RKB0:OCOMP.PA
+pal8 RKB0:OCOMP.BN<RKB0:OCOMP.PA /8/9
+os8 LOAD RKB0:OCOMP.BN
+os8 SAVE RKA0:OCOMP.SV;12000
+os8 DEL RKB0:OCOMP.PA,OCOMP.BN
+
+# FORTRAN IV
+begin default fortran-iv
+# rk1 holds the FORTRAN IV object image
+mount rk1 $os8mo/ock-fiv-obj.rk05
+os8 COPY RKA0:<RKB1:*.*
+umount rk1
+end default fortran-iv
+
+# MACREL V2
+# In future we will build this from source
+begin default macrel
+mount dt1 $os8mi/al-5642c-ba-macrel-v2-futil-v8b-by-hand.tu56 ro required
+os8 COPY RKA0:<DTA1:MACREL.SV,LINK.SV,KREF.SV,OVRDRV.MA
+umount dt1
+end default macrel
+
+# Further system initialization
+
+begin default lcmod
+os8 SUBMIT SYS:LCSYS.BI
+  begin default basic
+  os8 SUBMIT SYS:LCBAS.BI
+  end default basic
+end default lcmod
+
+# INIT message setting stuff goes here
+# Implement the config option to enable/disable INIT
+# By default we enable it.
+# We may be building from distribution media with INIT enabled.
+# So always SET SYS NO INIT
+# and undo it by default, to be overridden if --disable-os8-init is set.
+# Only copy init.cm and init.tx if init is enabled.
+
+os8 SET SYS NO INIT
+begin default init
+cpto $os8mi/init.cm
+# Location of init.tx is funky so that test-os8-run will be able to
+# sanitize it.
+cpto $build/media/os8/ock-init.tx DSK:INIT.TX
+os8 SET SYS INIT
+end default init
+
+# Squish of SYS and DSK goes here
+os8 SQUISH DSK:/O
+os8 SQUISH SYS:/O
+

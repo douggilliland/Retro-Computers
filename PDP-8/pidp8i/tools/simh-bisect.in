@@ -1,0 +1,160 @@
+#!/bin/bash
+########################################################################
+# simh-bisect - Given a partially-applied simh-update setup, pass this
+#   script's command line args to "git bisect" then merge that new
+#   version into our PiDP-8/I variant to try the combination.
+#
+# Copyright © 2021 Warren Young
+#
+# Permission is hereby granted, free of charge, to any person obtaining
+# a copy of this software and associated documentation files (the
+# "Software"), to deal in the Software without restriction, including
+# without limitation the rights to use, copy, modify, merge, publish,
+# distribute, sublicense, and/or sell copies of the Software, and to
+# permit persons to whom the Software is furnished to do so, subject to
+# the following conditions:
+#
+# The above copyright notice and this permission notice shall be
+# included in all copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+# EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+# MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+# IN NO EVENT SHALL THE AUTHORS LISTED ABOVE BE LIABLE FOR ANY CLAIM,
+# DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT
+# OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
+# OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+#
+# Except as contained in this notice, the names of the authors above
+# shall not be used in advertising or otherwise to promote the sale,
+# use or other dealings in this Software without prior written
+# authorization from those authors.
+########################################################################
+
+SRCDIR="@srcdir@"
+SRCSUBDIR="$SRCDIR/src/SIMH"
+WORKDIR="@builddir@/simh-update-temp"
+OUR_SIMH_DIR="$WORKDIR/simh/ours"
+CURR_SIMH_DIR="$WORKDIR/simh/curr"
+LOGFILE="$WORKDIR/output.log"
+PATCHFILE="$WORKDIR/pidp8i.patch"
+OLD_SGCID=$(grep ^SGCID "@srcdir@"/Makefile.in | cut -f2 -d=)
+
+# Ensure we have a working directory
+if [ ! -d "$CURR_SIMH_DIR" ]
+then
+    cat <<ERROR
+Need $CURR_SIMH_DIR set up.
+Try running simh-update up to the point where it tries building things,
+then retry with this script.
+
+ERROR
+    exit 1
+fi
+
+# From here on, send all output to the log file.
+# Code based on http://stackoverflow.com/a/20564208/142454
+exec 1<&-
+exec 2<&-
+exec 1<>"$LOGFILE"
+exec 2>&1
+function say() {
+	echo "$@" >> /dev/tty
+}
+
+# Bail on errors so we don't have to test everything.  Ideally, nothing
+# from here on will fail.  If it does, the log file will explain it.
+# Code based on http://stackoverflow.com/a/185900/142454
+function error() {
+	lineno="$1"
+	message="$2"
+	code="${3:-1}"
+	if [ -n "$message" ] ; then message=": $message" ; fi
+	read -r -d '%' errmsg <<ERROR
+Error on or near line $lineno, code ${code}$message!  (See log file for
+more info: $LOGFILE)
+%
+ERROR
+	say
+	say "$errmsg"
+	say
+	exit $code
+}
+trap 'error ${LINENO}' ERR
+
+# Deal with uncommitted changes in $SRCSUBDIR
+cd "$SRCSUBDIR/.."		# we need the SIMH/ prefix to do this test properly!
+say "Tossing uncommitted changes in $SRCSUBDIR..."
+fossil revert .
+cd "@builddir@"
+
+# Throw away changes made by prior run in "ours" worktree
+pushd "$OUR_SIMH_DIR"
+say "Resetting 'ours' dir..."
+git checkout -f "$OLD_SGCID"
+popd
+
+# Pass args to "git bisect" to retreive next version or whatever else
+# the user wants done.
+pushd "$CURR_SIMH_DIR"
+if git bisect log 2>&1 | grep -q 'not bisecting' ; then git bisect start ; fi
+say "Bisecting..."
+git bisect "$@"
+popd
+
+# Rename upstream Git paths to match our *.in files so that our produced
+# patches are made against those higher-level versions.  If we didn't do
+# this, we'd have to manually resubstitute variables for absolute paths.
+#
+# Filter out Makefile.in because we don't want to try and patch the
+# upstream plain Makefile to work with autosetup.  It complicates the
+# resulting patch file to no purpose.
+say Renaming upstream files to match our \*.in variants...
+find "$SRCSUBDIR" -name \*.in -print | grep -v Makefile.in | while read f
+do
+	inf="${f#$SRCSUBDIR/}"	# make path fully relative
+	genf="${inf%.in}"		# remove .in from the end
+    test -f  "$OUR_SIMH_DIR/$genf" && mv  "$OUR_SIMH_DIR/$genf"  "$OUR_SIMH_DIR/$inf"
+    test -f "$CURR_SIMH_DIR/$genf" && mv "$CURR_SIMH_DIR/$genf" "$CURR_SIMH_DIR/$inf"
+done
+
+# Produce a patch file for modifying the upstream $OLD_SGCID version to
+# merge in our local changes.
+#
+# For some reason, diff(1) returns an error when we do this, at least on
+# OS X.  Perhaps it is not happy about the fact that the file set in
+# each tree is different?  Regardless of reason, we must check for a
+# non-empty patch file to determine whether an actual error occurred.
+say Producing clean patch file from upstream ${OLD_SGCID:0:8} version
+say to our local PiDP-8/I version...
+if ! diff -ru "$OUR_SIMH_DIR" "$SRCSUBDIR" | grep -v '^Only in' > "$PATCHFILE" &&
+		 [ ! -s "$PATCHFILE" ]
+then
+	error $LINENO "patch generation failed" 2
+fi
+
+# For each file in src/SIMH that is also present in the current upstream
+# version of SIMH, overwrite our version.
+find "$SRCSUBDIR" -type f -print | while read f
+do
+	base="${f#$SRCSUBDIR}"
+	upstream="$CURR_SIMH_DIR/$base"
+	test -e "$upstream" && cp "$upstream" "$f"
+done
+
+# Now try to apply the patch we made above to the upstream files.
+patch -p0 < "$PATCHFILE"
+
+# No error, so save the new tip-of-master Git commit ID and rebuild.
+# Force at least SCP to rebuild, else new values won't be added.
+#
+# The reconfig step is sidesteps a dependency bug in the current
+# Makefile.in which allows make(1) to rebuild scp.o before the automatic
+# reconfig occurs, so the old timestamp gets baked into the simulator.
+# It'd be better to fix the bug, but I failed to diagnose it.
+exec 1<&-
+exec 1<>/dev/tty
+echo "Patch appears to have applied cleanly.  Attempting a rebuild..."
+make reconfig
+touch src/SIMH/scp.c
+exec tools/mmake bin/pidp8i-sim

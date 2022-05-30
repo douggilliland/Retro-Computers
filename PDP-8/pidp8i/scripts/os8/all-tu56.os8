@@ -1,0 +1,316 @@
+# Builds a bootable dectape image for either v3d or v3f.
+# Pieces come from, as needed:
+# v3d-patched.rk05, the os8v3d device driver distribution DECtape,
+# and the os8v3f-build rk05.
+# Keep this file in sync with v3d-dist.os8 which determines
+# which device drivers are available by default when running
+# BUILD.SV from SYS: in the v3d enabled sections below.
+
+# Control: We default to v3d unless externally overridden to enable v3f
+enable v3d
+begin enabled v3f
+  disable v3d
+end enabled v3f
+
+begin enabled v3f
+  print Building v3f
+end enabled v3f
+
+begin enabled v3d
+  print Building OS/8 v3d tu56 image
+end enabled v3d
+
+begin enabled v3f
+  mount rk1 $bin/v3f-made.rk05 required
+end enabled v3f
+
+# Control: We default to tc08 unless externally overridden to enable
+# Either td12k or tdrom which will enable td8e and disable tc08
+
+enable tc08
+begin enabled td12k
+  print for td12k configuration of TD8E.
+  enable td8e
+end enabled td12k
+
+begin enabled tdrom
+  print for dtrom configuration of TD8E.
+  enable td8e
+end enabled tdrom
+
+begin enabled td8e
+  disable tc08
+end enabled td8e
+
+# This script can be run from a parallel make
+# So we create a scratch version of the system rk05 to prevent conflicts.
+# We have to do this anyway for TD8E since we change the DECtape configuration.
+
+mount rk0 $bin/v3d-patched.rk05 required scratch
+boot rk0
+
+# Our built image inherits whether or not INIT is set.
+# A blank tape will complain "NO CCL!" on first boot.
+# So first thing SET SYS NO INIT
+
+os8 SET SYS NO INIT
+
+begin enabled td8e
+  # For TD8E we run BUILD twice
+  # First from SYS to change switch from TC08 to TD8E
+  # Then  to build the TD8E head from either RKB1 for v3f or from SYS for v3d.
+
+  begin build SYS:BUILD
+    DELETE DTA0,DTA1
+    INSERT TD8A,DTA0,DTA1
+    BOOT
+  end build
+
+  configure tape td
+
+  # Now that the system is configured for TD8E build the .tu56
+  # Mount the destination image, either v3d or v3f on drive 0.
+  begin enabled v3d
+    mount td0 $os8mo/v3d-td12k.tu56 new
+  end enabled v3d
+
+  begin enabled v3f
+    mount td0 $os8mo/v3f-td12k.tu56 new
+  end enabled v3f
+
+  mount td1 $os8mi/al-4712c-ba-os8-v3d-2.1978.tu56 readonly required
+end enabled td8e
+
+# This is the TC08 path.
+# Mount the destination image, either v3d or v3f on drive 0.
+
+begin enabled tc08
+  print with TC08 support.
+
+  begin enabled v3d
+    mount dt0 $os8mo/v3d-tc08.tu56 new
+  end enabled v3d
+
+  begin enabled v3f
+    mount dt0 $os8mo/v3f-tc08.tu56 new
+    # v3f needs device drivers from a V3d Distribution DECtape
+    mount dt1 $os8mi/al-4712c-ba-os8-v3d-2.1978.tu56 readonly required
+  end enabled v3f
+
+end enabled tc08
+
+# Now build the system head.
+# v3f is more complicated because it installs a new KBM and CD.
+# Additionally that version of BUILD.SV contained NO drivers.
+
+# Be careful with the v3d build. We are using the BUILD.SV
+# from the rk05 SYS:. Be careful not to trash it!
+# TODO: Change BUILD.SV on our rk05 system packs already to
+# have the TD8E Drivers loaded.
+
+boot rk0
+
+begin enabled v3d
+
+  begin build SYS:BUILD
+    # Necessary! Otherwise we mung the RK05 image!
+    DELETE SYS
+    DELETE RKA0
+    DELETE RKB0
+    INSERT RK05,RKA0,RKB0
+
+    # Unconditionally delete DTA0 because we shift it
+    # from non-system to system.
+    DELETE DTA0
+
+    # TD8E also changes non-system DTA1 from TC to TD.
+    begin enabled td8e
+      DELETE DTA1
+    end enabled td8e
+
+    # Configure system for TC08
+    begin enabled tc08
+      SYSTEM TC08
+      INSERT TC08,DTA0
+      DSK TC08:DTA0
+    end enabled tc08
+
+    # Configure system for td12k
+    begin enabled td12k
+      SYSTEM TD8E
+      INSERT TD8E,DTA0
+      INSERT TD8E,DTA1
+      DSK TD8E:DTA0
+    end enabled td12k
+  
+    # Or configure system for tdrom
+    begin enabled tdrom
+      SYSTEM ROM
+      INSERT ROM,DTA0
+      INSERT ROM,DTA1
+      DSK ROM:DTA0
+    end enabled tdrom
+    
+    # That should do it.
+    PRINT
+    BOOT
+    end build
+
+end enabled v3d
+
+begin enabled v3f
+  os8 COPY DSK:<RKB1:OS8.BN,CD.BN
+
+  begin build RKB1:BUILD
+    LOAD DTA1:RK8ESY.BN
+    LOAD DTA1:RK8ENS.BN
+    LOAD DTA1:PT8E.BN
+    
+    # TD8E non-system handler.
+    LOAD DTA1:TD8EA.BN
+    
+    begin enabled tc08
+      LOAD DTA1:TC08SY.BN
+      LOAD DTA1:TC08NS.BN
+    end enabled tc08
+    
+    # TD8E systems with 12K uncomment next line.
+    begin enabled td12k
+      LOAD DTA1:TD8ESY.BN
+    end enabled td12k
+    # TD8E systems with ROM uncomment next line.
+    begin enabled tdrom
+      LOAD DTA1:ROMMSY.BN
+    end enabled tdrom
+
+    begin enabled td8e
+      # Additional TD8E non-system devices not on sys by default.
+      # But there might not be space. Leave them out for now.
+      # Units 2 and 3.
+      # LOAD DTA1:TD8EB.BN
+      # Units 4 and 5.
+      # LOAD DTA1:TD8EC.BN
+      # Units 6 and 7.
+      # LOAD DTA1:TD8ED.BN
+    end enabled td8e
+    
+    
+    # I think we actually want the RKB1 version of KL8E.BN
+    LOAD DTA1:KL8E.BN
+    LOAD DTA1:LPSV.BN
+    LOAD RKB1:RXSY2.BN
+    LOAD RKB1:RXNS.BN
+    
+    INSERT PT8E,PTR
+    INSERT PT8E,PTP
+    INSERT KL8E,TTY
+    INSERT LPSV,LPT
+    
+    begin enabled tc08
+      SYSTEM TC08
+      INSERT TC08,DTA0
+      INSERT TC,DTA1
+      DSK TC08:DTA0
+    end enabled tc08
+    
+    # Un-comment next 4 lines for TD8E 12K System
+    begin enabled td12k
+      SYSTEM TD8E
+      INSERT TD8E,DTA0
+      INSERT TD8E,DTA1
+      DSK TD8E:DTA0
+    end enabled td12k
+    
+    # Un-comment next 4 lines for TD8E ROM System
+    begin enabled tdrom
+      SYSTEM ROM
+      INSERT ROM,DTA0
+      INSERT ROM,DTA1
+      DSK ROM:DTA0
+    end enabled tdrom
+    
+    INSERT RX02,RXA0
+    
+    INSERT RK05,RKA0,RKB0
+    INSERT RK05,RKA1,RKB1
+    INSERT RK05,RKA2,RKB2
+    
+    BUILD DSK:OS8.BN DSK:CD.BN
+    BOOT
+  end build
+
+  # Explicit unmount to avoid possible race condition.
+  # Unmount the right device
+  begin enabled td8e
+    umount td1
+  end enabled td8e
+  begin enabled tc08
+    umount dt1
+  end enabled tc08
+end enabled v3f
+
+os8 SAVE DTA0 BUILD.SV
+
+# cusp-copyin.os8 uses the value of v3d or v3f enablement
+# already present in the environment.
+include $src/scripts/include/cusp-copyin.os8
+
+# Lastly copy in the appropriate DECtape utilities.
+begin cdprog RKA0:FOTP.SV
+  begin enabled tc08
+    DTA0:<RKA0:DTCOPY.SV
+    DTA0:<RKA0:DTFRMT.SV
+  end enabled tc08
+  begin enabled td8e
+    DTA0:<RKA0:TDCOPY.SV
+    DTA0:<RKA0:TDFRMT.SV
+  end enabled td8e
+end cdprog RKA0:FOTP.SV
+
+# The last thing we do is run CCL on the system tu56 we just made.
+
+begin enabled td8e
+  boot td0
+end enabled td8e
+
+begin enabled tc08
+  boot dt0
+end enabled tc08
+
+os8 R CCL
+
+# Further system initialization
+
+os8 SET TTY COL 3
+
+begin default crt
+os8 SET TTY SCOPE
+end default crt
+
+begin default lcmod
+os8 SUBMIT SYS:LCSYS.BI
+# os8 SUBMIT SYS:LCBAS.BI
+end default lcmod
+
+# INIT message setting stuff goes here
+# Implement the config option to enable/disable INIT
+# By default we enable it.
+# We may be building from distribution media with INIT enabled.
+# So always SET SYS NO INIT
+# and undo it by default, to be overridden if --disable-os8-init is set.
+# Only copy init.cm and init.tx if init is enabled.
+
+os8 SET SYS NO INIT
+begin default init
+  begin enabled v3f
+    cpto $os8mi/3finit.tx DSK:INIT.TX
+  end enabled v3f
+
+  begin enabled v3d
+    cpto $os8mi/init.tx
+  end enabled v3d
+
+  cpto $os8mi/init.cm
+
+  os8 SET SYS INIT
+end default init

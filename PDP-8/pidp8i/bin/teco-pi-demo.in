@@ -1,0 +1,189 @@
+#!/usr/bin/env @PYCMD@
+# -*- coding: utf-8 -*-
+########################################################################
+# teco-pi-demo - Starts the simulator with the OS/8, sends one of the
+#   famous TECO "calculate pi" program to it, and starts it running at
+#   a very slow rate of speed to act as a blinkenlights demo.
+#
+# Copyright © 2017-2020 by Warren Young.
+#
+# Permission is hereby granted, free of charge, to any person obtaining
+# a copy of this software and associated documentation files (the
+# "Software"), to deal in the Software without restriction, including
+# without limitation the rights to use, copy, modify, merge, publish,
+# distribute, sublicense, and/or sell copies of the Software, and to
+# permit persons to whom the Software is furnished to do so, subject to
+# the following conditions:
+#
+# The above copyright notice and this permission notice shall be
+# included in all copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+# EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+# MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+# IN NO EVENT SHALL THE AUTHORS LISTED ABOVE BE LIABLE FOR ANY CLAIM,
+# DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT
+# OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
+# OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+#
+# Except as contained in this notice, the names of the authors above
+# shall not be used in advertising or otherwise to promote the sale,
+# use or other dealings in this Software without prior written
+# authorization from those authors.
+########################################################################
+
+# Bring in just the basics so we can bring in our local modules
+import os
+import sys
+sys.path.insert (0, os.path.dirname (__file__) + '/../lib')
+sys.path.insert (0, os.getcwd () + '/lib')
+
+# Other core modules we need
+from datetime import datetime
+import time
+
+# Our local modules
+from pidp8i import *
+from simh   import *
+
+
+#### main ##############################################################
+
+def main ():
+  # Check for command line flags
+  benchmark = False
+  throttle = True
+  if len (sys.argv) > 1:
+    if sys.argv[1] == '-b': benchmark = True
+    elif sys.argv[1] == '-f': throttle = False
+
+
+  # Create the SIMH child instance and tell it where to send log output
+  try:
+    s = simh (dirs.build)
+  except (RuntimeError) as e:
+    print("Could not start simulator: " + e.message + '!')
+    exit (1)
+  s.set_logfile (os.fdopen (sys.stdout.fileno (), 'wb', 0))
+
+  # Find and boot the built OS/8 bin disk
+  rk = os.path.join (dirs.os8mo, 'v3d.rk05')
+  if not os.path.isfile (rk):
+    print("Could not find " + rk + "; OS/8 media not yet built?")
+    exit (1)
+  print("Booting " + rk + "...")
+  reply = s.simh_cmd ("att rk0 " + rk)
+  s.simh_test_result (reply, "Prompt", "main 1")
+  reply = s.simh_cmd ("boot rk0", s._os8_replies_rex)
+  s.os8_test_result (reply, "Monitor Prompt", "main 2")
+
+  # Start TECO8 in the simulator under OS/8
+  # Confirm it is running when you receive the Command Decoder Prompt.
+  reply = s.os8_cmd ("R TECO")
+  s.os8_test_result (reply, "Command Decoder Prompt", "main 2")
+
+  # The macro comes from http://www.iwriteiam.nl/HaPi_TECO_macro.html
+  # and it was created by Stanley Rabinowitz.
+  #
+  # The 248 preceding "UN" in the first line of the macro is the number
+  # of digits of pi to calculate.  That value was reached by experiment
+  # as the largest value that runs without crashing TECO with a
+  #
+  #    ?MEM  STORAGE CAPACITY EXCEEDED
+  #
+  # error.  You can see that by increasing the value below, commenting
+  # out the throttle setting below, and running the demo.  On a Pi 3, it
+  # should take a bit over an hour to complete, if it doesn't error out.
+  #
+  # With the simulator throttled, generating 248 digits takes 17 years!
+  #
+  # That is based on generating 1 digit every ~16 seconds on a Pi 3 when
+  # running unthrottled, roughly 8 MIPS.  When throttled to 59 IPS — or
+  # 17ms per instruction, as below — you multiply the seconds by the
+  # factor 8 MIPS / 59 IPS = ~136000, giving about 2.2 million seconds
+  # per digit.  Multiplying that by 248 gives ~17 years.
+  macro = [
+    'GZ0J\\UNQN"E 248UN \' BUH BUV HK',
+    'QN< J BUQ QN*10/3UI',
+    'QI< \+2*10+(QQ*QI)UA B L K QI*2-1UJ QA/QJUQ',
+    'QA-(QQ*QJ)-2\ 10@I// -1%I >',
+    'QQ/10UT QH+QT+48UW QW-58"E 48UW %V \' QV"N QV^T \' QWUV QQ-(QT*10)UH >',
+    'QV^T @^A/',
+    '/HKEX',
+  ]
+
+  # First and last lines are handled specially, so slice them off.
+  first = macro.pop (0)
+  last  = macro.pop ()
+
+  # Send the first line of the macro; implicitly awaits 1st TECO prompt
+  s.os8_send_line (first)
+
+  # Blindly send core lines of the macro; TECO gives no prompts for 'em.
+  for line in macro: 
+    s.os8_send_line (line)
+
+  # Send last line of macro sans CR, followed by two Esc characters to
+  # start it running.
+  s.os8_send_str (last)     # not os8_send_line!
+  s.os8_send_ctrl ('[')
+  s.os8_send_ctrl ('[')
+
+  if benchmark:
+    # Run demo long enough to get a good sense of the simulator's
+    # execution rate while unthrottled on this host hardware.  If
+    # you don't run it long enough, the IPS value is untrustworthy.
+    try:
+      s.spin (10)
+    except pexpect.TIMEOUT:
+      # Ask the simulator what IPS rate we ran that benchmark at.
+      # It knows how to shift context appropriately.
+      s.simh_send_line ('show clocks')
+      line = s.read_tail ('Execution Rate:').decode()
+      curr_ips = int (line.strip().replace(',', '').split(' ')[0])
+      pf = open ('lib/pidp8i/ips.py', 'a')
+      pf.write ('current = ' + str (curr_ips) + '    # ' + \
+            str (datetime.today ()) + '\n')
+      pf.close ()
+      s.quit()
+      pdp_ratio = float (curr_ips) / ips.pdp8i
+      rpi_ratio = float (curr_ips) / ips.raspberry_pi_b_plus
+      print("\nYour system is " + format (rpi_ratio, '.1f') + \
+          " times faster than a Raspberry Pi Model B+")
+      print("or " + format (pdp_ratio, '.1f') + \
+          " times faster than a PDP-8/I.\n")
+  elif throttle:
+    # Normal mode.  Tell SIMH and throttle down to a rate suitable for a
+    # blinkenlights demo.  1/17 means SIMH runs one instruction then
+    # waits for 17ms, yielding ~59 IPS.
+    s.simh_cmd ('set throttle 1/17')
+
+    # You can't hit Ctrl-E while running this script in the foreground
+    # since pexpect takes over stdio.  Therefore, if you want to be able
+    # to send commands to the simulator while the demo is running,
+    # uncomment the line below, which will let you send commands to the
+    # simulator via telnet.  From another terminal or SSH session:
+    #
+    #     $ telnet localhost 3141
+    #
+    # or from a remote machine:
+    #
+    #     $ telnet 192.168.1.2 3141
+    #
+    # It's disabled by default because SIMH can't be made to listen only
+    # on localhost, so doing this may be a security risk.  SIMH disables
+    # obviously-unsafe commands like ! on the remote console, but it is
+    # possible some mischief may be possible via this path anyway.  It
+    # could be used to exfiltrate a sensitive file via ATTACH, for one
+    # thing.  For another, it's a potential DoS vector.
+    #s.send_cmd ('set remote telnet=3141')
+
+    # Let it run.  Never exits.
+    s.send_line ('cont')
+    s.spin ()
+  else:
+    s.spin ()
+
+
+if __name__ == "__main__":
+    main()

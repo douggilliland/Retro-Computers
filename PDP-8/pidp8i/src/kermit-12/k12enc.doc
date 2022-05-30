@@ -1,0 +1,177 @@
+From: Charles Lasner <lasner@watsun.cc.columbia.edu>
+Subject: ENCODE/DECODE format description
+
+    The  latest KERMIT-12 binary files are encoded in  a  specialized  format.
+This document will describe the internal encoding and related subjects.
+
+OS/8 file considerations.
+
+    All OS/8 files are contiguous multiples of PDP-8 double-page sized logical
+records.  These are sometimes known as blocks, but are  more  accurately known
+as records.  (The term block is associated with various hardware descriptions,
+and means different things to different people, such as DECtape blocks or RK05
+blocks,  where  the first means a physical block which just happens to be  1/2
+the  size  of  the OS/8 logical record, and the second means a physical sector
+which  is  the same size as the OS/8 logical record, but only if the drive  is
+attached to an RK8E.  We will therefore avoid this term!)
+
+    Since  PDP-8  pages are 128 12-bit words each, the OS/8 record consists of
+256  12-bit  words,  which  can  also  be viewed as 384 8-bit bytes.  For  the
+benefit of various existing utilities, there is a standard method of unpacking
+the 8-bit bytes yielding  a  stream  of  coherent  8-bit  bytes.    The  PDP-8
+convention is to number bits from left to right starting with bit[0].  This is
+INCOMPATIBLE with the notation commonly used  in other architectures, which is
+usually given as what power of 2  the  bit  represents.  The PDP-8 notation is
+used to denote bit position in a manner  consistent  with  significence of the
+bit,  and  arbitrarily uses origin 0, which is the  usually  assembly-language
+orientation.  Using this notation, the first byte (byte #0)  to be unpacked is
+taken from word[0] bits[4-11].  The second byte (byte #1) to  be  unpacked  is
+taken  from  word[1] bits[4-11].  The third byte (byte #2) to be  unpacked  is
+taken from word[0]  bits[0-3]  concatenated  with word[1] bits[0-3].  All bits
+are taken left to  right  as stated.  This method is usually referred to as "3
+for 2," and repeated accordingly  will  yield  the correct stream of bytes for
+ASCII OS/8 files.  OS/8 absolute  binary  files are images of 8-bit paper-tape
+frames packed in the same format.   Although  the  high-order bit "matters" in
+absolute binary files, the high-bit is untrustworthy in  ASCII  files.    Both
+types of files end with a ^Z character which  will have the high-order bit set
+in  the case of the absolute binary files.  The  reason  it  succeeds  in  the
+binary  case  is  that  the  paper-tape format treats the high-bit present  as
+leader or trailer, not loadable data, etc., so the loader ignores all  leading
+high-bit set bytes, and finishes on the first trailing high-bit set byte.  The
+binary file  contains  several leader bytes of 0200 octal, and several trailer
+bytes of 0200  followed by 232, the code for ^Z.  There is no "fool-proof" way
+to derive these formats,  rather these are usually given by the extensions .BN
+for binary, and various extensions  (.LS,  .PA, .MA, .DI, .BI, .TX, .DC, etc.)
+for ASCII files.  If the  file  is  "known"  to  be  either  ASCII or absolute
+binary,  then  these conventions can be used  to  ignore  extraneous  trailing
+bytes.  If the file type is unknown,  then  it  must  be treated as an "image"
+file, where all data must be preserved.  The  most typical image file is a .SV
+file,  which is an image of files organized as pages  and  double-pages,  with
+some  trivial absolute loading instructions in a "header" block.  Each  record
+of  the  file  is  always  "paired"  off,  i.e.,  the  record  has an  implied
+double-page boundary of main memory it is meant to load into.  If  the loading
+instructions indicate  a single-page load, then the first page must be loaded;
+the second half  of the record is IGNORED.  Notice it is impossible to specify
+singular loading of the "odd" page.  OS/8 also supports various other formats,
+so it is difficult to  obtain  useful  knowledge  of the "inner" format of the
+file.
+
+Encoding considerations.
+
+      If the 8-bit bytes of  an  OS/8 file are unpacked and packed faithfully,
+the resultant file will be an accurate copy of the original data.  This is the
+basis for an alternate encoding format, perhaps  more  universal in scope, but
+it is NOT the method used currently.   The  method chosen here is to treat the
+entire file as a contiguous stream of 5-bit bytes spanning words as necessary.
+This means that bits are taken from left to right,  five  at  a time, and each
+encoded  into  a  "printable"  character  for inclusion into the encoded file.
+This  means  that  data  will  form  60-bit  groups  of  12  5-bit  characters
+representing five  12-bit words.  The 5-bit encoding is accomplished using the
+ASCII  coding  for    an   extension  to  hexadecimal,  which  can  be  called
+bi-hexadecimal, or base 32  notation.    In this base, the values are 0-9, and
+A-V (just the "natural" extension  of hexadecimal's 0-9, A-F).  The alphabetic
+characters  can  be  upper  or lower  case  as  necessary.    This  method  is
+theoretically 25% more efficient than hexadecimal ASCII  since  each character
+holds 5-bit data rather than 4-bit data.
+
+    Since the 5-bit data has no "good" boundary for  most  computers,  we will
+use the "best" case for PDP-8 image data, the 60-bit group as described above.
+Once  started,  a  60-bit  group must be completed, thus there are  boundaries
+throughout the file every 12 characters.
+
+    At any boundary, the file may have compressed data.  Compressed fields are
+indicated  by X (or x) followed by a four character  field.    The  format  is
+basically a truncation of the "normal" 60-bit group, but only contains 20 bits
+of data.  The first 12 bits are the value of the  data  to  be  repeated.  The
+last eight bits are the repeat count.  Values of the repeat count  range  from
+1-256, where 256 is implied if the value is zero.  Practical values range from
+3-255, since  one  or two values would take less file space uncompressed.  Due
+to the boundary  requirements,  compression fields are independent of the data
+preceeding them.  The  repeat count limitation to a maximum of 256 was felt to
+be a reasonable compromise between compressed field length and adequate repeat
+count.  Making the repeat count  even  only  double  the current maximum would
+require six character compression fields instead of  five  (including  the X).
+As  an implementation restriction, the encoding program only  reads  one  OS/8
+record at a time, thus the case of 256  maximum  repetitions  occurs only at a
+double-page boundary.  The added complexity required to achieve infrequent and
+minimal  improvement  was  considered  to  be  unimportant, but could be added
+later.  Thus adjacent repeated values split across boundaries, or split across
+logical records will not contribute to a (single) compression field.
+
+    Note that  compression is achieved by locating repeating strings of 12-bit
+values;  if  the  file  were  viewed as repeating strings of 8-bit bytes, then
+compression would be less  likely, except for cases like 0000 octal, which due
+to "symmetry" are compressible via  either  method.    Many  PDP-8 image files
+contain "filler" words, i.e., otherwise unloaded  areas which are "pre-filled"
+with constant data such as 0000 octal,  or  7402 octal, which is the PDP-8 HLT
+instruction.  Image files filled with "large" regions  of repeating strings of
+7402 will not compress using 8-bit byte orientation.
+
+Reliability considerations.
+
+    Even with the safeguards of a "robust" character  set,  file validity must
+be tested to maintain data integrity.  Towards this  end,  the encoding format
+has several additional features.  Unlike other "popular" formats, there  is an
+explicit  "command" structure to the encoded file format.  All lines  of  data
+start  with  <  and  end  with  >.   This prevents the characters  from  being
+"massaged" into unwanted  alternates.   Various systems are known to "destroy"
+files which have lines  starting  with  "from",  etc.    By enclosing the data
+lines, we prevent these problems.   Additionally, a class of explicit commands
+exist which start with ( and  end  with  ).    Instead of implied positioning,
+there is a command called (FILE filename.ext),  where  the filename.ext is the
+"suggested" name for the decoded file.  The encoding program uses the original
+un-encoded file's file name in this field.  After  the  data, there is another
+command (END filename.ext) which can be used to validate the  data,  since the
+same  file  name  should be in both commands (as implemented in  the  encoding
+program).   Several (REMARK {anything}) commands are inserted into the file at
+various  points   to  assist  in  reconstructing  the  original  file,  or  in
+documenting the fact  that  the  file is an encoded "version" of another file.
+Several "frill" REMARK commands  are implemented to indicate the original file
+date, and the date of  encoded file creation.  Today's date is always used for
+the encoded file creation date.  The original file date may be omitted, if the
+system  doesn't  support  Additional  Information  Words  (AIWs),  since  this
+optional  feature must be present in order for  the  files  to  have  creation
+dates.  The overall encoding format theoretically can be a concatenated series
+of  encoded files, each with its own (FILE ) and  (END  )  commands,  but  the
+decoding program  only  supports  single-file  decoding  as  an implementation
+restriction.
+
+    The file must always end with a good boundary  condition.    If  the  last
+field is an X (compression) field, then this is already  satisfied.    If  the
+last field is ordinary data, then 1-4 12-bit words of 0000 octal will be added
+at the end of the last field if necessary to ensure a  good boundary.  The end
+of  file  is  signified  by a single Z (or z) character.  At  this  point,  an
+extraneous  record may be in progress.  If it consists of four or less  12-bit
+words of 0000 octal, it is discarded.  Any other situation regarding a partial
+record indicates defective data in the received encoded file.
+
+    After the single Z (z) character, there are 12 more characters:  an entire
+60-bit  group.    This  is  the  file  checksum.    It  is  accomplished  with
+pentuple-precision arithmetic.   It  is the sum of all 12-bit data values with
+carry into a total of five 12-bit words.  Repeat compression data values are
+also added, but only once for each compression field.  The compression field's
+repeat count is also added, but  it  is  first  multiplied by 16.  (The repeat
+count was expressed originally as *16 so  it  would have its eight significant
+bits left-justified).  The entire 60-bit quantity is  expressed  in  two's
+complement notation by negating it and encoding the group as  any other 60-bit
+group.    Since  most  files  are  relatively  short, the high-order bits  are
+generally zero, so most two's complement checksums start with 7777,7777 octal.
+The five 12-bit  quantities  holding the checksum are encoded low-order first,
+so the right-most characters  in  the  checksum  field tend to be V (v).  This
+order  is used merely to  accomodate  multi-precision  arithmetic,  as  anyone
+attempting to observe "backwards bytes" on other machines is familiar with.
+
+Future considerations.
+
+    This format is by no means  "perfect,"  but  it  is more robust than most,
+with a minimum of efficiency loss, given  the  tradeoffs  involved.   The data
+bracketing characters can be changed if required.   The characters W (w) and Y
+(y)  are  available  for  this purpose.  Files could  incorporate  a  word  or
+character  count,  or  other  validation  technique,  etc.    Each line  could
+incorporate  a  local  count.   These and other considerations could create  a
+"compromise"  format  that  could  be  more  generic and "pallatable" to other
+systems.   The checksum could be limited to 48 bits, which is more amenable to
+8 and 16  bit  architectures.    Perhaps  opening  parameters could govern the
+contents of the rest  of  the  file, such as whether the checksum was present,
+etc.
+[end of file]

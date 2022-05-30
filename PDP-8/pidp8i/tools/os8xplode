@@ -1,0 +1,368 @@
+#!/usr/bin/perl
+# 
+# Copyright © 2015-2020 by Vincent Slyngstad and William Cattey
+# 
+# Permission is hereby granted, free of charge, to any person obtaining
+# a copy of this software and associated documentation files (the
+# "Software"), to deal in the Software without restriction, including
+# without limitation the rights to use, copy, modify, merge, publish,
+# distribute, sublicense, and/or sell copies of the Software, and to
+# permit persons to whom the Software is furnished to do so, subject to
+# the following conditions:
+# 
+# The above copyright notice and this permission notice shall be
+# included in all copies or substantial portions of the Software.
+# 
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+# EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+# MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+# NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS LISTED ABOVE BE LIABLE
+# FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF
+# CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
+# WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+# 
+# Except as contained in this notice, the names of the authors above
+# shall not be used in advertising or otherwise to promote the sale, use
+# or other dealings in this Software without prior written authorization
+# from those authors.
+
+#
+# Every pair of 8 bit bytes forms a 12 bit word.
+# There are 0400 words in each OS/8 block.
+$bsize = 0400 * 2;
+
+#
+# The original date algorithm was 3 bits, added to 1970.
+# Later, two more bits were added, so years go thru 1999.
+# Dates in the future are interpreted as dates in the
+# previous 8 years.
+# First, get the right epoch.
+($_, $_, $_, $dy, $mo, $i) = localtime(time);
+#$i = ($i + 1900) & 037;
+$i = ($i - 70) & 037;
+$cyear = $i & 07;
+$epoch = 1970 + ($i&030);
+$i += 1970;
+@month = ("0",  "JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL",
+	 "AUG", "SEP", "OCT", "NOV", "DEC", "13",  "14",  "15");
+print "y2k: pretending today is $dy-$month[$mo+1]-$i\n";
+
+#
+# Convert OS/8 date word to time_t.
+# 05370 => 1010 11111 000 => 10/31/70.
+# Should we try to also set the time of day?
+# Would it be more efficient to know the 
+# seconds in a (short) year and the number 
+# of seconds in each month since the epoch?
+sub cvtdate {
+  local($os8) = @_;
+  local($mo, $dy, $yr);
+  local($tm, $td, $ty, $days);
+  local($t) = time;
+
+  $os8 = 0410 if $os8 == 0; # Aim for Jan 1, $epoch
+  ($mo, $dy, $yr) = (($os8>>8)-1, ($os8>>3)&037, $os8&7);
+  $yr += $epoch - 1900;
+  # Some OS/8 dates are nonsense.  Make a close guess.
+  if ($mo < 0) {
+    $mo += 12;
+    $yr -= 1;
+  } elsif ($mo > 11) {
+    $mo -= 12;
+    $yr += 1;
+  }
+  $dy = 1 unless $dy;
+  while (1) {
+    # Convert the estimate, $t, to local time.
+    ($_, $_, $_, $td, $tm, $ty) = localtime($t);
+    # Estimate the difference in days.
+    $days = ($ty-$yr)*365 + ($tm-$mo)*30 + $td-$dy;
+    # Return if on the right day.
+    return $t unless $days;
+    # Kludge prevents cycling on the missing leap day
+    # Dates like 2/29/93, 2/30/93, 2/31/93, etc.
+    # Also dates like 4/31/xx, etc.
+    return $t + 24*60*60 if $days == -1;
+    return $t + 48*60*60 if $days == -2;
+    return $t + 72*60*60 if $days == -3;
+    # Adjust $t.
+    $t -= $days * 22*60*60;
+  }
+}
+
+#
+# Convert sixbit to 7 bit ASCII.
+sub sixbit {
+  local($word) = @_;
+  local($byte1, $byte2) = ($word >> 6, $word & 077);
+  $byte1 += 0140 if $byte1 < 040;
+  $byte2 += 0140 if $byte2 < 040;
+  return ($byte1, $byte2);
+}
+
+sub ofile {
+  local($f, $first, $last, $total, $ctime) = @_;
+  local($mask, $eof, $chr1, $chr2, $chr3);
+  local(@buf);
+
+  open(OUTPUT, ">$f") || die "$f: $!";
+  binmode(OUTPUT);
+  $mask = 0377; $chr1 = "binary";
+  $mask = 0177 if $f =~ /[.]BI$/i; # BATCH Input
+  $mask = 0177 if $f =~ /[.]FC$/i; # FOCAL Source
+  $mask = 0177 if $f =~ /[.]FT$/i; # FORTRAN Source
+  $mask = 0177 if $f =~ /[.]HL$/i; # HELP
+  $mask = 0177 if $f =~ /[.]LS$/i; # Listing
+  $mask = 0177 if $f =~ /[.]MA$/i; # MACRO Source
+  $mask = 0177 if $f =~ /[.]PA$/i; # PAL Source
+  $mask = 0177 if $f =~ /[.]PS$/i; # Pascal Source?
+  $mask = 0177 if $f =~ /[.]RA$/i; # RALF Source
+  $mask = 0177 if $f =~ /[.]SB$/i; # SABR Source
+  $mask = 0177 if $f =~ /[.]TE$/i; # TECO File
+  $mask = 0177 if $f =~ /[.]TX$/i; # Text File
+  $mask = 0177 if $f =~ /[.]WU$/i; # Write Up
+  $chr1 = "text" if $mask != 0377;
+
+  printf XML "<file name='$f' start=0%o end=0%o mode=$chr1>", $first, $last;
+  seek(INPUT, $bsize*($fsbase+$first), 0) || die "seek($dsk): $!";
+  $eof = 0;
+  for ($i = $first; $i <= $last; $i++) {
+    # Read a block
+    last if $first >= $total || $last >= $total;  # Don't read past EOF.
+    read(INPUT, $buf, $bsize) || die "read($dsk $f), $i, $total, $last: $!";
+    @buf = unpack("S512", $buf);
+    # Repack the bits amd write the block.
+    while (@buf && !$eof) {
+      $chr1 = shift @buf;
+      $chr2 = shift @buf;
+      $chr3 = (($chr2 >> 8) & 017) | (($chr1 >> 4) & 0360);
+      if ((($chr1 & $mask) == 032) && ($mask == 0177)) {
+        $eof = 1;
+        next;
+      }
+      print OUTPUT pack("C", $chr1 & $mask);
+      if ((($chr2 & $mask) == 032) && ($mask == 0177)) {
+        $eof = 1;
+        next;
+      }
+      print OUTPUT pack("C", $chr2 & $mask);
+      if ((($chr3 & $mask) == 032) && ($mask == 0177)) {
+        $eof = 1;
+        next;
+      }
+      print OUTPUT pack("C", $chr3 & $mask);
+    }
+    # Mark the block used
+    die "Block $i was used for both $blocks[$i] and $f\n"
+      if defined $blocks[$i];
+    $blocks[$i] = $f;
+  }
+  close(OUTPUT) || die "close($f): $!";
+  # Set the creation time on the output file.
+  utime($ctime, $ctime, $f) || die "utime($f): $!";
+  # Now update the XML
+  print XML "</file>\n";
+}
+
+#
+# An OS/8 filesystem contains a boot block, a directory, 
+# an optional system head, and a file data area.
+sub os8fs {
+  local($fs, $fsbase, $fslen, $total) = @_;
+
+  # Note the start of a new file system.
+  printf XML "<os8fs name='$fs' base=0%o size=0%o>\n", $fsbase, $fslen;
+  @blocks = ();
+
+  # Keep things tidier by creating a directory to contain our files.
+  mkdir($fs) unless -d $fs;
+  die "mkdir($fs): $!" unless -d $fs;
+  $fs .= "/";
+
+  # Walk the directory, in blocks 1-6.  Note whether it
+  # is a system # device image, or not.
+  print XML "<directory>\n";
+  $sys = $cos = 1; # Have not ruled out a system device.
+  for ($link = 1; $link; ) {
+    # Read a directory segment
+    seek(INPUT, $bsize*($fsbase+$link), 0) || die "seek($dsk): $!";
+    read(INPUT, $buf, $bsize) || die "read($dsk): $!";
+    @blk = unpack("S512", $buf);
+    $nent = shift @blk;
+    $sblk = shift @blk;
+    # If it has files in the system area, it's not a system device.
+    $sys = 0 if $sblk < 070; # Not a system image
+    $cos = 0 if $sblk < 0140; # Not a COS image
+    $nent = 010000 - $nent;
+    $link = shift @blk;
+    $tent = shift @blk;
+    $aiw = shift @blk;
+    $aiw = 010000 - $aiw unless $aiw == 0;
+    for (; $nent; $nent--) {
+      # Examine a directory entry.
+      $chr1 = shift @blk;
+      if ($chr1 != 0) {
+        $chr3 = shift @blk;
+        $chr5 = shift @blk;
+        $ext1 = shift @blk;
+        if ($aiw) {
+          # BUGBUG: If more than one additional word, which is date?
+          for ($i = 0; $i < $aiw; $i++) {
+            $datew = shift @blk;
+          }
+        } else {
+          $datew = 0;
+        }
+        $flen = shift @blk;
+        $flen = 010000 - $flen if $flen;
+        # Create the file.
+        ($chr1, $chr2) = sixbit($chr1);
+        ($chr3, $chr4) = sixbit($chr3);
+        ($chr5, $chr6) = sixbit($chr5);
+        ($ext1, $ext2) = sixbit($ext1);
+        $fname = pack("C6", $chr1, $chr2, $chr3, $chr4, $chr5, $chr6);
+        $fname =~ s/[\@\`]*$//;
+        $ext = pack("C2", $ext1, $ext2);
+        $ext =~ s/[\@\`]*$//;
+        $fname =~ s/ *$//g; $ext =~ s/ *$//g;
+	if ($flen == 0) {
+          # Tentative file
+	  $ext .= ".tent" if $flen == 0;
+          $i = shift @blk;
+          die "$dsk: Tentative file not followed by empty space!" if $i;
+          $flen = 010000 - shift @blk;
+          $nent--;
+        }
+        $fname =~ s/$/./ unless $ext eq "";
+      } else {
+        $flen = shift @blk;
+        $flen = 010000 - $flen if $flen;
+        $fname = ".";
+        $ext = "$sblk";
+      }
+      &ofile("$fs$fname$ext", $sblk, $sblk+$flen-1, $total, &cvtdate($datew));
+      $sblk += $flen;
+    }
+  }
+  print XML "</directory>\n";
+
+  # N.B. Avoid the use of two character extensions
+  # for non-directory file names, as they may clash
+  # with actual file names.
+ 
+  # Emit the boot loader.
+  &ofile("$fs.boot", 0, 0, $ctime);
+  # Emit the directory.
+  &ofile("$fs.dir", 1, 6+$cos, $ctime);
+
+  # We are done unless it is the image of a system device.
+  return unless $sys;
+
+  # BUGBUG: It's a system device, either COS or OS/8.
+
+  if ($cos) {
+    # Emit the Keyboard Monitor, blocks 010-013.
+    &ofile("$fs.kmon", 010, 013, $ctime);
+    # Emit the Editor Overlay, blocks 010-013.
+    &ofile("$fs.eovr", 014, 017, $ctime);
+    # Emit the Editor, blocks 010-013.
+    &ofile("$fs.edit", 020, 033, $ctime);
+    # Emit the Run Time System Loader, blocks 010-013.
+    &ofile("$fs.rtsl", 034, 037, $ctime);
+    # Emit the Edit Buffer, blocks 010-013.
+    &ofile("$fs.ebuf", 040, 057, $ctime);
+    # Emit the Run Time System, blocks 010-013.
+    &ofile("$fs.rts", 060, 067, $ctime);
+    # Emit the Compiler Overlays, blocks 010-013.
+    &ofile("$fs.covr", 070, 077, $ctime);
+    # Emit the Binary Scratch area, blocks 010-013.
+    &ofile("$fs.bscr", 0100, 0137, $ctime);
+  } else {
+    # Emit the Keyboard Monitor, blocks 07-012.
+    &ofile("$fs.kmon", 007, 012, $ctime);
+    # Emit the User Service Routine, blocks 013-015.
+    &ofile("$fs.usr", 013, 015, $ctime);
+    # Emit the Device Handlers, blocks 016-025.
+    &ofile("$fs.dhand", 016, 025, $ctime);
+    # Emit the Enter Processor, block 026.
+    &ofile("$fs.ent", 026, 026, $ctime);
+    # Emit the Scratch Blocks, blocks 027-050.
+    &ofile("$fs.sblks", 027, 050, $ctime);
+    # Emit the Command Decoder, blocks 051-053.
+    &ofile("$fs.cdec", 051, 053, $ctime);
+    # Emit the Save and Date Overlays, blocks 054-055.
+    &ofile("$fs.sdate", 054, 055, $ctime);
+    # Emit the Monitor Error Routine, block 056.
+    &ofile("$fs.merr", 056, 056, $ctime);
+    # Emit the USE CHAIN Processor, block 057.
+    &ofile("$fs.chain", 057, 057, $ctime);
+    # Emit the System ODT Routine, blocks 060-063.
+    &ofile("$fs.sodt", 060, 063, $ctime);
+    # Emit the reserved block, blocks 064.
+    &ofile("$fs.rsvd", 064, 064, $ctime);
+    # Emit the CCL Reminiscences, block 065.
+    &ofile("$fs.cclr", 065, 065, $ctime);
+    # Emit the 12K TD8E code, block 066.
+    &ofile("$fs.td8e", 066, 066, $ctime);
+    # Emit the CCL Overlay, block 067.
+    &ofile("$fs.cclo", 067, 067, $ctime);
+  }
+  # Check all the blocks were accounted for.
+  for ($i = 0; $i < $fslen; $i++) {
+    warn "$dsk: Block $i not accounted for!\n" unless defined $blocks[$i];
+  }
+  printf XML "</os8fs>\n";
+}
+
+#
+# Most large devices have more than one file-system.  How
+# can we detect this and infer the correct size of each 
+# file-system?  Inspection of the PIP DEVLEN table suggests
+# That all the devices are chopped up into equal size segments.
+#
+# For example, the disk image I'm debugging with is 014540 
+# blocks long, and contains two file systems, each 06260
+# blocks long.
+
+#
+# Top level.  Iterate over the arguments, which are supposed to be
+# disk images.
+
+$type = "dsk";
+
+foreach $f (@ARGV) {
+  if ($f eq "--rk") {
+    $type = "rk05";
+    next;
+  }
+  open(INPUT, $f) || die "$f: $!";
+  binmode(INPUT);
+  $dsk = $f; $f =~ s/.${type}$//;
+
+  # We found an image, let's start the XML.
+  open(XML, ">$f.xml") || die "$f.xml: $!";
+
+  # Verify an integral number of blocks.
+  ($_, $_, $_, $_, $_, $_, $_, $b, $_, $_, $ctime) = stat(INPUT);
+  die "$dsk: Not an integral number of blocks!\n" if $b % $bsize;
+  $blocks = $b / $bsize; @b = ();
+  printf XML "<image name='$dsk' size=0%o>\n", $blocks;
+
+  # Later this should be table driven, and do more conversions.
+  if ($type eq "rk05") {
+    $fslen = 3248;
+  } else {
+    $fslen = $blocks;
+  }
+  $total = $blocks;
+
+  $part = 0;
+  for ($fsbase = 0; $fsbase < $blocks; $fsbase += $fslen) {
+    &os8fs("$f.$part", $fsbase, $fslen, $total);
+    $total -= $fslen;  
+    $part++;
+  }
+
+  $type = "dsk";         # Reset to dsk device default.
+  printf XML "</image>\n", $blocks;
+}

@@ -1,0 +1,145 @@
+# Creates an OS/8 v3d binary rk05 image from distribution DECtapes.
+# Caution: the boot tape must be writeable.
+
+mount dt0 $os8mi/al-4711c-ba-os8-v3d-1.1978.tu56 required scratch
+mount dt1 $os8mi/al-4712c-ba-os8-v3d-2.1978.tu56 ro required
+
+mount rk0 $os8mo/v3d-dist.rk05 new
+
+boot dt0
+
+begin build SYS:BUILD
+LOAD DTA1:RK8ESY.BN
+LOAD DTA1:PT8E.BN
+LOAD DTA1:TD8ESY.BN
+LOAD DTA1:ROMMSY.BN
+LOAD DTA1:TD8EA.BN
+# We could load more TD8E non-system drivers
+# But there is limited space, so we elect not to.
+# LOAD DTA1:TD8EB.BN
+# LOAD DTA1:TD8EC.BN
+# LOAD DTA1:TD8ED.BN
+DELETE SYS
+SYSTEM RK8E
+DELETE RXA1
+INSERT PT8E,PTR
+INSERT PT8E,PTP
+DELETE RKA0
+DELETE RKB0
+INSERT RK8E,RKA0,RKB0
+INSERT RK05,RKA2,RKB2
+DELETE DTA0
+INSERT TC,DTA0
+DSK RK8E:RKB0
+PRINT
+BOOT
+end build
+
+# Note:
+# If we save BUILD to RKA0 it gets overwritten with our DTA0: copyin.
+# If we save BUILD to DTA0: that does not happen but then we modify
+# our tape. (It is supposed to be a scratch tape.)
+os8 SAVE DTA0 BUILD.SV
+
+boot dt0
+
+# System tape 1 of 2
+os8 COPY RKA0:<DTA0:*.*
+
+# Help files from tape 2 of 2.
+# Not enough room for everything on tape 2.
+# We just copy the help files.
+os8 COPY RKA0:<DTA1:*.HL
+
+# We can't express disabled yet.
+# Besides we need SABR for cc8
+# begin disabled fortran-ii
+# os8 DELETE RKA0:FORT.SV,LIBSET.SV,SABR.SV
+# end disabled fortran-ii
+
+begin default fortran-ii
+os8 COPY RKA0:<DTA1:*.RL
+end default fortran-ii
+
+umount dt0
+umount dt1
+
+boot rk0
+
+os8 ZERO RKB0:
+
+# Do copyins here.
+
+# OS/8 V3D extensions
+mount dt0 $os8mi/al-4761c-ba-os8-v3d-ext.1978.tu56 ro required
+os8 COPY RKA0:<DTA0:*.*
+umount dt0
+
+# Build from source the OCOMP Octal Compare/Dump utility.
+# And install it.
+print Build and install OCOMP
+cpto $src/src/os8/tools/ocomp/ocomp.pa RKB0:OCOMP.HL
+cpto $src/src/os8/tools/ocomp/ocomp.pa RKB0:OCOMP.PA
+pal8 RKB0:OCOMP.BN<RKB0:OCOMP.PA /8/9
+os8 LOAD RKB0:OCOMP.BN
+os8 SAVE RKA0:OCOMP.SV;12000
+os8 DEL RKB0:OCOMP.PA,OCOMP.BN
+
+# FORTRAN IV
+begin default fortran-iv
+mount dt1 $os8mi/subsys/al-4549d-ba-fr4-v3d-1.1978.tu56 ro required
+os8 COPY RKA0:<DTA1:*.*
+umount dt1
+end default fortran-iv
+
+# MACREL V2 and new FUTIL V8B
+begin default macrel
+mount dt1 $os8mi/al-5642c-ba-macrel-v2-futil-v8b-by-hand.tu56 ro required
+os8 COPY RKA0:<DTA1:MACREL.SV,LINK.SV,KREF.SV,OVRDRV.MA,FUTIL.SV
+umount dt1
+end default macrel
+
+# Upper Case / Lower Case batch script patches
+# Copy in from source tree.
+cpto $src/src/os8/v3d/SYSTEM/UCSYS.BI RKA0:
+cpto $src/src/os8/v3d/SYSTEM/LCSYS.BI RKA0:
+cpto $src/src/os8/v3d/BASIC/UCBAS.BI RKA0:
+cpto $src/src/os8/v3d/BASIC/LCBAS.BI RKA0:
+
+# Further system initialization
+
+os8 SET TTY COL 3
+
+begin default crt
+os8 SET TTY SCOPE
+end default crt
+
+begin default lcmod
+os8 SUBMIT SYS:LCSYS.BI
+  begin default basic
+  os8 SUBMIT SYS:LCBAS.BI
+  end default basic
+end default lcmod
+
+# INIT message setting stuff goes here
+# Implement the config option to enable/disable INIT
+# By default we enable it.
+# We may be building from distribution media with INIT enabled.
+# So always SET SYS NO INIT
+# and undo it by default, to be overridden if --disable-os8-init is set.
+# Only copy init.cm and init.tx if init is enabled.
+
+os8 SET SYS NO INIT
+begin default init
+cpto $os8mi/init.cm
+# Location of init.tx is funky so that test-os8-run will be able to
+# sanitize it.
+cpto $build/media/os8/init.tx
+os8 SET SYS INIT
+end default init
+
+# Squish of SYS and DSK goes here
+umount dt0
+umount dt1
+os8 SQUISH DSK:/O
+os8 SQUISH SYS:/O

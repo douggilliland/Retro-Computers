@@ -1,0 +1,313 @@
+#!/bin/bash
+# bosi - The Binary OS Image creation/update script
+#
+# Copyright © 2016-2021 by Warren Young
+# 
+# Permission is hereby granted, free of charge, to any person obtaining a
+# copy of this software and associated documentation files (the
+# "Software"), to deal in the Software without restriction, including
+# without limitation the rights to use, copy, modify, merge, publish,
+# distribute, sublicense, and/or sell copies of the Software, and to
+# permit persons to whom the Software is furnished to do so, subject to
+# the following conditions:
+# 
+# The above copyright notice and this permission notice shall be included
+# in all copies or substantial portions of the Software.
+# 
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
+# OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+# MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+# IN NO EVENT SHALL THE AUTHORS LISTED ABOVE BE LIABLE FOR ANY CLAIM,
+# DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
+# OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR
+# THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+# 
+# Except as contained in this notice, the names of the authors above shall
+# not be used in advertising or otherwise to promote the sale, use or
+# other dealings in this Software without prior written authorization from
+# those authors.
+
+
+# Display the usage message
+function usage() {
+    cat <<USAGE
+usage: $0 <verb> [tag]
+
+    The available verbs are init, build, prepare, image, and finish.
+
+    You may include a tag parameter with the 'image' and 'finish' verbs
+    to override the default tag ('ils') used in image and zip file
+    outputs.
+
+    See RELEASE-PROCESS.md for more info.
+
+USAGE
+    exit 1
+}
+
+verb="$1"
+tag="$2"
+test -n "$verb" || usage
+test -z "$tag" && tag=ils
+
+nu=pidp8i
+nh=/home/$nu
+repo=pidp8i
+dldir="$HOME/tangentsoft.com/dl"
+os=buster-lite
+img=$dldir/pidp8i-$(date +%Y.%m.%d)-$tag-$os.img
+greadlink=$(type -p greadlink || type -p readlink)
+this=$($greadlink -f $0)
+topdir="$($greadlink -f "$(dirname "$this")"/..)"
+
+
+# Give user a few seconds to read the final messages before rebooting or
+# powering off.
+function do_wait() {
+    n=8
+    cat <<MSG
+    
+$1 in $n seconds...
+
+
+MSG
+    sleep $n
+}
+
+
+# Initial steps
+function do_init() {
+    if [ "$USER" != "root" ]
+    then
+        echo "The init step has to be run as root.  The explanation is"
+        echo "given in the section for 'init' in RELEASE-PROCESS.md."
+        echo
+        exit 1
+    fi
+
+    set -x
+
+    apt-get update && apt-get -y upgrade || true
+    apt-get -y install fossil python3-pip python3-pexpect python3-yaml || true
+
+    test -f /usr/include/curses.h || apt-get -y install libncurses-dev
+
+    if [ ! -e "$nh" ]
+    then
+        # First pass on a clean SD card: rename 'pi' user and group to
+        # 'pidp8i' and rename its home directory to match.
+        pkill -u pi
+        usermod  -l $nu -d $nh -m pi 
+        groupmod -n $nu pi
+    fi
+
+    reboot
+}
+
+
+# Clone repo and build the software under [new] pidp8i account
+function do_build() {
+    if [ "$USER" != "$nu" ]
+    then
+        echo "The build step has to be run as $nu."
+        echo
+        exit 1
+    fi
+
+    set -x
+
+    if [ ! -d museum ]
+    then
+        mkdir -p museum $repo
+        fossil clone -u https://tangentsoft.com/$repo museum/$repo.fossil
+    fi
+
+    cd $repo
+
+    if [ -r ChangeLog.md ]
+    then
+        fossil revert           # just in case
+        fossil update release
+    else
+        fossil open ~/museum/$repo.fossil release
+        fossil set autosync pullonly
+        ./configure
+    fi
+
+    # The NLS build can reuse the ILS build's OS/8 images, saving a huge
+    # amount of build time.
+    if [ "$tag" = "nls" ]
+    then
+        for f in '' '-dist' '-patched'
+        do
+            for g in ock v3d
+            do
+                src="${g}${f}.rk05"
+                dst="bin/${g}${f}.rk05"
+                test -r bin/v3d.rk05 || fossil uv export "$src" "$dst"
+            done
+        done
+    fi
+
+    tools/mmake
+    bin/teco-pi-demo -b             # test and benchmark simulator
+    sudo make install || true       # don't care about return code
+    do_wait "Rebooting"
+    sudo reboot
+}
+
+
+# This script prepares the OS's configuration to a clean first boot state.
+function do_prepare() {
+    if [ "$USER" != "$nu" ]
+    then
+        echo "The prepare step has to be run as $nu."
+        echo
+        exit 1
+    fi
+
+    set -x
+
+    history -c ; rm -f ~/.bash_history
+
+    pidp8i stop || true                         # avoid sim hogging CPU
+    sudo shred -u /etc/ssh/*key* || true        # allow multiple passes
+    sudo touch /boot/ssh                        # enable sshd on 1st boot...
+                                                # & regen keys just nuked
+    sudo dphys-swapfile uninstall || true
+    sudo dd if=/dev/zero of=/junk bs=1M || true # it *will* error-out!
+    sudo rm -f /junk
+
+    cl=/boot/cmdline.txt
+    if ! grep -Fq ' init=' $cl
+    then
+        sudo sed -i -e 's#$# init=/usr/lib/raspi-config/init_resize.sh#' $cl
+    fi
+
+    # Schedule an automatic shutdown using the existing sudo creds so
+    # the next step can invalidate them without requiring a re-reset.
+    /usr/sbin/shutdown -h +1
+
+    # Must be last, else later "sudo" will fail on the expired password
+    echo 'pidp8i:edsonDeCastro1968' | sudo chpasswd &&
+        sudo passwd -e pidp8i
+}
+
+
+# This script images the OS SD card in a USB reader on a macOS box.
+function do_image() {
+    dev=UNKNOWN
+    ps=UNKNOWN
+    hb=no
+    rp=UNKNOWN
+
+    while read line
+    do
+        case $line in
+            /dev/*)
+                dev=$(echo $line | cut -f1 -d' ')
+                ;;
+
+            0:*)
+                case $line in
+                    *FDisk_partition_scheme*) ps=fdisk ;;
+                    *) dev= ;;      # can't be the OS SD card
+                esac
+                ;;
+
+            1:*)
+                case $line in
+                    *Windows_FAT_32\ boot*) hb=yes ;;
+                    *) dev= ;;      # can't be the OS SD card
+                esac
+                ;;
+
+            2:*)
+                case $line in
+                    *Linux*) rp=Linux ; break ;; # found it!
+                    *) dev= ;;      # can't be the OS SD card
+                esac
+                ;;
+        esac
+    done < <(diskutil list)
+
+    if [ -z "$dev" ]
+    then
+        cat <<MSG
+Failed to find OS SD card!  I learned the following, though:
+
+    SD /dev node:     $dev
+    Partition scheme: $ps
+    Has /boot:        $hb
+    /root partition:  $rp
+
+MSG
+        exit 1
+    fi
+
+    echo
+    echo "-------------------------------------------------------"
+    diskutil info "$dev"
+    echo "-------------------------------------------------------"
+    echo
+    read -p "Is that the OS SD card? [y/N]: " answer
+    case $answer in
+        [Yy]*) ;;
+        *) exit 1 ;;
+    esac
+
+    rdev=${dev/disk/rdisk}              # speeds zeroing and re-imaging
+
+    mf=/tmp/MANIFEST.txt
+    readme=/tmp/README.md
+    cp "$topdir/doc/OS-images.md" $readme
+
+    set -x
+
+    sudo diskutil unmountDisk $dev      # it auto-mounted
+    time sudo dd if=$rdev bs=1m of=$img
+    sum=($(shasum -a 256 "$img"))
+    bytes=($(wc -c $img))
+
+    cat > $mf <<MF
+SHA-256 hash and size of ${sum[1]}:
+
+Hash:  ${sum[0]}
+Size:  ${bytes[0]}
+MF
+
+    imgdir="$(dirname "$img")"
+    sed -i '' -e "s_$imgdir/__" "$mf"   # nix local paths in manifest
+    unix2dos $mf                        # might be opened on Windows
+    time zip -9j $img.zip $img $mf $readme
+    rm -f $mf $readme
+
+    # Now re-image the card, starting with a zeroed card to ensure a
+    # clean test.  Ignore the end-of-device error from the zero step.
+    sudo echo -n       # avoid counting sudo blocking time in next cmd
+    time sudo dd if=/dev/zero of=$rdev bs=1m || true
+    time sudo dd if=$img of=$rdev bs=1m
+    diskutil unmountDisk $dev || true   # Paragon ExtFS might be installed
+}
+
+
+# Clean up after the above
+function do_finish() {
+    set -x
+
+    trash $img
+    cd $dldir/..
+    make synch
+}
+
+
+# Main routine
+set -e
+case "$verb" in
+    in*) do_init ;;
+    bu*) do_build ;;
+    pr*) do_prepare ;;
+    im*) do_image ;;
+    fi*) do_finish ;;
+    *)   usage ;;
+esac

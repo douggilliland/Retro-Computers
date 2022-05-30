@@ -1,0 +1,234 @@
+/ Project Euler Problem #1: https://projecteuler.net/problem=1
+/
+/ Multiples of 3 and 5:
+/
+/   If we list all the natural numbers below 10 that are multiples of
+/   3 or 5, we get 3, 5, 6 and 9. The sum of these multiples is 23.
+/   Find the sum of all the multiples of 3 or 5 below 1000.
+/
+/ Initial solution by Warren Young of tangentsoft.com, 2016.11.30
+/ Optimized by Rick Murphy of the mailing list, 2016.12.04
+/
+/ Copyright © 2016, 2018 Warren Young, © 2016 by Rick Murphy
+/
+/ Permission is hereby granted, free of charge, to any person obtaining a
+/ copy of this software and associated documentation files (the "Software"),
+/ to deal in the Software without restriction, including without limitation
+/ the rights to use, copy, modify, merge, publish, distribute, sublicense,
+/ and/or sell copies of the Software, and to permit persons to whom the
+/ Software is furnished to do so, subject to the following conditions:
+/
+/ The above copyright notice and this permission notice shall be included in
+/ all copies or substantial portions of the Software.
+/
+/ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+/ IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+/ FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
+/ THE AUTHORS LISTED ABOVE BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+/ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+/ FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+/ DEALINGS IN THE SOFTWARE.
+/
+/ Except as contained in this notice, the names of the authors above shall
+/ not be used in advertising or otherwise to promote the sale, use or other
+/ dealings in this Software without prior written authorization from those
+/ authors.
+////////////////////////////////////////////////////////////////////////
+
+
+//// DIY Assembler Instructions ////////////////////////////////////////
+
+/ Our assembler doesn't know the EAE instructions, so teach it
+DVI=7407		/ integer divide .+1 into {AC:MQ}, answer in MQ
+
+/ Combined microcoded instruction aliases
+CLR=CLA CLL		/ clear both AC and L
+AC3=CLA CLL CML IAC RAL	/ set AC to 3
+
+
+//// MAIN //////////////////////////////////////////////////////////////
+/ Program entry point.   We purposely reinitialize global variables and
+/ processor state in case we're restarting this program in-core.
+
+PAGE 1
+MAIN,   AC3		/ start with 3, because we know 1 & 2 can't work
+	DCA CURR		
+	TLS		/ send null character to terminal to prepare it
+	DCA STOTAL	/ reset total to 0
+	TAD (ANSWER-1)	/ write "ANSWER: " to the terminal
+	JMS PRINTS
+
+
+//// MLCORE ////////////////////////////////////////////////////////////
+/ The core of the main loop.  MAIN just inits the globals and falls
+/ through to us.
+ 
+MLCORE, AC3		/ try dividing 3 into CURR first
+	JMS ISMOD0
+	SNA CLA		/ if ISMOD0 left AC = 0, CURR divided evenly by
+	JMP NXITER	/ 3, so skip 5 lest we count multiples of 15 2x
+
+	TAD (5)		/ no good; try dividing 5 into CURR instead
+	JMS ISMOD0
+
+NXITER, CLA		/ loop cleanup
+	TAD CURR
+	CIA
+	TAD MAX		/ = 0 if CURR == MAX
+	SNA CLA		/ if so, leave calculation loop
+	JMP MLDONE
+
+	ISZ CURR	/ CURR still < MAX, so increment CURR; never skips
+
+	TAD STOTAL	/ if STOTAL is getting too big, print...
+	CIA		/ a subtotal and zero STOTAL so we don't...
+	TAD STMAX	/ overflow the 12-bit limit
+	SNL
+	JMP MLCORE	/ STMAX - STOTAL > 0 so re-enter loop core
+	JMS SHOWST	/ exceeded threshold, so display subtotal and " + "
+	DCA STOTAL	/ take advantage of free zero left by SHOWST
+	TAD (PLUS-1)
+	JMS PRINTS
+	JMP MLCORE
+
+MLDONE, JMS SHOWST	/ done; show answer
+	TAD (CRLF-1)	/ don't need CLA; SHOWST left AC = 0
+	JMS PRINTS
+
+	/ End program gracefully, either re-entering OS/8 if we can see
+	/ that its entry point looks sane, or halting with the answer in
+	/ AC so the user can see the answer on the front panel.
+OS8ENT,			/ 7600, OS/8's entry point, happens to also be...
+ENDG,   7600		/ ...the group 2 variant of CLA; yes, we know, yuck!
+	TAD I OS8ENT
+	TAD OS8INS1	/ add its negative
+	SNA CLA		/ if it's zero'd out, then...
+	JMP I OS8ENT	/ re-enter OS/8
+	TAD STOTAL	/ else not running under OS/8...
+	HLT		/ so halt with STOTAL displayed in AC lights
+OS8INS1,-4207		/ first OS/8 instruction at entry point, negated
+
+
+//// ISMOD0 ////////////////////////////////////////////////////////////
+/ If passed AC divides evenly into CURR (in C-speak, CURR % AC == 0)
+/ add CURR to STOTAL and return 0 in AC.  Else, return nonzero in AC and
+/ leave STOTAL untouched.
+
+ISMOD0, 0
+	DCA DIVISOR	/ Divide CURR by DIVISOR, passed as AC
+	TAD CURR	/ load CURR into just-cleared AC
+	MQL DVI		/ move CURR to MQ, divide by DIVISOR...
+DIVISOR,0		/ ...quotient in MQ, remainder in AC
+	SZA
+	JMP I ISMOD0	/ remainder nonzero, so leave early
+
+	/ Division left AC empty, so CURR divides evenly by DIVISOR!
+	TAD CURR	/ don't need to clear AC; prior test says AC == 0
+	TAD STOTAL
+	DCA STOTAL
+	JMP I ISMOD0
+
+
+//// SHOWST ////////////////////////////////////////////////////////////
+/ Write STOTAL value to terminal in decimal.  We purposely do not follow
+/ it with anything, as our callers variously follow it with " + " or a
+/ CRLF pair.  Leaves AC = 0 because DECRPT does.
+
+SHOWST, 0
+	CLR
+	TAD STOTAL
+	JMS DECPRT	/ print answer on console, in decimal
+	JMP I SHOWST	/ and done
+
+
+//// TYPE //////////////////////////////////////////////////////////////
+/ Send a character out to the terminal.  Shared core of PRINTS and
+/ DECPRT.
+
+TYPE,   0
+	TSF
+	JMP .-1
+	TLS
+	CLA
+	JMP I TYPE
+
+
+//// PRINTS ////////////////////////////////////////////////////////////
+/ Write an ASCIIZ string to the terminal.  Expects to receive the
+/ address of the string - 1 in AC.  (The -1 hassle saves an instruction
+/ or two in our use of an autoincrement register.)  Uses the autoinc
+/ register at location 10.
+
+SADDR=10		/ autoinc register for walking the string
+PRINTS, 0
+	DCA SADDR	/ save AC as string address
+PSNEXT, TAD I SADDR	/ load next character
+	SNA
+	JMP I PRINTS	/ found the null terminator; leave
+	JMS TYPE	/ Print that character
+	JMP PSNEXT	/ look at next character
+
+
+//// DECPRT ////////////////////////////////////////////////////////////
+/ Decimal number printer; variant of examples/routines/decprt.pal
+/ Leaves AC = 0.
+
+DECPRT, 0
+	DCA VALUE	/SAVE INPUT
+	DCA DIGIT	/CLEAR
+	TAD CNTRZA
+	DCA CNTRZB	/SET COUNTER TO FOUR
+	TAD ADDRZA
+	DCA ARROW	/SET TABLE POINTER
+	SKP
+	DCA VALUE	/SAVE
+	CLL
+	TAD VALUE
+ARROW,  TAD TENPWR	/SUBTRACT POWER OF TEN
+	SZL
+	ISZ DIGIT	/DEVELOP BCD DIGIT
+	SZL
+	JMP ARROW-3	/LOOP
+	CLA		/HAVE BCD DIGIT
+	TAD DIGIT	/GET DIGIT
+	TAD K260	/MAKE IT ASCII
+	JMS TYPE
+	DCA DIGIT	/CLEAR
+	ISZ ARROW	/UPDATE POINTER
+	ISZ CNTRZB	/DONE ALL FOUR?
+	JMP ARROW-1	/NO: CONTINUE
+	JMP I DECPRT	/YES: EXIT
+
+ADDRZA, TAD TENPWR
+CNTRZA, -4
+TENPWR, -1750		/ONE THOUSAND
+	-0144		/ONE HUNDRED
+	-0012		/TEN
+	-0001		/ONE
+K260,   260
+VALUE,  0
+DIGIT,  0
+CNTRZB, 0
+
+
+//// Global Variables //////////////////////////////////////////////////
+
+CURR,   0		/ current number we're checking
+STOTAL, 0		/ subtotal, printed and reset occasionally
+
+
+//// Constants /////////////////////////////////////////////////////////
+
+	DECIMAL
+MAX,    999		/ check natural numbers CURR to MAX; must be < 2048!
+STMAX,  1024		/ subtotal max; avoids overflow of 12-bit signed int
+
+	OCTAL
+CRLF,   215;212;0	/ ASCIIZ character strings, 8th bit set
+PLUS,   240;253;240;0
+ANSWER, 301;316;323;327;305;322;272;240;0
+
+
+//// END ///////////////////////////////////////////////////////////////
+/ Assembler-generated constants will appear below this in the list file
+$

@@ -1,0 +1,154 @@
+#!/usr/bin/env perl
+########################################################################
+# mkbootscript - Generate boot/*.script from obj/*.lst.  See the usage
+#     message below for more details.
+#
+# Copyright © 2017-2018 Warren Young
+#
+# Permission is hereby granted, free of charge, to any person obtaining
+# a copy of this software and associated documentation files (the
+# "Software"), to deal in the Software without restriction, including
+# without limitation the rights to use, copy, modify, merge, publish,
+# distribute, sublicense, and/or sell copies of the Software, and to
+# permit persons to whom the Software is furnished to do so, subject to
+# the following conditions:
+#
+# The above copyright notice and this permission notice shall be
+# included in all copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+# EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+# MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+# IN NO EVENT SHALL THE AUTHORS LISTED ABOVE BE LIABLE FOR ANY CLAIM,
+# DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT
+# OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
+# OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+#
+# Except as contained in this notice, the names of the authors above
+# shall not be used in advertising or otherwise to promote the sale,
+# use or other dealings in this Software without prior written
+# authorization from those authors.
+########################################################################
+
+use strict;
+use warnings;
+
+use File::Basename;
+
+# Parse command line
+my $outPath = '../boot';
+if (@ARGV == 0 || ! -r $ARGV[0]) {
+	print <<USAGE;
+usage: $0 <somefile.lst>
+
+Given a palbart listing file, transform its contents into a SIMH boot
+script named after the listing file.  Comments in the listing file are
+variously translated to either comments or echo statements in the boot
+script.
+
+Output is stored in $outPath/somefile.script relative to the listing
+file, as makes sense when translating obj/*.lst files produced from
+examples/*.pal files.
+
+USAGE
+	exit 1;
+}
+
+# Globals
+my $keepComments = 1;	# keep header comments; ignore the rest
+my (@comments, @directives);
+my $firstAddr;
+my %core;
+my $inFile = $ARGV[0];
+my $bni = basename($inFile);
+my $outFile = join('/', ( dirname($inFile), $outPath, $bni ));
+$outFile =~ s{\.lst$}{.script};
+my $oneLiner = $bni;	# use input file name as one-liner fall-back
+
+
+# Parse the input file
+my $lln = 0;
+open my $lst, '<', $inFile or die "Cannot read $inFile: $!\n";
+while (<$lst>) {
+	chomp;
+    ++$lln;
+	my ($line, $addr, $val, $tail) = m{
+		^([\d\s]{5})	# first 5 columns = assembly file line number
+        \s              # then a space
+		([\d\s]{5})	    # then an address
+        \s+             # then a space or two
+		([\d\s]{4}) 	# then the value to store there
+        (.*)            # and everything else
+	}x;
+
+    # Save comments found in the "tail" section, if any, but only if
+    # there appears to be actual content in the comment.
+	my ($comment) = $tail =~ m{/\s*(.*)$} if $tail;
+    undef $comment if $comment and $comment =~ m{^[\s/]+$};
+
+	if (defined $addr and defined $val and
+            $addr ne (' ' x 5) and $val ne (' ' x 4)) {
+		# Save address and value to our core image
+		$firstAddr = oct($addr) if not defined $firstAddr;
+		$core{oct($addr)} = oct($val);
+	}
+	elsif (defined $line && $line ne (' ' x 5)) {
+        # There's an assembly file line number on this listing line
+        if ($line == 1 and defined $comment) {
+            # Save the comment on the first source file line as a one
+            # line description of what the program does, emitted to the
+            # console by SIMH when running our output script unless we
+            # find a "SIMH: echo..." directive later on in that file,
+            # which overrides it.
+            $oneLiner = $comment;
+            $oneLiner =~ s{ - }{: };
+            $oneLiner =~ s{([\w-]+).pal}{"$1" example};
+        }
+        elsif ($keepComments) {
+            if (not defined $comment) {
+                # The first blank line in the input file will appear in
+                # the listing as a file containing only a line number.
+                # Stop saving comments since everything after this would
+                # be comments on individual source lines, which we do
+                # not copy into the output.
+                $keepComments = 0;
+            }
+            elsif ($comment =~ m{^SIMH: }) {
+                # It's a directive to SIMH, so save it separately
+                push @directives, substr($comment, 6);
+            }
+            else {
+                # Nothing special, so just save the text portion
+                push @comments, $comment;
+            }
+        }
+	}
+}
+close $lst;
+
+# Remove leading and trailing blank comment lines 
+while (@comments and length($comments[0]) == 0) {
+	shift @comments;
+}
+while (@comments and length($comments[$#comments]) == 0) {
+	pop @comments;
+}
+
+# Write parsed data into output file
+open my $scr, '>', $outFile or die "Cannot write $outFile: $!\n";
+for my $c (@comments) {
+	print $scr "; $c\n";
+}
+print $scr ";\n";
+my $foundEcho;
+for my $d (@directives) {
+	print $scr $d, "\n";
+	$foundEcho = 1 if $d =~ m{^echo };
+}
+print $scr "echo Running $oneLiner...\n" unless $foundEcho;
+for my $a (sort { $a <=> $b } keys %core) {
+	printf $scr "dep %05o %04o\n", $a, $core{$a};
+}
+printf $scr "go  %05o\n", $firstAddr;
+close $scr;
+print "Converted $inFile to $outFile\n";

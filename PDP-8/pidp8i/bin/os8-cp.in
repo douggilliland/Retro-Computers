@@ -1,0 +1,787 @@
+#!/usr/bin/env @PYCMD@
+# -*- coding: utf-8 -*-
+########################################################################
+# Generalized facility to manipulate os8 device images from the POSIX
+# (host) side using OS/8 system programs under SIMH.
+#
+# See USAGE message below for details.
+#
+# Copyright © 2018-2019 by Bill Cattey and Warren Young
+#
+# Permission is hereby granted, free of charge, to any person obtaining
+# a copy of this software and associated documentation files (the
+# "Software"), to deal in the Software without restriction, including
+# without limitation the rights to use, copy, modify, merge, publish,
+# distribute, sublicense, and/or sell copies of the Software, and to
+# permit persons to whom the Software is furnished to do so, subject to
+# the following conditions:
+#
+# The above copyright notice and this permission notice shall be
+# included in all copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+# EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+# MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+# IN NO EVENT SHALL THE AUTHORS LISTED ABOVE BE LIABLE FOR ANY CLAIM,
+# DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT
+# OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
+# OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+#
+# Except as contained in this notice, the names of the authors above
+# shall not be used in advertising or otherwise to promote the sale,
+# use or other dealings in this Software without prior written
+# authorization from those authors.
+########################################################################
+
+# Bring in just the basics so we can bring in our local modules
+import os
+import sys
+
+sys.path.insert (0, os.path.dirname (__file__) + '/../lib')
+sys.path.insert (0, os.getcwd () + '/lib')
+
+# Our local modules
+from pidp8i import *
+from simh   import *
+
+# Other global Python modules
+import glob
+import subprocess
+import string
+import re
+
+
+#### GLOBALS AND CONSTANTS #############################################
+
+progmsg = True
+DEBUG = False
+VERBOSE = False
+QUIET = False
+
+# Default RK05 system image to attach if no sys specified.
+_default_sys_image = "@OS8_TOOLTIME@"
+_default_sys_path = dirs.os8mo + _default_sys_image
+_default_att_spec = ["rk", "0", _default_sys_path]
+
+# Regex for parsing an argument string into a sys device
+_dev_arg_regex_str = "-(rk|td|dt|rx)(\d?)(s)?"
+_dev_arg_re = re.compile(_dev_arg_regex_str)
+
+# Regex for parsing an action file att string into a sys device.  Note
+# reuse of regex string from above.
+_dev_actfile_regex_str = _dev_arg_regex_str[1:]   # strip -
+_dev_actfile_re = re.compile (_dev_actfile_regex_str)
+
+# Map of SIMH device names to OS/8 device name prefixes.
+_os8_from_simh_dev = {"rk" : "RK", "td" : "DTA", "dt" : "DTA", "rx" : "RX"}
+
+_os8_partitions = {"RK": ["A", "B"]}
+
+# OS/8 file name matching regex
+_os8_file_re = re.compile("(\S+):(\S+)?")
+
+# PIP option flags we support and pass thru.  PIP has other options we
+# do not try to map to our program functionality.  The key bit is the
+# _pip_option_info dict.  The various transforms below it prevent both
+# redundant code up here and repeated recomputation below.
+_pip_option_info = {
+    'a': 'ASCII',
+    'b': 'binary',
+    'i': 'image',
+    'y': 'yank system head',
+    'z': 'zero device'
+}
+_valid_pip_options = sorted(_pip_option_info.keys())
+_arg_to_option = dict(zip(
+    [ '-' + opt for opt in _valid_pip_options ],
+    _valid_pip_options
+))
+_option_to_pip = dict(zip(
+    _valid_pip_options,
+    [ '/' + opt.upper() for opt in _valid_pip_options ]
+))
+
+# Matches if the string begins with a dollar sign, and has at least
+# one slash, returning the string between the dollar sign and the
+# first slash in group 1 and the rest in group 2.
+# No whitespace in the string.
+_expandable_re = re.compile ("^\$([^/\s]+)/(\S*)$")
+
+
+#### abort_prog ########################################################
+# Print err_string and exit with -1 return status.
+
+def abort_prog (err_str):
+  print("Abort: " + err_str)
+  sys.exit(-1)
+
+
+#### parse_attach ######################################################
+# Parser for OS/8 attach spec.
+
+def parse_attach (action_plan, match, imagename):
+  if match.group(2) == None or match.group(2) == "":
+    abort_prog ("Need unit number for: " + match.group(1) + ".")
+
+  image_spec = [match.group(1), match.group(2), imagename]
+  if match.group(3) == 's': 
+    if action_plan ["sys"] != None:
+      print("Already specified system device. Ignoring sys mount of: " + imagename)
+    else:
+      action_plan["sys"] = image_spec
+  else:
+    action_plan["mount"].append(image_spec)
+
+
+#### path_expand #######################################################
+# Originally developed in os8script.py, but useful here too.
+#
+# Simple minded variable substitution in a path.
+# A path beginning with a dollar sign parses the characters between
+# the dollar sign and the first slash seen becomes a name to
+# expand with a couple local names: $home and the anchor directories
+# defined in lib/pidp8i/dirs.py.
+# We abort if the path expansion fails.
+
+def path_expand (path):
+  m = re.match(_expandable_re, path)
+  if m == None: return path
+  var = m.group(1)
+
+  val = getattr (dirs, var, None)
+  if val != None:
+    return os.path.join(val,m.group(2))
+  else:
+    abort_prog ("{$" + var + "} is not a valid path expansion in " + path)
+ 
+
+  
+#### parse_action_file #################################################
+#
+# This option allows creation of the action_plan from a file
+# instead of by indivitual arguments.  Think of it as a batch mode.
+#
+# Figuring out how to mix command lines args and the action_file
+# would be tricky since the args are globbed, analyzed and then
+# turned into an action plan.
+#
+# For now, the action file REPLACES the action plan of any other
+# command line arguments before --action-file, and no other
+# command line arguments are bothered with.
+#
+# The action file is 3 columns separated by one or more whitepace chars.
+#
+# If the first column is "att" it's an attach command
+# and is parsed the same way as the attach args are parsed
+# (Except we don't have a dash.)
+#
+# Otherwise the 3 columns are:
+#
+# option     source   destination
+#
+# option is one of the valid OS/8 file options:
+# a, b, i, y, z
+#
+# Example:
+#
+# att rk0sbootdisk.rk05
+# att td0 boing.tu56
+# a pidp8i.in DTA0:
+# b ac-mq-blinker.pal.pt DTA0:
+#
+# A dollar sign appearing in a POSIX pathname is expanded with substitutions
+# from dirs.py.
+
+def parse_action_file(fname):
+  try:
+    manifest = open(fname, "r")
+  except IOError:
+    print(fname + " not found. Skipping.")
+    return None
+
+  ioline_re = re.compile("(\S+)\s+(\S+)\s+(\S+)")
+
+  action_plan = {}
+  action_plan["sys"] = None
+  action_plan["mount"] = []
+  action_plan["copy"] = []
+
+  for line in manifest:
+    ioline = line.strip()
+    if DEBUG: print("parse_action_file: ioline: " + ioline)
+    if ioline == "": continue
+    if ioline[0] == '#': continue                  # Allow comments
+
+    m=re.match(ioline_re, ioline)
+    if m== None: 
+      print("Ignoring line: " + ioline)
+      continue
+
+    option = m.group(1)
+    source = m.group(2)
+    destination = m.group(3)
+    
+    if option == "att":
+      m = re.match(_dev_actfile_re, source)
+      if m == None:
+        abort_prog ("Could not parse attach spec: " + source)
+      parse_attach (action_plan, m, path_expand(destination))
+    else:
+      if len(option) != 1:
+        print("Format options are only 1 letter in size. " + \
+                "Ignoring line: " + ioline)
+      elif option[0] not in _valid_pip_options:
+        print("Unrecognize option in line: " + ioline)
+      elif source == None:
+        print("Null value of source. Ignoring line: " + ioline)
+      elif destination == None:
+        print("Null value of destination. Ignoring line: " + ioline)
+      else:
+        append_copy(action_plan, option, source, destination)
+
+  return action_plan
+
+
+#### is_directory ######################################################
+#
+# Returns True if the passed path looks like a directory.
+#
+# This is used at a level where we may still be unsure whether the given
+# path refers to something on the OS/8 or the host side, so we first
+# determine whether the path looks like an OS/8 or host-side path.  If
+# it looks like an OS/8 path, we consider it a "directory" if it names a
+# device name, lacking a file name part after it.  Otherwise, we use the
+# local OS's "is a directory" path check.
+
+def is_directory(path):
+  if DEBUG: "is_directory (" + path + ")"
+  m = re.match(_os8_file_re, path)
+  if m != None:
+    if DEBUG: print("OS/8 Match: DEV: " + m.group(1) + ", File: " + str(m.group(2)))
+    if m.group(2) == None or m.group(2) == "": 
+      return True     # Just a device so yes it's a directory.
+    else: return False
+  if has_os8_wildcards(path):
+    if DEBUG: print("Has wildcards.")
+    return False
+  return os.path.isdir(path)
+
+
+#### has_os8_wildcards #################################################
+# Returns True if the passed file name has OS/8 style wildcards.
+
+def has_os8_wildcards (filename):
+  os8_wild_cards = "*?"
+  for char in os8_wild_cards:
+    if char in filename: return True
+  return False
+
+
+#### file_list_from_expect #############################################
+# Given a block of text output by the Python Expect module used by class
+# simh, parse it with the assumption that it contains OS/8 DIR output.
+
+def file_list_from_expect(before):
+  file_list = []
+  lines = before.split("\r")
+  for line in lines[1:]:    # First line is our command. Skip it.
+    line = line.strip()
+    if line == "": continue
+    m = re.match("(\S+)\s*\.(\S+)", line)
+    if m == None: continue
+    # if DEBUG: print("file_list_from_expect: group 1: " + m.group(1) + ", group 2: " + m.group(2))
+    fname = m.group(1) + "." + m.group(2)
+    file_list.append(fname)
+  return file_list
+
+
+#### append_copy #######################################################
+# Append a copy control array to the action_plan
+
+def append_copy(action_plan, mode, source, destination):
+  copy_type = ""
+  if ":" in source:
+    copy_type = "from"
+    if "/" in source:
+      abort_prog ("append_copy, out: Illegal OS/8 file spec containing a slash:" + source)
+    source = source.upper()
+  else: source = path_expand(source)
+
+  if ":" in destination:
+    if copy_type == "from":
+      copy_type = "within"
+    else:
+      copy_type = "into"
+    if "/" in destination:
+      print("append_copy, into: Illegal OS/8 file spec containing " + \
+            "a slash:" + destination)
+      sys.exit(-1)
+    destination = destination.upper()
+    
+    if copy_type == "":
+      abort_prog ("append_copy: No OS/8 file spec found with source: " + source + ", destination: " + destination)
+  else: destination = path_expand(destination)
+
+  copyspec = [mode, source, destination, copy_type]
+  action_plan["copy"].append (copyspec)
+  
+
+#### parse_args ########################################################
+#
+# Builds the action plan from the command line arguments and executes it
+#
+# Note that if we specify the --action-file, the
+# contents of that file REPLACE any command line arguments.
+#
+# An element of the action_plan["copy"] array is itself an array
+# that names a file format, a source, a destination, and operation type.
+#
+#    [<format>, <source>, <destination>, <type>]
+#
+# type is one of:
+#      "from" if we are transferring *from* OS/8 to POSIX
+#      "to"   if we are transferring *to* OS/8 to POSIX
+#      "on"   if we are transferring files within -- *on* OS/8
+#
+# The source and destination file specifications are interpreted as in
+# the USAGE message below.  (Look for "colon".)
+
+TERSE_USAGE = 'usage: ' + os.path.basename (__file__) + \
+              " [-dhvq] [-<dev><unit>[s] image] ... [[-abiyz] <src>] ... <dest>\n" + \
+              "       " + os.path.basename (__file__) + " [-dhvq] [--action-file action-file]" + \
+"""
+
+    <dev> is one of rk, td, dt, rx, corresponding to SIMH PDP-8 devices
+    <unit> must be a valid unit number for the device in both SIMH and
+           the booted OS/8 system. A unit number is required.  Following
+           the unit with an "s" names the system device to boot.  The
+           system image file must exist, and contain a working boot
+           image.  Only one designated system device is allowed.
+    <src>  is a source file or wild card specification.
+    <dest> is a destination file if a single src file is specified; if
+           multiple <src> files are given, it is either a POSIX
+           directory or an OS/8 device name.
+
+    Specifying an action file overrides any device or file argument
+    previously specified on the command line.
+
+    Example: 
+    """ + \
+      os.path.basename (__file__) + " -rk0s os8v3d-patched.rk05 -dt0 scratch.tu56 -a prog.pa DTA0:PROG.PA "
+
+USAGE = TERSE_USAGE + """
+    To see more detailed documentation specify -v -h
+"""
+        
+VERBOSE_USAGE = TERSE_USAGE + """
+
+    This program boots an OS/8 environment in the SIMH PDP-8 simulator
+    then tries to behave like the POSIX program it is named after --
+    copying files between the POSIX (host) side and the OS/8
+    environment or under our control within the OS/8 environment.
+
+    The copying direction is determined by which file name arguments
+    have a colon in them:
+
+    *   copy-within: The source and destination file arguments have
+        colons, so copy within the OS/8 environment from one volume to
+        another.
+
+    *   copy-into: Only the dest argument has a colon, so assume the
+        source file names are POSIX-side and copy those files into the
+        simulated OS/8 environment.
+
+    *   copy-from: The dest argument has no colon but the source file
+        names do, so copy the named OS/8 files out from the simulation.
+
+    If none of the file arguments has a colon in it and you give exactly
+    two such arguments, we operate in a special case of copy-within
+    mode: the source and destination volumes are assumed to be DSK:, so
+    the file is simply copied within the OS/8 DSK: volume from one name
+    to the other.  If you give greater than two file name arguments
+    without a colon in any of them, it is not possible to make sense of
+    the command since we do not intend to try and replace your perfectly
+    good POSIX cp implementation, so it errors out.
+
+    If you give only one file name argument, the program always errors
+    out: it requires at least one source and one destination.
+
+    The -a, -b, -i, -y, and -z flags correspond to the OS/8 PIP options:
+
+        /A    ASCII format.  OS/8 and POSIX newlines are translated.
+              Such transfers are lossless if line endings are  well-formed.
+        /B    Binary OS/8 ABSLDR format with leader/trailer and other
+              specific formatting that is detected and enforced by PIP.
+        /I    Image mode.  Files are copied byte for byte verbatim.
+        /Z    ZERO directory of destination OS/8 device.
+        /Y    Yank system area from source to destination.
+
+    If no format flag is set, the default transfer format is /I.
+
+    (This priogram currently uses PIP as its primary handler for the
+    OS/8 side of the work.)  They must be followed by at least one source
+    file name, and they affect all subsequent source file names until
+    another such option is found.  For example:
+
+        $ os8-cp -a foo bar -b qux sys:
+
+    Files foo and bar are copied to SYS: in ASCII mode, overriding the
+    default binary mode, then binary mode is restored for the copy of
+    file qux to the SYS: volume.
+
+    Beware that -i means something very different to this program than
+    it means to POSIX cp: destination files will be unceremoniously
+    overwritten!
+
+    More about image file mounts:
+
+    image files for non-boot dev specifications, if they do not
+    already exist, are created. Their directories are initalized
+    with the ZERO command. Multi-partition devices initialize all.
+
+    A future version will include a default system device if
+    no dev system mount is made.
+
+    Examples:
+
+        $ os8-cp -td0s my.tu56 -rk0 my.rk05 foo DSK:
+
+    ...will boot from my.tu56, which is presumed to be a bootable OS/8
+    DECtape attached to SIMH device TD0.  The RK05 disk image my.rk05
+    will be attached to RK0, since the default boot disk is not attached
+    there in this example.  It will copy POSIX-side file foo to DSK:FOO
+    which will probably be interpreted as DTA0:FOO by the typical BUILD
+    options for a bootable OS/8 TU56 DECtape.  Beware therefore of using
+    the generic SYS: and DSK: device names!  You would be better advised
+    to use DTA0:, RKA0: or RKB0: as the destination in this example.
+
+        $ os8-cp -td0s my.tu56 -rx1 my.rx01 foo RXA1:
+
+    This fixes the almost-certainly incorrect use of DSK: in the prior 
+    example.
+
+    The -dt and -td options are handled similarly to the -r* options,
+    differing only in whether we use the SIMH DT or TD PDP-8 devices,
+    which correspond to the TC08 or TD8E DECtape controllers.  Which one
+    you give depends on the device support built into the OS/8 media
+    you've booted from.
+
+    More about src and dest specifications:
+
+    When only a destination device, directory, or volume name is given,
+    file names are normalized when coping between POSIX and OS/8
+    systems.  File names are uppercased and truncated to 6.2 limits when
+    copying into OS/8.  File names are lowercased on copying from OS/8
+    unless you give the *source* file name in all-uppercase.
+    Then file name case is preserved.  This behavior is overridden
+    if you give a complete file name for the destination:
+
+        $ os8-cp my-long-file-name.txt DSK:MLF.FD
+
+    If you gave "DSK:" as the destination instead, you would have gotten
+    "MY-LON.TX" as the desintation file name instead.
+
+    Give -d to run in debug mode.
+
+    Give -h -v to print this message.
+
+    Give -v to enable verbose status reporting.
+"""
+
+def parse_args ():
+  global DEBUG
+  global VERBOSE
+  global QUIET
+
+  action_plan = {}
+  action_plan["sys"] = None
+  action_plan["mount"] = []
+  action_plan["copy"] = []
+
+  idx = 1
+  numargs = len(sys.argv)
+
+  filespec_seen = 0
+  mode_opt = "i"                              # start of with default of binary.
+  first_mode = mode_opt
+  source = ""
+  destination = ""
+  # Keep file_list and mode_list in sync.
+  file_and_mode_list = []
+  
+  while idx < numargs:
+    arg = sys.argv[idx]
+
+    # First the simple bit set options
+    if arg == "-d":
+      DEBUG = True
+    elif arg == "-h":
+      if VERBOSE:
+        print(VERBOSE_USAGE)
+      else:
+        print(USAGE)
+      sys.exit(0)
+    elif arg == "-q":
+      QUIET = True
+    elif arg == "-v":
+      VERBOSE = 1
+
+    # look for option args.
+    elif arg in _arg_to_option:
+      new_opt = _arg_to_option[arg]
+      if mode_opt == new_opt:
+        print("Warning redundant reset of mode option to " + \
+          _pip_option_info[new_opt])
+      mode_opt = new_opt
+
+    # Not a simple bit set option.
+    
+    elif arg == "--action-file":
+      if idx + 1 == numargs:             # Need filename, but no args left.
+        abort_prog ("No action file name.")
+      argfilename = sys.argv[idx + 1]
+      retval = parse_action_file(argfilename)
+      if retval == None:
+        abort_prog ("No action plan could be made from " + argfilename + ".")
+      else: return retval
+      
+    else:
+      # Parser for OS/8 attach spec.
+      m = re.match(_dev_arg_re, arg)
+      if m != None:
+        if idx + 1 == numargs:             # Need filename, but no args left.
+          abort_prog ("No image file name.")
+        idx +=1
+        parse_attach (action_plan, m, sys.argv[idx])
+
+      # Do file parser if we didn't get an OS/8 attach spec.
+      else:
+
+        if DEBUG: print("File parsing of: " + arg)
+        
+        # Need to know if arg is Linux. If so, we need to do globbing.
+        # If you want OS/8 globbing, specify a device to prevent globbing
+        # from being run.
+        m = re.match(_os8_file_re, arg)
+        if m == None:          # Yup, it's POSIX.  Glob it.
+          if DEBUG: print(arg + " is POSIX.")
+          more_files = glob.glob(arg)
+          if more_files == []:
+            if DEBUG:
+              print("No more files in POSIX Glob. Our file is: " + arg)
+            more_files.append(arg)  # If file not found may be an OS/8 internal xfer.
+          for new_file in more_files:
+            if filespec_seen == 0:
+              source = new_file
+              first_mode = mode_opt
+              if DEBUG:
+                print("Globber: Setting initial source: " + source + \
+                    " and mode: " + first_mode)
+            elif filespec_seen == 1:
+              if DEBUG:
+                print("Globber: Setting initial destination: " + \
+                    destination)
+              destination = new_file  
+            else:
+              if DEBUG: "Globber: Appending destination to list. New file is: " + new_file
+              file_and_mode_list.append([mode_opt,destination])
+              destination = new_file
+            filespec_seen += 1
+        else:
+          if filespec_seen == 0:
+            source = arg
+            first_mode = mode_opt
+            if DEBUG:
+              print("Setting initial source: " + source + \
+                  " and mode: " + first_mode)
+          elif filespec_seen == 1:
+            destination = arg
+            if DEBUG: print("Setting initial destination: " + destination)
+          else:
+            file_and_mode_list.append([mode_opt, destination])
+            destination = arg
+            if DEBUG: "Appending destination to list. New file is: " + new_file
+          filespec_seen += 1
+
+    idx +=1        # Bottom of the while loop. Increment.
+
+  if filespec_seen == 0:
+    abort_prog ("No file specs seen.  Nothing to do.")
+  elif filespec_seen == 1:
+    abort_prog ("Only 1 file spec found. Nothing to do.")
+  # Now it gets a little complicated...
+  # If neither source nor destination is OS/8, pretend they both were OS/8 "DSK:"
+  # If source is OS/8, and has OS/8 wild cards, the destination must be a directory.
+  else:
+    # If more than 2 files, the destination must be either an OS/8 device or a Linux directory.
+    if DEBUG: print("Destination: " + destination)
+    if filespec_seen > 2 and is_directory(destination) == False:
+      abort_prog ("Destination must be a Linux directory or OS/8 device for multiple source files.")
+
+    m1 = re.match(_os8_file_re, source)
+    m2 = re.match(_os8_file_re, destination)
+
+    # If source is OS/8 and it has wild cards, but destination is a file, not a device,
+    # it's a fatal error.
+    if m1 != None and has_os8_wildcards(source) and is_directory (destination) == False:
+      abort_prog ("Not going to concatinate multiple OS/8 files into: " + destination + ".")
+
+    if m1 == None and m2 == None and filespec_seen == 2:      # No OS/8 dev on two names, local DSK: copy.
+      source = "DSK:" + source
+      destination = "DSK:" + destination
+      
+    append_copy(action_plan, first_mode, source, destination)
+    
+    for mode_and_file in file_and_mode_list:
+      filename = mode_and_file[1]
+      m3 = re.match(_os8_file_re, filename)
+      if m3 != None and has_os8_wildcards(filename) and is_directory (destination) == False:
+        abort_prog ("Not going to concatinate multiple OS/8 files into: " + destination + ".")
+      append_copy(action_plan, mode_and_file[0], filename, destination)
+
+  return action_plan
+  
+
+#### main ##############################################################
+
+def main ():
+
+  action_plan = parse_args()
+  if action_plan == None:
+    abort_prog ("No action plan was parsed.")
+  if DEBUG: print(str(action_plan))
+
+  # Create the SIMH child instance and tell it where to send log output
+  try:
+    s = simh (dirs.build, True)
+  except (RuntimeError) as e:
+    print("Could not start simulator: " + e.message + '!')
+    exit (1)
+  # s.set_logfile (os.fdopen (sys.stdout.fileno (), 'wb', 0))
+  s.set_logfile (open ("logfile.txt", 'wb'))
+  if VERBOSE: s.verbose = True
+  
+  # Perform sys attach
+  att_spec = action_plan["sys"]
+  if att_spec == None: att_spec = _default_att_spec
+  simh_boot_dev = att_spec[0] + att_spec[1]     # Compose simh dev from name and unit.
+  imagename = att_spec[2]
+  if not os.path.exists (imagename):
+    abort_prog ("Requested boot image file: " + imagename + " not found.")
+  if VERBOSE or DEBUG:
+    print("Attaching " + simh_boot_dev + " to " + imagename)
+  s.simh_cmd ("att " + simh_boot_dev + " " + imagename, debug=DEBUG)
+
+  images_to_zero = []
+  
+  # Attach other mounts
+  for att_spec in action_plan["mount"]:
+    simh_dev = att_spec[0] + att_spec[1]     # Compose simh dev from name and unit.
+    imagename = att_spec[2]
+    if os.path.exists (imagename):
+      if VERBOSE or DEBUG:
+        print("Modifying existing " + simh_dev + " image " + imagename)
+    else:
+      if VERBOSE or DEBUG:
+        print("Will create a new image file named: " + imagename)
+      # Save this att_spec so we can zero it later.
+      images_to_zero.append (att_spec)
+    if VERBOSE or DEBUG:
+      print("Attaching " + simh_dev + " to " + imagename)
+    s.simh_cmd ("att " + simh_dev + " " + imagename, debug=DEBUG)
+
+  if VERBOSE or DEBUG: print("Booting " + simh_boot_dev + "...")
+  # Confirm successful boot into OS/8. Note we call simh_cmd with _os8_replies!
+  reply = s.simh_cmd ("boot " + simh_boot_dev, s._os8_replies_rex, debug=DEBUG)
+  s.os8_test_result (reply, "Monitor Prompt", "os8-cp")
+
+  for att_spec in images_to_zero:
+    os8dev = _os8_from_simh_dev[att_spec[0]]
+    if os8dev in _os8_partitions:
+      for partition in _os8_partitions[os8dev]:
+        os8name = os8dev + partition + att_spec[1] + ":"
+        if VERBOSE or DEBUG:
+          print("Initializing directory of " + os8name + " in " + \
+              imagename)
+        s.os8_cmd ("ZERO " + os8name, debug=DEBUG)
+    else:
+      os8name = os8dev + att_spec[1] + ":"
+      if VERBOSE or DEBUG:
+        print("Initializing directory of " + os8name + " in " + \
+            imagename)
+      s.os8_cmd ("ZERO " + os8name, debug=DEBUG)
+
+  # Perform copy operations
+  for do_copy in action_plan["copy"]:
+    mode_opt = do_copy[0]
+    source = do_copy[1]
+    destination = do_copy[2]
+    copy_type = do_copy[3]
+    if mode_opt in _option_to_pip:
+      pip_option = _option_to_pip[mode_opt]
+    else:
+      abort_prog ("Unrecognized mode option: " + mode_opt)
+
+    if DEBUG:
+      print("Source: " + source + ", Destination: " + destination + \
+          ", Mode: " + mode_opt + ".")
+    # Is this "from" OS/8 to POSIX, "into" OS/8 from POSIX or "within" OS/8?
+    # "into" -- Attach source to simh ptr
+    # If we are operating "from" and source has wild cards,
+    # Use DIRECT to create list of files.
+    # "from" -- Attach destination to ptp. We've already done POSIX globing.
+    # "within" -- Use COPY.
+    
+    if copy_type == "into":
+      s.os8_pip_to(source, destination, pip_option, debug=DEBUG)
+    elif copy_type == "from":
+      if has_os8_wildcards(source):
+        # Split off device from source:
+        os8dev = source[0:source.index(":")+1]
+        if DEBUG: print("Wild card dev: " + os8dev)
+        # Use OS/8 Direct to enumerate our input files.
+        if DEBUG:
+          print("Calling OS/8 DIRECT on wild card filespec: " + source)
+        s.os8_cmd ("DIR " + source + "/F=1", "\d+\s+FREE BLOCKS", debug=DEBUG)
+        # Now harvest direct output.  One file per line.  Ignore blank lines.
+        # Maybe parse the FREE BLOCKS Output.
+        # Done when we see a dot.
+        # s._child.expect("\d+\s+FREE BLOCKS")
+        files = file_list_from_expect(s._child.before.decode())
+	# Confirm return to monitor after call to DIR command.
+        s.os8_cfm_monitor ("os8_cp")  
+        for filename in files:
+          if VERBOSE or DEBUG:
+            print("Wildcard call os8_pip_from: copy from: " + \
+                "{" + os8dev + "}{" + filename + "}" + \
+                " to: " + destination + ", mode: " + pip_option)
+          s.os8_pip_from(os8dev + filename, destination, pip_option, debug=DEBUG)
+      else:
+        if VERBOSE or DEBUG:
+          print("Call os8_pip_from: copy from: " + source + " to " + \
+              destination + ", mode: " + pip_option)
+        s.os8_pip_from(source, destination, pip_option, debug=DEBUG)
+    elif copy_type == "within":
+      if VERBOSE or DEBUG:
+        print("Call COPY of: " + source + " to " + destination)
+      s.os8_cmd ("COPY " + destination + "< " + source)
+    else:
+      abort_prog ("Unrecognized copy type: " + copy_type)  # Should never happen.
+      
+  # Detach all mounts and then sys.
+  s.esc_to_simh()
+  for att_spec in action_plan["mount"]:
+    simh_dev = att_spec[0] + att_spec[1]     # Compose simh dev from name and unit.
+    if VERBOSE or DEBUG:
+      print("Detaching " + simh_dev)
+    s.simh_cmd ("det " + simh_dev, debug=DEBUG)
+  if VERBOSE or DEBUG:
+    print("Detaching " + simh_boot_dev)
+  s.simh_cmd ("det " + simh_boot_dev, debug=DEBUG)
+
+  # And shut down the simulator.
+  if VERBOSE or DEBUG:
+    print("Quitting simh.")
+  s._child.sendline("quit")
+
+if __name__ == "__main__": main()

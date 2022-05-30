@@ -1,0 +1,566 @@
+/	SPEAK - Types out messages from the database
+/	Also includes TTY output routines that unpack
+/	packed sixbit into mixed case ASCII.
+/
+	FIELD1	ADVTTY
+
+TTY,	0			/ TTY Output routine, dupe of FRTS
+	IOF			/ Protect from race conditions
+	SNA			/ Input or output?
+	JMP	KBD		/ Input - read character
+	DCA	HANGPT		/ Output - save char
+	RDF
+	TAD	CDIF00
+	DCA	CDFX
+	CDF	0
+	TAD%	TOCHR		/ Output character status in FRTS
+	SMA SZA CLA		/ If gt 0, char backed up
+	JMP	BUSY		/ Else must wait
+LOOP,	TAD%	TOCHR		/ Get the status
+	CLL RAL			/Busy flag in link
+	CLA CML RAR		/Complement of busy in sign
+	TAD	HANGPT
+	SPA			/If tty not busy, 
+	TLS			/Send it
+	DCA%	TOCHR		/Store pos or neg, backed up or busy
+TTYRET,	ION			/Interrupts back on
+CDFX,	HLT			/Caller's field
+	JMP%	TTY		/Return
+
+CDIF00,	CIF CDF
+
+BUSY,	CDF	10		/Busy, must wait. Call Field 0 HANG routine
+	CIF	0
+	JMS%	HANGPT+1
+	0451			/ TTUHNG
+	CDF	0
+	JMP	LOOP		/ Try output again
+
+KBD,	RDF
+	TAD	CDIF00
+	DCA	CDFX
+	CDF	0
+	TAD%	TICHR		/ Any input?
+	SNA CLA
+	JMP	WAIT		/ No, wait
+GETIN,	TAD%	TICHR		/ Get character
+	DCA	HANGPT		/ Save
+	DCA%	TICHR		/ Clear buffer
+	TAD	HANGPT
+	JMP	TTYRET		/ Return
+
+WAIT,	CDF	10
+	CIF	0
+	JMS%	HANGPT+1	/Hang
+	465			/KBUHNG
+	CDF	0
+	JMP	GETIN	/Get input
+TOCHR,	4
+TICHR,	5
+HANGPT,	ADDR	#HANG
+/
+/ Terminal line input routine. Used because the FRTS input is quite limited.
+/ This one handles scope rubouts and allows lower case input.
+/ Inputs: Array	Returned characters, stored one sixbit per array word
+/		(The FORTRAN input routine is set up this way to unpack)
+/	Size	Number of characters to allow
+/	Prompt Prompt string
+	FIELD1	RDLIN
+/
+	ENTRY	RDLINE
+RDLINE,	JA	#RLST
+#RLXR,	ORG	.+10
+	TEXT	+RDLINE+
+#RLRET,	SETX	#RLXR
+	SETB	#RLBAS
+	JA	.+3
+#RLBAS,	ORG	.+6
+BUFPT,	ORG	.+3
+BUFLEN,	ORG	.+3
+
+	ORG	#RLBAS+30
+	FNOP
+	JA	#RLRET
+	FNOP
+#RGOBK,	0;0
+#RLRTN,	BASE	#RLBAS
+	JA	#RGOBK
+#RLST,	STARTD
+	0210
+	FSTA	#RGOBK,0
+	0200
+	SETX	#RLXR
+	SETB	#RLBAS
+	LDX	0,1
+	FSTA	#RLBAS
+	FLDA%	#RLBAS,1+
+	FSTA	BUFPT
+	FLDA%	#RLBAS,1+
+	FSTA	BUFLEN
+	STARTF
+/
+/	Pass down size to '8' code
+/
+	SETX	BUFSIZ	
+	FLDA%	BUFLEN
+	FNEG			/ Make it negative
+	ATX	0		/ Pass buffer len
+	SETX	#RLXR
+	TRAP4	GETLIN		/ Get input line
+	JA	#RLRTN		/ And return
+/ Input reader
+
+	FIELD1	GETLN
+
+GETLIN,	0
+	CLA
+	DCA	OFFSET		/ Start at offset zero
+	TAD%	SCOPT
+	AND	K200
+	DCA	SCOPE
+	TAD%	BUFFLD+1	/ Get CDF for buffer
+	AND	FLDMSK
+	CLL RTL
+	RAL
+	TAD	CDFG
+	DCA	BUFCDF
+/
+/ Go get an input character
+/
+GETNXT,	JMS%	PTTY+1		/ Called with zero to get char
+	DCA	INCH		/ Save input
+/
+/ Specials?
+/
+	TAD	INCH
+	TAD	MDEL		/ Delete?
+	SNA CLA
+	JMP	DELETE		/ Handle that
+	TAD	INCH
+	TAD	MCR		/ CR?
+	SNA CLA
+	JMP	ENTER		/ End of line, let's go.
+	TAD	INCH
+	TAD	MSPC		/ Less than space?
+	SPA CLA
+	JMP	BELL		/ Nope, ignore
+	TAD	OFFSET
+	TAD	BUFSIZ		/ Room left?
+	SMA CLA
+	JMP	BELL		/ Bell if not
+	TAD	INCH
+	JMS%	PTTY+1		/ Echo it
+	TAD	INCH
+	TAD	LWRA		/ Is it lowercase?
+	SPA CLA
+	JMP	UPPER		/ No, store it
+	TAD	INCH
+	TAD	LWRZ
+	SMA CLA
+	JMP	UPPER		/ More than lowercase z
+	TAD	INCH
+	TAD	AMINA		/ Adjust to uppercase
+	DCA	INCH
+UPPER,	JMS	STORE		/ Store this character
+	JMP	GETNXT		/ Get more
+/ Store a character in the output buffer
+/ using the current offset
+/
+
+STORE,	0
+	TAD	OFFSET
+	TAD	OFFSET
+	TAD	OFFSET		/ Count FPP words
+	TAD%	BUFPTR+1	/ Pointer to exponent word
+	DCA	BPT
+	TAD	K27		/ Exponent 27 for integer
+	JMS	STO
+	JMS	STO		/ Zero high word
+	TAD	INCH		/ Char value
+	AND	SIXMSK		/ Convert to sixbit
+	JMS	STO		/ Store in buffer
+	CDF	10		/ Back to my field
+	ISZ	OFFSET		/ One more in the buffer
+SPC,    240			/ Really shouldn't overflow; harmless AND
+	JMP%	STORE		/ Return
+STO,	0
+BUFCDF,	HLT			/ Gets CDF for buffer field
+	DCA%	BPT
+	ISZ	BPT		/ Next word
+	JMP%	STO		/ Return if no skip
+	TAD	BUFCDF
+	TAD	BS		/ Next field
+	DCA	BUFCDF
+	JMP%	STO
+
+BELL,	TAD	BEL		/ Warn the user
+	JMS%	PTTY+1
+	JMP	GETNXT
+
+DELETE,	TAD	OFFSET		/ How far into the buffer are we?
+	SNA CLA
+	JMP	BELL		/ Ignore extra deletes
+	TAD	SCOPE
+	SNA CLA
+	JMP	DUMBDL		/ Simple fortran-format delete
+	TAD	BS
+	JMS%	PTTY+1
+	TAD	SPC
+	JMS%	PTTY+1
+	TAD	BS
+	JMS%	PTTY+1
+	JMP	FIXOFF		/ Fix the offset
+DUMBDL,	TAD	K334		/ Backslash
+	JMS%	PTTY+1
+FIXOFF,	CLA CMA
+	TAD	OFFSET
+	DCA	OFFSET
+	JMP	GETNXT
+
+ENTER,	TAD	CR		/ Send a RETURN
+	JMS%	PTTY+1
+CLRLP,	TAD	OFFSET		/ Is there space available?
+	TAD	BUFSIZ
+	SMA CLA
+	JMP	CLRDN
+	TAD	SPC
+	DCA	INCH
+	JMS	STORE
+	JMP	CLRLP
+CLRDN,	CIF CDF 0
+	JMP%	GETLIN
+
+BUFSIZ,	0
+SCOPT,	7726			/ Scope flag in OS/8
+K200,	200
+MDEL,	-377			/ Delete 
+MCR,	-215
+CR,	215
+MSPC,	-240
+BEL,	207
+LWRA,	-341
+LWRZ,	-373
+AMINA,	-40			/ Add to "a" to make "A"
+BPT,
+BUFFLD,	ADDR BUFPT+1
+SCOPE,
+BUFPTR,	ADDR	BUFPT+2
+OFFSET,
+PTTY,	ADDR	TTY
+BS,	10
+K334,	334
+CDFG,	CDF 0
+K27,	27
+SIXMSK,	77
+FLDMSK,	7
+INCH,	0
+
+/
+/ Fortran-callable message printer
+/ Put here to avoid wasting the rest of the page.
+/ Arguments:
+/	BUF		Buffer pointer
+/	COUNT		Number of characters to write, zero to look for end
+/	CRFLAG		Carriage return flags.
+/			Bit 11 (1) = no lead LF
+/			Bit 10 (2) = no trail CR
+/			Bit 9  (4) = start lowercase
+/
+	ENTRY	SIXOUT
+SIXOUT,	JA	#STRT
+#SXR,	ORG	.+10
+	TEXT	+SIXOUT+
+#SRET,	SETX	#SXR
+	SETB	#SBASE
+	JA	.+3
+#SBASE,	ORG	.+6
+CNT,	ORG	.+3
+SFLAG,	ORG	.+3
+
+	ORG	#SBASE+30
+	FNOP
+	JA	#SRET
+	FNOP
+#SGOBK,	0;0
+#SRTN,	BASE	#SBASE
+	JA	#SGOBK
+#STRT,	STARTD
+	0210
+	FSTA	#SGOBK,0
+	0200
+	SETX	#SXR
+	SETB	#SBASE
+	LDX	0,1
+	FSTA	#SBASE
+	FLDA%	#SBASE,1+
+	FSTA	BUF		/ Buffer pointer
+	FLDA%	#SBASE,1+	/ Count
+	FSTA	CNT
+	FLDA%	#SBASE,1+	/ Carriage control flag
+	FSTA	SFLAG
+	STARTF
+	FLDA%	CNT
+	SETX	COUNT
+	ATX	0
+	FLDA%	SFLAG
+	ATX	1
+	SETX	#SXR
+	TRAP4	SIX8		/Call the 8-mode output routine
+	JA	#SRTN
+
+	FIELD1	SXOUT
+	ENTRY	SIX8		/ Mixed case output routine
+
+SIX8,	0
+	TAD	CRFLAG		/Suppresss carriage control?
+	RAR			/Low bit suppresses lead LF
+	SZL CLA
+	JMP	.+4		/No leading LF
+	CDF	10		/ My field
+	TAD	LF		/Linefeed
+	JMS%	TTYPTR+1	/Output it
+	TAD	CRFLAG
+	AND	K4		/Start in lower case?
+	SZA CLA
+	TAD	K40		/Yes
+	TAD	HUN		/Reset conversion factor
+	DCA	SHIFT
+	TAD	BUF		/Buffer field
+	AND	K7		/Just the field bits
+	CLL RAL
+	RTL			/Into place
+	TAD	CDF0		/Into CDF instruction
+	DCA	CDF1
+	TAD	CDF1
+	DCA	CDF2
+	TAD	COUNT		/Get buffer length
+	SNA
+	JMP	NOTRIM		/Zero means it has a terminating "@"
+/
+/ Find the end of the string
+/
+	CLA CMA			/End is start + len - 1
+	TAD	COUNT		/String len in words
+	TAD	BUF+1		/End of the string
+	DCA	PTR		/Pointer to end
+	TAD	COUNT		/Invert count
+	CMA IAC
+	DCA	COUNT
+CDF1,	HLT
+FNDEND,	TAD%	PTR
+	TAD	K3740		/ - '  ' (two spaces)
+	SZA CLA			/ Skip if blank
+	JMP	NONBLK
+	ISZ	COUNT		/Count another
+	SKP
+	JMP	NONBLK		/If empty, done
+	CLA CMA			/ -1
+	TAD	PTR
+	DCA	PTR		/Back pointer up
+	JMP	FNDEND		/Keep looking
+
+NONBLK,	TAD	COUNT
+	SNA CLA			/Skip if output left
+	JMP	DONE		/Nothing if count zero already
+NOTRIM,	TAD	BUF+1		/Reset pointer to start
+	DCA	PTR
+CDF2,	HLT
+	TAD%	PTR		/Get word
+	DCA	STEMP		/Save
+	TAD	STEMP
+	RTR
+	RTR
+	RTR			/First sixbit
+	JMS	OUTONE		/Convert and output it
+	TAD	STEMP		/Second sixbit
+	JMS	OUTONE
+	ISZ	PTR		/Bump pointer
+	SKP			/OK if no skip
+	JMP	NEWFLD		/Next field otherwise
+INCCNT,	ISZ	COUNT
+	JMP	CDF2		/Keep outputting
+DONE,	CLA
+	TAD	CRFLAG		/Suppress trailing CR?
+	RTR			/2 bit suppresses trailing CR
+	SZL CLA			/If zero, write it.
+	JMP	OUT		/Yes, leave now
+	CDF	10		/My field
+	TAD	CRTN
+	JMS%	TTYPTR+1
+OUT,	CIF CDF	0
+	JMP%	SIX8
+
+NEWFLD,	TAD	CDF1
+	TAD	K10		/Next field
+	DCA	CDF1
+	TAD	CDF1
+	DCA	CDF2
+	JMP	INCCNT
+
+OUTONE,	0
+	AND	K77		/Mask
+	SNA
+	JMP	DONE		/ End of string
+	TAD	K7743		/ minus '['
+	SNA
+	JMP	SETLWR		/Set to lowercase shift
+	TAD	K2		/ ok, ']'?
+	SNA
+	JMP	SETUPR		/Set to uppercase
+	TAD	K7773		/Restore
+	SPA
+	TAD	SHIFT		/For positive, shift it
+	TAD	K40		/Else it's not alphabetic
+	CDF	10		/My field
+	JMS%	TTYPTR+1	/Output it
+	JMP%	OUTONE		/Done
+
+SETLWR,	TAD	K40		/Reset shift
+SETUPR,	TAD	HUN		/For upper/lower
+	DCA	SHIFT
+	JMP%	OUTONE
+
+TTYPTR,	ADDR TTY
+SHIFT,	140		/Shift value
+/ COUNT and CRFLAG must stay together
+COUNT,	0		/Num words to output. 
+CRFLAG,	0		/1 - no leading LF, 2 no trailing CR
+PTR,	0
+CRTN,	15
+LF,	12
+K3740,	3740			/minus blank
+BUF,	0;0;0			/Buffer 15-bit address
+STEMP,	0
+K77,	77			/sixbit mask
+K7,	7
+K4,	4
+K40,	40
+CDF0,	CDF
+HUN,	100
+K7743,	7743
+K7773,	7773
+K10,	10			/Field increment
+K2,	2
+
+	SECT	SPEAK
+/C
+/	SUBROUTINE SPEAK(N)
+/C
+/C PRINT THE MESSAGE IN RECORD N OF THE RANDOM ACCESS MESSAGE FILE.
+/C
+/	IMPLICIT INTEGER (A-Z)
+/	COMMON /TXTCOM/ RTEXT,LINES,ASCVAR
+/	COMMON /ALPHAS/ BLANK,EOF
+/	DIMENSION RTEXT(205),LINES(36)
+/C
+	EXTERN	IO
+	EXTERN	#HANG
+	JA	#ST
+#XR,	ORG	.+10
+	TEXT	+SPEAK+
+#RET,	SETX	#XR
+	SETB	#BASE
+	JA	.+3
+#BASE,	ORG	.+6
+N,	ORG	.+3
+#DOTMP,	ORG	.+3
+BLANK,	TEXT +      +
+EOF,	TEXT +>$<   +
+ONE,	F 1.0
+FOUR,	F 4.0
+	ORG	#BASE+30
+	FNOP
+	JA	#RET
+	FNOP
+#GOBAK,	0;0
+I,	ORG	.+0003
+L,	ORG	.+0003
+OLDLOC,	ORG	.+0003
+	#LBL=.
+	COMMON	TXTCOM
+RTEXT,	ORG	.+1147
+LINES,	ORG	.+0044
+ASCVAR,	ORG	.+0003
+TXTLOC,	ORG	.+0003
+DATA,	ORG	.+0352
+	ORG	#LBL
+#RTN,	BASE	#BASE
+	JA	#GOBAK
+#ST,	STARTD
+	0210
+	FSTA	#GOBAK,0
+	0200
+	SETX	#XR
+	SETB	#BASE
+	LDX	0,1
+	FSTA	#BASE
+	FLDA%	#BASE,1+
+	FSTA	N
+	STARTF
+/	 IF(N.EQ.0)RETURN
+	FLDA%	N
+	JEQ	#RTN
+/	 READ(2'N) LOC,LINES
+	FLDA	N
+	STARTD
+	FSTA	#G0002
+	STARTF
+	JSR	IO
+	JA	.+0004
+#G0002,	JA	.
+/	 IF(LINES(1).EQ.EOF)RETURN
+	FLDA	ONE
+	ATX	7
+	FLDA	LINES-0003,7
+	FSUB	EOF
+	JEQ	#RTN
+/1	 OLDLOC = LOC
+#1,	FLDA	TXTLOC
+	FSTA	OLDLOC
+	FLDA	ONE
+	FSTA	I
+
+/	 DO 3 I=36,1,-1
+/	Set COUNT to the number of words (36 or 44 octal)
+	SETX	COUNT
+	LDX	44,0		/44 words
+	LDX	0,1		/With carriage control
+	SETX	#XR
+/	 L=I
+/3	 CONTINUE
+/5	 TYPE 2,(LINES(I),I=1,L)
+#5,	FLDA	LINEPT
+	FSTA	BUF		/Set buffer pointer
+	TRAP4	SIX8
+
+	FLDA%	N
+	FADD	ONE
+	FSTA%	N
+	FLDA	N
+/	 READ(2'ASCVAR) LOC,LINES
+	STARTD
+	FSTA	#G0006
+	STARTF
+	JSR	IO
+	JA	.+0004
+#G0006,	JA	.
+/	 IF(LOC .EQ. OLDLOC) GO TO 1
+	FLDA	TXTLOC
+	FSUB	OLDLOC
+	JEQ	#1
+	EXTERN	#WRITO
+	TRAP3	#WRITO
+	JA	FOUR
+	JA	#10+2
+	EXTERN	#RENDO
+	TRAP3	#RENDO
+
+/10	 RETURN
+#10,	JA	#RTN
+/	 (1X)
+	5061
+	3051
+/2	 FORMAT(' ',36A2) PDP/8: (' ',12A6)
+LINEPT,	ADDR	LINES
+	0
+	END

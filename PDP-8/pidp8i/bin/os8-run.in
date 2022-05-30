@@ -1,0 +1,228 @@
+#!/usr/bin/env @PYCMD@
+# -*- coding: utf-8 -*-
+########################################################################
+# Script runner for OS/8 under SIMH.
+# The library module os8script.py does the heavy lifting.
+#
+# See USAGE message below for details.
+#
+# Copyright © 2018-2019 by Bill Cattey and Warren Young
+#
+# Permission is hereby granted, free of charge, to any person obtaining
+# a copy of this software and associated documentation files (the
+# "Software"), to deal in the Software without restriction, including
+# without limitation the rights to use, copy, modify, merge, publish,
+# distribute, sublicense, and/or sell copies of the Software, and to
+# permit persons to whom the Software is furnished to do so, subject to
+# the following conditions:
+#
+# The above copyright notice and this permission notice shall be
+# included in all copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+# EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+# MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+# IN NO EVENT SHALL THE AUTHORS LISTED ABOVE BE LIABLE FOR ANY CLAIM,
+# DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT
+# OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
+# OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+#
+# Except as contained in this notice, the names of the authors above
+# shall not be used in advertising or otherwise to promote the sale,
+# use or other dealings in this Software without prior written
+# authorization from those authors.
+########################################################################
+
+# Bring in just the basics so we can bring in our local modules
+import os
+import sys
+
+sys.path.insert (0, os.path.dirname (__file__) + '/../lib')
+sys.path.insert (0, os.getcwd () + '/lib')
+
+# Remaining Python core modules
+import subprocess
+import string
+import re
+import shutil
+import argparse
+from itertools import chain
+
+# Our local modules
+from pidp8i    import *
+from simh      import *
+from os8script import *
+
+
+#### GLOBALS AND CONSTANTS #############################################
+
+DEBUG = False
+VERBOSE = False
+VERY_VERBOSE = False
+QUIET = False
+SCRIPT_FILE = ""
+
+USAGE = "usage: "  + os.path.basename (__file__) + \
+       " [-h] [-d] [-v] [-vv] [--enable enable_option] ... \n\t[--disable disable_option] ... " + \
+       "\n \tscript [script] ... "
+
+_en_dis_arg_re = re.compile("^(enable|disable)_(\S+)$")
+
+
+def opt_set(en_dis, option, options_enabled, options_disabled):
+  if option == None or en_dis == None: return
+  # print(en_dis + " " + option)
+  if en_dis == "enable":
+    if option not in options_enabled:
+      options_enabled.append(option)
+    if option in options_disabled:
+        options_disabled.remove(option)
+  elif en_dis == "disable":
+    if option not in options_disabled:
+      options_disabled.append(option)
+    if option in options_enabled:
+        options_enabled.remove(option)
+  else: return
+
+
+def add_bool (self, *args, **kwargs):
+  kwargs['action']  = 'store_true'
+  kwargs['default'] = False
+  self.add_argument (*args, **kwargs)
+  
+
+#### parse_args ########################################################
+    
+def parse_args (script_files, options_enabled, options_disabled):
+  global DEBUG
+  global VERBOSE
+  global VERY_VERBOSE
+  global USAGE
+
+  enable_usage = ""
+  disable_usage = ""
+
+  idx = 1
+  numargs = len(sys.argv)
+
+  if numargs < 2:
+    print(USAGE)
+    sys.exit(-1)
+
+  # Add arguments corresponding to --*-os8-* configure script options
+  max_obn_len = 0
+  for obn, vals in os8opts.opts.items():
+    max_obn_len = max(max_obn_len, len(obn))
+  for obn, vals in os8opts.opts.items():
+    if vals[0]:
+      # Enable option
+      pad_str = (max_obn_len - len (obn)) * " "
+      new_usage = "    " + obn + ": " + pad_str + vals[1] + "\n"
+      disable_usage += new_usage
+    else:
+      # Disable option
+      pad_str = (max_obn_len - len (obn)) * " "
+      new_usage = "    " + obn + ": " + pad_str + vals[1] + "\n"
+      enable_usage += new_usage
+
+  if enable_usage != "":
+    USAGE += "\n  Known enable options: \n"
+    USAGE += enable_usage
+
+  if disable_usage != "":
+    USAGE += "\n  Known disable options: \n"
+    USAGE += disable_usage
+    
+  while idx < numargs:
+    arg = sys.argv[idx]
+    # print("idx: " + str(idx) + ", arg: " + arg)
+    # print("Files: " + str(script_files))
+    # print("Options: " + str(options_enabled))
+    if arg == "-d" or arg == "--debug":
+      DEBUG = True
+    elif arg == "-h" or arg == "--help":
+      print(USAGE)
+      sys.exit(0)
+    elif arg == "-v" or arg == "--verbose":
+      VERBOSE = 1
+    elif arg == "-vv" or arg == "--very-verbose":
+      VERY_VERBOSE = 1
+    elif arg == "--enable":
+      idx +=1
+      if idx == numargs:
+        print("expecting an option but got none.")
+      else:
+        option = sys.argv[idx]
+        # Only add the option once
+        if option not in options_enabled: options_enabled.append(option)
+    elif arg == "--disable":
+      idx +=1
+      if idx == numargs:
+        print("expecting an option but got none.")
+      else:
+        option = sys.argv[idx]
+        # Only add the option once
+        if option not in options_disabled: options_disabled.append(option)
+    else:
+      script_files.append(arg)
+    idx += 1
+      
+
+
+#### main ##############################################################
+# Program entry point.  Parses the command line and drives the above.
+
+def main ():
+  script_files = []
+  options_enabled = []
+  options_disabled = []
+
+  parse_args (script_files, options_enabled, options_disabled)
+  if len(script_files) == 0:
+    print("Need a script file to run.")
+    sys.exit(-1)
+
+  if VERBOSE:
+    print("script_files: " + str(script_files))
+  if DEBUG:
+    print("options_enabled" + str(options_enabled))
+    print("options_disabled" + str(options_disabled))
+  
+  # Append SIMH and OS/8 output to a file by default.
+  #
+  # We append because we're run twice in each test directory via the
+  # os8-sys Makefile target called by test-os8-run, once for the "dist"
+  # media and once for the actual RK05 bootable media.  So, the second
+  # run must append its logs to the first run's log file.
+  #
+  # Send the log info to the console instead of the progress messages if
+  # -v was given.  See https://stackoverflow.com/questions/21239338
+  s = simh (dirs.build, True)
+  if VERBOSE: s.verbose = True
+  s.set_logfile (open (dirs.log + 'os8-run' + '.log', 'ab') \
+      if not VERY_VERBOSE else os.fdopen (sys.stdout.fileno (), 'wb', 0))
+
+  os8 = os8script (s, options_enabled, options_disabled, verbose=VERBOSE, debug=DEBUG)
+
+  for script_file in script_files:
+    if VERBOSE:
+      print(os.path.basename (__file__) + " -- Language Version: " + os8.lang_version)
+
+    print("Running script file: " + script_file)
+    os8.run_script_file (script_file)
+
+  # After all scripts are done, we remove any scratch files,
+  # detach any mounted devices, and shut down simh gracefully.
+
+  for filename in os8.scratch_list:
+    if os8.verbose: print("Deleting scratch_copy: " + filename)
+    os.remove(filename)
+    
+  s.simh_cmd ("detach all")
+
+  s._child.sendline("quit")
+  if VERBOSE: print("Done!")
+
+  
+if __name__ == "__main__":
+    main()

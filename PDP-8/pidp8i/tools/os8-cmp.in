@@ -1,0 +1,507 @@
+#!/usr/bin/env @PYCMD@
+# -*- coding: utf-8 -*-
+########################################################################
+# Compare the files on two OS/8 media images by extracting
+# their contents and running diff -q.
+# Based on code from os8-cp
+#
+# See USAGE message below for details.
+#
+# Copyright © 2018-2020 by Bill Cattey and Warren Young
+#
+# Permission is hereby granted, free of charge, to any person obtaining
+# a copy of this software and associated documentation files (the
+# "Software"), to deal in the Software without restriction, including
+# without limitation the rights to use, copy, modify, merge, publish,
+# distribute, sublicense, and/or sell copies of the Software, and to
+# permit persons to whom the Software is furnished to do so, subject to
+# the following conditions:
+#
+# The above copyright notice and this permission notice shall be
+# included in all copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+# EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+# MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+# IN NO EVENT SHALL THE AUTHORS LISTED ABOVE BE LIABLE FOR ANY CLAIM,
+# DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT
+# OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
+# OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+#
+# Except as contained in this notice, the names of the authors above
+# shall not be used in advertising or otherwise to promote the sale,
+# use or other dealings in this Software without prior written
+# authorization from those authors.
+########################################################################
+
+# Bring in just the basics so we can bring in our local modules
+import os
+import sys
+
+sys.path.insert (0, os.path.dirname (__file__) + '/../lib')
+sys.path.insert (0, os.getcwd () + '/lib')
+
+# Our local modules
+from pidp8i import *
+from simh   import *
+
+# Other global Python modules
+import glob
+import subprocess
+import string
+import re
+
+
+#### GLOBALS AND CONSTANTS #############################################
+
+progmsg = True
+DEBUG = False
+VERBOSE = False
+QUIET = False
+SYSTEM = False
+FORCE = False
+
+# Default RK05 system image to attach if no sys specified.
+_default_sys_image = "@OS8_TOOLTIME@"
+_default_sys_path = dirs.os8mo + _default_sys_image
+_default_att_spec = {"simh_name": "rk", "unit": "0", "image": _default_sys_path}
+# _default_att_spec = ["rk", "0", _default_sys_path]
+
+# Regex for parsing an argument string into a sys device
+_dev_arg_regex_str = "-(rk|td|dt|rx)(\d?)(s)?"
+_dev_arg_re = re.compile(_dev_arg_regex_str)
+
+# Regex for parsing an action file att string into a sys device.  Note
+# reuse of regex string from above.
+_dev_actfile_regex_str = _dev_arg_regex_str[1:]   # strip -
+_dev_actfile_re = re.compile (_dev_actfile_regex_str)
+
+# Map of SIMH device names to OS/8 device name prefixes.
+_os8_from_simh_dev = {"rk" : "RK", "td" : "DTA", "dt" : "DTA", "rx" : "RX"}
+
+_os8_partitions = {"RK": ["A", "B"]}
+
+# OS/8 file name matching regex
+_os8_file_re = re.compile("(\S+):(\S+)?")
+
+# PIP option flags we support and pass thru.  PIP has other options we
+# do not try to map to our program functionality.  The key bit is the
+# _pip_option_info dict.  The various transforms below it prevent both
+# redundant code up here and repeated recomputation below.
+_pip_option_info = {
+    'a': 'ASCII',
+    'b': 'binary',
+    'i': 'image',
+    'y': 'yank system head',
+    'z': 'zero device'
+}
+_valid_pip_options = sorted(_pip_option_info.keys())
+_arg_to_option = dict(zip(
+    [ '-' + opt for opt in _valid_pip_options ],
+    _valid_pip_options
+))
+_option_to_pip = dict(zip(
+    _valid_pip_options,
+    [ '/' + opt.upper() for opt in _valid_pip_options ]
+))
+
+# Matches if the string begins with a dollar sign, and has at least
+# one slash, returning the string between the dollar sign and the
+# first slash in group 1 and the rest in group 2.
+# No whitespace in the string.
+_expandable_re = re.compile ("^\$([^/\s]+)/(\S*)$")
+
+
+#### abort_prog ########################################################
+# Print err_string and exit with -1 return status.
+
+def abort_prog (err_str):
+  print("Abort: " + err_str)
+  sys.exit(-1)
+
+
+#### parse_attach ######################################################
+# Parser for OS/8 attach spec.
+
+def parse_attach (action_plan, match, imagename):
+  if match.group(2) == None or match.group(2) == "":
+    abort_prog ("Need unit number for: " + match.group(1) + ".")
+
+  image_spec = {}
+  image_spec["simh_name"] = match.group(1)
+  image_spec["unit"] = match.group(2)
+  image_spec["image"] = imagename
+  if image_spec["simh_name"] not in _os8_from_simh_dev:
+    print ("Unsupported device: " + image_spec["simh_name"])
+    return
+  image_spec["os8_name"] = _os8_from_simh_dev[image_spec["simh_name"]]
+  image_spec["devices"] = []
+  if image_spec["os8_name"] in _os8_partitions:
+    image_spec["part_count"] = len (_os8_partitions[image_spec["os8_name"]])
+    for partition in _os8_partitions[image_spec["os8_name"]]:
+      image_spec["devices"].append(image_spec["os8_name"] + partition + image_spec["unit"] + ":")
+  else:
+    image_spec["part_count"] = 1
+    image_spec["devices"].append(image_spec["os8_name"] + image_spec["unit"] + ":")
+  # image_spec = [match.group(1), match.group(2), imagename]
+  if match.group(3) == 's': 
+    if action_plan ["sys"] != None:
+      print("Already specified system device. Ignoring sys mount of: " + imagename)
+    else:
+      action_plan["sys"] = image_spec
+  else:
+    action_plan["mount"].append(image_spec)
+
+
+#### path_expand #######################################################
+# Originally developed in os8script.py, but useful here too.
+#
+# Simple minded variable substitution in a path.
+# A path beginning with a dollar sign parses the characters between
+# the dollar sign and the first slash seen becomes a name to
+# expand with a couple local names: $home and the anchor directories
+# defined in lib/pidp8i/dirs.py.
+# We abort if the path expansion fails.
+
+def path_expand (path):
+  m = re.match(_expandable_re, path)
+  if m == None: return path
+  var = m.group(1)
+
+  val = getattr (dirs, var, None)
+  if val != None:
+    return os.path.join(val,m.group(2))
+  else:
+    abort_prog ("{$" + var + "} is not a valid path expansion in " + path)
+ 
+
+  
+
+
+#### is_directory ######################################################
+#
+# Returns True if the passed path looks like a directory.
+#
+# This is used at a level where we may still be unsure whether the given
+# path refers to something on the OS/8 or the host side, so we first
+# determine whether the path looks like an OS/8 or host-side path.  If
+# it looks like an OS/8 path, we consider it a "directory" if it names a
+# device name, lacking a file name part after it.  Otherwise, we use the
+# local OS's "is a directory" path check.
+
+def is_directory(path):
+  if DEBUG: "is_directory (" + path + ")"
+  m = re.match(_os8_file_re, path)
+  if m != None:
+    if DEBUG: print("OS/8 Match: DEV: " + m.group(1) + ", File: " + str(m.group(2)))
+    if m.group(2) == None or m.group(2) == "": 
+      return True     # Just a device so yes it's a directory.
+    else: return False
+  if has_os8_wildcards(path):
+    if DEBUG: print("Has wildcards.")
+    return False
+  return os.path.isdir(path)
+
+
+#### file_list_from_expect #############################################
+# Given a block of text output by the Python Expect module used by class
+# simh, parse it with the assumption that it contains OS/8 DIR output.
+
+def file_list_from_expect(before):
+  file_list = []
+  lines = before.split("\r")
+  for line in lines[1:]:    # First line is our command. Skip it.
+    line = line.strip()
+    if line == "": continue
+    m = re.match("(\S+)\s*\.(\S+)", line)
+    if m == None: continue
+    # if DEBUG: print("file_list_from_expect: group 1: " + m.group(1) + ", group 2: " + m.group(2))
+    fname = m.group(1) + "." + m.group(2)
+    file_list.append(fname)
+  return file_list
+
+
+#### parse_args ########################################################
+#
+# The source and destination file specifications are interpreted as in
+# the USAGE message below.  (Look for "colon".)
+
+TERSE_USAGE = 'usage: ' + os.path.basename (__file__) + \
+              " [-dhvqyf] [-<dev><unit>[s] image1] [-<dev><unit>[s] image2] [[-y]\n" + \
+"""
+
+    <dev> is one of rk, td, dt, rx, corresponding to SIMH PDP-8 devices
+    <unit> must be a valid unit number for the device in both SIMH and
+           the booted OS/8 system. A unit number is required.  Following
+           the unit with an "s" names the system device to boot.  The
+           system image file must exist, and contain a working boot
+           image.  Only one designated system device is allowed.
+
+    Example: 
+    """ + \
+      os.path.basename (__file__) + " -rk0s os8v3d-patched.rk05 -dt0 master.tu56 "
+
+USAGE = TERSE_USAGE + """
+    To see more detailed documentation specify -v -h
+"""
+        
+VERBOSE_USAGE = TERSE_USAGE + """
+
+    This program compares two OS/8 media image files by attaching them
+    to the SIMH PDP-8 simulater, and booting OS/8.
+    The s suffix on one image spec. selects that image as the boot device.
+    If no s suffix is present, the default v3d-patched.rk05 image is booted.
+
+    A directory listing for each image is obtained, and the files
+    are extracted into a POSIX directory.  If the image has multiple
+    partitions, each partition is extracted into a subdirectory.
+
+    FIXME: Some sensible approach to trying to compare a .tu56 and a .rk05 image.
+
+    Normally an existing extraction will not be overwritten.
+    Give -f to force overwrite of existing extraction.
+
+    The -y option indicates the system area should also be extracted
+    into a file named SYSTEM.SY.
+    
+    Give -d to run in debug mode.
+    Give -h -v to print this message.
+    Give -v to enable verbose status reporting.
+"""
+
+##### parse_args ################################################################
+# Determine which images to mount and where.
+# Set any bit-wise arguments seen.
+
+def parse_args ():
+  global DEBUG
+  global VERBOSE
+  global QUIET
+  global SYSTEM
+  global FORCE
+
+  action_plan = {}
+  action_plan["sys"] = None
+  action_plan["mount"] = []
+  action_plan["copy"] = []
+
+  idx = 1
+  numargs = len(sys.argv)
+
+  filespec_seen = 0
+  mode_opt = "i"                              # start of with default of binary.
+  first_mode = mode_opt
+  source = ""
+  destination = ""
+  # Keep file_list and mode_list in sync.
+  file_and_mode_list = []
+  
+  while idx < numargs:
+    image_idx = 1
+    arg = sys.argv[idx]
+
+    # First the simple bit set options
+    if arg == "-d":
+      DEBUG = True
+    elif arg == "-h":
+      if VERBOSE:
+        print(VERBOSE_USAGE)
+      else:
+        print(USAGE)
+      sys.exit(0)
+    elif arg == "-q":
+      QUIET = True
+    elif arg == "-v":
+      VERBOSE = 1
+    elif arg == "-f":
+      FORCE = True
+    elif arg == "-y":
+      SYSTEM = True
+
+    # Not a simple bit set option.
+    
+    else:
+      # Parser for OS/8 attach spec.
+      m = re.match(_dev_arg_re, arg)
+      if m != None:
+        if idx + 1 == numargs:             # Need filename, but no args left.
+          abort_prog ("No image file name.")
+        idx +=1
+        parse_attach (action_plan, m, sys.argv[idx])
+
+    idx +=1        # Bottom of the while loop. Increment.
+
+  return action_plan
+  
+
+#### find_or_mkdir #####################################################
+# If the dirname doesn't exist, make it and return False
+# If it does, return True
+
+def find_or_mkdir (dirname):
+  if os.path.isdir (dirname):
+    return True
+  if VERBOSE or DEBUG:
+    print("Creating directory " + dirname)
+  # Make the directory here.
+  os.mkdir (dirname)
+  return False
+
+  
+#### extract ##########################################################
+# Extract all files from given device to the given directory
+# using SIMH object, s.
+
+def extract (s, device, directory):
+  pip_option = "/I"
+
+  if VERBOSE or DEBUG:
+    print("Extracting " + device + " into " + directory)
+      
+  # This will be a "from" type of copy with a source of *.*.
+  # Use DIRECT to create list of files.
+  # We attach destination to ptp. We've already done POSIX globing.
+    
+  # Use OS/8 Direct to enumerate our input files.
+  if DEBUG:
+    print("Calling OS/8 DIRECT on : " + device)
+  s.os8_cmd ("DIR " + device + "/F=1", "\d+\s+FREE BLOCKS", debug=DEBUG)
+  # Now harvest direct output.  One file per line.  Ignore blank lines.
+  # Maybe parse the FREE BLOCKS Output.
+  # Done when we see a dot.
+  files = file_list_from_expect(s._child.before.decode())
+  # Confirm return to monitor after call to DIR command.
+  s.os8_cfm_monitor ("os8_cmp=: extract: Return to monitor after DIR failed.")  
+  for filename in files:
+    if VERBOSE or DEBUG:
+      print("Calling os8_pip_from: copy from: " + \
+            "{" + device + "}{" + filename + "}" + \
+            " to: " + directory + ", mode: " + pip_option)
+    s.os8_pip_from(device + filename, directory, "/I", debug=DEBUG)
+  # System head extract goes here.
+
+
+#### compare ###########################################################
+# Call diff -q on the leftdir and rightdir
+
+def compare (left, right):
+  compare_args = ["diff", "-q", left, right]
+  compare_str = "diff -q " + left + " " + right
+  if VERBOSE or DEBUG:
+    print ("Calling compare: " + str(compare_args))
+  subprocess.call (compare_args, cwd = ".")
+  
+
+#### main ##############################################################
+
+def main ():
+
+  action_plan = parse_args()
+  if action_plan == None:
+    abort_prog ("No action plan was parsed.")
+  if DEBUG: print(str(action_plan))
+
+  # Create the SIMH child instance and tell it where to send log output
+  try:
+    s = simh (dirs.build, True)
+  except (RuntimeError) as e:
+    print("Could not start simulator: " + e.message + '!')
+    exit (1)
+  # s.set_logfile (os.fdopen (sys.stdout.fileno (), 'wb', 0))
+  s.set_logfile (open ("logfile.txt", 'wb'))
+  if VERBOSE: s.verbose = True
+  
+  # Perform sys attach
+  att_spec = action_plan["sys"]
+  if att_spec == None: att_spec = _default_att_spec
+  simh_boot_dev = att_spec["simh_name"] + att_spec["unit"]     # Compose simh dev from name and unit.
+  imagename = att_spec["image"]
+  if not os.path.exists (imagename):
+    abort_prog ("Requested boot image file: " + imagename + " not found.")
+  if VERBOSE or DEBUG:
+    print("Attaching " + simh_boot_dev + " to " + imagename)
+  s.simh_cmd ("att " + simh_boot_dev + " " + imagename, debug=DEBUG)
+
+  
+  # Attach other mounts
+  # Create the directories that will catch the extraction.
+  # If the directory already exists abort.
+  for att_spec in action_plan["mount"]:
+    simh_dev = att_spec["simh_name"] + att_spec["unit"]     # Compose simh dev from name and unit.
+    imagename = att_spec["image"]
+    if os.path.exists (imagename) == False:
+      abort_prog ("Required image " + imagename + " not found.")
+    if VERBOSE or DEBUG:
+      print("Attaching " + simh_dev + " to " + imagename)
+    s.simh_cmd ("att " + simh_dev + " " + imagename, debug=DEBUG)
+
+  # From here on in, if we only had one mount spec,
+  # Compare against the system device, by adding it as a "mount" in action plan.
+  if len(action_plan["mount"]) < 2:
+    action_plan["mount"].insert(0, action_plan["sys"])
+
+  # Boot.
+  if VERBOSE or DEBUG: print("Booting " + simh_boot_dev + "...")
+  # Confirm successful boot into OS/8. Note we call simh_cmd with _os8_replies!
+  reply = s.simh_cmd ("boot " + simh_boot_dev, s._os8_replies_rex, debug=DEBUG)
+  s.os8_test_result (reply, "Monitor Prompt", "os8-cp")
+
+  # Perform file extraction from all partitions of all attached images.
+  for att_spec in action_plan["mount"]:
+    for i in range(att_spec["part_count"]):
+      os8dev = att_spec["devices"][i]
+      suffix = os8dev[:-1]
+      att_dir = os.path.basename(att_spec["image"]) + "_" + suffix
+      found = find_or_mkdir (att_dir)
+      if found:
+        print ("Existing extraction found: " + att_dir)
+        if FORCE:
+          if VERBOSE: print ("Overwrite forced.")
+          extract (s, os8dev, att_dir)
+      else:
+        print ("Existing dir not found.")
+        extract (s, os8dev, att_dir)
+
+  # Detach all mounts and then sys.
+  s.esc_to_simh()
+  for att_spec in action_plan["mount"]:
+    simh_dev = att_spec["simh_name"] + att_spec["unit"]     # Compose simh dev from name and unit.
+    if VERBOSE or DEBUG:
+      print("Detaching " + simh_dev)
+    s.simh_cmd ("det " + simh_dev, debug=DEBUG)
+  if VERBOSE or DEBUG:
+    print("Detaching " + simh_boot_dev)
+  s.simh_cmd ("det " + simh_boot_dev, debug=DEBUG)
+
+  # Perform compare
+  # Currently hard coded to work only first 2 Attached filesystems.
+  left_spec = action_plan["mount"][0]
+  right_spec = action_plan["mount"][1]
+
+  # For now, we can't cope with comparing different devices
+  # To fix this:
+  # Confirm that the two devices have comparable partition names/counts.
+  # Decide on a mapping between partitions of different counts.
+  if left_spec["part_count"] != right_spec["part_count"]:
+    abort_prog ("Can only compare devices with same number of partitions.\n\t" \
+                + left_dev + " with " + str (left_partcount) + " != " \
+                + right_dev + " with " + str (right_partcount))
+
+  # From here, be guided by left partition count.
+
+  for i in range(left_spec["part_count"]):
+    left_suffix = left_spec["devices"][i][:-1]
+    left_dir = os.path.basename(left_spec["image"]) + "_" + left_suffix
+    right_suffix = right_spec["devices"][i][:-1]
+    right_dir = os.path.basename(right_spec["image"]) + "_" + right_suffix
+    if VERBOSE: print ("Compare: " + left_dir + " and  " + right_dir)
+    compare (left_dir, right_dir)
+
+  # And shut down the simulator.
+  # Shutting down the simulator exits the program.
+  # So we do it last.
+  if VERBOSE or DEBUG:
+    print("Quitting simh.")
+  s._child.sendline("quit")
+
+if __name__ == "__main__": main()

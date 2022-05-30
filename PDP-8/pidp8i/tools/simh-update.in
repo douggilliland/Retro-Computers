@@ -1,0 +1,267 @@
+#!/bin/bash
+########################################################################
+# simh-update - Attempt to automatically merge in the latest upstream
+#	SIMH 4 changes from the GitHub repository.
+#
+# Copyright © 2017-2018 Warren Young
+#
+# Permission is hereby granted, free of charge, to any person obtaining
+# a copy of this software and associated documentation files (the
+# "Software"), to deal in the Software without restriction, including
+# without limitation the rights to use, copy, modify, merge, publish,
+# distribute, sublicense, and/or sell copies of the Software, and to
+# permit persons to whom the Software is furnished to do so, subject to
+# the following conditions:
+#
+# The above copyright notice and this permission notice shall be
+# included in all copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+# EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+# MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+# IN NO EVENT SHALL THE AUTHORS LISTED ABOVE BE LIABLE FOR ANY CLAIM,
+# DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT
+# OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
+# OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+#
+# Except as contained in this notice, the names of the authors above
+# shall not be used in advertising or otherwise to promote the sale,
+# use or other dealings in this Software without prior written
+# authorization from those authors.
+########################################################################
+
+SRCDIR="@srcdir@"
+SRCSUBDIR="$SRCDIR/src/SIMH"
+PRGNAME="$(basename "$0")"
+WORKDIR="@builddir@/$PRGNAME-temp"
+OUR_SIMH_DIR="$WORKDIR/simh/ours"
+CURR_SIMH_DIR="$WORKDIR/simh/curr"
+LOGFILE="$WORKDIR/output.log"
+PATCHFILE="$WORKDIR/pidp8i.patch"
+OLD_SGCID=$(grep ^SGCID "@srcdir@"/Makefile.in | cut -f2 -d=)
+SOFFICE=/Applications/LibreOffice.app/Contents/MacOS/soffice
+
+# If LibreOffice isn't here, we can't convert DOC to PDF below.
+if [ ! -x "$SOFFICE" ]
+then
+    cat <<USAGE
+Sorry, this must be run on a system where LibreOffice is installed
+as $SOFFICE.
+
+TODO: Find this same program in other places.
+
+USAGE
+    exit 1
+fi
+
+# If we don't have the Git worktree sub-command, we're probably running
+# this on Jessie, which ships Git 2.1.4.
+if ! git help worktree &> /dev/null
+then
+    cat <<ERROR
+Sorry, this must be run on a system with the "git worktree" feature,
+which first shipped in Git 2.5.
+
+ERROR
+    exit 1
+fi
+
+# Set up working directory
+rm -rf "$WORKDIR"
+mkdir -p "$WORKDIR"
+
+# From here on, send all output to the log file.
+# Code based on http://stackoverflow.com/a/20564208/142454
+exec 1<&-
+exec 2<&-
+exec 1<>"$LOGFILE"
+exec 2>&1
+function say() {
+	echo "$@" >> /dev/tty
+}
+
+# Bail on errors so we don't have to test everything.  Ideally, nothing
+# from here on will fail.  If it does, the log file will explain it.
+# Code based on http://stackoverflow.com/a/185900/142454
+function error() {
+	lineno="$1"
+	message="$2"
+	code="${3:-1}"
+	if [ -n "$message" ] ; then message=": $message" ; fi
+	read -r -d '%' errmsg <<ERROR
+Error on or near line $lineno, code ${code}$message!  (See log file for
+more info: $LOGFILE)
+%
+ERROR
+	say
+	say "$errmsg"
+	say
+	exit $code
+}
+trap 'error ${LINENO}' ERR
+
+# Deal with uncommitted changes in $SRCSUBDIR
+cd "$SRCSUBDIR/.."		# we need the SIMH/ prefix to do this test properly!
+if [ $(fossil status | grep '^EDITED.*SIMH/' | wc -l) -gt 0 ]
+then
+	if [ "$1" = "-f" ]
+	then
+		say "Tossing uncommitted changes in $SRCSUBDIR..."
+		fossil revert $(fossil status | grep '^EDITED.*SIMH/' | cut -f 2- -d' ')
+		shift
+	else
+		read -r -d '%' errmsg <<ERROR
+Cowardly refusing to update SIMH to the current upstream version while
+there are uncommitted changes in $SRCSUBDIR.  Say
+
+    make simh-update-f
+
+or pass -f to force those changes to be tossed.
+%
+ERROR
+		say
+		say "$errmsg"
+		say
+		exit 3
+	fi
+fi
+cd "@builddir@"
+
+# Retreive the tip-of-master and $OLD_SGCID versions of SIMH
+say Retreiving upstream SIMH versions...
+mkdir -p "$OUR_SIMH_DIR"
+mkdir -p "$CURR_SIMH_DIR"
+git clone https://github.com/simh/simh "$CURR_SIMH_DIR"
+pushd "$CURR_SIMH_DIR"
+NEW_SGCID=$(git log -1 --pretty='%H')
+NEW_SGCTM=$(git log -1 --pretty='%aI')
+say "Pulled ${NEW_SGCID:0:8} as curr, authored ${NEW_SGCTM}; prev is ${OLD_SGCID:0:8}."
+git worktree add "$OUR_SIMH_DIR" $OLD_SGCID
+popd
+
+# Copy over updated versions of the docs and replace them in the Fossil
+# unversioned area.  We simplify the upstream naming scheme in the
+# transfer, dropping unnecessary prefixes and suffixes.
+pushd "$SRCDIR"
+pdfdir=doc/simh
+mkdir -p $pdfdir
+for fs in pdp8_doc simh_faq simh_doc
+do
+	ft=$(echo $fs | sed -e 's/simh_//' -e 's/_doc//')
+	test "$ft" = "doc" && ft=main
+	pdfout=$pdfdir/$ft.pdf
+    pdftmp="$fs.pdf"
+    say -n "Converting upstream $fs.doc to $pdfout..."
+    if [ ! -e "$pdfout" ]
+    then
+        # Pull a copy out of the unversioned store
+        fossil uv export $pdfout $pdfout
+    fi
+    if "$SOFFICE" --convert-to pdf "$CURR_SIMH_DIR/doc/$fs.doc"
+    then
+        szo=$(stat -f %z $pdfout)
+        szt=$(stat -f %z $pdftmp)
+        if [ -n "$szo" ] && [ -n "$szt" ] && [ "$szo" != "$szt" ]
+        then
+            # The upstream doc has apparently changed, since the PDF output
+            # file is a different size.  Replace our public version.
+            #
+            # We can't use cmp or similar here because a bunch of metadata
+            # change each time we re-render the PDF, even if the source doc
+            # is unchanged.  There are proper PDF comparison tools, but none
+            # preinstalled everywhere, and we don't want to make one of
+            # those tools a dependency of this script.  Size comparison
+            # suffices for our purposes, since most any substantial text
+            # change will change the output file size.
+            say "changes detected."
+            mv "$pdftmp" "$pdfout"
+            fossil uv add "$pdfout"
+        else
+            say "unchanged."
+        fi
+    else
+        say "generation failed!"
+        exit 1
+    fi
+done
+say "Syncing new PDFs..."
+fossil uv sync
+popd
+
+# Rename upstream Git paths to match our *.in files so that our produced
+# patches are made against those higher-level versions.  If we didn't do
+# this, we'd have to manually resubstitute variables for absolute paths.
+#
+# Filter out Makefile.in because we don't want to try and patch the
+# upstream plain Makefile to work with autosetup.  It complicates the
+# resulting patch file to no purpose.
+say Renaming upstream files to match our \*.in variants...
+find "$SRCSUBDIR" -name \*.in -print | grep -v Makefile.in | while read f
+do
+	inf="${f#$SRCSUBDIR/}"	# make path fully relative
+	genf="${inf%.in}"		# remove .in from the end
+    if [ -f "$OUR_SIMH_DIR/$genf" ]
+    then
+        mv  "$OUR_SIMH_DIR/$genf"  "$OUR_SIMH_DIR/$inf"
+        mv "$CURR_SIMH_DIR/$genf" "$CURR_SIMH_DIR/$inf"
+    fi
+    # else, it's a *.in file specific to our code base, not a
+    # parameterized version of an upstream file
+done
+
+# Remove untracked files: we don't want them appearing in the diff.
+fossil extra | grep src/SIMH | while read doomed
+do
+    rm -f "$doomed"
+done
+
+# Produce a patch file for modifying the upstream $OLD_SGCID version to
+# merge in our local changes.
+#
+# For some reason, diff(1) returns an error when we do this, at least on
+# OS X.  Perhaps it is not happy about the fact that the file set in
+# each tree is different?  Regardless of reason, we must check for a
+# non-empty patch file to determine whether an actual error occurred.
+say Producing clean patch file from upstream ${OLD_SGCID:0:8} version
+say to our local PiDP-8/I version...
+if ! diff -ru "$OUR_SIMH_DIR" "$SRCSUBDIR" | grep -v '^Only in' > "$PATCHFILE" &&
+		 [ ! -s "$PATCHFILE" ]
+then
+	error $LINENO "patch generation failed" 2
+fi
+
+# For each file in src/SIMH that is also present in the current upstream
+# version of SIMH, overwrite our version.
+find "$SRCSUBDIR" -type f -print | while read f
+do
+	base="${f#$SRCSUBDIR}"
+	upstream="$CURR_SIMH_DIR/$base"
+	test -e "$upstream" && cp "$upstream" "$f"
+done
+
+# Now try to apply the patch we made above to the upstream files.
+patch -p0 < "$PATCHFILE"
+
+# No error, so save the new tip-of-master Git commit ID and rebuild.
+# Force at least SCP to rebuild, else new values won't be added.
+#
+# The reconfig step is sidesteps a dependency bug in the current
+# Makefile.in which allows make(1) to rebuild scp.o before the automatic
+# reconfig occurs, so the old timestamp gets baked into the simulator.
+# It'd be better to fix the bug, but I failed to diagnose it.
+say "Patch appears to have applied cleanly.  Attempting a rebuild..."
+sed -e "s/^SGCID=.*/SGCID=$NEW_SGCID/" \
+    -e "s/^SGCTM=.*/SGCTM=$NEW_SGCTM/" \
+    -i tmp @srcdir@/Makefile.in
+touch src/SIMH/scp.c
+make reconfig
+tools/mmake
+
+# Restore stdout and let the human test it
+say "Build completed without error.  Running default bootscript to test it..."
+say
+say "(Nuke $WORKDIR when finished.)"
+say
+exec 1<&-
+exec 1<>/dev/tty
+exec make run

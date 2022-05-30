@@ -1,0 +1,196 @@
+/*      File io.c: 2.1 (83/03/20,16:02:07) */
+/*% cc -O -c %
+ *
+ */
+
+#include <stdio.h>
+#include <string.h>
+#include "defs.h"
+#include "data.h"
+#include "extern.h"
+
+/*
+ *      open input file
+ */
+int openin (p) char *p;
+{
+        strcpy(fname, p);
+        fixname (fname);
+        if (!checkname (fname))
+                return (NO);
+        if ((input = fopen (fname, "r")) == NULL) {
+                pl ("Open failure\n");
+                return (NO);
+        }
+        kill ();
+        return (YES);
+
+}
+
+/*
+ *      open output file
+ */
+int openout ()
+{
+        outfname (fname);
+        if ((output = fopen (fname, "w")) == NULL) {
+                pl ("Open failure");
+                return (NO);
+        }
+        kill ();
+        return (YES);
+
+}
+
+/*
+ *      change input filename to output filename
+ */
+void outfname (s)
+char    *s;
+{
+        char *os = s;
+        while (*s)
+                s++;
+        *--s = 's';
+
+	if ((s - os) < (NAMESIZE - 2)) {
+	  *++s = 'b';
+	  *++s = '\0';
+	}
+}
+
+/**
+ * remove NL from filenames
+ */
+void fixname (s)
+char    *s;
+{
+        while (*s && *s++ != LF);
+        if (!*s) return;
+        *(--s) = 0;
+
+}
+
+/**
+ * check that filename is "*.c"
+ */
+int checkname (s)
+char    *s;
+{
+        while (*s)
+                s++;
+        if (*--s != 'c')
+                return (NO);
+        if (*--s != '.')
+                return (NO);
+        return (YES);
+
+}
+
+void kill () {
+        lptr = 0;
+        line[lptr] = 0;
+}
+
+void readline () {
+        int     k;
+        FILE    *unit;
+
+        FOREVER {
+                if (feof (input))
+                        return;
+                if ((unit = input2) == NULL)
+                        unit = input;
+                kill ();
+                while ((k = fgetc (unit)) != EOF) {
+                        if ((k == LF) | (lptr >= LINEMAX))
+                                break;
+                        if (k != 13) line[lptr++] = k;
+                }
+                line[lptr] = 0;
+		if (output && cmode) {
+			output_string("/\t");
+			output_line(line);
+		}
+                if (k <= 0)
+                        if (input2 != NULL) {
+                                input2 = inclstk[--inclsp];
+                                fclose (unit);
+                        }
+                if (lptr) {
+                        if ((ctext) & (cmode)) {
+                                gen_comment ();
+                                output_string (line);
+                                newline ();
+                        }
+                        lptr = 0;
+                        return;
+                }
+        }
+}
+
+char inbyte () {
+        while (ch () == 0) {
+                if (feof (input))
+                        return (0);
+                preprocess ();
+        }
+        return (gch ());
+}
+
+char inchar () {
+        if (ch () == 0)
+                readline ();
+        if (feof (input))
+                return (0);
+        return (gch ());
+}
+
+/**
+ * gets current char from input line and moves to the next one
+ * @return current char
+ */
+char gch () {
+        if (ch () == 0)
+                return (0);
+        else
+                return (line[lptr++] & 127);
+}
+
+/**
+ * returns next char
+ * @return next char
+ */
+char nch () {
+        if (ch () == 0)
+                return (0);
+        else
+                return (line[lptr + 1] & 127);
+}
+
+/**
+ * returns current char
+ * @return current char
+ */
+char ch () {
+        return (line[lptr] & 127);
+}
+
+/*
+ *      print a carriage return and a string only to console
+ *
+ */
+void pl (str)
+char    *str;
+{
+        int     k;
+
+        k = 0;
+#if __CYGWIN__ == 1
+        putchar (CR);
+#endif
+        putchar (LF);
+        while (str[k])
+                putchar (str[k++]);
+}
+

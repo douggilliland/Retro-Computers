@@ -1,0 +1,736 @@
+Date: Fri, 1 May 1992 17:00:00 EDT
+From: Charles Lasner <lasner@watsun.cc.columbia.edu>
+Subject: DECmate I problems and more patching problems
+
+DECmate I problems.
+
+    Attempts to use the distributed Kermit-12 Version 10g on a
+DECmate (I) system will certainly fail.  The coding specific to the
+DECmate I was never tested until recently.  Two key routines wait for
+status flags that never raise because the affected registers do not
+generate flag changes/interrupts.  This is unrelated to general
+serial data handling which works as originally coded.
+
+    There is a simple patch to the program to alleviate the problem:
+
+.LOAD SYS:KERMIT.SV/I$*$        [load the file in image mode and then
+                                 ask for more input.  The $ which is
+                                 printed signifies the use of <ESC>
+                                 as the command terminator.  The * is
+                                 printed by the system command
+                                 decoder requesting further input.
+                                 The second $ signifies the use of
+                                 <ESC> to end input to the command
+                                 decoder.  The loader program
+                                 terminates and control returns to
+                                 the keyboard monitor.]
+
+.ODT                            [call in ODT to patch the program]
+
+7/ 0007 0012                    [change default baud rate to 2400;
+                                 this is optional]
+
+353/ 5352 7000                  [make a JMP .-1 into a NOP]
+10302/ 5301 7000                [make a JMP .-1 into a NOP]
+12243/ 3607 3610                [bump the version number]
+
+^C                              [^C to exit to monitor]
+
+.SAVE SYS KERMIT                [save patched file]
+
+This also updates the release revision from 10g to 10h.  Future
+versions will eliminate the overhead of the now defunct routines.
+
+    The only DECmate versions remaining to be tested are:
+
+    DECmate I with DP278B (the system used for testing has DP278A)
+    DECmate III without internal modem
+    DECmate III with internal modem
+    DECmate III+
+
+Patching problems.
+
+    The restrictions placed on patching apparently stem from a bug
+going back at least as far as OS/8 V3D (likely further).  Apparently,
+when a JSW value of 1 is used (as Kermit-12 does), the GET command
+doesn't work.  Apparently, the system confuses the need to save the
+contents of 10000-11777 with the need to load it in the first place.
+Kermit-12 operates by first placing once-only code in the affected
+area, then discarding it in favor of a locked-in copy of the USR
+routine.  To avoid overhead, the JSW value of 0001 is set to indicate
+there is no need to save this dead code when the USR is swapped in
+over it.  Apparently, the GET command sets the =1 too early in the
+load process, so the code that uses the USR to carry out the actions
+of the GET operation doesn't properly load the Kermit-12 code.
+
+Consequently, the warnings documented in previous chapters of the
+.BWR file (below) apply in all cases.  The interaction with CCL sited
+below may not apply in all versions, but the GET command problem is
+apparently universal.
+
+cjl
+
+------------------------------
+
+Date: Mon, 28 October 1991 20:00:00 EST
+From: Charles Lasner <lasner@watsun.cc.columbia.edu>
+Subject: Kermit-12 patching restrictions revisited yet again
+
+    Even more operating system ills (will it ever end?):
+
+    Still further investigation into operating system bugs in OS/278
+V2 on DECmates reveals that the problem in even worse that realized
+two weeks ago (see previous .BWR article):
+
+    When a SAVE command is executed from OS/278 involving a loaded
+handler, the SAVE operation fails!  The contents of the files will be
+corrupted in general and will likely become (at least partially) all
+zeroes!  The exact scope of the problem has not been ascertained, but
+certain loading tests reveal that the command fails even when
+accessing additional memory beyond field zero and one.
+
+    All operations to SYS: or any device co-resident with SYS: (or
+when DSK:=SYS: which is typically the case in many systems but not a
+rule) are unaffected beyond the restrictions reported previously.
+
+    Until recently, SAVE commands were of little interest to the
+casual user of OS/278, since program execution and ordinary file
+creation are unaffected.  Since there are now several programs to be
+loaded and saved by users, the problem is more significent.  Users of
+the direct loading method of acquiring  KERMIT-12 are also in the
+affected category.
+
+    Clearly all developers and anyone assembling any part of the
+KERMIT-12 package should be aware of this problem.  As a precaution,
+all persons using the SAVE command for any reason are advised to use
+the form involving SYS: only to avoid this problem.  (Advanced users
+can determine which handlers are possibly co-resident and are thus
+acceptable as well.) The resultant file can always be copied to any
+device as required after the fact.
+
+cjl
+
+------------------------------
+
+Date: Thu, 10 October 1991 05:00:00 EDT
+From: Charles Lasner <lasner@watsun.cc.columbia.edu>
+Subject: Kermit-12 patching restrictions revisited and .BOO problems
+
+    More operating system ills regarding file loading:
+
+    Further investigation into operating system bugs in OS/278 V2 on
+DECmates reveals that the problem is worse than first realized:
+
+    When using GET or LOAD (ABSLDR) commands, especially when loading
+image files such as FIELD0.SV, FIELD1.SV (the partial load files from
+direct memory loading of K12MIT), or K12MIT.SV with /I, the JSW and
+starting field/address can become "mangled" into unusable values.
+One particular case achieved the impossible value of 6303 for a
+starting field change instruction (legal values are 6203 through 6273
+by 10s).
+
+    Consequently, the general recommendation for SAVE commands as
+used in various utilities throughout KERMIT-12 configuration etc., is
+to use explicit starting address and loading locations and JSW
+values.  In short, always give a complete description of the SAVE
+operation under OS/278.  For example, when direct-loading K12MIT
+through the printer port into the DECmate, the following commands
+should be used:
+
+}LOAD FIELD0.SV/I,FIELD1.SV/I$*$
+
+}SAVE SYS K12MIT.SV 00000-07577,10000-17577;00200=0001
+
+    As discussed earlier, the CCL form of the ABSLDR LOAD command
+works even though other seemingly equivalent forms don't.  The
+complete SAVE command forces all parameters to be taken explicitly
+from the command; no reliance on system "assumptions" or loading
+artifacts.  Always use the complete values for loading taken from the
+relevant program documentation.
+
+    Most users of KERMIT-12 are running OS/8 V3D, etc., where this
+sort of system bug isn't seen.  In the future, all KERMIT-12
+documentation will give the "verbose" form of the command to contain
+this OS/278 V2-specific problem.
+
+Regarding .BOO format encoding:
+
+    The newest release of KERMIT-12 includes .BOO format encoding of
+all binary files and TECO macros as an alternative to ENCODE format.
+ENCODE format is still the preferred method of distribution, but .BOO
+format allows for use with other systems, such as MS-DOS.  For
+example, TECO macros used with OS/8 TECO can be interchanged in .BOO
+format with similar files used with MS-DOS TECO.  Intermediary sites,
+such as unix systems will not destroy the "delicate" nature of such
+files, etc.
+
+    The KERMIT-12 .BOO utilities are NOT totally compatible with
+existing .BOO utilities on other systems! Just like OS/8 ENCODE and
+DECODE, ENBOO and DEBOO do a perfect encoding/decoding of OS/8 files
+into their original form.  When used with "foreign" .BOO decoders,
+some unpredictable things might occur.
+
+    Certain other .BOO encoders are known to throw in extraneous null
+bytes at the end of the file.  Further, there is a design weakness in
+the original .BOO format that causes more null bytes to possibly
+appear.  The KERMIT-12 programs utilize a superset of the original
+format to ensure correct encoding/decoding.  When passing these files
+which now contain "correction bytes" to older decoders, the files are
+decoded with inflated lengths because the older decoders don't
+recognize the length correction.  When passing files created by older
+encoders to the PDP-8, the resultant decoded files will also have
+inflated lengths because the older encoders failed to place
+correction bytes into the file.
+
+    The general rule for dealing with .BOO files originating from
+other systems is that they may have incorrect lengths.  The resultant
+files may be (falsely) padded out with extraneous null bytes.  In any
+case, since the files generally have no blocking structure, the files
+will be padded by OS/8 up to the nearest whole record or multiple of
+384 bytes anyway.  Unless the file is ASCII and has a ^Z at the end,
+there is no way to determine the original intended file length.
+Files may  be padded by null bytes introduced by other systems' bugs,
+the inherent weakness of the original .BOO format, or ultimately by
+OS/8 padding requirements.
+
+    ASCII files from other systems may be adjusted by using an editor
+such as TECO which stops at the ^Z.  A second generation of the
+transferred file may be somewhat shorter when processed this way.
+
+    Should a file originating in OS/8 be intended for OS/8 use only
+(such as an encoding of a .SV file), it should not be decoded on an
+intermediate system, because a re-encoded version may differ from the
+encoded original because of ignored correction bytes, bugs, or the
+inability to insert correction bytes.  Violating any of these rules
+could lead to OS/8 files corrupted into being too long.  It is
+conceivable that these altered files are even dangerous to use under
+OS/8 because of their inflated lengths. (Certain files are validated
+by their restricted size, such as .HN files which must be exactly two
+or three blocks long depending on whether they are for one or two
+page handlers.  If a one-page handler became three pages in file
+length, it could conceivably be confused with a two-page handler,
+etc.)
+
+cjl
+
+------------------------------
+
+Date: Sun, 7 October 1990 12:00:00 EDT
+From: Charles Lasner <lasner@watsun.cc.columbia.edu>
+Subject: Kermit-12 patching restrictions
+
+    All Kermit-12 configuration done according to the documentation
+works "as advertised." Users are tempted to patch the distributed
+image file K12MIT.SV as a "quick and dirty" method to make small
+modifications such as changing the default baud rate, etc.  There is
+"conventional wisdom" that this can be accomplished using GET, SAVE
+commands to allow the use of ODT; this method is ordinarily used with
+other OS/8 family programs.  It has been reported that this does NOT
+work on OS/278, the usual operating system for the DECmates.  The
+following method should be avoided (a work-around is offered later):
+
+.GET SYS KERMIT                 [setup current image for patching]
+
+.ODT                            [call in ODT to patch the program]
+
+7/ 0007 0012                    [change default baud rate to 2400]
+
+^C                              [^C to exit to monitor]
+
+.SAVE SYS KERMIT                [save patched file]
+
+This method follows the exact procedure described in virtually every
+OS/8 document regarding patching of image files.  The cited example
+changes the default baud rate from 1200 Baud to 2400 Baud by
+replacing the value chosen from the DEC standard table for 1200 Baud
+with the applicable value for 2400 Baud.  This value is stored within
+Kermit-12 as the corresponding twelve-bit word with all high-order
+bits zeroed.  (The location used is 000007; this is valid for Version
+10g, but could change in later versions.)
+
+    This attempt to make changes the "conventional" way produces a
+corrupted image file of K12MIT.SV (renamed to KERMIT.SV in the above
+example) when using OS/278 Version 2, the usual operating system on
+the DECmate II, etc.  This method probably works in earlier (OS/8
+V3D, etc.) systems, however no attempt has been made to trace this
+bug in prior systems.  A "fool-proof" method is required that works
+in spite of bugs in the operating system.
+
+    A work-around was attempted using OS/278 V2 on a DECmate II hard
+disk system:
+
+.LOAD SYS:KERMIT.SV/I           [load the file in image mode]
+
+.ODT                            [call in ODT to patch the program]
+
+7/ 0007 0012                    [change default baud rate to 2400]
+
+^C                              [^C to exit to monitor]
+
+.SAVE SYS KERMIT                [save patched file]
+
+This also fails!
+
+    For reasons not understood yet, the following seemingly
+equivalent command DOES work:
+
+.LOAD SYS:KERMIT.SV/I$*$        [load the file in image mode and then
+                                 ask for more input.  The $ which is
+                                 printed signifies the use of <ESC>
+                                 as the command terminator.  The * is
+                                 printed by the system command
+                                 decoder requesting further input.
+                                 The second $ signifies the use of
+                                 <ESC> to end input to the command
+                                 decoder.  The loader program
+                                 terminates and control returns to
+                                 the keyboard monitor.]
+
+.ODT                            [call in ODT to patch the program]
+
+7/ 0007 0012                    [change default baud rate to 2400]
+
+^C                              [^C to exit to monitor]
+
+.SAVE SYS KERMIT                [save patched file]
+
+This allows ODT commands to patch the file as intended, and also
+causes the subsequent SAVE command to work properly.  All OS/8 family
+systems support this command (as long as CCL is enabled), so it will
+"always" work.
+
+    For those users who run with CCL turned off, the following
+sequence will also work:
+
+.R ABSLDR                       [run the loading program directly]
+*KERMIT.SV/I                    [load Kermit in image mode]
+*$                              [<ESC> is typed to terminate the
+                                 loading process.]
+
+.ODT                            [call in ODT to patch the program]
+
+7/ 0007 0012                    [change default baud rate to 2400]
+
+^C                              [^C to exit to monitor]
+
+.SAVE SYS KERMIT                [save patched file]
+
+    The newer OS/8 family systems generally can't turn off the CCL
+mechanism.  Since the R and RU commands are typically disabled on
+newer releases, only the CCL command work-around applies.  Users
+opting to disable CCL are likely running "older" systems, such as
+OS/8 V3D on DECtapes.  On these systems, ANY of the above methods
+should work, because the problematic bug didn't exist on those
+systems.  Had DEC not gone "backwards" we could have avoided this
+entire discussion!
+
+    It is assumed the user will make "correct" patches to KERMIT-12;
+at least there is a "safe and proper" mechanism available to
+accomplish it!
+
+cjl
+
+------------------------------
+
+Date: Thu, 6 September 1990 12:00:00 EDT
+From: Charles Lasner <lasner@watsun.cc.columbia.edu>
+Subject: Kermit-12 potential problems
+
+    A newly implemented ENCODE/DECODE method should eliminate the
+reported problems with regard to passing encoded binary files through
+problematic "paths." The method chosen is a variant on the 5-bit
+encoding algorithm suggested.  Encoded files now pass right through
+all of the WPS-related utilities.  It is necessary to acquire
+virtually all files of this re-release of KERMIT-12 since all ENCODed
+files are different, as well as the source programs for the
+ENCODing/DECODing utilities themselves.  Due to the file being
+"bare", the TECO macro K12GLB.TEC is possibly defective when it
+arrives at a user site; it will now be ENCODed as K12GLB.ENC to avoid
+this problem.
+
+    The KERMIT-12 source files are different due to maintenance work,
+requiring the user to obtain the re-released files.  The sources now
+include a file to "pre-clear" memory.  This aids in reducing the size
+of the ENCODed binary file K12MIT.ENC since undefined areas are no
+longer "relics" of random values, rather they are all set to 0000
+octal.  The long strings of identical words will be eliminated since
+the new encoding format does repeat compression.
+
+    KERMIT-12 has still not been tested on any DECmates other than
+the DECmate II, as no volunteers have come forward with the proper
+hardware:
+
+    DECmate I with DP278A
+    DECmate I with DP278B
+    DECmate III without internal modem
+    DECmate III with internal modem
+    DECmate III+
+
+    A tentative volunteer for the DECmate I with DP278A configuration
+has been contacted, but testing has not yet started.
+
+cjl
+
+------------------------------
+
+26-Jul-90  1:15:43-GMT,15259;000000000001
+Return-Path: <lasner@cunixf.cc.columbia.edu>
+Received: from cunixf.cc.columbia.edu by watsun.cc.columbia.edu (5.59/FCB)
+	id AA26223; Wed, 25 Jul 90 21:15:41 EDT
+Received: by cunixf.cc.columbia.edu (5.59/FCB)
+	id AA11871; Wed, 25 Jul 90 21:16:19 EDT
+Date: Wed, 25 Jul 90 21:16:18 EDT
+From: Charles Lasner <lasner@cunixf.cc.columbia.edu>
+To: fdc@cunixf.cc.columbia.edu
+Subject: This was sent out to PDP8-LOVERS
+Message-Id: <CMM.0.88.648954978.lasner@cunixf.cc.columbia.edu>
+
+    I thought you might want to see this; it refers to the encoding
+problem I reported for a user with the problem (he has no net
+capability) in the programs using that encoding scheme we
+discussed...
+
+From:	Charles Lasner (cjl)
+To:	PDP8-LOVERS
+Subj:	Feedback on encoding issues regarding archived files.
+
+    I have written a pair of OS/8 programs to ENCODE and DECODE
+binary files into an "ASCII-fied printable" format.  Those of you
+familiar with either uuencode/uudecode or .BOO format will understand
+my intentions.  They were originally written for the purpose of
+distribution of binary (.SV) files of KERMIT-12 by Columbia
+University in NY as part of the standard KERMIT collection (K12*.*).
+Columbia imposes a restriction on all files: they must be distributed
+in ASCII only.  This is to ensure proper distribution regardless of
+the "path" taken between Columbia and the end user.  Be advised that
+various problematic E-mailers, ASCII-EBCDIC EBCDIC-ASCII
+translations, filters for reserved codes, known problematic character
+substitutions, etc. are lurking out there! Consider yourself lucky if
+you get your sender's copy intact without some form of "cosmetic"
+reformatting.  By encoding the binary files into an appropriate
+subset of ASCII, these problems hopefully are avoided.  While we
+can't prevent ALL problems, we can usually tackle the most likely
+ones.
+
+    My original design was based on a discussion I had with Frank da
+Cruz of Columbia University (of KERMIT fame) regarding what to
+restrict ourselves to in a robust format.  He was "unhappy" with some
+of the vulnerabilities of the uuencode and .BOO formats, which while
+popular, are not impervious to some "real" problems that have come
+up.  We essentially designed an archiving format that was PDP-8
+oriented, but not limited to -8s only.  Some of the highlights of the
+format are:
+
+a)  File format restricted to "printable" six-bit subset of ASCII
+only.  All else ignored; this was to minimize the "garble" factor,
+yet maintain a fairly high rate of efficiency: two ASCII characters
+equal one PDP-8 12-bit word. (This has proved to be problematic and
+is why we are here!)
+
+b)  The archive file contains imbedded commands, not implied ones.
+By validating the commands, you can "trust" the contents.  Commands
+are available for whatever purpose arises.  Already implemented are
+commands to start ("(FILE filename.ext)") and end ("(END
+filename.ext)") the imbedded file, and an official comment command
+("(REMARK anything)") to help document the contents of the rest of
+the file.  This is of course expandable.  My OS/8 programs create all
+three types of commands.  The start and end commands also
+theoretically allow multiple files in an archive, but I ignore the
+end command in the decoder and only allow one file per archive.  I do
+support the start command completely, which includes a suggested name
+for the file.  This name can be used at the user's option, or can be
+locally overridden.  The encoding program inserts the original file
+name in this field, as this is of course the most likely name for the
+file at the other end.
+
+c)  The archive contains a checksum for its contents to ensure the
+validity of the file.
+
+d)  All "white space" character considerations are ignored; imbedded
+extraneous space characters, formfeeds, extra CR/LF, etc. are
+harmless.  The CR/LF must be present at appropriate intervals, but
+this is only a problem with files passed through unix systems that
+delete the CR.  Since OS/8 requires the CR and LF to be considered
+"printable", this is not a problem;  the use of programs such as
+c-KERMIT will insert the CR if configured properly (SET FILE TYPE
+TEXT).  Programs such as Rahul Dhesi's FLIP program are available to
+correct the problem easily if necessary: FLIP -m *.* or equivalent
+will remedy this.
+
+e)  There is an internal record length of 64 characters with framing
+characters, to ensure the validity of each record.  This prevents the
+file from getting "out of sync" with its original.  This causes each
+line to be 68 characters including CR and LF, which is usually
+reasonable to most systems.
+
+    Unfortunately, this scheme has proved to be flawed in an
+important way that "matters."  This format must deliver files to
+OS/278 systems by the prevailing paths of existent systems connected
+to DECmates containing only the normally present DEC release
+software.  This could include sending the files via DEC-DX through
+WPS8, or acquiring the files on either DECmate CP/M-80 or DECmate
+MS-DOS, possibly using KERMIT-80, or KERMIT-MS as appropriate.  If a
+file is received in the CP/M-80 environment, it can be converted to
+WPS8 format using a DEC-supplied program called WPSCONV.  If a file
+is received in the MS-DOS environment, it can be converted to WPS8
+format using a DEC-supplied program called CONVERT.  Incidentally,
+CONVERT can also convert CP/M-80 files as well, using MS-DOS format
+as an intermediary;  WPSCONV is known to have bugs, which were
+corrected in CONVERT (which requires the MS-DOS hardware, not just
+the CP/M-80 hardware).  These CP/M-80 and  MS-DOS files can also come
+to the DECmate directly from a Rainbow as well, since the
+corresponding Rainbow systems are format compatible with the DECmate.
+DECmate MS-DOS additionally supports IBM-PC diskettes (160K or 180K
+single-sided only and read-only) as yet another source.  Thus there
+are many paths to WPS8 versions of our files.
+
+    The problem with these methods is that apparently there is a bug
+in OS/278 WPFLOP, the only distributed conversion program a user
+would already have on his OS/278 system. (We haven't actually
+isolated the problem to WPFLOP, as the complaining user was taking
+the files from MS-DOS via CONVERT then to OS/278 via WPFLOP;
+conceivably the problem is in CONVERT, but in any case the problem
+exists somewhere in this supported path.)
+
+    The internal encoding used is to break the 12-bit word into two
+six-bit halves.  Each half is in the range 00-77 octal.  Adding 041
+to the value yields characters in the range of ! through ` or 041
+through 140 octal.  The codes for 101-132 are A through Z and can be
+replaced by 141-172 for a through z if desired.  This prevents
+case-sensitivity which is another possible network anomaly.  We
+identified the DECmate problem as an anomaly regarding @ and `.  The
+character codes for 100 and 140 are not treated uniquely, so the
+resulting OS/278 file is an inaccurate representation of the file.
+The decoding program correctly failed the conversion on a checksum
+error, so at least the user was aware of the problem!
+
+    As the PDP8-LOVERS, we will hopefully acquire an archive site for
+our files, so all of these considerations will apply.  We need a file
+format that is "bullet-proof" to avoid problems like this one.  I am
+soliciting suggestions for improvements on this encoding scheme (and
+any other overall file format suggestions as well) to provide an
+effective solution.  The resultant programs will be added to the
+KERMIT-12 collection freely distributed by Columbia as well as other
+sources (DECUS, etc.).
+
+    Some suggestions have already been made:
+
+1.  Just "quick-fix" the problem by providing an alternate character
+to the ` to make it non-anomalous with @.  The available choices are
+{ | } and ~ only.  The DEL character (octal 177) is unsuitable for
+other reasons; all other characters are either already used, or
+unprintable, or lower-case.  This has the advantage of being most
+compatible with the existing programs, since the original character
+code can be supported as well; the "preferred" character would be
+generated by all future versions of the ENCODE program, and existing
+files could be trivially edited for compatibility as needed.  This
+would have to be tested  -- it is possible that the bug would
+persist.  The choice is further narrowed to { and | only, since 175
+and 176 are sometimes treated as alternates to ESC.  It is likely
+that systems which "mangle" the case of a character which is
+alphabetic could also do the same to { | } and ~ making them [ \ ]
+and _ respectively.  This makes the entire suggestion unworkable.
+
+2.  Change the format to "Hexafied-ASCII" where each PDP-8 12-bit
+word becomes represented by three characters from a 16-character set
+such as 0-9,A-F or A-P.  The alphabetic codes would be immune to case
+conversion, and virtually every system supports this subset of ASCII.
+Instead of 64 characters on a line representing 32 12-bit words, each
+line would be 72 characters on a line representing 24 12-bit words
+(not counting framing characters and CR/LF).  This also allows for
+many additional codes if needed.  This scheme has the drawback of
+making the encoded file more inefficient, as the file will generally
+be 50% longer than those created by the original six-bit scheme.
+This robust scheme is workable.
+
+3.  Modify 2. to include some form of compression.  The easiest is to
+incorporate repeat compression.  One simple scheme is to use an
+indicator character (R was suggested) as a prefix for an encoded
+count.  It could be followed by three characters encoding the value
+of the 12-bit word and two characters encoding the value of the
+repeat count.  Since this occupies six characters, as does two
+adjacent 12-bit encoded words, this scheme saves space when used for
+repeat compression lengths greater than two.  The compressed field is
+the same length as two compressed "triplets", so overall file
+validation techniques wouldn't require special-case checks, as long
+as trailing "fill" characters were allowed for the last record before
+the short checksum record (which is signalled by its length).  (T was
+suggested for this trailer character to be used to pad the last line
+with 0-69 characters.) This allows for compressing 3-258 repeated
+12-bit words into six characters.  This would benefit files
+containing large areas of zeroes or HLT instructions, etc., as this
+can be the actual contents of binary files.  If a .BN file created by
+PAL8, etc. is loaded and saved, then "junk" areas are created in the
+.SV file.  Unfortunately, this is the norm, and the junk increases
+the size of the encoded version of the file.  If the .BN file is
+loaded AFTER loading an all-zeroes file such as the binary output of:
+
+        *0
+
+        ZBLOCK  7600
+
+        $
+
+or equivalent as necessary (extended memory zeroed if required,
+etc.), then the file has all-zeroes gaps in it.  These would repeat
+compress out using this scheme.  Incidentally, an additional
+advantage of this method is that the resulting "cleaner" core-image
+file is slightly easier to disassemble, in case the source is lost.
+(Anyone who ever disassembled a .SV file or equivalent understands
+what I mean!).  This also makes a binary papertape file (such as a
+diagnostic) loaded into a .SV file a little easier to follow when
+consulting the write-up, as memory is zeroed in between the locations
+referenced in the listing.  The .SV file is smaller when encoded than
+the .BN file due to elimination of the paper-tape encoding overhead.
+OS/8 files of diagnostics could therefore be more efficiently
+archived as .SV files (encoded) than .BN files.
+
+4.  Change to a 5-bit encoding with compression.  This would use 32
+codes chosen from A-Z, 0-9 to encode the file five bits at a time per
+character.  Five PDP-8 12-bit words would be encoded in 12
+characters.  Since PDP-8 binary files are always multiples of 128
+12-bit word pages, there would need to be 4.8 "junk words" at the end
+of each block to encode the implied length of 130 words/block.  Each
+line would be 78 characters (plus framing characters and CR/LF) so
+that four lines encodes a PDP-8 page, just as in the original six-bit
+scheme (the original scheme used 64 characters per line!).  The last
+line of the file would contain 0-77 padding characters as necessary
+to maintain the line width as before.  Repeat compression schemes can
+be expressed in any way that is a multiple of 12 characters; perhaps
+one or two adjacent expressions of repeat compression similar to
+above.  Expected efficiency of this scheme is similar to the original
+six-bit method, or possibly slightly better; if compression is NEVER
+useful, then the file is 1.2 times as large.
+
+    There is an implementation restriction placed on the DECODE
+program: it should be relatively short, since it must be distributed
+in source form.  It must also be written in a subset of PAL8
+compatible with the original PAL8 of the PS/8 days (ugh!) to ensure
+viability on any OS/8 family system.  PAL8 Version B0 from OS/278 is
+distributed in ENCODed form, so this restriction need not apply to
+any other programs such as the ENCODE program or KERMIT-12, etc.  It
+has been determined that PAL8 Version B0 and the companion CREF
+Version B0 will correctly function on any OS/8 family system on any
+PDP-8 member suitably configured to run the operating system the user
+already has running. (There is a minor anomaly when using input files
+from the TTY: handler; see K12MIT.DOC for a detailed explanation.)
+CPU extensions such as BSW and IAC RAL are not present in these
+programs, as was the original intention of OS/8 (which eventually was
+lost as newer members of DEC's programming staff were ignorant of
+this problem!).  It is acceptable to have a "bare-bones" subset of
+the DECODE program distributed in "old" PAL8-compatible source form,
+along with a "fancier" version written in a more modern PAL8
+language, as the binary could then be DECODed with the subset DECODE
+program, or the source could be assembled with PAL8 Version B0 to
+"bootstrap" the "full" version of the DECODE program as necessary.
+
+    For those of you who can't wait, and want these utilities as they
+stand (using the fallible six-bit method), they are available via
+anonymous FTP from Columbia University (watsun) as
+/w/kermit/d/k12dec.pal and /w/kermit/d/k12enc.pal for the DECODer and
+ENCODer respectively.  More information is available in
+/w/kermit/d/k12mit.doc or /w/kermit/d/k12mit.pal regarding use of
+PAL8 Version B0, other assemblers (such as PAL10 or P?S PAL) or other
+KERMIT-12 issues, etc.
+
+Charles Lasner (lasner@cunixf)
+cjl
+
+------------------------------
+
+Date: Fri, 4 May 90 13:55:02 EDT
+From: Charles Lasner <lasner@watsun.cc.columbia.edu>
+Subject: Kermit-12 problems
+
+    If the release files of KERMIT-12 are brought to DECmate MS-DOS
+via any of the various paths that can be used (such as from a Rainbow
+in either CP/M RX50 or MS-DOS RX50 format, etc.; in this particular
+case the reporting user obtained them using IBM-PC SSDD 180k 5-1/4"
+PC-DOS format.) then the files are available as DECmate II MS-DOS or
+CP/M-80 files on one of its standard devices (a:,b:,c:,d: floppies or
+e:,f:,g:,h: hard disk volumes).
+
+    The ultimate goal is to get these files (un-scathed!) to DECmate
+II OS/278 for KERMIT-12 installation.  The standard DEC CONVERT
+program alledgedly can convert any combination of MS-DOS or CP/M-80
+or WPS/8 from/to each other.  By converting the files to WPS/8
+documents, the files can be translated to OS/278 later (using the
+OS/278 WPFLOP utility).
+
+    There is a problem with DEC's CONVERT.EXE: it only CORRECTLY
+supports Rainbow/DECmate RX50 MS-DOS and CP/M diskettes, so the other
+formats (8" CP/M-80 diskettes and one-sided PC diskettes) have to be
+pre-converted with the appropriate copy commands to a supported
+diskette or hard disk volume first before using CONVERT.  This is not
+a big problem, as we are merely using standard procedures, but the
+point is that much of this is undocumented or obscure.  (I had to
+help the reporting user to copy his files to a "friendlier" device
+for CONVERT's benefit which only delayed our discovery of the REAL
+problem!)
+
+    The CONVERT program alledgedly supports ASCII/WPS format
+conversion from/to any of MS-DOS, CP/M-80, or WPS/8 (but only on
+a:,b:,c:,d:,e:,f:,g:,h: logical drives, not on the other hardware or
+media possibly hooked up to the DECmate!).  Our purpose is to move
+the K12MIT files to WPS/8 format.  This can be attempted with
+standard commands of CONVERT, but there apparently is a bug:
+
+    When you boot to OS/278 and retrieve the WPS/8 documents (via
+WPFLOP) which are the ENCODed files of KERMIT-12 as OS/278 files,
+there is a character anomaly between two encoding characters
+(specifically @ and `) that destroys the integrity of the affected
+file.  This is possibly due to a bug in OS/278 WPFLOP, but more
+likely is a problem with MS-DOS CONVERT.  Regardless of the
+perpetrator, this path is not viable to obtain the ENCODed files of
+the KERMIT-12 release.
+
+    Fortunately, the source files are not affected, as the anomalous
+characters are not part of the PDP-8 assembly language, and only
+comments could be affected. (As far as I can tell, there aren't any
+affected characters even in the comments!) It is therefore necessary
+to assemble KERMIT-12 directly from the sources when installing it on
+the DECmate II if obtaining it via any path which includes
+CONVERT/WPFLOP.  The other ENCODed files are for PAL8 Version B0 and
+CREF Version B0 which are already present on the DECmate II as part
+of the standard release of OS/278 for the DECmate II and are thus
+superfluous.  All ENCODed files can be recreated from OS/278 itself
+using the sources, etc., so the intended release files can be
+recreated for distribution to other OS/278 sites (bypassing the
+CONVERT/WPFLOP path).  Future versions of the DECODE program will
+obviate this problem when an appropriate alternative format is
+supported properly which is immune to DEC's glitch.
+
+    A related problem surrounds the GLOBAL TECO macro K12GLB.TEC (aka
+GLOBAL.TEC).  Due to the "delicate" nature of TECO macros, they could
+get "mangled" by the time they get to a user site.  Future releases
+of KERMIT-12 will "protect" the macro by ENCODing it into K12GLB.ENC.
+It has also been reported that there are problems running the macro
+on certain releases of OS/8 family TECO and on other TECOs for other
+machines, and also problems running certain versions of OS/8 TECO on
+the DECmates.  The author will investigate this problem eventually,
+but the main usage of the macro is for KERMIT-12 source maintainence
+on an OS/8 V3D system using the corresponding version of TECO; it is
+beyond the scope of KERMIT-12 development to investigate the myriad
+releases of TECO and their hardware and operating system
+dependencies; perhaps some TECO hackers can assist us!
+
+    An obscure problem indeed!  Users give good feedback...
+
+   Can you suggest a fix for the CONVERT/WPFLOP-induced corruption?
+One is to allow the current format as a subset, but use a
+substitution character for the garbled character.  Our character set
+is the 64 characters from ! through `, so the anomalous occurrences
+of @ are problematic.  If we change the preferred character for ` to
+a lower-case letter (only octal 141 up is available, so let's assume
+the use of a) we avoid the CONVERT/WPFLOP problem.  Newer released
+ENCODed files would then be immune to the treachery, but would
+require the newer DECODing program (or use TECO to change all
+occurrences of a to ` and then use the old DECODE program).
+
+    Should we abandon this inner format altogether?  We could use an
+even more robust format like ASCII hex: 0-9 and A-F (allowing a-f as
+well!) at the expense of longer files (currently 2 characters=12
+bits, but would become 3 characters=12 bits).  This would also hold
+up better through EBCDIC network conversion...
+
+cjl

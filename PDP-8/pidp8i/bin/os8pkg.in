@@ -1,0 +1,644 @@
+#!/usr/bin/env @PYCMD@
+# -*- coding: utf-8 -*-
+########################################################################
+# Packaging software for consumption by OS/8
+# Uses os8-cp as a foundation.
+#
+# See USAGE message below for details.
+#
+# Copyright © 2020 by Bill Cattey and Warren Young
+#
+# Permission is hereby granted, free of charge, to any person obtaining
+# a copy of this software and associated documentation files (the
+# "Software"), to deal in the Software without restriction, including
+# without limitation the rights to use, copy, modify, merge, publish,
+# distribute, sublicense, and/or sell copies of the Software, and to
+# permit persons to whom the Software is furnished to do so, subject to
+# the following conditions:
+#
+# The above copyright notice and this permission notice shall be
+# included in all copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+# EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+# MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+# IN NO EVENT SHALL THE AUTHORS LISTED ABOVE BE LIABLE FOR ANY CLAIM,
+# DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT
+# OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
+# OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+#
+# Except as contained in this notice, the names of the authors above
+# shall not be used in advertising or otherwise to promote the sale,
+# use or other dealings in this Software without prior written
+# authorization from those authors.
+########################################################################
+
+# Bring in just the basics so we can bring in our local modules
+import os
+import sys
+
+sys.path.insert (0, os.path.dirname (__file__) + '/../lib')
+sys.path.insert (0, os.getcwd () + '/lib')
+
+# Our local modules
+from pidp8i import *
+from simh      import *
+from os8script import *
+
+# Other global Python modules
+import glob
+import subprocess
+import string
+import re
+import argparse
+import io
+
+
+#### GLOBALS AND CONSTANTS #############################################
+
+progmsg = True
+DEBUG = False
+VERBOSE = False
+QUIET = False
+
+# Sections found in a pspec file:
+_pspec_sections = ["format:", "inputs:", "outputs:", "build:", "cleanups:"]
+
+# Supported file formats:
+_pspec_formats = ["tu56", "rk05"]
+
+# Default RK05 system image to attach if no sys specified.
+_default_sys_image = "@OS8_TOOLTIME@"
+_default_sys_path = dirs.os8mo + _default_sys_image
+_default_att_spec = ["rk", "0", _default_sys_path]
+
+_pkg_obj_dir = os.path.join (dirs.obj, "os8pkg/")
+_pkg_pspec_dir = os.path.join (dirs.src, "pspec/")
+_pkg_builder_dir = os.path.join (dirs.src, "scripts/misc")
+_target_dir = dirs.os8mo
+
+# Regex for parsing an argument string into a sys device
+_dev_arg_regex_str = "-(rk|td|dt|rx)(\d?)(s)?"
+_dev_arg_re = re.compile(_dev_arg_regex_str)
+
+# Map of SIMH device names to OS/8 device name prefixes.
+_os8_from_simh_dev = {"rk" : "RK", "td" : "DTA", "dt" : "DTA", "rx" : "RX"}
+
+_os8_partitions = {"RK": ["A", "B"]}
+
+# OS/8 file name matching regex
+_os8_file_re = re.compile("(\S+):(\S+)?")
+
+# Constrained spec for an outputs: line.
+# Group 1 containas the output device: SYS: or DSK:
+# Group 2 confirns '<'
+# Group 3 contains the input device: DTA1: or RKA1: or RKB1:
+# Group 4 contains the input file spec
+# Group 5 contains the filename before the dot extension.
+# Group 6 contains the dot extension.
+_output_spec_re = re.compile("^(SYS:|DSK:)(<)(DTA1:|RKA1:|RKB1:)(([A-Z0-9?]{0,6})(\.[A-Z0-9?]{0,2})?)$")
+
+# Matches if the string begins with a dollar sign, and has at least
+# one slash, returning the string between the dollar sign and the
+# first slash in group 1 and the rest in group 2.
+# No whitespace in the string.
+_expandable_re = re.compile ("^((?:[^/]*/)*)(([^\.]*)(\.pspec)?)$")
+
+_pspec_strip_re = re.compile("^(\S*)\.pspec$")
+
+# Commands and their help strings.
+_command_set = [["deps", "Create .mk format dependency file from inputs"],
+                ["include", "Create an include script from selected scripts"],
+                ["install", "Install pspec outputs on the target image file"],
+                ["build", "Run package builder"],
+                ["all", "Perform all of the above."],
+                ["uninstall", "Delete pspec outputs and cleanups from the target image file"],
+                ["conflicts", "Report outputs that exist in multiple pspec files"],
+                ["format", "Display the output format for given package names"],
+                ["verify", "Verify the fidelity of packages installed on the target image file"],
+               ]
+
+
+#### abort_prog ########################################################
+# Print err_string and exit with -1 return status.
+
+def abort_prog (err_str):
+  print("Abort: " + err_str)
+  sys.exit(-1)
+
+
+#### path_expand #######################################################
+# Originally developed in os8script.py, but useful here too.
+#
+# Simple minded variable substitution in a path.
+# A path beginning with a dollar sign parses the characters between
+# the dollar sign and the first slash seen becomes a name to
+# expand with a couple local names: $home and the anchor directories
+# defined in lib/pidp8i/dirs.py.
+# We abort if the path expansion fails.
+
+def path_expand (path):
+  m = re.match(_expandable_re, path)
+  if m == None: return path
+  var = m.group(1)
+
+  val = getattr (dirs, var, None)
+  if val != None:
+    return os.path.join(val,m.group(2))
+  else:
+    abort_prog ("{$" + var + "} is not a valid path expansion in " + path)
+  
+
+#### dest_expand ########################################################
+# Return a full path based either on the --destdir option or
+# the default _pkg_obj_dir
+
+def dest_expand (args, fname, default):
+  if args.destdir: return os.path.join(args.destdir, fname)
+  else: return  os.path.join(default, fname)
+
+
+#### parse_pspec ########################################################
+# Parse the pspec file named by pkg
+
+def parse_pspec (pkg_inpath):
+  try:
+    pspec_file = open (pkg_inpath, "r")
+  except IOError:
+    print(pkg_inpath + " not found. Skipping.")
+    return None
+
+  pspec = {}
+  for section in _pspec_sections:
+    pspec [section] = []
+
+  pspec["format:"].append("tu56")     # Default to tu56 format.
+
+  location = ""
+  for ioline in pspec_file:
+    line = ioline.strip()
+    if line == "": continue
+    elif line[0] == "#": continue
+    elif line in _pspec_sections: location = line
+    else:
+      if location == "":
+        print ("Don't know where to put: {" + line + "}.")
+      elif location == "format:":
+        if line in _pspec_formats:
+          pspec[location][0] = line  # Last format we see wins.
+        else:
+          print ("Unsupported format: " + line)
+      else:
+        pspec[location].append(line)
+  return pspec
+
+
+#### make_mk ###########################################################
+# Make the .mk output file
+
+def make_deps (pkg_name, pspec):
+  if len(pspec["inputs:"]) == 0:
+    print ("Nothing to make")
+    return None
+
+  outstr = ""
+
+  pkg_fmt = pspec["format:"][0]
+  pkg_ucfmt = pkg_fmt.upper()
+  pkg_srcs = pkg_name.upper() + "_SRCS"
+  pkg_script = pkg_name.upper() + "_" + pkg_ucfmt + "_SCRIPT"
+  pkg_bin = pkg_name.upper() + "_PKG_BIN"
+
+  outstr += (pkg_srcs + ":= ")
+  for src in pspec["inputs:"]:
+    outstr += ("\\\n\t@srcdir@/" + src)
+
+  outstr += ("\n\n" + pkg_bin + " = bin/" + pkg_name + "." + pkg_fmt + "\n")
+
+  # If the build section is empty use a default build:
+  # An os8-run on a script in MISC_SCRIPTS_DIR named like the package and format.
+  if len(pspec["build:"]) > 0:
+    outstr += ("\n\n$(" + pkg_bin + ") : $(" + \
+               pkg_srcs + ") | $(OS8_TOOLTIME)\n")
+    for build_line in pspec["build:"]:
+      outstr += ("\t" + build_line + "\n")
+
+    outstr += "\n"
+  else:
+    outstr += ("\n" + pkg_script + " =  $(MISC_SCRIPTS_DIR)/" + pkg_name + \
+               "-" + pkg_fmt + ".os8\n")
+  
+    outstr += ("\n$(" + pkg_bin + ") : $(" + \
+               pkg_srcs + ") $(" + pkg_script + ") | $(OS8_TOOLTIME)\n")
+    outstr += ("\t$(OS8RUN) $(" + pkg_script + ")\n")
+
+  return outstr
+
+#### run_builder #####################################################
+# Start a sub-process that executes the build: lines from the pspec file,
+# or if there aren't any, call os8-run on the builder script.
+
+def run_builder (pkg_name, pspec, args):
+  if len(pspec["build:"]) > 0:
+    # Build lines to execute
+    # We probably need a chdir here because of assumptions about where the pspec is.
+    for build_line in pspec["build:"]:
+      if args.dry_run:
+        print (build_line)
+      else:
+        subprocess.call (build_line, shell = True)
+
+  else:
+    script_name = pkg_name + "-" + pspec["format:"][0] + ".os8"
+    script_path = find_script (script_name, args)
+    if script_path == None:
+      print ("Could not find script: " + script_name)
+      return
+    tool = os.path.join (dirs.build, 'bin', "os8-run")
+    if args.dry_run:
+      print (tool + " " + script_path)
+    else:
+      subprocess.call (tool + " " + script_path, shell = True)
+      
+
+#### script_install ###################################################
+# Call os8script commands to eiter perform install of pspec outputs
+# or create a file containing the install commands suitable for submission
+# to os8-run.
+# If inc_file is None, we perform the install.
+# If there is an inc_file we do NOT perform install.
+#   We append to the file.  We ignore dry_run.
+#   The dry_run option under these conditions set stdout to inc_file.
+# We do it this way so that only 1 routine is responsible for defining
+# the install commands whether the be directly executed or saved in a script.
+
+def script_install (os8, pspec, pkg_name, args, inc_file):
+  if len(pspec["outputs:"]) == 0:
+    print ("Nothing to install from package " + pkg_name)
+    return
+
+  if inc_file != None:
+    inc_file.write ("# Install of " + pkg_name + "\n")
+
+  pkg_fmt = pspec["format:"][0]
+  if pkg_fmt == "tu56": dev = "dt1"
+  else: dev = "rk1"
+
+  mount_str = dev + " $os8mo/" + pkg_name + "." + pkg_fmt + " ro required\n"
+
+  if inc_file != None:
+    inc_file.write ("mount " + mount_str)
+  else:
+    if args.dry_run:
+      print ("install of " + pkg_name + ":\nmount " + mount_str)      
+    else:
+      os8.mount_command (mount_str, None)
+
+  for dest in pspec["outputs:"]:
+    m = re.match (_output_spec_re, dest)
+    if m == None: print ("Mal-formed output: spec: " + dest + ". Ignored.")
+    inst_str = "COPY " + dest
+
+    if args.debug > 0 or args.verbose: print ("output: " + inst_str)
+    if inc_file != None:
+        inc_file.write ("os8 " + inst_str + "\n")
+    else:
+      if args.dry_run:
+        print (inst_str)
+      else:
+        os8.os8_command (inst_str, None)
+
+  if inc_file != None:
+     inc_file.write ("umount " + dev + "\n\n")
+  else:
+     if args.dry_run  and inc_file == None:
+       print ("umount " + dev)
+     else:
+       os8.umount_command (dev, None)
+
+#### script_delete ###################################################
+# Call os8script commands to perform delete of pspect outputs and cleanups
+
+def script_delete (os8, pspec, pkg_name, args):
+  if len(pspec["outputs:"]) == 0:
+    print ("Nothing to delete from package " + pkg_name)
+    return
+
+  if args.dry_run:
+    print ("uninstall of " + pkg_name)
+
+  for dest in pspec["outputs:"]:
+    m = re.match (_output_spec_re, dest)
+    if m == None: print ("Mal-formed output: spec: " + dest + ". Ignored.")
+    del_str = "DEL " + m.group(1) + m.group(4)
+    if args.debug > 0 or args.verbose: print ("output: " + del_str)
+    if args.dry_run:
+      print (del_str)
+    else:
+      os8.os8_command (del_str, None)
+
+  for dest in pspec["cleanups:"]:
+    del_str = "DEL " + dest
+    if args.debug > 0 or args.verbose: print ("cleanup: " + del_str)
+    if args.dry_run:
+      print (del_str)
+    else:
+      os8.os8_command (del_str, None)
+
+
+#### find_pkg  #########################################################
+# Use a search heuristic to find the package given its name.
+
+def find_pkg (pkg_name, pkg_base, pkg_dir, args):
+  if args.debug > 5:
+    print ("find_pkg: Name: " + pkg_name + ", Base: " + pkg_base + ", Dir: " + pkg_dir)
+  
+  pkg_path = os.path.join(pkg_dir,  pkg_name + ".pspec")
+  if args.debug > 9: print ("Trying: " + pkg_path)
+  if os.path.exists (pkg_path):
+    if args.debug > 4: print ("Initial pkg spec succeeded.")
+    return pkg_path
+
+  if args.destdir:
+    pkg_path = os.path.join (args.destdir, pkg_name)
+    if args.debug > 9: print ("Trying: " + pkg_path)
+    if os.path.exists (pkg_path):
+      if args.debug > 4: print ("Found in " + args.destdir + " as " + pkg_ame)
+      return pkg_path
+
+    pkg_path = os.path.join (args.destdir, pkg_name + ".pspec")
+    if args.debug > 9: print ("Trying: " + pkg_path)
+    if os.path.exists (pkg_path):
+      if args.debug > 4: print ("Found in " + args.destdir + " as " + pkg_name + ".pspec")
+      return pkg_path
+  
+  pkg_path = os.path.join(_pkg_pspec_dir, pkg_name + ".pspec")
+  if args.debug > 9: print ("Trying: " + pkg_path)
+  if os.path.exists (pkg_path):
+    if args.debug > 4: print ("Found in " + _pkg_pspec_dir)
+    return pkg_path
+
+  return None
+
+#### find_script  ######################################################
+# Use a search heuristic to find the builder script given a package name.
+
+def find_script (script_name, args):
+  if args.debug > 5:
+    print ("find_script: Name: " + script_name)
+  
+  if args.destdir:
+    script_path = os.path.join (args.destdir, script_name)
+    if args.debug > 9: print ("Trying: " + script_path)
+    if os.path.exists (script_path):
+      if args.debug > 4: print ("Found " + script_path)
+      return script_path
+
+    script_path = os.path.join (args.destdir, _pkg_obj_dir + script_name)
+    if args.debug > 9: print ("Trying: " + script_path)
+    if os.path.exists (script_path):
+      if args.debug > 4: print ("Found " + script_path)
+      return script_path
+  
+  script_path = os.path.join(_pkg_builder_dir, script_name)
+  if args.debug > 9: print ("Trying: " + script_path)
+  if os.path.exists (script_path):
+    if args.debug > 4: print ("Found " + script_path)
+    return script_path
+
+  return None
+
+#### start_os8 #########################################################
+# Create and start up an os8 script runner
+# Find the default boot image and boot it.
+# Return the running os8 object handle.
+# If we can't start os8, it's a fatal error. Quit here!
+
+def start_os8(targ_path, args):
+  try:
+    s = simh (dirs.build, True)
+  except (RuntimeError) as e:
+    print("Could not start simulator: " + e.message + '!')
+    sys.exit (1)
+
+  if VERBOSE:
+    s.verbose = True
+    s.set_logfile (os.fdopen (sys.stdout.fileno (), 'wb', 0))
+
+  os8 = os8script (s, [], [], verbose=VERBOSE, debug=args.debug>0)
+
+  if args.debug >0 or args.dry_run: print ("Perform " + args.command + " on " + targ_path)
+
+  os8.mount_command ("rk0 " + targ_path + " required", None)
+  os8.boot_command ("rk0", None)
+
+  return os8
+
+
+#### conflicts ##########################################################
+# Report any members of this pspec's  output: that have been seen before.
+# A seen item contains lots of information:
+#  pkg_name, dev, name
+
+def conflicts (seen, pspec, pkg_name, args):
+  if len(pspec["outputs:"]) == 0:
+    print ("No outputs in package " + pkg_name)
+    return
+
+  for dest in pspec["outputs:"]:
+    found = False
+    m = re.match (_output_spec_re, dest)
+    if m == None: print ("Mal-formed output: spec: " + dest + ". Ignored.")
+    output_name = m.group(4)
+    # Save device and file name as a seen item.
+    for this in seen:
+      if this["name"] == output_name:
+        found = True
+        print  ("Warning: " + output_name + " gets installed on " + this ["dev"] + \
+                " by package " + this ["pkg_name"])
+    if found == False:
+      item = {"pkg_name": pkg_name, "dev": m.group(1), "name": output_name}
+      if args.debug > 9: print ("Adding item: " + str(item))
+      seen.append(item)
+
+#### verify ############################################################
+# Use the OCOMP program in the target to verify that the output: items
+# are present and match what is in the package target file.
+
+def verify (os8, pspec, pkg_name, args):
+  if len(pspec["outputs:"]) == 0:
+    print ("No outputs in package " + pkg_name)
+    return
+
+  pkg_fmt = pspec["format:"][0]
+  if pkg_fmt == "tu56": dev = "dt1"
+  else: dev = "rk1"
+
+  mount_str = dev + " $os8mo/" + pkg_name + "." + pkg_fmt + " ro required\n"
+  if args.debug > 0: print ("Mount: " + mount_str)
+  os8.mount_command (mount_str, None)
+  os8.resume_command ("", None)
+
+  for dest in pspec["outputs:"]:
+    m = re.match (_output_spec_re, dest)
+    if m == None: print ("Mal-formed output: spec: " + dest + ". Ignored.")
+    input_name = m.group(3) + m.group(4)
+    output_name = m.group(1) + m.group(4)
+    if args.debug > 9: print ("\tChecking: " + output_name)
+    ocomp_str = "TTY:<" + input_name + "," + output_name
+
+    result = os8.ocomp_command (ocomp_str, None)
+    if result == "fail":
+      print ("Failed verify of " + output_name)
+    else:
+      if args.verbose: print ("Successful verify of " + output_name)
+
+#### main ##############################################################
+
+def main ():
+
+  parser = argparse.ArgumentParser(
+    description = """
+    Package manager for use under PDP-8 OS/8.""",
+    usage = "%(prog)s [options] [command] [package ...]")
+  parser.add_argument("-v", "--verbose", help="increase output verbosity",
+             action="store_true")
+  parser.add_argument("-d", dest="debug", metavar="DEBUG", type=int,
+                      help="set debug level", default=0)
+  parser.add_argument("--destdir", help="Destination directory for output files")
+  parser.add_argument ("--target", help="target image file", default="v3d.rk05")
+  parser.add_argument ("--dry-run", "-n", action="store_true", help="Dry Run. Print output. Generate no files.")
+
+  subparsers = parser.add_subparsers(title="commands")
+
+  for pair in _command_set:
+    name = pair[0]
+    the_help = pair[1]
+
+    the_sub = subparsers.add_parser (name, help=the_help)
+    the_sub.add_argument ('packages', nargs=argparse.REMAINDER, metavar="one or more package files")
+    the_sub.set_defaults (command=name)
+  
+  args = parser.parse_args()
+
+  if hasattr(args, 'command') == False:
+    print (parser.print_help())
+    sys.exit(-1)
+
+  do_all = args.command == "all"
+  inst_cmd = args.command in ["install", "uninstall", "verify"]
+
+  if args.command == "include" or do_all:
+    # We're going to assemble obj/os8pkg/pkgs.os8 from the proffered list of packages.
+    outpath = dest_expand (args, "pkgs.os8", _pkg_obj_dir)
+    if args.debug >0 or args.dry_run:  print (outpath)
+    if len(args.packages) == 0:
+      first_line = "# No packages to include"
+    else:
+      first_line = "# Packages to include"
+    
+    if args.dry_run:
+      print (first_line)
+    else:
+      incfile = open (outpath, "w")
+      incfile.write(first_line + "\n")
+      
+  else:
+    # All other commands require one package.
+    if len(args.packages) == 0:
+      abort_prog ("Need at least one package to work.")
+
+  # If we need an os8script object, put it here.
+  os8 = None
+  seen = []
+  
+  # The pkg_spec from command line may be a package name, or a file path.
+  # We need the name, and may or may not get the ".pspec" at the end.
+  for pkg_spec in args.packages:
+    pkg_dir = os.path.dirname(pkg_spec)
+    pkg_base = os.path.basename(pkg_spec)
+    m = re.match(_pspec_strip_re, pkg_base)
+    if m == None: pkg_name = pkg_base
+    else: pkg_name = m.group(1)
+    if args.debug >0:  print ("Package name: " + pkg_name)
+
+    pkg_inpath = find_pkg (pkg_name, pkg_base, pkg_dir, args)
+    if pkg_inpath == None:
+      print ("Could not find package: " + pkg_spec)
+      continue
+
+    if args.debug >0: print ("Package path: " + pkg_inpath)
+    
+    # We assume all command will require parsing the pspec.
+    pspec = parse_pspec(pkg_inpath)
+    if pspec == None: continue
+
+    pkg_fmt = pspec["format:"][0]
+    if args.command == "format":
+      if len(args.packages) > 1: line = pkg_name + ": "
+      else:                      line = ''
+      line += pkg_fmt
+      print (line)
+    if args.debug >0:  print ("Format: " + pkg_fmt)
+
+    if args.command == "deps" or do_all:
+      print ("Generating deps for " + pkg_name + "...")
+      outname = (pkg_name + ".mk")
+      outpath = dest_expand (args, outname, _pkg_obj_dir)
+      if args.debug >0 or args.dry_run:  print (outpath)
+      outstr = make_deps(pkg_name, pspec)
+      if args.dry_run:
+        print (outstr)
+      else:
+        depfile = open (outpath, "w")
+        for line in outstr:
+          depfile.write(line)
+        depfile.close()
+
+    if args.command == "include":
+      # Use the list of pkgnames to generate an os8-run script that performs
+      # the relevant installs.
+      print ("Generating include script for " + pkg_name + "...")
+      if args.dry_run:
+        print ("Include: " + pkg_name)
+        script_install (None, pspec, pkg_name, args, sys.stdout)
+      else:
+        incfile.write ("# Install: " + pkg_name + "\n")
+        script_install (None, pspec, pkg_name, args, incfile)
+
+    if args.command == "build" or do_all:
+      run_builder(pkg_name, pspec, args)
+
+    # This calls start_os8 once if we need it.
+    if inst_cmd and os8 == None:
+      targ_path = dest_expand (args, args.target, _target_dir)
+      os8 = start_os8(targ_path, args)
+
+    if args.command == "install" or do_all:
+      print ("Installing " + pkg_name + " to " + targ_path + "...")
+      script_install (os8, pspec, pkg_name, args, None)
+
+    if args.command == "uninstall":
+      print ("Removing " + pkg_name + " from " + targ_path + "...")
+      script_delete (os8, pspec, pkg_name, args)
+
+    if args.command == "conflicts":
+      print ("Checking for conflicts with package " + pkg_name)
+      conflicts (seen, pspec, pkg_name, args)
+
+    if args.command == "verify":
+      print ("Verifying package " + pkg_name + " on " + targ_path)
+      verify (os8, pspec, pkg_name, args)
+
+  if args.command == "include" and args.dry_run == False:
+    incfile.close()
+
+
+  # It is vitally important that we exit gracefully. Otherwise
+  # The install actions may not be successfully be committed to media.
+  if inst_cmd and os8 != None:
+    os8.simh.simh_cmd ("detach all")
+    os8.simh._child.sendline("quit")
+
+
+if __name__ == "__main__": main()

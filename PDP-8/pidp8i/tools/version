@@ -1,0 +1,94 @@
+#!/usr/bin/env perl
+########################################################################
+# tools/version - Print a string summarizing the software version
+#
+# Copyright © 2017 Warren Young
+#
+# Permission is hereby granted, free of charge, to any person obtaining
+# a copy of this software and associated documentation files (the
+# "Software"), to deal in the Software without restriction, including
+# without limitation the rights to use, copy, modify, merge, publish,
+# distribute, sublicense, and/or sell copies of the Software, and to
+# permit persons to whom the Software is furnished to do so, subject to
+# the following conditions:
+#
+# The above copyright notice and this permission notice shall be
+# included in all copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+# EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+# MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+# IN NO EVENT SHALL THE AUTHORS LISTED ABOVE BE LIABLE FOR ANY CLAIM,
+# DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT
+# OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
+# OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+#
+# Except as contained in this notice, the names of the authors above
+# shall not be used in advertising or otherwise to promote the sale,
+# use or other dealings in this Software without prior written
+# authorization from those authors.
+########################################################################
+
+use strict;
+use warnings;
+
+use Cwd qw(abs_path getcwd);
+use File::Basename;
+
+# Give dummy result when run via test-os8-run.  A proper version string
+# isn't helpful, and fossil isn't intended to be run in parallel
+# multiple times in the same directory.  We could retry several times
+# until we succeed, but again, it doesn't really help us to bother.
+my $cwd = getcwd;
+if ($cwd =~ m{/test/tmp/}x) {
+    print "test:id[00000000]\n";
+    exit 0;
+}
+
+my $topdir = dirname($0) . '/..';
+if (-e "$topdir/.fslckout") {
+    # Get version info from Fossil
+    my ($branch, $checkout, $version, $comment);
+    chdir $topdir;      # we might be building out-of-tree
+
+    open my $s, '-|', 'fossil status 2> /dev/null'
+            or die "Failed to run fossil status!\n";
+    my @lines = <$s>;
+    die "The fossil status command in tools/version failed!\n"
+            unless close $s;
+
+    for (@lines) {
+        chomp;
+        my ($attr, $value) = split /:\s+/;
+
+        if ($attr eq 'checkout') {
+            my @elems = split ' ', $value;
+            $checkout = substr($elems[0], 0, 10);
+        }
+        elsif ($attr eq 'tags') {
+            my @tags = split /, /, $value;
+            for my $t (@tags) {
+                if ($t =~ m{^v\d+}) {
+                    $version = $t;
+                }
+                else {
+                    $branch = $t;
+                }
+            }
+        }
+        elsif ($attr eq 'comment') {
+            $comment = $value;
+        }
+    }
+
+    ($version) = $comment =~ m{(v\d+)} if $branch eq 'release';
+    print $branch, ':', ($version || "id[$checkout]"), "\n";
+}
+else {
+	# We're not within a Fossil checkout, so try to get the version
+	# number from the top directory name, on the assumption that it
+    # is a release tarball and hence contains the release version #.
+	$topdir = basename(abs_path($topdir));
+	my ($v) = $topdir =~ m{v\d+};
+	print 'pkg:', ($v ? $v : 'vUNKNOWN'), "\n";
+}

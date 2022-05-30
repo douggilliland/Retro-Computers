@@ -1,0 +1,297 @@
+#!/usr/bin/env @PYCMD@
+# -*- coding: utf-8 -*-
+########################################################################
+# Perform a test run of a program under OS/8
+# Uses os8pkg as a foundation.
+#
+# See USAGE message below for details.
+#
+# Copyright © 2020 by Bill Cattey and Warren Young
+#
+# Permission is hereby granted, free of charge, to any person obtaining
+# a copy of this software and associated documentation files (the
+# "Software"), to deal in the Software without restriction, including
+# without limitation the rights to use, copy, modify, merge, publish,
+# distribute, sublicense, and/or sell copies of the Software, and to
+# permit persons to whom the Software is furnished to do so, subject to
+# the following conditions:
+#
+# The above copyright notice and this permission notice shall be
+# included in all copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+# EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+# MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+# IN NO EVENT SHALL THE AUTHORS LISTED ABOVE BE LIABLE FOR ANY CLAIM,
+# DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT
+# OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
+# OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+#
+# Except as contained in this notice, the names of the authors above
+# shall not be used in advertising or otherwise to promote the sale,
+# use or other dealings in this Software without prior written
+# authorization from those authors.
+########################################################################
+
+# Bring in just the basics so we can bring in our local modules
+import os
+import sys
+
+sys.path.insert (0, os.path.dirname (__file__) + '/../lib')
+sys.path.insert (0, os.getcwd () + '/lib')
+
+# Our local modules
+from pidp8i import *
+from simh      import *
+from os8script import *
+
+# Other global Python modules
+import glob
+import subprocess
+import string
+import re
+import argparse
+import yaml
+from time import sleep
+
+
+#### GLOBALS AND CONSTANTS #############################################
+
+progmsg = True
+DEBUG = False
+VERBOSE = False
+QUIET = False
+
+# Default RK05 system image to attach if no sys specified.
+_default_sys_image = "@OS8_TOOLTIME@"
+_default_sys_path = dirs.os8mo + _default_sys_image
+_default_att_spec = ["rk", "0", _default_sys_path]
+_default_tests_dir = os.path.join (dirs.src, "scripts/os8-progtest")
+_target_dir = dirs.os8mo
+
+# Some tricks to getting correct operation:
+# 0. Quoting matters! Use these:
+#    Surround state names with single quotes.
+#    Surround send and reply strings with double quotes.
+# 1. Command lines end with a carriage return '\r' or an Escape.
+# 2. Control characters have funky values:
+#    Escape: \e
+#    ^C: \x03
+# 3. TTY output you see from running the simulator gets
+#    upcased, so make all test strings upper case.
+# 4. When in doubt of what formatting happens use '\s+`
+# 5. REMEMBER to escape characters that normally have regex meaining:
+#    . + * $ ( ) \
+#    prefix each one with TWO backslashes! '?' becomes '\\?'
+# 6. Explicitly call out end of string '$' when you can.
+# 7. The monitor prompt match is "\n\\.$"
+# 8. The command decoder prompt match is "\n\\*$"
+
+
+#### abort_prog ########################################################
+# Print err_string and exit with -1 return status.
+
+def abort_prog (err_str):
+  print("Abort: " + err_str)
+  sys.exit(-1)
+
+
+#### dest_expand ########################################################
+# Return a full path based either on the --destdir option or
+# the default _pkg_obj_dir
+
+def dest_expand (args, fname, default):
+  if args.destdir: return os.path.join(args.destdir, fname)
+  else: return  os.path.join(default, fname)
+
+
+#### src_expand #########################################################
+# Return a full path based either on the --srcdir option or
+# the default test .yml directory
+
+def src_expand (args, fname, default):
+  if args.destdir: return os.path.join(args.srcdir, fname)
+  else: return  os.path.join(default, fname)
+
+
+#### start_os8 #########################################################
+# Create and start up an os8 script runner
+# Find the default boot image and boot it.
+# Return the running os8 object handle.
+# If we can't start os8, it's a fatal error. Quit here!
+
+def start_os8(targ_path, args):
+  try:
+    s = simh (dirs.build, True)
+  except (RuntimeError) as e:
+    print("Could not start simulator: " + e.message + '!')
+    sys.exit (1)
+
+  if VERBOSE:
+    s.verbose = True
+    s.set_logfile (os.fdopen (sys.stdout.fileno (), 'wb', 0))
+
+  os8 = os8script (s, [], [], verbose=VERBOSE, debug=args.debug>0)
+
+  # We mount our destination in scratch mode. This lets us do many
+  # tests in parallel all independent, none conflicting.
+  os8.mount_command ("rk0 " + targ_path + " required scratch", None)
+  os8.boot_command ("rk0", None)
+
+  return os8
+
+
+#### clean_quit ########################################################
+# Cleanup any state in os8 and any scratch files in POSIX and exit
+# with provided status.
+
+def clean_quit (os8, status, args):
+  # After all scripts are done, we remove any scratch files,
+  # detach any mounted devices, and shut down simh gracefully.
+
+  # Handle dry run case:
+  if os8 == None: sys.exit (status)
+  
+  os8.exit_command(str(status), "")
+
+#### parse_todos #######################################################
+# Parse a series of comma separated tests.
+
+def parse_todos (line, args):
+  if line == None:
+    print ("No tests specified. Doing All")
+    return ["all"]
+  parts = line.split(",")
+  return parts
+
+#### main ##############################################################
+
+def main ():    
+  parser = argparse.ArgumentParser(
+    description = """
+    Test a program under PDP-8 OS/8.""",
+    usage = "%(prog)s [options]")
+  parser.add_argument("-v", "--verbose", help="increase output verbosity",
+             action="store_true")
+  parser.add_argument("-d", dest="debug", metavar="DEBUG", type=int,
+                      help="set debug level", default=0)
+  parser.add_argument("--destdir", help="Destination directory for output files")
+  parser.add_argument("--srcdir", help="Source directory for test .yml files")
+  parser.add_argument ("--target", help="target image file", default="v3d.rk05")
+  parser.add_argument ("--dry-run", "-n", action="store_true", help="Dry Run. Print output. Generate no files.")
+  parser.add_argument ("--exitfirst", "-x", action="store_true", help="Exit on first failure.", default=False)
+  parser.add_argument ('programs', nargs=argparse.REMAINDER, metavar="programs to test, and optional subset of tests")
+
+  args = parser.parse_args()
+
+  targ_path = dest_expand (args, args.target, _target_dir)
+  if args.dry_run:
+    os8 = None
+    print ("Dry run: would boot: " + targ_path)
+  else:
+    # Start OS/8, confirm we're booted and in OS/8 context.
+    os8 = start_os8(targ_path, args)
+    if not os8.booted:
+      print("Cannot run " + _test_name + ". OS/8 has not been booted.")
+      clean_quit (os8, -1, args)
+    if os8.simh._context == "simh":
+      os8.restart_command(os8_comm, script_file)
+
+  if args.programs == None or args.programs == []:
+    print ("Nothing to test")
+    clean_quit (os8, 0, args)
+
+  do_all = True
+
+  for prog_spec in args.programs:
+    m = re.match("(\S+):(\S+)", prog_spec)
+    if m == None:
+      program = prog_spec
+    else:
+      program = m.group(1)
+      do_all = False
+      test_list = parse_todos (m.group(2), args)
+      if args.debug > 0: print ("Test list: " + str(test_list))
+    
+    try:
+      test_path = src_expand(args, program + ".yml", _default_tests_dir)
+      if args.debug > 0: print("Testing: " + program + " with script: " + test_path)
+      testfile = open(test_path)
+    except IOError:      
+      print ("Tesfile " + test_path + " not found.")
+      continue
+
+    tests = yaml.safe_load(testfile)
+
+    if do_all:
+      test_list = []
+      for key in tests.keys():
+        # Things in the test file that are not tests
+        if key in ["config"]: continue
+        test_list.append(key)
+
+    for test in test_list:
+      if test not in tests:
+        print (program + " test " + test + " not found.")
+        continue
+
+      states = tests[test]
+
+      if args.debug >14 :
+        print ("All states:")
+        print (str (states))
+
+      # Walk the state machine
+      # Recommended: Run the state machine in dry_run mode to make sure it terminates.
+      next_state = "start"
+      while next_state not in ("success", "fail"):
+        if next_state not in states:
+          print ("State machine for program " + tests["program"] + " has no state: " + next_state)
+          clean_quit(os8, -1, args)
+        current = states[next_state]
+
+        send_str = current[0]
+        replies = []
+        for item in current[1]:
+          replies.append (item[0])
+
+        if args.debug >9: print ("Replies: " + str(replies))
+        if args.dry_run:
+          next_state = current[1][0][1]
+        else:
+          if args.debug > 0: print ("Sent: " + send_str)
+          if "config" in tests and "slow" in tests["config"]:
+            for char in send_str:
+              for i in range(0, len(send_str)):
+                sleep (.05)
+                os8.simh._child.send (send_str[i])
+          else:
+            os8.simh.os8_send_str(send_str)
+        
+          if args.debug == 88: replies = [".+"]
+      
+          try:
+            # os8.simh._child.expect(re.compile(reply_str.encode()), timeout=5)
+            reply = os8.simh._child.expect(replies, timeout=5)
+            if args.debug > 4: print("\tgot: {" + os8.simh._child.after.decode() + "}")
+          except pexpect.exceptions.TIMEOUT:
+            print (program + ": Test Failed.")
+            print ("\tExpecting: {" + str(replies) + "}")
+            print("\tGot: {" + os8.simh._child.before.decode() + "}")
+            next_state = "fail"
+            continue
+        
+          next_state = current[1][reply][1]
+      
+        if args.debug > 0: print ("Next state: " + next_state)
+      if next_state == "success":  
+        print (program + ":" + test + " Test Passes.")
+      else:
+        print (program + ":" + test + " Test Fails.")
+        if args.exitfirst: clean_quit(os8, -1, args)
+      # sleep(1)   # Give OS/8 a second to catch up to testing.
+
+  clean_quit(os8, 0, args)
+  
+if __name__ == "__main__": main()
+  

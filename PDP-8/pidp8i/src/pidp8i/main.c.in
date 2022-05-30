@@ -1,0 +1,890 @@
+/* pidp8i.c: PiDP-8/I additions to the PDP-8 simulator
+
+   Copyright © 2015 by Oscar Vermeulen, © 2017 by Ian Schofield, and
+   © 2016-2018 by Warren Young
+
+   Permission is hereby granted, free of charge, to any person obtaining a
+   copy of this software and associated documentation files (the "Software"),
+   to deal in the Software without restriction, including without limitation
+   the rights to use, copy, modify, merge, publish, distribute, sublicense,
+   and/or sell copies of the Software, and to permit persons to whom the
+   Software is furnished to do so, subject to the following conditions:
+
+   The above copyright notice and this permission notice shall be included in
+   all copies or substantial portions of the Software.
+
+   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+   IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+   FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
+   THE AUTHORS LISTED ABOVE BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+   LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+   FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+   DEALINGS IN THE SOFTWARE.
+
+   Except as contained in this notice, the names of the authors above shall
+   not be used in advertising or otherwise to promote the sale, use or other
+   dealings in this Software without prior written authorization from those
+   authors.
+*/
+
+#include "pidp8i.h"
+
+#include <PDP8/pdp8_defs.h>
+
+#include <assert.h>
+#include <dirent.h> // for USB stick searching
+#include <errno.h>
+#include <string.h>
+
+
+//// MODULE GLOBALS ////////////////////////////////////////////////////
+
+// handle_sing_step() sets this to nonzero and returns a value breaking
+// us out of the PDP-8 simulator's sim_instr() loop, which causes SCP to
+// call our build_pidp8i_scp_cmd(), which gives SCP a command to run:
+// either "exit" when it wants the simulator to stop (e.g the shutdown
+// and reboot combos) or "do $script" on IF + SING_STEP combo.
+//
+// We loop the flow control from this module out into the generic SIMH
+// code and then back in here so we don't have to export this global.
+// Basically, this module global lets us remember what handle_sing_step
+// wants SCP to do in the window between switch handling time and SCP
+// command handling time.
+static enum {
+    CMD_NONE = 0,            // "do nothing" idle case
+    CMD_DO_BOOTSCRIPT_1,     // SING_STEP + IF combos
+    CMD_DO_BOOTSCRIPT_2,
+    CMD_DO_BOOTSCRIPT_3,
+    CMD_DO_BOOTSCRIPT_4,
+    CMD_DO_BOOTSCRIPT_5,
+    CMD_DO_BOOTSCRIPT_6,
+    CMD_DO_BOOTSCRIPT_7,
+    CMD_EXIT,
+} insert_scp_cmd = CMD_NONE;
+
+
+//// get_this_executable_path //////////////////////////////////////////
+// Uses various non-portable tricks to come up with an absolute path to
+// the current executable.  We can't just copy argv[0] from main()
+// because that might be a path relative to a directory we aren't in any
+// more, it could be NULL, it could be entirely bogus, or it might only
+// work with our caller's non-exported PATH.
+//
+// This really only has to work on the Raspberry Pi running Raspbian,
+// since that's the only way you can get IF + SING_STEP currently.
+
+static const char* get_this_executable_path ()
+{
+    static char retpath[PATH_MAX] = { '\0' };
+
+#ifdef HAVE_DECL___PROGNAME
+    // Nonportable BSD method available here, so absolutize it.
+    return realpath (__progname, retpath);
+#else
+    // This method only works on Linux and on BSDs configured to export
+    // a Linux-compatible /proc.  It won't work on SVR4 /proc.
+    static const char* pse = "/proc/self/exe";
+    if (access (pse, R_OK) == 0) {
+        size_t rpmax = sizeof (retpath);
+        ssize_t n = readlink (pse, retpath, rpmax);
+        if (n > 0) {
+            retpath[n >= rpmax ? rpmax - 1 : n] = '\0';
+            return retpath;
+        }
+        else {
+            fprintf (stderr, "Failed to absolutize %s: %s!\n", pse,
+                    strerror(errno));
+        }
+    }
+    else {
+        fprintf (stderr, "Failed to read %s: %s!\n", pse,
+                strerror(errno));
+    }
+#endif
+
+    return 0;
+}
+
+
+//// build_pidp8i_scp_cmd //////////////////////////////////////////////
+// If insert_scp_cmd is nonzero, we return the corresponding SCP command 
+// we want run to make the simulator do something else.
+
+char *build_pidp8i_scp_cmd (char *cbuf, size_t cbufsize)
+{
+    if (insert_scp_cmd == CMD_NONE) {
+        return 0;                               // nothing to do yet
+    }
+    else if ((insert_scp_cmd > 0) && (insert_scp_cmd <= 7)) {
+        // We got one of the IF + SING_STEP combos, so restart the
+        // simulator with the corresponding init script.
+        char script_path[256];
+        snprintf (script_path, sizeof (script_path), "@BOOTDIR@/%d.script",
+                insert_scp_cmd);
+        insert_scp_cmd = CMD_NONE;              // it's a one-shot
+        if (access (script_path, R_OK) == 0) {
+            // Rather than return a "do scriptname" command directly,
+            // clean up the current simulator and overwrite ourselves
+            // with a fresh simulator running the new script to ensure
+            // new script to avoid device conflicts.  For instance, if
+            // IF=0 assumes the tape device is TC08 and IF=3 TD8E, we'd
+            // get a device 77 conflict without this dance.
+            const char* self_path = get_this_executable_path ();
+            extern t_stat detach_all (int32 start, t_bool shutdown);
+            extern int use_pidp8i_extensions;
+            printf ("Relaunching %s with %s...\r\n", self_path, script_path);
+            detach_all (0, TRUE);
+            printf ("All devices detached...\r\n");
+            if (use_pidp8i_extensions) {
+                stop_pidp8i_gpio_thread ();
+                printf ("GPIO thread topped...\r\n");
+            }
+            execlp (self_path, self_path, script_path, NULL);
+            return 0;
+        }
+        else {
+            // That boot script doesn't exist or isn't readable.
+            //
+            // Fall through to the "exit" command builder below because
+            // we don't want to keep coming back in here at host CPU
+            // speed, failing the same way and issuing the same error
+            // until the slow human manages to flip the offending switch
+            // back.  This is especially annoying when the PiDP-8/I is
+            // attached to a slow serial console.  Ask me how I know.
+            int access_errno = errno;      // preserve it from getcwd()
+            char cwd[256];
+            getcwd (cwd, sizeof (cwd));
+            fprintf (stderr, "Cannot read %s from %s: %s!\n", script_path,
+                    cwd, strerror (access_errno));
+        }
+    }
+    else if (insert_scp_cmd > CMD_EXIT) {
+        fprintf (stderr, "Invalid PiDP-8/I SCP command value %d given!\n",
+                insert_scp_cmd);
+    }
+    else {
+        // C doesn't require that "if" statements handle all cases
+        // statically, so do a runtime check to make sure we have
+        // exhausted all the other cases above.
+        //
+        // We can get in here by means other than programmer error in
+        // modifying the enum: some C compilers allow signed values
+        // to be assigned to enums, so we could get in here on negative
+        // values.  We can't test for that above because one of the C
+        // compilers we build under (clang on macOS 10.12+) won't allow
+        // that short of nasty low-level hackery, so it complains if we
+        // test for negative values, claiming it can never happen.
+        assert (insert_scp_cmd == CMD_EXIT);
+    }
+
+    // If we get here, we got a nonzero command value but didn't get
+    // into the happy path above, so die.
+    return strncpy (cbuf, "exit", cbufsize);
+}
+
+
+//// set_pidp8i_led ////////////////////////////////////////////////////
+// Sets the current state for a single LED at the given row and column
+// on the PiDP-8/I PCB.  Also increments the LED on-count value for 
+// that LED.
+//
+// You may say, "You can't just use the C postincrement operator here!
+// Look at the assembly output!  You must use an atomic increment for
+// this!"  And indeed, there is a big difference between the two
+// methods: https://godbolt.org/g/0Qt0Ap
+//
+// The thing is, both structures referred to by pdis_* are fixed in RAM,
+// and the two threads involved are arranged in a strict producer-and-
+// consumer fashion, so it doesn't actually matter if pdis_update gets
+// swapped for pdis_paint while we're halfway through an increment: we
+// get a copy of the pointer to dereference here, so we'll finish our
+// increment within the same structure we started with, even if
+// pdis_update points at the other display structure before we leave.
+
+static inline void set_pidp8i_led (display *pd, size_t row, size_t col)
+{
+    ++pd->on[row][col];
+    pd->curr[row] |= 1 << col;
+}
+
+
+//// set_pidp8i_row_leds ///////////////////////////////////////////////
+// Like set_pidp8i_led, except that it takes a 12-bit state value for
+// setting all LEDs on the given row.  Because we copy the pdis_update
+// pointer before making changes, if the display swap happens while
+// we're working, we'll simply finish updating what has become the
+// paint-from display, which is what you want; you don't want the
+// updates spread over both displays.
+
+static inline void set_pidp8i_row_leds (display *pd, size_t row,
+        uint16 state)
+{
+    size_t *prow = pd->on[row];
+    pd->curr[row] = state;
+    for (size_t col = 0, mask = 1; col < NCOLS; ++col, mask <<= 1) {
+        if (state & mask) ++prow[col];
+    }
+}
+
+
+//// set_3_pidp8i_leds /////////////////////////////////////////////////
+// Special case of set_pidp8i_row_leds for the DF and IF LEDs: we only
+// pay attention to bits 12, 13, and 14 of the given state value,
+// because SIMH's PDP-8 simulator shifts those 3 bits up there so it can
+// simply OR these 3-bit registers with PC to produce a 15-bit extended
+// address.
+//
+// We don't take a row parameter because we know which row they're on,
+// but we do take a column parameter so we can generalize for IF & DF.
+
+static inline void set_3_pidp8i_leds (display *pd, size_t col,
+        uint16 state)
+{
+    static const int row = 7;       // DF and IF are on row 6
+    size_t *prow = pd->on[row];
+    size_t last_col = col + 3;
+    pd->curr[row] |= state >> (12 - col);
+    for (size_t mask = 1 << 12; col < last_col; ++col, mask <<= 1) {
+        if (state & mask) ++prow[col];
+    }
+}
+
+
+//// set_5_pidp8i_leds /////////////////////////////////////////////////
+// Like set_3... but for the 5-bit SC register.  Because it's only used
+// for that purpose, we don't need the col parameter.
+
+static inline void set_5_pidp8i_leds (display *pd, uint16 state)
+{
+    static const int row = 6;       // SC is on row 6
+    size_t *prow = pd->on[row];
+    size_t last_col = 7;
+    pd->curr[row] |= (state & 0x1f) << 2;
+    for (size_t col = 2, mask = 1; col < last_col; ++col, mask <<= 1) {
+        if (state & mask) ++prow[col];
+    }
+}
+
+
+//// get_pidp8i_initial_max_skips //////////////////////////////////////
+// Return the number of times we should skip updating the front panel
+// LEDs the first time thru, to give the simulator time to settle.
+// If we don't do this, the front panel LEDs can start out dim and
+// slowly rise or they can overshoot and then take a while to recover
+// with the IPS.
+
+size_t get_pidp8i_initial_max_skips (size_t updates_per_sec)
+{
+    DEVICE *pthrot = find_dev ("INT-THROTTLE");
+    if (pthrot) {
+        extern int suppressILS;
+        REG *ptyper = find_reg ("THROT_TYPE", NULL, pthrot);
+        REG *pvalr  = find_reg ("THROT_VAL", NULL, pthrot);
+        if (ptyper && pvalr) {
+            uint32 *ptype = ptyper->loc;
+            uint32 *pval  =  pvalr->loc;
+            size_t ips = 0;
+            switch (*ptype) {
+                case SIM_THROT_MCYC: ips = *pval * 1e6; break;
+                case SIM_THROT_KCYC: ips = *pval * 1e3; break;
+                case SIM_THROT_SPC: {
+                    suppressILS = 1;
+                    break;
+                }
+            }
+            if (ips) {
+                suppressILS = 0;
+                printf("PiDP-8/I initial throttle = %zu IPS\r\n", ips);
+                return ips / updates_per_sec;
+            }
+        }
+    }
+
+    // No better idea, so give a plausible value for an unthrottled Pi 1
+    return 200;
+}
+
+
+//// set_pidp8i_leds ///////////////////////////////////////////////////
+// Given all of the PDP-8's internal registers that affect the front
+// panel display, modify the GPIO thread's LED state values accordingly.
+//
+// Also update the LED brightness values based on those new states.
+
+void set_pidp8i_leds (uint32_t sPC, uint32_t sMA, uint32_t sMB,
+    uint16_t sIR, int32_t sLAC, int32_t sMQ, int32_t sIF, int32_t sDF,
+    int32_t sSC, int32_t int_req, int Pause)
+{
+    // Bump the instruction count.  This should always be equal to the
+    // Fetch LED's value, but integers are too cheap to get cute here.
+    //
+    // Note that we only update pdis_update directly once in this whole
+    // process.  This is in case the display swap happens while we're
+    // working: we want to finish work on the same display even though
+    // it's now called the paint-from display, so it's consistent.
+    display* pd = pdis_update;
+    ++pd->inst_count;
+
+    // Rows 0-4, easy cases: single-register LED strings.
+    // 
+    // The values passed for rows 1 and 2 are non-obvious.  See the code
+    // calling us from ../SIMH/PDP8/pdp8_cpu.c for details.
+    set_pidp8i_row_leds (pd, 0, sPC);
+    set_pidp8i_row_leds (pd, 1, sMA);
+    set_pidp8i_row_leds (pd, 2, sMB);
+    set_pidp8i_row_leds (pd, 3, sLAC & 07777);
+    set_pidp8i_row_leds (pd, 4, sMQ);
+
+#if 0   // debugging
+    static time_t last = 0, now;
+    if (time(&now) != last) {
+        uint16* pcurr = pd->curr;
+        printf("\r\nSET: [PC:%04o] [MA:%04o] [MB:%04o] [AC:%04o] [MQ:%04o]",
+                pcurr[0], pcurr[1], pcurr[2], pcurr[3], pcurr[4]);
+        last = now;
+    }
+#endif
+
+    // Row 5a: instruction type column, decoded from high octal
+    // digit of IR value
+    pd->curr[5] = 0;
+    uint16 inst_type = sIR & 07000;
+    switch (inst_type) {
+        case 00000: set_pidp8i_led (pd, 5, 11); break; // 000 AND
+        case 01000: set_pidp8i_led (pd, 5, 10); break; // 001 TAD
+        case 02000: set_pidp8i_led (pd, 5,  9); break; // 010 DCA
+        case 03000: set_pidp8i_led (pd, 5,  8); break; // 011 ISZ
+        case 04000: set_pidp8i_led (pd, 5,  7); break; // 100 JMS
+        case 05000: set_pidp8i_led (pd, 5,  6); break; // 101 JMP
+        case 06000: set_pidp8i_led (pd, 5,  5); break; // 110 IOT
+        case 07000: set_pidp8i_led (pd, 5,  4); break; // 111 OPR 1 & 2
+    }
+
+    // Row 5b: set the Defer LED if...
+    if ((inst_type <= 05000) &&  // it's a memory reference instruction
+            (sIR & 00400)) {     // and indirect addressing flag is set
+        set_pidp8i_led (pd, 5, 1);
+    }
+
+    // Row 5c: The Fetch & Execute LEDs are pulsed once per instruction.
+    // On real hardware, the pulses don't happen at exactly the same
+    // time, but we can't simulate that because SIMH handles each CPU
+    // instruction "whole."  When running real code, all we care about
+    // is that both LEDs are twiddled so rapidly that they both just
+    // become a 50% blur, mimicking the hardware closely enough.
+    //
+    // The exception is that when the CPU is stopped, both LEDs are off,
+    // because the pulses happen "outside" the STOP state: Fetch before
+    // and Execute after resuming from STOP.
+    extern int swStop, swSingInst;
+    int running = !swStop && !swSingInst;
+    if (running) {
+        set_pidp8i_led (pd, 5, 2);    // Execute
+        set_pidp8i_led (pd, 5, 3);    // Fetch
+    }
+
+    // Row 6a: Remaining LEDs in upper right block
+    pd->curr[6] = 0;
+    if (running)           set_pidp8i_led (pd, 6, 7); // bump Run LED
+    if (Pause)             set_pidp8i_led (pd, 6, 8); // bump Pause LED
+    if (int_req & INT_ION) set_pidp8i_led (pd, 6, 9); // bump ION LED
+
+    // Row 6b: The Step Count LEDs are also on row 6
+    set_5_pidp8i_leds (pd, sSC);
+
+    // Row 7: DF, IF, and Link.
+    pd->curr[7] = 0;
+    set_3_pidp8i_leds (pd, 9, sDF);
+    set_3_pidp8i_leds (pd, 6, sIF);
+    if (sLAC & 010000) set_pidp8i_led (pd, 7, 5);
+
+    // If we're stopped or single-stepped, the display-swapping code
+    // won't happen, so copy the above over to the paint-from version.
+    extern int resumeFromInstructionLoopExit;
+    if (!running || resumeFromInstructionLoopExit) {
+        memcpy(pdis_paint, pdis_update, sizeof(struct display));
+    }
+}
+
+
+//// mount_usb_stick_file //////////////////////////////////////////////
+// Search for a PDP-8 media image on a USB device mounted under /media
+// and attempt to ATTACH it to the simulator.
+
+static void mount_usb_stick_file (int devNo, char *devCode)
+{
+    char    sFoundFile[CBUFSIZE] = { '\0' };
+    char    sDirName[CBUFSIZE];     // will be "/media/DIRNAME" etc
+    char    fileExtension[4];       // will be ".RX" etc
+    int     i, j;
+
+    // Build expected file name extension from the first two characters of
+    // the passed-in device code.
+    fileExtension[0] = '.';                     // extension starts with a .
+    strncpy (fileExtension + 1, devCode, 2);    // extension is PT, RX, RL etc
+    fileExtension[3] = '\0';                    // chop off device number
+
+#if 0   // debugging
+    printf("\r\nMOUNT USB: [DEV:%d] [CODE:%s], [EXT:%s]",
+            devNo, devCode, fileExtension);
+#endif
+
+    // Forget the prior file attached to this PDP-8 device.  The only reason
+    // we keep track is so we don't have the same media image file attached
+    // to both devices of a given type we support.  That is, you can't have
+    // a given floppy image file attached to both RX01 drives, but you *can*
+    // repeatedly re-ATTACH the same floppy image to the first RX01 drive.
+    static char mountedFiles[8][CBUFSIZE];
+    mountedFiles[devNo][0] = '\0';
+
+	// Search all directories under /media
+	DIR *pDir1 = opendir ("/media");
+	if (pDir1) {
+		struct dirent* pDE1;
+		while ((pDE1 = readdir (pDir1)) != 0) {
+			if (pDE1->d_type != DT_DIR) continue;
+
+			// Found a directory under /media.  Search it for plausibly
+			// named files given devCode.
+			snprintf (sDirName, sizeof(sDirName), "/media/%s", pDE1->d_name);
+			DIR *pDir2 = opendir (sDirName);
+			if (pDir2) {
+				struct dirent* pDE2;
+				while ((pDE2 = readdir (pDir2)) != 0) {      // search all files in directory
+					if (pDE2->d_name[0] == '.') continue;    // dotfiles clutter debug output
+
+					char* pext = strstr (pDE2->d_name, fileExtension);
+					if (pext && (pext == (pDE2->d_name + strlen (pDE2->d_name) - 3))) {
+						snprintf (sFoundFile, sizeof (sFoundFile), "%s/%s",
+								sDirName, pDE2->d_name);
+	#if 0   // debugging
+						printf("\r\nFound candidate file %s for dev %s, ext *%s...",
+								sFoundFile, devCode, fileExtension);
+	#endif
+						for (j = 0; j < 7; ++j) {
+							if (strncmp (mountedFiles[j], sFoundFile, CBUFSIZE) == 0) {
+	#if 0   // debugging
+								printf("\r\nAlready have %s mounted, slot %d; will not remount.",
+										sFoundFile, j);
+	#endif
+								sFoundFile[0] = '\0';   // don't leave outer loop; keep looking
+								break;
+							}
+						}
+						if (j == 7) {
+							// Media image file is not already mounted, so leave while
+							// loop with path set to mount it
+							break;
+						}
+					}
+	#if 0   // debugging
+					else {
+						printf("\r\nFile %s on %s doesn't match *%s...",
+								pDE2->d_name, sDirName, fileExtension);
+					}
+	#endif
+				} // end while (pDE2...)
+
+				closedir (pDir2);
+			} // end if (pDir2)
+			else {
+				// USB auto-mounting either doesn't work here or uses
+				// something other than the /media/DIR/FILE.EXT scheme
+				// we expect.
+				printf ("\r\nCannot open %s: %s\r\n", sDirName, strerror (errno));
+				return;
+			}
+		} // end while (pDE1...)
+
+		closedir(pDir1);
+	} // end if (pDir1)
+
+    if (sFoundFile[0]) {            // no file found, exit
+        if (access (sFoundFile, R_OK) == 0) {
+            char sAttachCmd[CBUFSIZE] = { '\0' };
+            snprintf (sAttachCmd, sizeof(sAttachCmd), "%s %s",
+                    devCode, sFoundFile);
+            t_stat scpCode = attach_cmd ((int32) 0, sAttachCmd);
+            if (scpCode == SCPE_OK) {
+                // add file to mount list
+                strncpy (mountedFiles[devNo], sFoundFile, CBUFSIZE);
+                printf ("\r\nMounted %s %s\r\n", devCode, mountedFiles[devNo]);
+            }
+            else {
+                // SIMH ATTACH command failed
+                printf ("\r\nSIMH error mounting %s on %s: %s\r\n",
+                        sFoundFile, devCode, sim_error_text (scpCode));
+            }
+        }
+        else {
+            printf ("\r\nCannot read medium image %s from USB: %s\r\n",
+                    sFoundFile, strerror (errno));
+        }
+    }
+    else {
+        printf ("\r\nNo unmounted %s file found\r\n", devCode);
+    }
+}
+
+
+//// handle_sing_step //////////////////////////////////////////////////
+// Handle SING_STEP combinations as nonstandard functions with respect
+// to a real PDP-8, since SIMH doesn't try to emulate the PDP-8's
+// single-stepping mode — not to be confused with single-instruction
+// mode, which SIMH *does* emulate — so the SING_STEP switch is free
+// for our nonstandard uses.
+//
+// This is separate from handle_flow_control_switches only because
+// there are so many cases here that it would obscure the overall flow
+// of our calling function to do all this there.
+
+static pidp8i_flow_t handle_sing_step (int closed)
+{
+    // If SING_STEP is open, we do nothing here except reset the single-shot
+    // flag if it was set.
+    static int single_shot = 0;
+    if (!closed) {
+        single_shot = 0;
+        return pft_normal;
+    }
+
+    // There are two sets of SING_STEP combos: first up are those where the
+    // other switches involved have to be set already, and the function is
+    // triggered as soon as SING_STEP closes.  These are functions we don't
+    // want re-executing repeatedly while SING_STEP remains closed.
+    if (single_shot == 0) {
+        // SING_STEP switch was open last we knew, and now it's closed, so
+        // set the single-shot flag.
+        single_shot = 1;
+
+        // 1. Convert DF switch values to a device number, which
+        // we will map to a PDP-8 device type, then attempt to
+        // ATTACH some unmounted medium from USB to that device
+        //
+        // We treat DF == 0 as nothing to mount, since we use
+        // SING_STEP for other things, so we need a way to
+        // decide which meaning of SING_STEP to take here.
+        //
+        // The shift by 9 is how many non-DF bits are below
+        // DF in switchstatus[1]
+        //
+        // The bit complement is because closed DF switches show
+        // as 0, because they're dragging the pull-up down, but
+        // we want those treated as 1s, and vice versa.
+        uint16_t css1 = ~switchstatus[1]; 
+        int swDevice = (css1 & SS1_DF_ALL) >> 9;
+        if (swDevice) {
+            char swDevCode[4] = { '\0' };
+            switch (swDevice) {
+                case 1: strcpy (swDevCode, "ptr"); break; // PTR paper tape reader
+                case 2: strcpy (swDevCode, "ptp"); break; // High speed paper tape punch
+                case 3: strcpy (swDevCode, "dt0"); break; // TC08 DECtape (#8 is first!)
+                case 4: strcpy (swDevCode, "dt1"); break;
+                case 5: strcpy (swDevCode, "rx0"); break; // RX8E (8/e peripheral!)
+                case 6: strcpy (swDevCode, "rx1"); break;
+                case 7: strcpy (swDevCode, "rk1"); break; // second RK05 disk pack
+            }
+            if (swDevCode[0]) mount_usb_stick_file (swDevice, swDevCode);
+        }
+
+        // 2. Do the same with IF, except that the switch value
+        // is used to decide which boot script to restart with via
+        // SIMH's DO command.
+        //
+        // The shift value of 6 is because the IF switches are 3
+        // down from the DF switches above.
+        int swScript = (css1 & SS1_IF_ALL) >> 6;
+        if (swScript) {
+            printf ("\r\n\nRestarting with IF == %d...\r\n\r\n", swScript);
+            insert_scp_cmd = swScript;
+            return pft_halt;
+        }
+    } // end if single-shot flag clear
+    else {
+        // Now handle the second set of SING_STEP special-function
+        // combos, being those where the switches can be pressed in any
+        // order, so that we take action when the last one of the set
+        // closes, no matter which one that is.  These immediately exit
+        // the SIMH instruction interpreter, so they won't re-execute
+        // merely because the human isn't fast enough to lift his finger
+        // by the time the next iteration of that loop starts.
+
+        // 3. Scan for host poweroff command (Sing_Step + Sing_Inst + Stop)
+        if ((switchstatus[2] & (SS2_S_INST | SS2_STOP)) == 0) {
+            printf ("\r\nShutdown\r\n\r\n");
+            insert_scp_cmd = CMD_EXIT;
+            if (spawn_cmd (0, "sudo /bin/systemctl poweroff") != SCPE_OK) {
+                printf ("\r\n\r\npoweroff failed\r\n\r\n");
+            }
+            return pft_halt;
+        }
+
+        // 4. Scan for host reboot command (Sing_Step + Sing_Inst + Start)
+        if ((switchstatus[2] & (SS2_S_INST | SS2_START)) == 0) {
+            printf ("\r\nReboot\r\n\r\n");
+            insert_scp_cmd = CMD_EXIT;
+            if (spawn_cmd (0, "sudo /bin/systemctl reboot") != SCPE_OK) {
+                printf ("\r\n\r\nreboot failed\r\n\r\n");
+            }
+            return pft_halt;
+        }
+
+        #if 0
+        // These combos once meant something, but no longer do.  If you
+        // reassign them, think carefully whether they should continue to
+        // be handled here and not above in the "if" branch.  If nothing
+        // prevents your function from being re-executed while SING_STEP
+        // remains closed and re-execution would be bad, move the test
+        // under the aegis of the single_shot flag.
+
+        // 5. Sing_Step + Sing_Inst + Load Add
+        if ((switchstatus[2] & (SS2_S_INST | SS2_L_ADD)) == 0) { }
+
+        // 6. Sing_Step + Sing_Inst + Deposit
+        if ((switchstatus[2] & (SS2_S_INST | SS2_DEP)) == 0) { }
+        #endif
+    }
+
+    return pft_normal;
+}
+
+
+//// handle_flow_control_switches //////////////////////////////////////
+// Process all of the PiDP-8/I front panel switches that can affect the
+// flow path of the PDP-8 simulator's instruction interpretation loop,
+// returning a code telling the simulator our decision.
+//
+// The simulator passes in pointers to PDP-8 registers we may modify as
+// a side effect of handling these switches.
+
+pidp8i_flow_t handle_flow_control_switches (uint16* pM,
+    uint32 *pPC, uint32 *pMA, int32 *pMB, int32 *pLAC, int32 *pIF,
+    int32 *pDF, int32* pint_req)
+{
+    // Exit early if the blink thread has not attached itself to the GPIO
+    // peripheral in the Pi, since that means we cannot safely interpret the
+    // data in the switchstatus array.  This is especially important on
+    // non-Pi hosts, since switchstatus will remain zeroed, which we would
+    // interpret as "all switches are pressed!", causing havoc.
+    //
+    // It would be cheaper for our caller to check this for us and skip the
+    // call, but there's no good reason to expose such implementations
+    // details to it.  We're trying to keep the PDP-8 simulator's CPU core
+    // as free of PiDP-8/I details as is practical.
+    if (!pidp8i_gpio_present) return pft_normal;
+
+    // Handle the nonstandard SING_STEP + X combos, some of which halt
+    // the processor.
+    if (handle_sing_step ((switchstatus[2] & SS2_S_STEP) == 0) == pft_halt) {
+        return pft_halt;
+    }
+
+    // Check for SING_INST switch close...
+    extern int swSingInst;
+    if (((switchstatus[2] & SS2_S_INST) == 0) && (swSingInst == 0)) {
+        // Put the processor in single-instruction mode until we get a
+        // CONT or START switch closure.  Technically this is wrong
+        // according to DEC's docs: we're supposed to finish executing
+        // the next instruction before we "clear the RUN flip-flop" in
+        // DEC terms, whereas we're testing these switches before we
+        // fetch the next instruction.  Show me how it matters, and
+        // I'll fix it. :)
+        swSingInst = 1;
+    }
+
+    // ...and SING_INST switch open
+    extern int swStop;
+    if (swSingInst && (switchstatus[2] & SS2_S_INST)) {
+        swSingInst = 0;
+        swStop = 1;     // still stopped on leaving SING_INST mode
+    }
+
+    // Check for START switch press...
+    static int swStart = 0;
+    if (((switchstatus[2] & SS2_START) == 0) && (swStart == 0)) {
+        // Reset the CPU.
+        extern DEVICE cpu_dev;
+        extern t_stat cpu_reset (DEVICE *);
+        cpu_reset (&cpu_dev);
+
+        // DEC's docs say there are a few additional things START does
+        // that cpu_reset() doesn't do for us.
+        //
+        // Don't need to do anything with MA and IR, as SIMH does that
+        // shortly after this function returns.
+        *pLAC = *pMB = 0;
+
+        // cpu_reset() does its thing to the saved_* register copies
+        // in a few cases, but we need it to happen to the "real"
+        // registers instead, since our STOP/START behavior doesn't
+        // make use of saved_*.
+        REG* pibr = find_reg ("IB", NULL, &cpu_dev);
+        int32* pIB = pibr ? pibr->loc : 0 /* force segfault on err */ ;
+        *pIB = *pIF;
+
+        // Reset our switch flags, too
+        swStop = 0;            // START cancels STOP mode
+        swSingInst = 0;        // allow SING INST mode re-entry
+        swStart = 1;           // make it single-shot
+
+#if 0   // debugging
+        printf("\r\nSTART: [DF:%o] [IF:%o] [IB:%o] [PC:%04o] "
+                "[MA:%04o] [MB:%04o] [L:%d] [AC:%04o]",
+                (*pDF >> 12), (*pIF >> 12), (*pIB >> 12), (*pPC & 07777),
+                *pMA, *pMB, !!(*pLAC & 010000), *pLAC & 07777);
+#endif
+    }
+
+    // ...and START switch release
+    if (swStart && (switchstatus[2] & SS2_START)) {
+        swStart = 0;
+    }
+
+    // Check for CONT switch press...
+    static int swCont = 0;
+    extern int resumeFromInstructionLoopExit;
+    if ((((switchstatus[2] & SS2_CONT) == 0) && (swCont == 0)) ||
+            resumeFromInstructionLoopExit) {
+        // The initial CONT press is special: how we handle it
+        // depends on the processor's state.
+        swCont = 1;                 // make it single-shot
+        resumeFromInstructionLoopExit = 0;
+        if (swSingInst) {
+            // On the initial CONT press while in SING_INST mode, run
+            // one instruction only.
+            return pft_normal;
+        }
+        else if (swStop) {
+            // We were HLTed or STOPped, so CONT returns us to
+            // free-running mode.
+            swStop = 0;
+
+#if 0   // debugging
+            printf("\r\nCONT: [DF:%o] [IF:%o] [PC:%04o] "
+                    "[MA:%04o] [MB:%04o] [L:%d] [AC:%04o]",
+                    (*pDF >> 12), (*pIF >> 12), (*pPC & 07777),
+                    *pMA, *pMB, !!(*pLAC & 010000), *pLAC & 07777);
+#endif
+        }
+        // else, CONT has no effect in this state
+    }
+
+    // ...and CONT switch release
+    if (swCont && (switchstatus[2] & SS2_CONT)) {
+        swCont = 0;
+    }
+
+    // Check for LOAD_ADD switch press.  The only reason we bother
+    // making it single-shot is in case debugging is enabled.
+    // Otherwise, it matters not how long the slow human holds this
+    // swithc down, and thus how often we apply the values: all else
+    // but our printf() here is idempotent.
+    static int swLAdd = 0;
+    if ((swLAdd == 0) && (switchstatus[2] & SS2_L_ADD) == 0) {
+        // Copy SR into PC.  Have to flip the bits because GPIO gives
+        // 0 for a closed switch and 1 for open, opposite what we want.
+        *pPC = (~switchstatus[0]) & 07777;
+                               
+        // Copy DF switch settings to DF register
+        //
+        // The shift is because the DF positions inside the switchstatus[1]
+        // register happen to be 3 bit positions off of where we want them
+        // in DF here: we want to be able to logically OR PC and DF to make
+        // 15-bit data access addresses.
+        //
+        // We complement the bits here for the same reason we did above
+        uint16_t css1 = ~switchstatus[1]; 
+        *pDF = (css1 & SS1_DF_ALL) << 3;
+
+        // Do the same for IF.  The only difference comes from the fact
+        // that IF is the next 3 bits down in switchstatus[1].
+        *pIF = (css1 & SS1_IF_ALL) << 6;
+
+#if 0   // debugging
+        printf("\r\nL_ADD: [DF:%o] [IF:%o] [PC:%04o] "
+                "[MA:%04o] [MB:%04o] [L:%d] [AC:%04o]",
+                (*pDF >> 12), (*pIF >> 12), (*pPC & 07777),
+                *pMA, *pMB, !!(*pLAC & 010000), *pLAC & 07777);
+#endif
+        swLAdd = 1;                 // make it single-shot
+    }
+
+    // ...and L_ADD switch release
+    if (swLAdd && (switchstatus[2] & SS2_L_ADD)) {
+        swLAdd = 0;
+    }
+
+    // Check for DEP switch press...
+    static int swDep = 0;
+    if (((switchstatus[2] & SS2_DEP) == 0) && (swDep == 0)) {
+        uint16 sSR = (~switchstatus[0]) & 07777; // bit flip justified above
+        *pPC = *pPC & 07777;  // sometimes high bits get set; squish 'em
+
+#if 0   // debugging
+        printf("\r\nDEP: [IF:%o] [PC:%04o] [SR:%04o]",
+                (*pIF >> 12), *pPC, sSR);
+#endif
+
+        /* ??? in 66 handbook: strictly speaking, SR goes into AC,
+           then AC into MB. Does it clear AC afterwards? If not, needs fix */
+        pM[*pPC] = sSR;             // FIXME: shouldn't we use IF/DF here?
+        *pMB = sSR;
+        *pMA = *pPC & 07777;        // MA trails PC on FP; FIXME: OR in IF?
+        *pPC = (*pPC + 1) & 07777;  // increment PC
+        swDep = 1;                  // make it single-shot
+    }
+
+    // ...and DEP switch release
+    if (swDep && (switchstatus[2] & SS2_DEP)) {
+        swDep = 0;
+    }
+
+    // Check for EXAM switch press...
+    static int swExam = 0;
+    if (((switchstatus[2] & SS2_EXAM) == 0) && (swExam == 0)) {
+        *pMB = pM[*pPC];
+        *pMA = *pPC & 07777;          // MA trails PC on FP
+        *pPC = (*pPC + 1) & 07777;    // increment PC
+        swExam = 1;                   // make it single-shot
+    }
+
+    // ...and EXAM switch release
+    if (swExam && (switchstatus[2] & SS2_EXAM)) {
+        swExam = 0;
+    }
+
+    // Check for STOP switch press.  No "and release" because we get out of
+    // STOP mode with START or CONT, not by releasing STOP, and while in
+    // STOP mode, this switch's function is idempotent.
+    if (!swStop && ((switchstatus[2] & SS2_STOP) == 0)) {
+        swStop = 1;
+
+#if 0   // debugging
+            printf("\r\nSTOP: [DF:%o] [IF:%o] [PC:%04o] "
+                    "[MA:%04o] [MB:%04o] [L:%d] [AC:%04o]",
+                    (*pDF >> 12), (*pIF >> 12), (*pPC & 07777),
+                    *pMA, *pMB, !!(*pLAC & 010000), *pLAC & 07777);
+#endif
+    }
+
+    // If any of the above put us into STOP or SING_INST mode, go no
+    // further.  In particular, fetch no more instructions, and do not
+    // touch PC!  The only way to get un-stuck is CONT or STOP.
+    return (swStop || swSingInst) ? pft_stop : pft_normal;
+}
+
+
+//// get_switch_register ///////////////////////////////////////////////
+// Return the current contents of the switch register.
+//
+// The sensed values are backwards due to the GPIO pull-ups, with 1=open
+// rather than closed, so we must flip the bits before returning it.  We
+// also must mask off the non-SR bits because our caller takes this
+// value and ORs it with its LAC register, which combines L and AC, and
+// we don't want to set L just because the next GPIO pin up past those
+// used for the SR happens to be set at the moment this is called.
+
+int32 get_switch_register (void)
+{
+    return ~switchstatus[0] & 07777;
+}
