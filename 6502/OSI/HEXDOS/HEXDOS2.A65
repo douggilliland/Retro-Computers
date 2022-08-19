@@ -1,0 +1,1513 @@
+; HEXDOS 4 
+;
+; Copyright (c) 1980-2015 Steven P. Hendrix
+;
+; All Rights Reserved.
+;
+; HexDOS was developed by Steven P. Hendrix (The Author), who can be reached at
+; Hx Engineering, LLC, 8660 Brandywine, Sagamore Hills OH 44067
+; (SteveHx@HxEngineering.com).
+;
+; Permission is hereby granted, free of charge, to any person obtaining a copy of
+; the HEXDOS source code and any accompanying documentation (the "Software"), to
+; use, copy, modify, merge, publish, or distribute the Software or software
+; derived from it ("Derivative Works") for strictly non-commercial hobbyist
+; purposes, and to permit persons to whom the Software is furnished to do so,
+; subject to the following conditions:
+;
+; 1. The above copyright notice and this permission notice shall be included in
+;    all copies of the Software source code and the source code of Derivative Works
+;    and included with all binary copies of the Software or Derivative works.
+;
+; 2. The word "HEXDOS" shall not be used to refer to Derivative Works except in
+;    the phrase "Based on HEXDOS by Steven P. Hendrix" provided that such phrase
+;    is not used to promote the Derivative Work or to imply that The Author
+;    endorses you or the Derivative Work.
+;
+; 3. The source code for any Derivative Work based on this software shall be made
+;    readily available to the public for strictly non-commercial hobbyist purposes,
+;    free of charge.
+;
+; 4. Permission and conditions for any purpose other than stated above are not
+;    granted under this license and must be obtained in writing from The Author.
+;
+; THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+; EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES
+; OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+; NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
+; HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
+; WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+; FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
+; OTHER DEALINGS IN THE SOFTWARE.
+;
+;
+;
+; LAST MOD 8 MAR 83
+;
+; The original version of this operating system was developed under
+; OS65D on an Ohio Scientific C1P. This listing was generated on an
+; IBM PC. The overriding consideration in the original development
+; was storage space; due to the loading method, fitting the operating
+; system on a single track was highly desirable. Therefore, the final
+; version occupies exactly 2K bytes (not 2047 or 2049, but 2K!). This
+; dictated a minimum of error checking, so in general error checking
+; is performed only where an error could get the system into serious
+; trouble. Since the user interface works mainly through Basic, much
+; of the input error checking has already been done when HEXDOS gets
+; into the act. HEXDOS is a very tightly-coupled grouping of routines
+; which are patched into ROM Basic through a variety of hooks and
+; wedges, some of which OSI provided and some of which they did not
+; anticipate. In some cases, a given function is implemented through
+; teamwork between several different routines in this file plus a few
+; from the Basic interpreter, especially the expression parser. In some
+; cases, extreme measures were required to save a byte or two, such as
+; jumping into the middle of an instruction at an address which a pure
+; disassembly would show to be an operand. A typical example of this
+; technique aws borrowed from the Basic interpreter itself, where one
+; routine has several different entry points by using the BIT opcode
+; to effectively skip the two bytes of address which follow it. Jumping
+; to one location higher than the opcode results in executing the
+; "address", which in fact is a LDA #$xx instruction. Another heavily
+; used trick is executing a JSR <subroutine>, RTS sequence at the end
+; of a higher-level subroutine by the code JMP <subroutine>. In many
+; cases, this mechanism is nested several levels deep. Due to
+; space constraints in the development system under memory-hungry
+; OS65D, comments in the original source were sparse. All comments in
+; lower case were added after porting to an IBM PC. This file should
+; still be usable by the OS65D assembler, on a system with sufficient
+; memory.
+;                                      Steven P. Hendrix  12/28/86
+;
+;
+;
+; Page zero storage allocation, meshing with that of ROM Basic
+;
+TRACK =$D8 ;CURRENT HEAD POSITION
+TEMP1 =$D9
+TEMP2 =$DA
+TEMP3 =$DB
+TEMP4 =$DC
+CRPRGS=$DE ;FIRST TRACK OF CURRENT PROGRAM
+CRPRGE=$DF ;LAST TRACK + 1
+EDITFL=$E0
+SWTRK =$E1
+IOPTR =$E2 ;CURRENT IO DEVICE #
+MASK  =$E3
+CKSEEK=$E6
+LSTCHR=$E7
+CLOCK =$E8
+TASK  =$EC
+XTEMP =$F2
+YTEMP =$F3
+;
+; Misc literals
+;
+CHRTMP=$0133
+CLSCHR=3
+TIMOUT=$FC ; 2's complement of disk timeout limit
+;
+; Error numbers, borrowing Basic's error reporting mechanism. The
+; error number is an offset into a table of two-character codes in
+; ROM. The original codes were aligned on even-numbered boundaries,
+; so some of these codes use the first letter of one code and the 
+; second character of the next. Others use various codes within a
+; 256-byte range of the original table, masking off the high order
+; bit of what in some cases are actually opcode bytes, addresses, or
+; immediate data.
+;
+DTERR =$17 ;SEEK ERROR (DISK TRACK)
+FDERR =$EA ;FILE DOESN'T EXIST
+ORERR =$26 ;OUT OF ROOM (IN FILE)
+EAERR =$39 ;EXISTS ALREADY
+ROERR =$25 ;READ ONLY (WRITE-PROTECTED)
+INERR =$2A ;INPUT FILE
+DFERR =$07 ;DIRECTORY FORMAT
+PXERR =$68 ;PROG EXT
+;
+; I/O Addresses of interest to HEXDOS
+;
+FLOPIN=$C000 ; Input side of floppy PIA
+FLOPOT=$C002 ; Output side of floppy PIA
+FLOPDA=$C010 ; Floppy ACIA (data)
+PRSTAT=$D900 ; Printer status port (in)
+PRDATA=$D900 ; Printer data port (out)
+KEYBD =$DF00 ; Keyboard port (in and out)
+;
+; Monitor ROM entry points
+;
+FLOPUP=$FC0C ; Load but don't execute boot track
+OLDLOD=$FF8B ; Entry point for "LOAD" in original monitor
+OLDINP=$FFBA ; Entry point for "INPUT" in original monitor
+OLDOUT=$FF69 ; Entry point for "OUTPUT" in original monitor
+DELAY =$FC91 ; Delay X times 1.25 mSec
+READSK=$FC9C ; Read one byte from disk ACIA
+ROMDET=$FEFF ; Detect which monitor ROM: 01=OLDMON, 60=C1E, FF=C1S
+;
+*=$236 ;DISK FILE HEADERS
+;
+DBADDR=*   ;START OF BUFFER
+DBPTR =*+2 ;POINTER TO NEXT CHARACTER
+STTRK =*+4 ;FIRST TRACK OF FILE
+ENDTRK=*+5 ;LAST TRACK OF FILE + 1
+TRKNUM=*+6 ;TRACK CURRENTLY IN BUFFER
+;
+; Executable code of HEXDOS
+;
+*=$0300
+; Cold start entry point. Monitor ROM has just loaded track 0,
+; consisting of the next 2K of code, to locations $0300 thru
+; approximately $0B90. Basic's workspace begins at $0B00, so a
+; very short autostart program can be loaded with track zero.
+;
+; The MOVE subroutine copies a block of code (typically from ROM)
+; and then makes patches to it. See the subroutine below for the
+; layout of the parameters, which are stored just after the JSR
+; instruction.
+;
+       JSR MOVE ; Pick up the Basic cold start code, then modify and run
+       .WORD $BD15,DBADDR-1
+       .BYTE $C2-$16
+       .BYTE $23-$16,GETVAL ; Low byte
+       .BYTE $25-$16
+              .DBYTE GETVAL ; High byte
+       *=*-1
+       .BYTE $3D-$16,USR    ; Low byte
+       .BYTE $3F-$16
+              .DBYTE USR    ; High byte
+       *=*-1
+       .BYTE $8C-$16,$0C
+; Set up jump back to INTER after running first part of cold start
+       .BYTE $C2-$16,$4C
+       .BYTE $C3-$16,INTER
+       .BYTE $C4-$16
+              .DBYTE INTER
+       *=*-1
+       .BYTE $FF
+       JSR DBADDR
+INTER                    ; Second half of cold start
+       JSR MOVE
+       .WORD $BDC1,DBADDR-1
+       .BYTE $139-$C2
+       .BYTE $1F5-$C2,$0C
+       .BYTE $124-$C2,PROMPT ; Low byte
+       .BYTE $126-$C2
+              .DBYTE PROMPT  ; High byte
+       *=*-1
+       .BYTE $12F-$C2,WARM   ; Low byte
+       .BYTE $131-$C2
+               .DBYTE WARM   ; High byte
+       *=*-1
+; Set up jump to warm start entry point after running second half
+       .BYTE $136-$C2,$4C
+       .BYTE $137-$C2,WARM-4
+       .BYTE $138-$C2
+               .DBYTE WARM-4
+       *=*-1
+       .BYTE $FF
+       JSR DBADDR
+; Set up Basic's workspace pointers (back up one page)
+       DEC $7A
+       DEC $C4
+WARM   JSR MOVE          ; Warm start entry, pointed to by JMP at $0000
+; Reset disk controller
+       .WORD FLOPUP-1,DBADDR-1
+       .BYTE $4D-$C
+       .BYTE $11-$C,$8D
+       .BYTE $4D-$C,$60
+       .BYTE $FF
+       LDA #4
+       STA FLOPIN+1
+       LDA #$40
+       STA FLOPIN
+       JSR DBADDR
+; CLEAR DBADDR (File descriptors)
+       LDX #$300-DBADDR
+       LDA #$FF
+       STA DBADDR-1,X
+       DEX
+       BNE *-4
+       STX TRACK
+       DEX
+       TXS
+; Patch in real-time clock
+       JSR MOVE
+       .WORD PZERO-1,$DF
+       .BYTE $EF-$E0
+       .BYTE $130-$E0,$4C
+       .BYTE $131-$E0,SECOND
+       .BYTE $132-$E0
+              .DBYTE SECOND
+       *=*-1
+       .BYTE $FF
+;ENABLE CLOCK
+       LDA #$C
+       STA FLOPIN+1
+;MODIFY P. 2
+       JSR MOVE
+       .WORD PAGE2-1,$217
+       .BYTE 10
+       .BYTE $228-$218,$44
+       .BYTE $FF
+;SET UP INTERCEPTOR (Trap Basic "NextToken" routine)
+       JSR MOVE
+       .WORD ICPTCD-1,$BB
+       .BYTE 6
+       .BYTE $CC-$BC,$F2
+       .BYTE $FF
+       JSR $A86C ;CR-LF
+       JSR $A491 ;CLEAR STACKS
+; At this point, all the hooks are established and we jump to the normal
+; Basic entry point. The major wedges are the five Basic routines vectored
+; through page 2, the "NextToken" routine normally at $00BC, and the two
+; routines for Warm Start and Issue Prompt at the beginning of page zero.
+; Other routines are patched in through USR and NMI.
+       JMP $A5C2 ;RUN BOOTSTRAP
+;
+; Initialization values
+;
+PZERO  .BYTE $FF,$FF,0,$7F,0,0,0,0,0,0,0
+       .BYTE $FF,$FF,$FF,TIMOUT
+PAGE2  .WORD INPUT,OUTPUT,BREAK,LOAD,SAVE
+;
+; Interceptor for the Basic NextToken routine
+;
+ICPTCD JMP INTCPT
+       JMP ICPTE
+;
+; Copy a block of up to 255 bytes from one area to another and insert
+; patches. Parameters immediately follow the JSR to this routine.
+; Parameters are:
+;    Source start address minus 1 (word)
+;    Destination start address minus 1 (word)
+;    Number of bytes to move (byte)
+;    Patches:
+;       Offset from start of block (byte)
+;       Value to be stored at offset (byte)
+;    Offset of $FF marks end of parameters
+;    Execution resumes at byte following $FF offset
+;
+MOVE   PLA
+       STA XTEMP
+       PLA      
+       STA YTEMP
+       LDY #$FC 
+       JSR INTGC
+       STA $FFDD,Y
+       INY
+       BNE *-7
+       JSR INTGC
+       TAY
+       LDA (TEMP1),Y
+       STA (TEMP3),Y
+       DEY
+       BNE *-5
+       BEQ *+7
+       JSR INTGC
+       STA (TEMP3),Y
+       JSR INTGC
+       TAY
+       INY
+       BNE *-10
+       JSR INTGC
+       JMP (XTEMP)
+;
+; Increment YTEMP:XTEMP and retrieve the byte at the new address in A
+;
+INTGC  INC XTEMP
+       BNE *+4
+       INC YTEMP
+       LDX #0
+       LDA (XTEMP,X)
+RTN4   RTS
+;
+; Real-time clock interrupt service routine
+;
+SECOND PHA
+       INC CLOCK
+       BNE *+8
+       INC CLOCK+1
+       BNE *+4
+       INC CLOCK+2
+       INC TASK+2
+       BNE *+9
+       INC TASK+3
+       LDA #$CF   ; Turn off disk motor upon timeout
+       STA $C002
+       LDA $C000
+       PLA
+       RTI
+;
+; Ctrl-C wedge responsible for single-step, trace, and BRK key check.
+;
+BREAK  LDA TASK   ; Check for time to run Basic Timeout routine 
+       ORA TASK+3
+       BNE *+7
+       DEC TASK
+       JMP $A69C ; Basic "GOSUB" routine
+; Don't trace or SST if in immediate mode (MSB of current line number $FF)
+       LDA $88  ; SKIP FOR IMMEDIATE
+       CMP #$FF
+       BEQ CKBRK
+; Reset current I/O device to console
+       LDX #0
+       STX IOPTR
+; Check ctrl-break flag (0: normal; 1: no check; 2: trace; 3: SST)
+       LDX $212
+       BEQ CKBRK ; 0 - normal, so skip printing line number
+;
+       CPX #1    ; 1 - no break, so just return
+       BEQ RTN4 ; IF NO-BREAK MODE
+; Must be trace or SST - either way, print line # in []
+; "A" still has MSB of line # from LDA $88 above
+       LDY $87 ;NOW HAVE STATEMENT NUMBER IN A:Y
+       JSR $AFC1 ;CONVERT TO FLOATING POINT
+       JSR $B96E ;AND THENCE TO STRING AT $0100
+       LDX #$5B ;INSERT LEFT BRACKET
+       STX $0100
+       JSR $A8C3 ;PRINT STRING
+       LDA #$5D ;AND THEN THE RIGHT BRACKET
+       JSR $A8E5
+; At this point, "A" holds $5D, or in binary 0101 1101. Since $0212 is
+; only permitted values from 0 thru 3 and we have already eliminated 0
+; and 1 above, ANDing with $5D yields 0 for even (2) and nonzero for
+; odd (3).
+       BIT $0212 ;CHECK FOR STEP MODE
+       BEQ CKBRK
+; Single step mode, wait for a key and evaluate it.
+       JSR $FD00 ;WAIT FOR A KEY
+       CMP #$0A ;LF (Continue tracing)
+       BEQ CKBRK
+       CMP #$0D ;CR (Disable trace and continue executing)
+       BNE *-9  ; Disallow any other key
+       LDA #0   ;DISABLE TRACE AND CONTINUE
+       STA $0212
+;CHECK FOR BREAK KEY ON MODIFIED KEYBOARD
+CKBRK  LDA #$FE
+       STA KEYBD
+       LDA KEYBD
+       BMI *+6
+; Break key is pressed - jump to Basic's abort routine with Carry set
+; to indicate an abnormal termination
+       SEC
+       JMP $A63D
+; Determine which type monitor ROM and jump to normal ctrl-C routine
+       LSR ROMDET
+       BCC *+5 ; C1E
+       JMP $FF9B
+       JMP $FB94
+;
+; USR routines preloaded by HEXDOS
+;
+USR    JSR $B412 ; Get parameter as an integer
+       TAX       ; MSB (0 for values 0 thru 255, $FF for negative)
+       BNE *+11
+; MSB was zero; indicates positive number from zero thru 255
+; so it must be "input from device X"
+       STY IOPTR ; Set "current device"
+       JSR $FFEB ; Input 1 char
+       TAY       
+       JMP $AFD0 ; Convert to floating point and return value
+; MSB was positive - call tone generator
+       BPL TONE
+; MSB (and therefore entire number) was nagative
+       TYA
+       CMP #$FB ; Was it -5?
+       BNE *+10
+; -5, so get address and jump there
+       JSR GETVAL ; Parse address, convert to integer
+       STA $AD
+       JMP ($AD)  ; Jump to calculated address
+; Which side of -5 was it?
+       BCS *+12
+; Less than -5 (more negative)
+       CMP #$F9
+       BEQ *+5 ; -7, so jump to routine loaded by LOAD "$...."
+       JMP $FE00 ; -6, so jump to monitor
+       JMP ($00F0) ;USR(-7) ROUTINE
+; Some value -4 thru -1
+       TAX ;RETURN VALUE OF ONE BYTE OF CLOCK
+       LDY CLOCK+4,X
+       JMP $AFD0
+; Tone generator
+TONE   LDA #$58  ; Output value to ACIA control register
+       STA TEMP3
+; Preset divide by 2K
+       LDA #0
+       STA TEMP1
+       LDA #8
+       STA TEMP2
+; Toggle speaker bit
+TNLP2  LDA TEMP3
+       EOR #$40
+       STA TEMP3
+       STA FLOPDA
+; Count out time delay based on parameter passed to USR
+       LDX $AF
+TNLOOP DEC TEMP1
+       BNE *+15
+       DEC TEMP2
+       BNE *+11
+       LDA #8
+       STA TEMP2
+       DEC $AE
+       BNE *+3
+       RTS
+       DEX
+       BNE TNLOOP
+       BEQ TNLP2
+;
+; If drive B is active, add 128 to track number passed in "A"
+;
+DK2TRK BIT FLOPIN
+       BVS *+4
+       ORA #$80
+       RTS
+;
+;STEP HEAD ONE TRACK HIGHER IF CARRY SET
+;ONE TRACK LOWER IF CARRY IS CLEAR
+;AND UPDATE TRACK COUNTER
+;
+HEAD   PHA
+       BCC *+8
+; Stepping to higher track
+       INC TRACK
+       LDA #$FB ; Output mask for "Direction IN"
+       BNE *+6  ; Branch around opposite code
+; Stepping to lower track
+       DEC TRACK
+       LDA #$FF ; Output mask for "Direction OUT"
+; Common code for either direction
+       STA FLOPOT ; Set direction bit
+       AND #$F7
+       STA FLOPOT ; Toggle step bit
+       ORA #$08
+       STA FLOPOT
+; Delay for head settling time; patch the value loaded to
+; the "X" register for other step rates
+       LDX #4 ; HEAD STEP DELAY x 1.25 mSec
+       JSR DELAY
+       PLA
+       RTS
+;
+;SEEK TRACK # IN A, PRESERVING ALL REGISTERS
+;AND VERIFY TRACK IDENTITY IF ENABLED
+;
+SEEK   STA $FF ; Save desired track number and regs
+       TXA
+       PHA
+       TYA
+       PHA
+; Preset disk motor timeout
+       LDX #TIMOUT
+       STX $EE
+       LDX #$FF
+       STX $EF
+; Switch drives if necessary
+       LDA $FF
+       ROR A
+       EOR FLOPIN ; bit 6 is active drive
+       ROL A ; bit 7 set if the desired drive is already active 
+       BMI *+18
+; Switch drives
+       LDA FLOPIN
+       EOR #$40
+       STA FLOPIN
+; Exchange "current track" with "current track on other drive"
+       LDA TRACK
+       LDY SWTRK
+       STA SWTRK
+       STY TRACK
+; Step to desired track
+       LDA $FF
+       CMP TRACK ; Matches if already on correct track on this drive
+       BEQ *+8
+; Carry flag is set if desired track is above current track on this drive
+       JSR HEAD
+       JMP *-7 ; Check again
+; Enable drive & motor
+       LDX #$7F
+       STX FLOPOT
+; Wait for motor startup
+       JSR DELAY ; OR "HOLE" FOR ADDED RELIABILITY via a 2-turn wait
+; Wait for beginning of track
+       JSR HOLE
+; Restore registers in preparation for return if seek check disabled
+       PLA
+       TAY
+       PLA
+       TAX
+; Is seek check disabled (as during formatting)?
+       BIT CKSEEK
+       BMI RTN2
+; Check that we are where we think we are
+       LDA TRACK
+       ASL A
+       BNE NONZTR
+; On track zero, no track number in header but must skip over header
+       JSR READSK
+RDTWO  JSR READSK
+       JMP READSK
+;
+; Check header against current track number
+;
+; Wait for track header sync byte ($57)
+NONZTR JSR READSK
+       CMP #$57
+       BNE *-5
+; Read track number from header
+       JSR READSK
+; Convert to track number for this track of the drive in use
+       JSR DK2TRK
+; Signal error if necessary
+       CMP TRACK
+       BEQ RTN2
+       LDX #DTERR
+       JMP ERR0R
+;
+; Wait for index hole
+;
+HOLE   STA $C020 ;RESET TIMER to insure against interrupts during I/O
+; Wait for leading edge
+       BIT FLOPIN
+       BMI *-3
+; Wait for trailing edge and clear out data from ACIA
+       BIT FLOPDA+1
+       BIT FLOPIN
+       BPL *-6
+RTN2   RTS
+;
+; Fix up pointers from one line to the next after loading a Basic program
+; in case it was loaded at a different address than where it was saved
+;
+PATCHP JSR MOVE
+       .WORD $A31B,$FF
+       .BYTE $4B-$1C
+       .BYTE $2B-$1C,$60 ; Patch in RTS
+       .BYTE $FF
+       JMP $100 ; Jump to patched routine, returning to caller
+;
+; Execute HEXDOS "Load" verb
+;
+LOAD   BNE *+6 ; End of statement?
+; Just "Load" - set cassette load flag like original routine
+       DEC $203
+       RTS
+; More to the statement...
+       CMP #'!
+       BNE LOAD1
+; Load! - Switch active drive
+       LDA #$FF
+       STA SWTRK ; Cause head recalibration by setting current track to 255
+       STA CKSEEK ; Disable seek check in case no diskette loaded
+       LDA FLOPIN ; Calculate new track # - 0 for drv A, 128 for drv B
+       ASL A
+       AND #$80
+       JSR SEEK ; Cause switch and head recal
+       LDA #0   ; Set current track (which will be zero)
+       STA CKSEEK
+       JMP $BC  ; Continue interpreting
+;
+LOAD1  CMP #$A6 ;/
+       BNE LDPGM
+; Load/ - load track 1 (directory) as a program
+       JSR ICPTE ; Clean up parse
+       LDA #1
+       JSR DK2TRK
+       TAX ; First track of "program"
+       TAY 
+       INY ; Last track plus one of "program"
+       BNE NOTFND+4
+;
+; Parse <aex1>, <aex2>, placing aex1 in A and aex2 in X:Y
+;
+LDMEM  JSR SETMEM
+;
+;LOAD TRACK A TO ADDRESS X:Y
+;
+LDTRK  JSR SEEK
+       STX $FE ; Save address
+       STY $FD
+       LDA #8 ; # of pages
+       STA $FF
+       CLC
+       ADC $FE
+       TAX ; MSB of end address plus one
+       JSR $FC79 ; Tap into monitor routine to load track
+       LDY $FD   ; Set up registers for next track
+       LDA TRACK
+       RTS
+;
+LDPGM  CMP #'#
+       BEQ LDMEM
+;
+       CMP #$A5 ;*
+       BEQ LDDAT
+;
+; Must be LOAD <string> so check for filename in dir
+;
+       JSR FIND
+       BCS *+6
+; File not found - issue message
+NOTFND LDX #FDERR
+       BNE ERR0R
+;
+; Load file at track X thru Y - 1
+;
+       STX CRPRGS ; Remember where current program came from
+       STY CRPRGE
+; Check 1st char of filename for a $ indicating machine language file
+       LDY #0
+       LDA ($69),Y
+       CMP #'$
+       BNE NOTML
+; Machine language, so preload load address from first 2 bytes of file
+       LDA CRPRGS
+       JSR SEEK
+       JSR READSK
+       TAY
+       JSR READSK
+       TAX
+       STY $F0
+       STX $F1
+       TYA
+       SEC
+       SBC #2
+       TAY
+       BCS *+9
+       DEX
+       BCC *+6
+;
+; Load a normal program file or continue loading a machine language file
+;
+NOTML  LDX $7A
+       LDY $79
+       LDA CRPRGS
+; Main loop, loading successive tracks
+       JSR LDTRK
+       CLC
+       ADC #1
+       CMP CRPRGE
+       BCC *-8
+; Fix up link pointers and Basic workspace pointers for location of load
+       JSR PATCHP
+       LDA $71
+       CLC
+       ADC #2
+       STA $7B
+       STA $7D
+       STA $7F
+       LDA $72
+       ADC #0
+       STA $7C
+       STA $7E
+       STA $80
+       RTS
+;
+; Error routine prints 2-char code at $A164 + X, masking bit 7 of each char
+; making it a printable char. Some are codes provided by Basic, some are
+; second char of one code and first char of the next, and some are just
+; opcodes, addresses, or data which happen to be within reach.
+;
+ERR0R  LDY #0     ; Reset I/O to screen
+       STY IOPTR
+       LDA TASK+1
+       BMI BERROR
+; ON ERROR GOTO ... (Line number stored at Task + 1, 0..127)
+       STY $11 ; MSB
+       STA $12 ; LSB
+       STX CLOCK+3 ; Save Error Code
+       DEY
+       STY TASK+1 ; Disable ON ERROR to prevent recursion
+       JSR $A6D0 ; Basic GOTO entry point, assuning $11:$12 already set up
+       LDA #3
+       JMP $A5EE ; Run error routine
+;
+; Parse "#n, <string>", building file descriptor in appropriate location
+; for file number, and issuing error message if file doesn't exist. Also
+; allocate file buffer and point descriptor to it.
+;
+LDDAT  JSR FILNUM
+       JSR HDRADR
+; Point to file buffer, 2K below bottom of string space
+       LDA $81
+       STA DBADDR,X
+       STA DBPTR,X
+       LDA $82
+       STA DBPTR+1,X
+       SEC
+       SBC #$08
+       STA $82 ; Update top of free space pointer
+       STA DBADDR+1,X
+       TXA
+       PHA
+; Parse string and search for indicated file
+       JSR $AC01
+       JSR FIND
+       BCS *+6
+       LDX #FDERR
+       BNE ERR0R
+; Store beginning and ending track numbers in descriptor
+       STX TEMP1
+       PLA
+       TAX
+       LDA TEMP1
+       STA STTRK,X
+       SBC #1
+       STA TRKNUM,X
+       TYA
+       STA ENDTRK,X
+       RTS
+;
+; Parse an expression, check for valid range of file numbers, and
+; subtract 4 to convert to a buffer number.
+;
+FILNUM JSR GETVAL-3
+       SEC
+       SBC #4
+       BCS *+7
+; Invalid file number
+       LDX #8
+BERROR JMP $A24E
+       CMP #24
+       BCS *-7
+; A now holds a valid buffer number
+       RTS
+;
+; Parse the form "#<exp1>, <exp2>", placing the value of aex1 (track
+; number) in A and the value of aex2 (address) in X:Y.
+;
+SETMEM JSR GETVAL-3
+       PHA
+       LDA $AE ; MSB = Zero ?
+       BNE BERROR-2
+       JSR $AC01  ; Basic routine to parse off a comma
+       JSR GETVAL ; Get aex2
+       TAY        ; LSB
+       PLA
+       LDX $AE    ; MSB
+       RTS
+; Extra entry point for getval, to skip over a leading character which
+; has already been analyzed or can be ignored.
+       JSR $BC
+;
+; Parse an arithmetic expression and convert to a word, leaving 16-bit
+; value at $00AE and LSB also in A.
+;
+GETVAL JSR $AAC1
+       JSR $B412
+       TYA
+       RTS
+;
+; Compute number of tracks needed for the current program in memory.
+; The beginning CLC, SBC sequence is deliberate and may not be replaced
+; by CMP as I attempted to do on at least four separate byte-hunting
+; expeditions. This is carefully constructed to handle all boundary
+; conditions without treating them as exceptions. Tinker at your own risk!
+;
+NMTRKS CLC ;YES, THIS IS DELIBERATE
+       LDA $7B
+       SBC $79
+       LDA $7C
+       SBC $7A
+       LSR A
+       LSR A
+       LSR A
+       NOP ; SPACE FOR LSR FOR DOUBLE DENSITY (16 pages per track vs 8)
+       CLC
+       ADC #1
+       RTS
+;
+; Parse string, search directory of current disk, and set carry if
+; matching filename is found, returning start track in X and end
+; track + 1 in Y. The directory is scanned "on the fly" as it comes
+; in from the disk, pre-saving the starting track number of each file
+; since it will have gone by when a match is found. The ending track
+; + 1 is then read from the succeeding entry as it comes by.
+;
+FIND   JSR FILNAM ; Parse string expression
+       LDA #1     ; Seek directory track
+       JSR DK2TRK
+       JSR SEEK
+FINDLP JSR GETTNO
+       BCC FNDRET ; End of directory
+       STA TEMP1  ; Save in case this is the entry we want
+       LDY #0     ; Start reading and comparing bytes of name
+       JSR READSK
+       BEQ FILFND ; Reached end of name and it matched
+       CMP ($69),Y
+       BNE *+5    ; Mismatch
+       INY
+       BNE *-10   ; OK so far ...
+;
+       JSR READSK ; Reject! Skip to end of filename and check next one
+       BNE *-3
+       BEQ FINDLP
+;
+FILFND CPY $68    ; Did length also match exactly?
+       BNE FINDLP
+       JSR GETTNO ; Read track number from next entry
+       BCC DIRERR
+       TAY        ; and return in Y as Endtrk + 1
+FNDRET LDX TEMP1  ; Retrieve StartTrack
+       RTS
+;
+; Read directory entry header, checking for an invalid entry, leaving the
+; head ready to read the first byte of the filename, and placing the starting
+; track number in A. Upon reaching the end of the directory, return with
+; carry clear.
+;
+GETTNO JSR RDTWO  ; Read and discard link field
+       BNE *+4    ; Link field MSB = zero indicates end of directory
+       CLC
+       RTS
+       JSR READSK ; Read LSB of track number
+       JSR DK2TRK ; Convert for active drive
+       PHA        ; Save it a minute
+       JSR READSK ; Read MSB of track number
+       BNE DIRERR ; I never saw a diskette with > 255 tracks!!
+       PLA        ; Retrieve track # (Carry is known to be set here)
+       RTS
+;
+DIRERR LDX #DFERR
+       BNE ERROR1
+;
+; Output one byte to the floppy ACIA
+;
+SVBYTE PHA
+       LDA #2
+       BIT FLOPDA
+       BEQ *-3
+       PLA
+       STA FLOPDA+1
+       RTS
+;
+; Parse string (filename) and place pointer on Basic's string stack
+;
+FILNAM JSR $AAC1
+       JSR $AAB2
+       LDY #2
+       LDA ($AE),Y
+       STA $68,Y
+       DEY
+       BPL *-6
+       LDY #$68
+       STY $65
+       RTS
+;
+; Save verb with its many variations
+;
+SAVE   BEQ *+5
+       JMP SVNAME
+; Just plain SAVE (save to original tracks)
+       JSR NMTRKS ; Will it still fit?
+       ADC CRPRGS
+       SBC CRPRGE
+       BMI *+7
+       LDX #PXERR
+ERROR1 JMP ERR0R
+;
+; Save current program (memory image of Basic program area) to tracks
+; CRPRGS (Current Program Start) and CRPRGE (Current Program End).
+;
+SVPROG LDA CRPRGS
+       LDX $7A
+       LDY $79
+       JSR SVTRK
+       CLC
+       ADC #1
+       CMP CRPRGE
+       BCC *-8
+       RTS
+;
+; SAVE #TRACK,ADDRESS
+;
+SVMEM  JSR SETMEM
+;
+;SAVE MEMORY X:Y ON TRACK # A
+;
+SVTRK  JSR SEEK   ; Seek track and enable drive to permit reading protect
+; Check for write protect
+       LDA #$20
+       BIT FLOPIN
+       BNE *+7
+       LDX #ROERR
+       JMP ERR0R
+; Save address (written in header for track zero)
+       STX TEMP2
+       STY TEMP1
+       JSR WRTHDR
+       LDX #9
+; Loop back to here to write each byte
+       LDA (TEMP1),Y ; Y was zeroed in WRTHDR
+       JSR SVBYTE
+       INY
+       BNE *+5
+       INC TEMP2
+       DEX
+       CPY #150 ; Extra bytes beyond 2K written for trk 0 autostart program
+       BNE *-13
+       CPX #1
+       BNE *-4
+       NOP
+; Write 2 dummy bytes to force wait until last two byte clear the ACIA
+       LDA #$FF
+       JSR SVBYTE
+       JSR SVBYTE
+; Deselect drive
+       STA FLOPOT
+; Restore regs (with address for next track)
+       LDA TRACK
+       LDX TEMP2
+       LDY TEMP1
+       RTS
+;
+; Write track header on disk, depending on whether or not on track zero
+;
+WRTHDR LDA #$FE   ; Enable active drive
+       AND FLOPOT
+       STA FLOPOT
+       JSR HOLE   ; Wait for index hole
+; Delay after index hole
+       LDY #0
+       DEY
+       BNE *-1
+; Track zero ?
+       LDA TRACK
+       AND #$7F
+       BNE *+17
+; Write track zero header: Addr L, Addr H, Page Count
+       LDA TEMP2
+       JSR SVBYTE
+       LDA TEMP1
+       JSR SVBYTE
+       LDA #9
+       JMP SVBYTE
+; Write nonzero track header: $57, track #
+       PHA
+       LDA #$57
+       JSR SVBYTE
+       PLA
+       JMP SVBYTE
+;
+; Parse parameters following SAVE
+;
+SVNAME CMP #'#
+       BEQ SVMEM
+       CMP #$A5 ;*
+       BNE *+5
+       JMP SVDAT
+       CMP #'&
+       BNE *+21
+; & indicates overwrite and save in an existing file
+       JSR $BC
+       JSR FIND
+       BCS *+6
+       LDX #FDERR
+       BNE *+16 ; save one byte by leapfrogging to ERROR
+; Succesfully found file
+       STX CRPRGS
+       STY CRPRGE
+       JMP SAVE+5 ; File is now the current file so reuse code for that
+; Nothing else matched - assume it's SAVE <string>
+       JSR FIND ; First check for an existing file by the same name
+       BCC *+7
+       LDX #EAERR
+       JMP ERR0R
+; Doesn't already exist - OK to create
+       STX CRPRGS ; After unsuccesful FIND, X holds next available track
+       JSR NMTRKS
+       ADC CRPRGS
+       STA CRPRGE
+; File is now the current file but doesn't have to fit within an existing
+; file. No check for exceeding max tracks to allow for 35, 40, 77, or 80
+; track drives and for lack of space. (If you can't fix it, feature it!)
+       JSR SVPROG
+; Program is saved - load directory to beginning of program space
+       LDA #1 ;UPDATE DIRECTORY WITH NEW FILE
+       JSR DK2TRK
+       LDX $7A
+       LDY $79
+       JSR LDTRK
+; Build directory entry
+; First find location of last entry (available space, named *)
+       LDA CRPRGS
+       AND #$7F
+       STA $11
+       LDA #0
+       STA $12
+       JSR $A432 ; Basic entry point to find a line
+; Move pointer ahead to name field.
+; (Carry is known to be set after finding the line)
+       LDA $AA
+       ADC #3
+       STA $AA
+       BCC *+4
+       INC $AB
+; Copy filename from string stack to name field
+       LDY #0
+       LDA ($69),Y
+       STA ($AA),Y
+       INY
+       CPY $68
+       BNE *-7
+; Move pointer to byte after filename
+       TYA
+       CLC
+       ADC $AA
+       STA $AA
+       BCC *+4
+       INC $AB
+; Copy stock file ending into file
+       LDY #8
+       LDA FILTRM,Y
+       STA ($AA),Y
+       DEY
+       BPL *-6
+; Insert "next available track" in track number field
+       LDA CRPRGE
+       AND #$7F
+       LDY #3
+       STA ($AA),Y
+; Fixup link pointers
+       JSR PATCHP
+; Write back to track zero
+       LDA #1
+       JSR DK2TRK
+       LDX $7A
+       LDY $79
+       JSR SVTRK
+; Restore obliterated part of program so user doesn't know we tromped him
+       LDA CRPRGS
+       LDX $7A
+       LDY $79
+       JMP LDTRK
+; Stock ending for directory, modified after adding to directory, consisting
+; of: end of line, dummy (must be nonzero) link field (2 bytes), dummy line
+; number (2 bytes, zero but overwritten after copying), token for "*", end
+; of line, end of program (2 bytes).
+FILTRM .BYTE 0,11,11,0,0,$A5,0,0,0
+;
+;CLOSE A DATA FILE BY WRITING THE LAST BUFFER OUT
+;
+SVDAT  JSR FILNUM
+;
+; Write out the buffer to the next track of a data file
+;
+SVBUFF JSR HDRADR
+       BEQ *+7
+       LDX #INERR
+       JMP ERR0R
+; Offset to descriptor is now in X
+       TXA
+       PHA
+       LDA TRKNUM,X
+       CMP STTRK,X
+       BCC NDSKOP ; Initial condition has "current track" before first track
+; Check for overflow
+       CMP ENDTRK,X
+       BCC *+7
+       LDX #ORERR
+       JMP ERR0R
+; Set up registers and save track
+       PHA
+       LDY DBADDR,X
+       LDA DBADDR+1,X
+       TAX
+       PLA
+       JSR SVTRK
+; Update file descriptor to next track and empty buffer
+NDSKOP PLA
+       TAX
+       LDA DBADDR,X
+       STA DBPTR,X
+       STA TEMP1
+       LDA DBADDR+1,X
+       STA DBPTR+1,X
+       STA TEMP2
+; Clear buffer to zeroes
+       LDA #0
+       TAY
+       LDX #8
+       STA (TEMP1),Y
+       INY
+       BNE *-3
+       INC TEMP2
+       DEX
+       BNE *-8
+RTN5   RTS
+;
+; Revised Basic character input routine
+;
+INPUT  LDA IOPTR
+       CMP #2
+       BCS TAPEIN
+; IOPTR is zero or 1 - handled identically
+; Figure out which ROM we have
+       LSR ROMDET ; Note that it's tough to shift a byte in ROM
+       BCC *+8    ; but the processor doesn't know the write didn't work
+       JSR OLDINP ; Input entry point in original ROM
+       JMP *+6
+       JSR $FB46  ; Entry point in C1E
+; Don't do extra check if it came from tape
+       BIT $0203
+       BMI RTN5
+; Echo control chars since Basic masks them
+       CMP #$1B
+       BCS *+5
+       JSR OUTPUT
+; As above, Rom doesn't increment very readily, but the processor reads the
+; value, increments it, and tries to write it back, so the flags are valid.
+       INC ROMDET
+       BEQ RTN5 ; No further processing if it's a C1E
+; Save buffer pointer
+       STX TEMP3
+       STY TEMP4
+; Check for repeat key
+       TAX
+       BNE INPUT1
+       LDX #$FE  ; Clear stack; we're not going back the way we came
+       TXS
+; Set Basic interpretation pointer to command buffer
+       STA $C4
+       LDX #$12
+       STX $C3
+       JMP $A5F6 ; Begin interpreting command buffer
+;
+; Check for and handle RUBOUT
+;
+INPUT1 CMP #$7F
+       BNE *+36
+       DEC TEMP3
+       DEC $0E
+       JSR $BFC2 ; Remove cursor from screen
+       DEC $0200 ; Backspace cursor
+       LDA $0200 ; Check for line wrap
+       AND #$1F
+       CMP #$05
+       BCS *+10
+       LDA $0200
+       SBC #7
+       STA $0200
+       JSR $BFDE ; Place cursor on screen
+       LDX TEMP3 ; Restore X
+       LDA #0    ; Resume as if a null had been typed
+;
+; Check for and handle ESC
+;
+       CMP #$1B
+       BNE *+5
+       LDA $0201 ; Pick up char which was "under" cursor to retype it
+;
+; Checx for and handle shift-return
+;
+       CMP #$1D
+       BNE *+8
+       LDA #2     ; Set flag for "edit the next line printed"
+       STA EDITFL
+       LDA #$0D   ; Continue as if return were typed
+;
+; Restore X and Y before returning
+;
+       LDX TEMP3
+       LDY TEMP4
+       RTS
+;
+; Input continued, but not from keyboard
+;
+TAPEIN SBC #4
+       BCS DISKIN
+       JMP $FE80 ;GET CHAR FROM TAPE
+;
+; Input is not from keyboard or tape, so must be from disk
+;
+DISKIN STX TEMP3
+       STY TEMP4
+       JSR HDRADR
+       BNE *+7
+       LDX #INERR
+       JMP ERR0R
+; Check for data in buffer (when file is opened, buffer is marked empty
+; and current track is 1 prior to first track, so this covers startup)
+       JSR CKEND
+       BCC NOTRKI
+;HAVE READ PAST END OF BUFFER - GET NEXT TRACK
+       TXA
+       PHA
+       INC TRKNUM,X
+       LDA TRKNUM,X
+; Any tracks remaining?
+       CMP ENDTRK,X
+       BCC *+7
+       LDX #ORERR
+       JMP ERR0R
+; Yes, reset buffer pointer and load next track into buffer
+       PHA
+       LDA DBADDR,X
+       STA DBPTR,X
+       TAY
+       LDA DBADDR+1,X
+       STA DBPTR+1,X
+       TAX
+       PLA
+       JSR LDTRK
+       PLA
+       TAX
+; Buffer now holds valid data; return the next char
+NOTRKI LDY #0
+       LDA DBPTR,X
+       STA TEMP1
+       LDA DBPTR+1,X
+       STA TEMP2
+       LDA (TEMP1),Y
+       STA CHRTMP
+       JMP NCRPTR ; Increment pointer and return
+;
+; Compute offset to file descriptor for file A - 1, return offset in X,
+; set the Z flag if an even numbered (input) file.
+;
+HDRADR ASL A
+       ASL A
+       ASL A
+       TAX
+       AND #$08
+       RTS
+;
+; Check buffer pointer against end of buffer, set carry if at or past
+CKEND  LDA DBPTR,X
+       CMP DBADDR,X
+       LDA DBPTR+1,X
+       SBC DBADDR+1,X
+       CMP #8
+       RTS
+;
+; Replacement for Basic "output" routine
+;
+OUTPUT AND MASK ; <-- is not a comment; read carefully!
+       STA CHRTMP ; Save "last character output"
+; Check for and hold here if CTRL pressed
+       LDA #$FE
+       STA $DF00
+       BIT $DF00
+       BVC *-3
+; Determine routing of output
+       LDA IOPTR
+       CMP #1
+       BCS PRINTR
+; Output to screen
+       STX TEMP3
+       STY TEMP4
+       LDA CHRTMP
+;AFTER A <SHFT>CR, WAIT ONE LF (skipping echo of CR-LF), THEN ENTER IN BUFFER
+       CMP #$0A
+       BNE *+8
+       DEC EDITFL
+       BPL *+4 ; Hold edit flag at zero once it reaches there
+       INC EDITFL
+; Ignore ctrl chars in entering chars in the edit buffer
+       CMP #$20
+       BCS SCLEAR
+; Test for zero edit flag without affecting registers
+       DEC EDITFL
+       INC EDITFL
+       BEQ CKCURS
+; Check for the screen clear character
+SCLEAR CMP #CLSCHR
+       BNE PRTCHR
+       LDX #0
+       LDA #$20
+       STA $D000,X
+       STA $D100,X
+       STA $D200,X
+       STA $D300,X
+       INX
+       BNE *-13
+       BEQ RELDRG
+; Call appropriate routine in monitor to output char
+PRTCHR LSR ROMDET
+       BCC *+8
+       JSR OLDOUT ; Original ROM
+       JMP *+6
+       JSR $FF9B  ; C1E
+; If in edit capture mode, copy non-ctrl chars to edit buffer
+       LDX EDITFL
+       BNE CKCURS
+       CMP #$20
+       BCC CKCURS
+       LDX $0E ; Edit buffer pointer
+       STX TEMP1
+       DEX
+       CPX $0F
+       BCC *+6
+;RESET EDIT BUFFER POINTER ON CTRL CHAR
+       LDX #0
+       STX $0E
+       STA $13,X ;TO EDIT BUFFER
+; Handle wraparound caused by tinkering with the cursor
+CKCURS LSR ROMDET
+       BCC RELDRG
+       LDA $200
+       AND #$1F
+       CMP #$1D
+       BCC RELDRG
+       JSR $BFC2
+       LDA $0200
+       ADC #7
+       STA $0200
+       JSR $BFDE
+;RESTORE REGISTERS
+RELDRG LDA CHRTMP
+       LDY TEMP4
+       LDX TEMP3
+       RTS
+;
+; Output to device 1 - printer
+;
+PRINTR BNE TAPOUT
+       BIT PRSTAT ; Wait for printer not busy
+       BPL *-3
+       LDA CHRTMP ; Send char
+       STA PRDATA
+       RTS
+;
+; Output to device 2 - Tape or serial port
+;
+TAPOUT SBC #4
+       BCS DSKOUT
+       LDA CHRTMP
+       JMP $FCB1 ;NORMAL TAPE OUT ROUTINE
+;
+;OUTPUT CHAR TO DISK FILE
+;
+DSKOUT STX TEMP3
+       STY TEMP4
+       JSR HDRADR
+       BEQ *+10
+       LDX #INERR
+       .BYTE $2C ; BIT instruction to fall through LDX
+EOFERR LDX #ORERR
+       JMP ERR0R
+; Check for end of track
+       JSR CKEND
+       BCC *+16
+;SAVE BUFFER AND SET UP NEXT TRACK
+       TXA
+       PHA
+       LDA IOPTR
+       SBC #4
+       JSR SVBUFF
+       PLA
+       TAX
+       INC TRKNUM,X
+;PUT CHAR IN BUFFER AND BUMP POINTER
+       LDA DBPTR,X
+       STA TEMP1
+       LDA DBPTR+1,X
+       STA TEMP2
+       LDY #0
+       LDA CHRTMP
+       STA (TEMP1),Y
+       LDA TRKNUM,X
+       CMP ENDTRK,X
+       BCS EOFERR
+NCRPTR INC DBPTR,X
+       BNE *+5
+       INC DBPTR+1,X
+       BNE RELDRG ; Branch always taken
+;
+; Replacement routine for Basic's "return to command mode"
+;
+PROMPT LDX #0 ; Restore I/O to console
+       STX IOPTR
+       LDX EDITFL ; Editing ?
+       BEQ EDIT
+;NOT EDITING SO ISSUE PROMPT
+       JMP $A8C3
+;EDITING - BUFFER IS ALREADY SET UP AT THIS POINT
+;SO SET UP RETURN TO IMMEDIATE MODE AND JUMP TO
+;NORMAL LINE INPUT ROUTINE
+EDIT   PLA
+       PLA
+       DEC EDITFL ; Clear so we won't be editing after this line
+       LDX TEMP1
+       STX $0E
+       JSR $A359 ; Line input routine (skipping initialization)
+       JMP $A280 ; Execute command in buffer
+;
+;INTERCEPT AND MODIFY PRINT#, INPUT#, AND LIST#
+;(by intercepting Basic's NextToken routine)
+INTCPT LDA LSTCHR ; Last token parsed
+       CMP #$84 ;INPUT
+       BNE ICPT1
+; Modified INPUT verb
+       JSR VECTOR ; Parse "# <number>" and set IOPTR
+       LDA IOPTR
+       BEQ REGET
+; Set "no output" flag (as in ctrl-O) to suppress prompt, then patch return
+; address ($A923) to skip clearing that flag.
+       LDA #$FF
+       STA $64
+       PLA
+       CLC
+       ADC #2
+       PHA
+       BNE REGET ; Branch always
+;
+; End of interceptor code executes function of normal code, incrementing
+; pointer and fetching next char, skipping over blanks and returning with
+; Z flag set for end of line or end of statement and C flag clear for digits.
+;
+ICPTE  INC $C3
+       BNE *+4
+       INC $C4
+; Refetch last token, setting flags as for original fetch
+REGET  JSR $C2
+       STA LSTCHR
+RTN    RTS
+;
+; Parse # <expression> as in PRINT #2, .... Place value of <expression> in
+; IOPTR, defaulting to 0 if # sign not found. Disable ctrl-O flag.
+;
+VECTOR LSR $64
+       LDA #0
+       STA IOPTR
+       JSR ICPTE
+       CMP #'#
+       BNE REGET
+       JSR ICPTE
+       JSR GETVAL
+       STA IOPTR
+; Get next token; if not end of line or end of statement, it must be a comma
+; so parse off a comma.
+       JSR $C2
+       BEQ RTN
+       CMP #':
+       BEQ RTN
+       JMP $AC01 ; Basic entry point for parsing a comma or issuing SN ERROR
+;
+; Check for other intercepted verbs
+;
+ICPT1  CMP #$97 ;PRINT #n...
+       BEQ VECTOR
+       CMP #$99 ;LIST #n...
+       BEQ VECTOR
+       CMP #$89 ;RUN <filename>
+       BNE ICPTE ; No interesting verbs; make normal return
+; Fetch next char; if end of line or statement, return normally
+       JSR ICPTE
+       BEQ RTN
+; If a line number, return normally
+       BCC RTN
+; Trap RUN RUN...
+       CMP #$89
+       BEQ REGET
+; Presumably followed by a string expression, so parse as for LOAD <string>
+; and then run the resulting program after loading
+       JSR LDPGM+8
+       JSR $A4A7 ; Reset to beginning of program space
+       BCS REGET ; Continue interpreting there
+
+*=$0B00 ; Trigger an objection from the assembler if > 2K long
+.WORD 0,0
+;HEXDOS 4.0
+;COPYRIGHT 1980
+;STEVEN P.. HENDRIX
