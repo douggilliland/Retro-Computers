@@ -1,1 +1,184 @@
+= TG68-BASED EXPERIMENTAL SOC =
+
 [https://github.com/douggilliland/Retro-Computers/wiki/TG68_AMR-68000 TG68_AMR Wiki Page]
+
+== REGISTER DOCUMENTATION ==
+
+VIDEO CONTROLLER
+
+Base address 0x80000000
+
+<pre>
+	FRAMEBUFFER
+0	Long	Framebuffer address
+4	Word	Even row modulo (not yet implemented)
+6	Word	Odd row modulo (not yet implemented)
+8	Word	HTotal -  the total number of pixel clocks in a scanline 
+A	Word	HSize – number of horizontal pixels displayed
+C	Word	HBStart – start of the horizontal blank
+E	Word	HBStop – end of the horizontal blanking period
+10	Word	Vtotal – the number of scanlines in a frame
+12	Word	Vsize – the number of displayed scanlines
+14	Word	Vbstart – start of the vertical blanking period
+16	Word	Vbstop – end of the vertical blanking period
+18	Word	Control  (not yet implemented)
+		bit 7	Character overlay on/off
+		bits 3 downto 1: resolution – number of clocks per pixel
+		bit 0	visible.  (not yet implemented)
+</pre>
+
+Interrupts: Int 1 - vblank
+
+== SPRITE ==
+
+<pre>
+100	Long	Sprite 0 pointer. Sprite is 16 pixels square, in 4-bit “truecolour” format.
+		Bit 0: opacity, 1: red, 2: green, 3: blue
+		
+104	Word	Sp0XPos
+
+106	Word	Sp0YPos
+</pre>
+
+CHARACTER BUFFER
+
+used for the character overlay:
+
+Base address: 0x80000800 – 0x80000fff, 2048 bytes.
+
+== PERIPHERAL CONTROLLER ==
+
+Base Address 0x81000000
+
+
+	UART
+
+<pre>
+0	Word	UART IO
+	Read
+		bits 15 downto 11 – don't care
+		bit 10	txint – a TX int has occurred since the last read.  Cleared on read
+		bit 9	rxint – an RX int has occurred since the last read.  Cleared on read
+		bit 8	txready – previously submitted data has been transmitted.
+		Bits 7 downto 0 – received data
+	Write
+		Bits	15 downto 8 – don't care
+		Bits	7 downto 0 – data to be sent.
+
+2	Word	UART_CLKDIV – clock divisor for the baud rate generator.
+		For a 133 MHz sysclk, 115,200 baud, use 133,000,000 / 115,200 = 1155 (0x483)
+</pre>
+
+Interrupts: Int 2 – byte sent / received
+
+== MISC ==
+
+<pre>
+4	Word	Flags – not yet fully defined
+	Read
+		Bit 0 – ROM overlay.
+		Bits 15 downto 6 – switch status.  (DE1 only?)
+	Write
+		Bit 0 - ROM overlay.  When 1, reads to the lower 64k will come from
+		the M4K-based BootROM.  Writes still go to RAM.
+
+6	Word	Hex display – writes are currently routed to the DE1 board's hex display.
+		On the C3 board, they're sent to the power LEDs, until I define a
+		proper register for those.
+
+26	Word	PLL Configuration (Experimental, subsequently removed)
+	Write	Bit 0, PLL nudge, low byte.      Bit 1, PLL nudge, high byte.
+		Bit 15, PLL nudge direction: 0 – increase, 1 - decrease
+
+28	Word	Memory size register
+	Read	Total number of address bits for memory (SDRAM rows + columns + banks)
+
+2A	Word	System Clock Frequency
+	Read	Returns 10 * the base clock frequency.  Likely to be either 100MHz or 113.5MHz
+	(Now the Memory/Video clock and CPU/Peripheral clock are different, returns the latter,
+	so more likely to be 25Mhz.)
+
+2C	Word	Maximum SPI speed
+	Read	Returns the highest allowable SPI speed, in a form suitable for feeding into
+		the timer DIV7 register.
+</pre>
+
+
+== KEYBOARD / MOUSE ==
+
+<pre>
+8	Word	PS/2 Keyboard
+A	Word	PS/2 Mouse
+	Read
+		Bits 15 downto 12 – don't care
+		Bit 11	Data received flag.  Cleared on read.
+		Bit 10	Ready to send.  Zero while a byte is being sent to the PS/2 device
+		Bits 9 downto 0 – stop bit, parity bit, then 8 data bits.
+	Write
+		Bits 15 downto 8 – don't care
+		Bits 7 downto 0 – byte to be sent to PS/2 device
+</pre>
+
+Interrupts: Int 4 – data sent / received
+
+
+== TIMERS ==
+
+<pre>
+E	Timer Control word
+	Read
+		Bits 15 downto 6, 1 don't care
+		Bit 5	tr5 – set by timer event, cleared on read.
+		Bit 4	tr4 – set by timer event, cleared on read.
+		Bit 3	tr3 – set by timer event, cleared on read.
+		Bit 1	tr2 – set by timer event, cleared on read.
+		Bit 2	tr1 – set by timer event, cleared on read.
+	Write
+		Bits 15 downto 4, 8 downto 0 – don't care
+		Bit 13	en5 – enable interrupt for timer 5
+		Bit 12	en4 – enable interrupt for timer 4
+		Bit 11	en3 – enable interrupt for timer 3
+		Bit 10	en2 – enable interrupt for timer 2
+		Bit 9	en1 – enable interrupt for timer 1
+
+10	Word	Timer 0 divisor.  Timer 0 operates as a base clock for timers 1 through 6
+12	Word	Timer 1 divisor.  Continuous timer
+14	Word	Timer 2 divisor.  Continuous timer
+16	Word	Timer 3 divisor.  Continuous timer
+18	Word	Timer 4 divisor.  One-shot timer.
+1A	Word	Timer 5 divisor.  One-shot timer.
+1C	Word	Timer 6 divisor.  One-shot timer
+1E	Word	Timer 7 divisor.  Clock generator for SPI - based on sysclk, not clk0
+</pre>
+
+Interrupts: Int 3 – timer event
+
+== SPI (SD-card) ==
+
+</pre>
+20	SPI register
+	Read
+		Bits 7 downto 0: Data received from a single 8-bit SPI transaction with the SD card
+	Write
+		Writing to this register triggers an SPI transaction.
+		The byte written to the lower 8 bits is sent to the SPI device,
+		and the 8-bit reply to the previous transaction is received
+		and made available for reading.
+
+22	SPI CS register
+	Read
+		Bit 15 Busy – 1 if an SPI transaction is in progress
+	Write
+		Bit 0  SD select – 1 for active, 0 for inactive. (inverted with respect to the  CS line)
+
+24	Blocking SPI register
+	Behaves exactly as register 20, except the transaction is delayed (and the cpu
+	paused) until SPI CS->Busy is low, eliminating the need to poll in software.
+
+100-	SPI Pump registers
+	These registers are useful for transferring a sector of data from SD card.
+	Reading waits for SPI CS->Busy to drop, then returns the most recent 16-bits of data.
+	It also triggers the transfer of a further 16-bits.  CPU overhead can thus be kept to
+	a minimum – it's possible to transfer 64 bytes or more in a single instruction
+	with judicious use of movem.l.
+</pre>
