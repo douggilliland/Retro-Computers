@@ -1,6 +1,6 @@
 /***************************************************************************//**
 * \file CyLib.h
-* \version 5.80
+* \version 6.10
 *
 * \brief Provides the function definitions for the system, clocking, interrupts
 * and watchdog timer API.
@@ -10,7 +10,7 @@
 *
 ********************************************************************************
 * \copyright
-* Copyright 2008-2018, Cypress Semiconductor Corporation.  All rights reserved.
+* Copyright 2008-2021, Cypress Semiconductor Corporation.  All rights reserved.
 * You may use this file only in accordance with the license, terms, conditions,
 * disclaimers, and limitations in the end user license agreement accompanying
 * the software package with which this file was provided.

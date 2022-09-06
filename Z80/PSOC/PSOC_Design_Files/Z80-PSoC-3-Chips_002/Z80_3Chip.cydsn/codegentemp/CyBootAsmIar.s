@@ -1,12 +1,12 @@
 ;-------------------------------------------------------------------------------
 ; FILENAME: CyBootAsmIar.s
-; Version 5.80
+; Version 6.10
 ;
 ;  DESCRIPTION:
 ;    Assembly routines for IAR Embedded Workbench IDE.
 ;
 ;-------------------------------------------------------------------------------
-; Copyright 2013-2015, Cypress Semiconductor Corporation.  All rights reserved.
+; Copyright 2013-2021, Cypress Semiconductor Corporation.  All rights reserved.
 ; You may use this file only in accordance with the license, terms, conditions,
 ; disclaimers, and limitations in the end user license agreement accompanying
 ; the software package with which this file was provided.

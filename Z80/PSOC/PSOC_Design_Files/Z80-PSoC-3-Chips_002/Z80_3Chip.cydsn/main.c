@@ -130,7 +130,7 @@ int main(void)
     // Code has two loops - one for when Z80 is running with PSoC as Z80 I/O handler - other as PSoC monitor with Z80 in reset
     if (Z80Running == 1)    // Z80 Running (RUN front panel switch pushed)
 	{
-		for(;;)
+		while(1)
 		{
 			if (0u != USBUART_IsConfigurationChanged()) // Host can send double SET_INTERFACE request.
 			{

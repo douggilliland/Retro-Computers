@@ -27,20 +27,21 @@
 //  Only 1 build at a time is supported
 //  All other builds are set to #undef
 
-#undef GRANT_9_CHIP_Z80
+//#undef GRANT_9_CHIP_Z80
 //#define GRANT_9_CHIP_Z80
 
-#undef GRANT_7_CHIP_Z80
+//#undef GRANT_7_CHIP_Z80
 //#define GRANT_7_CHIP_Z80
-    
-//#undef GRANT_7_CHIP_Z80_STANDALONE
-#define GRANT_7_CHIP_Z80_STANDALONE
 
-//#undef GRANT_FPGA_CPM
+// Z80 BASIC Ver 4.7b
+#undef GRANT_7_CHIP_Z80_STANDALONE
+//#define GRANT_7_CHIP_Z80_STANDALONE
+
+#undef GRANT_FPGA_CPM
 //#define GRANT_FPGA_CPM
     
 //#undef MULTIBOOT_CPM
-//#define MULTIBOOT_CPM
+#define MULTIBOOT_CPM
 
 ////////////////////////////////////////////////////////////////////////////
 // These are the design specific Z80 peripherals

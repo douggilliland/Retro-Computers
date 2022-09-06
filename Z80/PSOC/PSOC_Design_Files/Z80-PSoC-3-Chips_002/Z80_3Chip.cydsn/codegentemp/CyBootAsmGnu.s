@@ -1,13 +1,13 @@
 /***************************************************************************//**
 * \file CyBootAsmGnu.s
-* \version 5.80
+* \version 6.10
 *
 *  \brief
 *   Assembly routines for GNU as.
 *
 ********************************************************************************
 * \copyright
-* Copyright 2010-2015, Cypress Semiconductor Corporation.  All rights reserved.
+* Copyright 2010-2021, Cypress Semiconductor Corporation.  All rights reserved.
 * You may use this file only in accordance with the license, terms, conditions,
 * disclaimers, and limitations in the end user license agreement accompanying
 * the software package with which this file was provided.
