@@ -1,6 +1,6 @@
 // ======================================================================
 // Z80_3Chip.v generated from TopDesign.cysch
-// 09/06/2022 at 12:40
+// 09/06/2022 at 14:35
 // This file is auto generated. ANY EDITS YOU MAKE MAY BE LOST WHEN THIS FILE IS REGENERATED!!!
 // ======================================================================
 
@@ -1389,8 +1389,8 @@ module top ;
           wire  Net_1311;
           wire  Net_1315;
           wire  Net_1305;
-          wire  Net_1309;
           wire [15:11] Z80A;
+          wire  Net_1309;
           wire  Net_1144;
           wire  Net_1143;
           wire  Net_1154;
@@ -1400,8 +1400,8 @@ module top ;
           wire  Net_1146;
           wire  Net_1148;
           wire  Net_1155;
-          wire  Net_1150;
           wire  BANKED;
+          wire  Net_1150;
           wire  Net_1147;
           wire  Net_1149;
           wire  Net_1457;
@@ -1409,8 +1409,8 @@ module top ;
           wire  Net_1454;
           wire  Net_1453;
           wire  Net_1452;
-          wire  Net_1451;
           wire [5:0] MSK;
+          wire  Net_1451;
           wire  Net_1450;
           wire  Net_1449;
           wire  Net_1456;
@@ -1429,8 +1429,8 @@ module top ;
           wire  Net_837;
           wire  Net_1145;
           wire  Net_741;
-          wire  Net_739;
           wire  CPURES;
+          wire  Net_739;
           wire  Net_738;
           wire  Net_737;
           wire  Net_736;
@@ -1447,16 +1447,16 @@ module top ;
           wire  Net_937;
           wire  Net_1169;
           wire  Net_1167;
-          wire  Net_1166;
           wire  IOBUSY;
+          wire  Net_1166;
           wire  Net_1165;
           wire  Net_1164;
           wire  Net_1163;
           wire  Net_1162;
           wire  Net_1161;
           wire  Net_1168;
-          wire  Net_814;
           wire  CLR_HALT;
+          wire  Net_814;
           wire  Net_812;
           wire  Net_811;
           wire  Net_366;
@@ -1469,8 +1469,8 @@ module top ;
           wire  Net_727;
           wire  Net_726;
           wire  Net_724;
-          wire  Net_723;
           wire [7:0] MMU1A;
+          wire  Net_723;
           wire  Net_722;
           wire  Net_725;
           wire  Net_730;
@@ -1597,8 +1597,8 @@ module top ;
           wire  Net_99;
           wire  Net_96;
           wire  Net_93;
-          wire  Net_90;
           wire [5:0] MMU4A;
+          wire  Net_90;
           wire  Net_70;
           wire  Net_69;
           wire  Net_81;
