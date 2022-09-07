@@ -101,7 +101,22 @@ uint8 initZ80PSOC(void)
         
     // Load SRAM with BIOS and/or BASIC image
 	loadSRAM();
-	
+    
+	putStringToUSB("\n\rZ80_PSoC - Running Front Panel\n\r\n\r");
+    putStringToUSB("SW25 SW26 SW27 SW28 SW29 SW30 SW31 SW32\n\r");
+    putStringToUSB("Run  Mon  N/A  N/A  N/A  LDAD STOR INCA\n\r");
+    putStringToUSB("\n\r");
+    putStringToUSB("SW17 SW18 SW19 SW20 SW21 SW22 SW23 SW24\n\r");
+    putStringToUSB("A15  A14  A13  A12  A11  A10  A9   A8\n\r");
+    putStringToUSB("\n\r");
+    putStringToUSB("SW9  SW10 SW11 SW12 SW13 SW14 SW15 SW16\n\r");
+    putStringToUSB("A7   A6   A5   A4   A3   A2   A1   A0 \n\r");
+    putStringToUSB("\n\r");
+    putStringToUSB("SW1  SW2  SW3  SW4  SW5  SW6  SW7  SW7\n\r");
+    putStringToUSB("D7   D6   D5   D4   D3   D2   D1   D0\n\r\n\r");
+	putStringToUSB("Press SW25 (upper left button) to exit Front Panel and run Z80\n\r");
+	putStringToUSB("Press SW26 to run Monitor/Test Code\n\r");
+
 	// Front Panel Initialization
     #ifdef USING_FRONT_PANEL
 		Z80Running = runFrontPanel();            // Exits either by pressing EXitFrontPanel or RUN button on front panel
@@ -123,15 +138,16 @@ int main(void)
 	uint8 uartReadBuffer[USBUART_uartBuffer_SIZE];
     uint16 uartReadBufferOff = 0;
 	uint8 Z80Running;
+//	uint8 menuRunning = 0;
 	uint16 inCount;
     uint8 printMenu = 1;
     
     Z80Running = initZ80PSOC();
-    // Code has two loops - one for when Z80 is running with PSoC as Z80 I/O handler - other as PSoC monitor with Z80 in reset
-    if (Z80Running == 1)    // Z80 Running (RUN front panel switch pushed)
-	{
-		while(1)
-		{
+    while (1)
+    {
+        // Code has two loops - one for when Z80 is running with PSoC as Z80 I/O handler - other as PSoC monitor with Z80 in reset
+        if (Z80Running == 1)    // Z80 Running (RUN front panel switch pushed)
+    	{
 			if (0u != USBUART_IsConfigurationChanged()) // Host can send double SET_INTERFACE request.
 			{
 				/* Initialize IN endpoints when device is configured. */
@@ -179,11 +195,8 @@ int main(void)
                 I2CINT_ISR_Disable();
 		    #endif
 		}
-	}
-	else                    // Z80 is not running (EXFP front panel switch pushed)
-	{
-		while(1)
-		{			
+	else                   // Z80 is not running (MON front panel switch pushed)
+    	{
 			if (0u != USBUART_IsConfigurationChanged()) // Host can send double SET_INTERFACE request
 			{
 				if (0u != USBUART_GetConfiguration())   // Initialize IN endpoints when device is configured
@@ -205,7 +218,11 @@ int main(void)
                     addToReceiveBuffer(inCount,inBuffer);
     				if (gotCRorLF == 1)
     				{
-                        psocMenu();
+                        if (psocMenu() == 1)
+                        {
+                            Z80Running = 1;
+                            runZ80();
+                        }
     				}
 					/* If the last sent packet is exactly the maximum packet size, it is followed by a 
                     zero-length packet to assure that the end of the segment is properly identified by 

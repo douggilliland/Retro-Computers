@@ -53,7 +53,7 @@ void putStringToUSB(char *);
 void I2CIntISR(void);
 void clearReceiveBuffer(void);
 void addToReceiveBuffer(uint16 inCount, uint8 * inBuffer);
-void psocMenu(void);
+uint8 psocMenu(void);
 void printMenuScreen(void);
 uint32 extractLong(uint8 *);
 

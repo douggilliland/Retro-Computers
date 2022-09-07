@@ -216,6 +216,13 @@ uint8 runFrontPanel(void)
 	}
 }
 
+void runZ80(void)
+{
+	LEDsVal = 0x80000000;
+	writeFrontPanelLEDs(LEDsVal);       // Leave LED on
+	ExtSRAMCtl_Write(0);                // Remove Z80 reset
+}
+
 //////////////////////////////////////////////////////////////////////////////////////
 // readFrontPanelSwitchesRegistered() - Debounced read of front panel pushbuttons
 //  Reads all four MCP23017 Port A's to produce a 32-bit result

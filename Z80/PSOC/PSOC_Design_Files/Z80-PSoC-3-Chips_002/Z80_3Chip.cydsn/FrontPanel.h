@@ -52,7 +52,7 @@ uint32 readFrontPanelSwitchesStatic(void);
 void writeFrontPanelLEDs(uint32);
 void writeRegister_MCP23017(uint8, uint8, uint8);
 uint8 readRegister_MCP23017(uint8, uint8);
-
+void runZ80(void);
 #endif
 
 /* [] END OF FILE */

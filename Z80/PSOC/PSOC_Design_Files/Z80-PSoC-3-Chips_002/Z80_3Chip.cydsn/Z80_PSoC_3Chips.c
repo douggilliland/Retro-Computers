@@ -50,6 +50,7 @@ void printMenuScreen(void)
 	putStringToUSB("Rxxxxxxxx - Read sector xxxxxxxx from the SD Card\n\r");
 	putStringToUSB("N - Read next sector from the SD Card\n\r");
 	putStringToUSB("W - Write to the SD Card at 2GB - 1 sector\n\r");
+	putStringToUSB("X - eXit Monitor and run Z80\n\r");
 	putStringToUSB("? - Print this menu\n\r");
 }
 
@@ -86,7 +87,7 @@ uint32 extractLong(uint8 * commandString)
 ////////////////////////////////////////////////////////////////////////////
 // void psocMenu(void)
 
-void psocMenu(void)
+uint8 psocMenu(void)
 {
 	while (0u == USBUART_CDCIsReady()); // Wait until component is ready to send data to host
 	if ((receiveBuffer[0] == 'r') || (receiveBuffer[0] == 'R'))
@@ -125,12 +126,18 @@ void psocMenu(void)
         putStringToUSB(lineString);
         putStringToUSB("\n\r");
 	}
+	else if ((receiveBuffer[0] == 'x') || (receiveBuffer[0] == 'X'))
+	{
+		putStringToUSB("Run Z80");
+        return(1);
+	}
 #endif
 	else
 	{
         printMenuScreen();
 	}
     clearReceiveBuffer();
+    return (0);
 }
 
 ////////////////////////////////////////////////////////////////////////////
