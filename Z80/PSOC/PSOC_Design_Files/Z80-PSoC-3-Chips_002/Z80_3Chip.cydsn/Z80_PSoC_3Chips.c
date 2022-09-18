@@ -45,9 +45,9 @@ void printMenuScreen(void)
 {
     putStringToUSB("\n\rLand Boards, LLC - Z80_PSoC monitor\n\r");
 	putStringToUSB("I - Initialize SD Card\n\r");
-	putStringToUSB("B - Blink LED\n\r");
-    putStringToUSB("F - Read Front Panel\n\r");
-	putStringToUSB("Rxxxxxxxx - Read sector xxxxxxxx from the SD Card\n\r");
+	putStringToUSB("B - Blink LED on Z80-PSoC card once\n\r");
+    putStringToUSB("F - Read Front Panel & ech0 keypresses\n\r");
+	putStringToUSB("R xxxxxxxx - Read sector xxxxxxxx from the SD Card\n\r");
 	putStringToUSB("N - Read next sector from the SD Card\n\r");
 	putStringToUSB("W - Write to the SD Card at 2GB - 1 sector\n\r");
 	putStringToUSB("X - eXit Monitor and run Z80\n\r");
@@ -125,6 +125,7 @@ uint8 psocMenu(void)
   		sprintf(lineString,"0x%08lx",fpIntVal);
         putStringToUSB(lineString);
         putStringToUSB("\n\r");
+		writeFrontPanelLEDs(fpIntVal);
 	}
 	else if ((receiveBuffer[0] == 'x') || (receiveBuffer[0] == 'X'))
 	{
