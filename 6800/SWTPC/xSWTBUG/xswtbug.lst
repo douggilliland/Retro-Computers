@@ -1,0 +1,4297 @@
+AS02 Assembler for M6802 [1.42].                                     Page    1
+-------------------------------- xswtbug.asm ---------------------------------
+
+4017 lines read, no errors in pass 1.
+                        		title	"xSWTBUG v1.2.1"
+                        ;***************************************************
+                        ;REPLACEMENT FOR MIKBUG ROM
+                        ;FOR SWTPC 6800 COMPUTER SYSTEM
+                        ;COPYRIGHT 1977
+                        ;SOUTHWEST TECHNICAL PROD. CORP.
+                        ;AUGUST, 1977
+                        ;***************************************************
+                        ;
+                        ; Enhancements by Bob Applegate, K2UT
+                        ; bob@corshamtech.com
+                        ; www.corshamtech.com
+                        ;
+                        ; This was all done for the SWTBUG included with the
+                        ; Corsham Tech 6800 CPU board.
+                        ;
+                        ; I MAKE NO COPYRIGHT CLAIMS!  The original code is
+                        ; on the Internet and I simply copied and modified it,
+                        ; so all my changes are free to use.
+                        ;
+                        ; Last edit: 05/27/2016
+                        ;
+                        ; Source was converted to use the AS02 assembler:
+                        ;
+                        ;    http://www.kingswood-consulting.co.uk/assemblers/
+                        ;
+                        ; I prefer this assembler because it gives me nice
+                        ; macros and conditional assembly.  It also uses
+                        ; traditional pseudo-ops instead of the strange
+                        ; Motorola ones.
+                        ;
+                        ; This includes extensions that can optionally
+                        ; be compiled in.  Look near ExtCmd for the new
+                        ; code.  I needed to add more commands without
+                        ; disrupting anything in the original SWTBUG, so
+                        ; the 'C' command has been replaced by the 'X'
+                        ; command which goes into the extended command set.
+                        ;
+                        ; 1.2   - Includes logic for handling the Corsham Tech
+                        ;         SD card interface board.
+                        ; 1.2.1 - Added a version string at start-up
+                        ;
+                        ;***************************************************
+                        ; Various constants
+                        ;
+0000 =                  false		equ	0
+ffff =                  true		equ	~false
+                        ;
+                        ; Version and revision values.  Version.Revision
+                        ;
+0001 =                  VERSION		equ	1
+0002 =                  REVISION	equ	2
+                        ;
+                        ; So included programs know that they are being
+                        ; built as part of SWTBUG and don't need to define
+                        ; as much.
+                        ;
+ffff =                  IN_SWTBUG	equ	true
+                        ;
+                        ; If this is true, then add support for S5 records
+                        ; in the "L" command.  Moves some code into the
+AS02 Assembler for M6802 [1.42].                                     Page    2
+------------------------------- xSWTBUG v1.2.1 -------------------------------
+
+                        ; extended area.  The original SWTBUG only supported
+                        ; S9 for end of file.
+                        ;
+ffff =                  SUPPORT_S5	equ	true
+                        ;
+                        ;***************************************************
+                        ; User options and tuning parameters...
+                        ;
+                        ; Number of address bits in EPROM.  This is used
+                        ; to calculate the vector addresses.  For Corsham
+                        ; Technologies 6800 CPU boards, the value is 13.
+                        ;
+000d =                  ADDR_BITS	equ	13
+                        ;
+                        ; Start of ROM and RAM regions
+                        ;
+a000 =                  RAM_BASE	equ	$a000
+e000 =                  ROM_BASE	equ	$e000
+                        ;
+                        ; If NO_WEIRD is set, then don't put out tape reader
+                        ; control codes in prompts.  Many people are using
+                        ; terminal programs running on computers which
+                        ; interpret the control codes and display them as
+                        ; weird symbols.  Turning on this option will stop
+                        ; those weird symbols from coming out.
+                        ;
+ffff =                  NO_WEIRD	equ	true
+                        ;
+                        ; If set, add the extended SWTBUG.  Else just have
+                        ; the standard set of commands.
+                        ;
+ffff =                  EXTENDED	equ	true
+                        ;
+                        ; These are options if EXTENDED is on...
+                        ;
+ffff =                  SD_SUPPORT	equ	true	;include SD card funcs
+ffff =                  SD_CMDS		equ	true	;adds SD card commands
+ffff =                  SD_BOOT		equ	true	;boot from SD card
+a100 =                  BOOT_ADDR	equ	$a100	;where boot sector goes
+                        ;
+ffff =                  NUMGUESS	equ	true	;include NumGuess game
+ffff =                  MEMTEST		equ	true	;include Memory tester
+ffff =                  OTHELLO		equ	true	;include Othello game
+                        ;
+                        ; To support running with either 6800 or 6809
+                        ; motherboards, these two options allow you to set
+                        ; the base address of the I/O block and also the
+                        ; number of addresses for each I/O slot.
+                        ;
+                        ; For 6800:
+                        ;    IOBASE is $8000
+                        ;    IOBYTES is 4
+                        ;
+                        ; For 6809:
+                        ;    IOBASE is $e000
+                        ;    IOBYTES is 16
+                        ;
+8000 =                  IOBASE		equ	$8000
+0004 =                  IOBYTES		equ	4
+                        ;
+                        ; CONSLOT is the slot that the console port is plugged
+                        ; into.  SWTPC always uses 1.
+AS02 Assembler for M6802 [1.42].                                     Page    3
+------------------------------- xSWTBUG v1.2.1 -------------------------------
+
+                        ;
+0001 =                  CONSLOT		equ	1
+                        ;
+                        ;***************************************************
+                        ; Common ASCII control codes
+                        ;
+0004 =                  EOT		equ	$04
+0007 =                  BEL		equ	$07
+0008 =                  BS		equ	$08
+000a =                  LF		equ	$0a
+000d =                  CR		equ	$0d
+007f =                  DEL		equ	$7f
+                        ;
+                        ;***************************************************
+                        ; This macro is used to verify that the current
+                        ; address meets a required value.  Used mostly to
+                        ; guarantee changes don't cause entry points to
+                        ; move.  These are used right before documented
+                        ; entry points.
+                        ;
+                        VERIFY		macro	expected
+                        		if * != expected
+                        		fail	Not at requested address (expected)
+                        		endif
+                        		endm
+                        ;
+                        ;***************************************************
+                        ; More constants.  You definitely don't want to
+                        ; change CTLPOR but the PROM address and stack size
+                        ; could be.  Beware that changing the stack size
+                        ; pushes other things around.
+                        ;
+8004 =                  CTLPOR		equ	IOBASE+(IOBYTES*CONSLOT)	;CONTROL PORT ADD
+c000 =                  PROM		equ	$C000	;JUMP TO PROM ADDRESS
+002b =                  STACK_SIZE	equ	$2b
+                        		page
+AS02 Assembler for M6802 [1.42].                                     Page    4
+------------------------------- xSWTBUG v1.2.1 -------------------------------
+
+                        ;***************************************************
+                        ; RAM
+                        ;
+                        		bss
+a000 =                  		org	RAM_BASE
+a000 =                  IRQ		ds	2	;IRQ POINTER
+a002 =                  BEGA		ds	2	;BEGINNING ADDR PNCH
+a004 =                  ENDA		ds	2	;ENDING ADDR PNCH
+a006 =                  NMI		ds	2	;NMI INTERRUPT VECTOR
+a008 =                  SP		ds	1	;S HIGH
+a009 =                  		ds	1	;S LOW
+a00a =                  PORADD		ds	2	;PORT ADDRESS
+a00c =                  PORECH		ds	1	;ECHO ON/OFF FLAG
+a00d =                  XHI		ds	1	;XREG HIGH
+a00e =                  XLOW		ds	1	;XREG LOW
+a00f =                  CKSM		ds	1	;CHECKSUM
+a010 =                  XTEMP		ds	2	;X-REG TEMP STGE
+a012 =                  SWIJMP		ds	2	;SWI JUMP VECTOR
+a014 =                  BKPT		ds	2	;BREAKPOINT ADDRESS
+a016 =                  BKLST		ds	1	;BREAKPOINT DATA
+a017 =                  		ds	STACK_SIZE
+a042 =                  STACK		ds	1	;SWTBUG STACK
+a043 =                  		ds	1
+a044 =                  TW		ds	2	;TEMPORARY STORAGE
+a046 =                  TEMP		ds	1	;TEMPORARY STORAGE
+a047 =                  BYTECT		ds	1	;BYTECT AND MCONT TEMP.
+                        ;
+                        ; The locations A048 and A049 contain the address wher
+                        ; the RTI instruction jumps.  It's often loaded with t
+                        ; address of a program just loaded from tape so the "G
+                        ; command will execute it.
+                        ;
+                        		VERIFY	$a048
+                        
+a048 =                  RTIVEC		ds	2
+                        
+                        	if	SD_CMDS
+000c =                  NAMESIZE	equ	12
+a04a =                  FnBuffer	ds	3	;formatting area
+a04d =                  Filename	ds	NAMESIZE+1	;xxxxxxxx.xxx
+a05a =                  sdState		ds	1
+a05b =                  temp		ds	1
+a05c =                  tempx		ds	2
+a05e =                  byteCnt		ds	1
+a05f =                  pointer		ds	2
+a061 =                  nibCnt		ds	1
+                        	endif
+                        		page
+AS02 Assembler for M6802 [1.42].                                     Page    5
+------------------------------- xSWTBUG v1.2.1 -------------------------------
+
+                        ;***************************************************
+                        ; Code!
+                        ;
+                        ; SWTBUG must be first to match up with subroutine
+                        ; addresses commonly used.  Anything extra goes
+                        ; after SWTBUG.
+                        ;
+                        		code
+e000 =                  		org	ROM_BASE
+                        ;
+                        ;I/O INTERRUPT SEQUENCE
+e000 : fea000           IRQV		ldx	IRQ
+e003 : 6e00             		jmp	0,x
+                        
+                        ;JUMP TO USER PROGRAM
+e005 : 8d40             JUMP		bsr	BADDR
+e007 : 6e00             		jmp	0,x
+                        
+e009 : 101604           CURSOR		db	$10,$16,EOT	;CT-1024 cursor control
+                        
+                        
+                        ;ASCII LOADING ROUTINE
+                        		VERIFY	$e00c
+                        
+e00c : bde334           LOAD		jsr	RDON	;READER ON, DIS ECHO, GET P#
+                        ;
+                        ; This first loop waits for an 'S' indicating the star
+                        ; of a new record.  Discards all other characters.
+                        ;
+e00f : 8d67             LOAD3		bsr	INCH
+e011 : 8153             		cmpa	#'S'
+e013 : 26fa             		bne	LOAD3	;1ST CHAR NOT S
+                        ;
+                        ; The next character is the record type.  SWTBUG only 
+                        ; 1 (data) and 9 (EOF) but I've added support for 5, w
+                        ; assemblers produce instead of an S9.
+                        ;
+e015 : 8d61             		bsr	INCH	;READ CHAR
+e017 : 8139             		cmpa	#'9'
+e019 : 2729             		beq	LOAD21
+                        ;
+                        ; I added code to accept an S5 record as EOF since a l
+                        ; of cross assemblers produce them instead of an S9.  
+                        ; make room for the code, some of this function was mo
+                        ; into the extended monitor area.
+                        ;
+                        	if	SUPPORT_S5
+e01b : bde43a           		jsr	LOADX
+e01e : 01               		nop		;pad to correct address
+                        	else
+                        		cmpa	#'1'
+                        		bne	LOAD3	;2ND CHAR NOT 1
+                        	endif
+                        
+e01f : 7fa00f           		clr	CKSM	;ZERO CHECKSUM
+e022 : 8d31             		bsr	BYTE	;READ BYTE
+e024 : 8002             		suba	#2
+e026 : b7a047           		staa	BYTECT	;BYTE COUNT
+                        
+                        ;BUILD ADDRESS
+e029 : 8d1c             		bsr	BADDR
+                        		VERIFY	$e02b
+AS02 Assembler for M6802 [1.42].                                     Page    6
+------------------------------- xSWTBUG v1.2.1 -------------------------------
+
+                        
+                        ;STORE DATA
+e02b : 8d28             LOAD11		bsr	BYTE
+e02d : 7aa047           		dec	BYTECT
+e030 : 2709             		beq	LOAD15	;ZERO BYTE COUNT
+e032 : a700             		staa	0,x	;STORE DATA
+e034 : a100             		cmpa	0,x	;DATA STORED?
+e036 : 2608             		bne	LOAD19
+e038 : 08               		inx
+e039 : 20f0             		bra	LOAD11
+e03b : 7ca00f           LOAD15		inc	CKSM
+e03e : 27cf             		beq	LOAD3
+                        		VERIFY	$e040
+                        
+e040 : 863f             LOAD19		ldaa	#'?'
+e042 : 8d31             		bsr	OUTCH
+e044 : 7ee2d4           LOAD21		jmp	RDOFF1
+                        
+                        ;BUILD ADDRESS
+                        		VERIFY	$e047
+                        
+e047 : 8d0c             BADDR		bsr	BYTE	;READ 2 FRAMES
+e049 : b7a00d           		staa	XHI
+e04c : 8d07             		bsr	BYTE
+e04e : b7a00e           		staa	XLOW
+e051 : fea00d           		ldx	XHI	;LOAD IXR WITH NUMBER
+e054 : 39               		rts
+                        
+                        ;INPUT BYTE (TWO FRAMES)
+                        		VERIFY	$e055
+                        
+e055 : 8d53             BYTE		bsr	INHEX	;GET HEX CHAR
+e057 : 48               BYTE1		asla
+e058 : 48               		asla
+e059 : 48               		asla
+e05a : 48               		asla
+e05b : 16               		tab
+e05c : 8d4c             		bsr	INHEX
+e05e : 1b               		aba
+e05f : 16               		tab
+e060 : fba00f           		addb	CKSM
+e063 : f7a00f           		stab	CKSM
+e066 : 39               		rts
+                        
+                        		VERIFY	$e067
+                        
+e067 : 44               OUTHL		lsra	;OUT HEX LEFT BCD DIGIT
+e068 : 44               		lsra
+e069 : 44               		lsra
+e06a : 44               		lsra
+                        		VERIFY	$e06b
+                        
+e06b : 840f             OUTHR		anda	#$F	;OUT HEX RIGHT BCD DIGIT
+e06d : 8b30             		adda	#'0'
+e06f : 8139             		cmpa	#$39
+e071 : 2302             		bls	OUTCH
+e073 : 8b07             		adda	#$7
+                        
+                        ;OUTPUT ONE CHAR
+                        		VERIFY	$e075
+                        
+e075 : 7ee1d1           OUTCH		jmp	OUTEEE
+AS02 Assembler for M6802 [1.42].                                     Page    7
+------------------------------- xSWTBUG v1.2.1 -------------------------------
+
+                        		VERIFY	$e078
+                        
+e078 : 7ee1ac           INCH		jmp	INEEE
+                        
+                        ;PRINT DATA POINTED TO BY X REG
+                        		VERIFY	$e07b
+                        
+e07b : 8df8             PDATA2		bsr	OUTCH
+e07d : 08               		inx
+                        		VERIFY	$e07e
+                        
+e07e : a600             PDATA1		ldaa	0,x
+e080 : 8104             		cmpa	#EOT
+e082 : 26f7             		bne	PDATA2
+e084 : 39               		rts		;STOP ON HEX 04
+                        
+e085 : 7ee14a           C1		jmp	SWTCTL
+                        
+                        ;MEMORY EXAMINE AND CHANGE
+                        		VERIFY	$e088
+                        
+e088 : 8dbd             CHANGE		bsr	BADDR
+e08a : cee19d           CHA51		ldx	#MCL
+e08d : 8def             		bsr	PDATA1	;C/R L/F
+e08f : cea00d           		ldx	#XHI
+e092 : 8d34             		bsr	OUT4HS	;PRINT ADDRESS
+e094 : fea00d           		ldx	XHI
+e097 : 8d31             		bsr	OUT2HS	;PRINT OLD DATA
+e099 : 8d31             		bsr	OUTS	;OUTPUT SPACE
+e09b : 8ddb             ANOTH		bsr	INCH	;INPUT CHAR
+e09d : 8120             		cmpa	#' '
+e09f : 27fa             		beq	ANOTH
+e0a1 : 810d             		cmpa	#CR
+e0a3 : 27e0             		beq	C1
+e0a5 : 815e             		cmpa	#'^'	;UP ARROW?
+e0a7 : 202c             		bra	AL3	;BRANCH FOR ADJUSTMENT
+e0a9 : 01               		nop
+                        
+                        ;INPUT HEX CHARACTER
+                        		VERIFY	$e0aa
+                        
+e0aa : 8dcc             INHEX		bsr	INCH
+e0ac : 8030             INHEX1		suba	#'0'
+e0ae : 2b4c             		bmi	C3
+e0b0 : 8109             		cmpa	#$9
+e0b2 : 2f0a             		ble	IN1HG
+e0b4 : 8111             		cmpa	#$11
+e0b6 : 2b44             		bmi	C3	;NOT HEX
+e0b8 : 8116             		cmpa	#$16
+e0ba : 2e40             		bgt	C3	;NOT HEX
+e0bc : 8007             		suba	#7
+e0be : 39               IN1HG		rts
+                        
+                        		VERIFY	$e0bf
+                        
+e0bf : a600             OUT2H		ldaa	0,x	;OUTPUT 2 HEX CHAR
+e0c1 : 8da4             OUT2HA		bsr	OUTHL	;OUT LEFT HEX CHAR
+e0c3 : a600             		ldaa	0,x
+e0c5 : 08               		inx
+e0c6 : 20a3             		bra	OUTHR	;OUTPUT RIGHT HEX CHAR
+                        
+                        		VERIFY	$e0c8
+AS02 Assembler for M6802 [1.42].                                     Page    8
+------------------------------- xSWTBUG v1.2.1 -------------------------------
+
+                        
+e0c8 : 8df5             OUT4HS		bsr	OUT2H	;OUTPUT 4 HEX CHAR + SPACE
+                        		VERIFY	$e0ca
+                        
+e0ca : 8df3             OUT2HS		bsr	OUT2H	;OUTPUT 2 HEX CHAR + SPACE
+                        
+                        		VERIFY	$e0cc
+                        
+e0cc : 8620             OUTS		ldaa	#' '	;SPACE
+e0ce : 20a5             		bra	OUTCH	;(BSR & TRS)
+                        
+                        ;ENTER POWER ON SEQUENCE
+                        		VERIFY	$e0d0
+                        
+e0d0 : 8ea042           START		lds	#STACK
+e0d3 : 202c             		bra	al1
+                        
+                        
+                        
+                        ;*******************************************
+                        ;PART OF MEMORY EXAMINE AND CHANGE
+e0d5 : 2607             AL3		bne	SK1
+e0d7 : 09               		dex
+e0d8 : 09               		dex
+e0d9 : ffa00d           		stx	XHI
+e0dc : 20ac             		bra	CHA51
+e0de : ffa00d           SK1		stx	XHI
+e0e1 : 2002             		bra	AL4
+                        
+                        		VERIFY	$E0E3
+                        
+e0e3 : 206d             EOE3		bra	CONTRL	;BRANCH FOR MIKBUG EQUIV. CONT
+                        
+e0e5 : 8130             AL4		cmpa	#$30
+e0e7 : 25a1             		bcs	CHA51
+e0e9 : 8146             		cmpa	#$46
+e0eb : 229d             		bhi	CHA51
+e0ed : 8dbd             		bsr	INHEX1
+e0ef : bde057           		jsr	BYTE1
+e0f2 : 09               		dex
+e0f3 : a700             		staa	0,x	;CHANGE MEMORY
+e0f5 : a100             		cmpa	0,x
+e0f7 : 2791             		beq	CHA51	;DID CHANGE
+e0f9 : 7ee040           		jmp	LOAD19	;DIDN'T CHANGE
+e0fc : bea008           C3		lds	SP
+e0ff : 2049             		bra	SWTCTL
+                        ;*************************************************
+                        
+                        
+e101 : bfa008           al1		sts	SP	;INIT TARGET STACK PTR.
+e104 : 86ff             		ldaa	#$FF
+e106 : bde308           		jsr	SWISET
+e109 : ce8004           		ldx	#CTLPOR
+e10c : bde284           		jsr	PIAINI
+e10f : a600             		ldaa	0,x
+e111 : a102             		cmpa	2,x
+e113 : 2002             		bra	al2
+e115 : 2019             		bra	PRINT
+e117 : 2639             al2		bne	CONTRL
+                        
+                        ;INITIALIZE AS ACIA
+e119 : 8603             		ldaa	#3	;ACIA MASTER RESET
+AS02 Assembler for M6802 [1.42].                                     Page    9
+------------------------------- xSWTBUG v1.2.1 -------------------------------
+
+e11b : a700             		staa	0,x
+e11d : 8611             		ldaa	#$11	;11 = 8N2 /16.  15 = 8N1 /16
+e11f : a700             		staa	0,x;
+e121 : 202f             		bra	CONTRL
+                        
+                        ;ENTER FROM SOFTWARE INTERRUPT
+e123 : 01               SF0		nop
+e124 : bfa008           SFE1		sts	SP	;SAVE TARGETS STACK POINTER
+                        ;DECREMENT P COUNTER
+e127 : 30               		tsx
+e128 : 6d06             		tst	6,x
+e12a : 2602             		bne	*+4
+e12c : 6a05             		dec	5,x
+e12e : 6a06             		dec	6,x
+                        ;PRINT CONTENTS OF STACK.
+e130 : cee19d           PRINT		ldx	#MCL
+e133 : bde07e           		jsr	PDATA1
+e136 : fea008           		ldx	SP
+e139 : 08               		inx
+e13a : 8d8e             		bsr	OUT2HS	;COND CODES
+e13c : 8d8c             		bsr	OUT2HS	;ACC B
+e13e : 8d8a             		bsr	OUT2HS	;ACC A
+e140 : 8d86             		bsr	OUT4HS	;IXR
+e142 : 8d84             		bsr	OUT4HS	;PGM COUNTER
+e144 : cea008           		ldx	#SP
+e147 : bde0c8           		jsr	OUT4HS	;STACK POINTER
+e14a : fea012           SWTCTL		ldx	SWIJMP
+e14d : 8ce123           		cpx	#SF0
+e150 : 2719             		beq	CONTR1
+                        
+e152 : 8ea042           CONTRL		lds	#STACK	;SET CONTRL STACK POINTER
+e155 : ce8004           		ldx	#CTLPOR	;RESET TO CONTROL PORT
+e158 : ffa00a           		stx	PORADD
+e15b : 7fa00c           		clr	PORECH	;TURN ECHO ON
+e15e : 8d73             		bsr	SAVGET	;GET PORT # AND TYPE
+e160 : 2703             		beq	POF1
+e162 : bde27d           		jsr	PIAECH	;SET PIA ECHO ON IF MP-C INTER
+e165 : bde353           POF1		jsr	PNCHOF	;TURN PUNCH OFF
+                        ;		jsr	RDOFF	;TURN READER OFF
+e168 : bdea24           		jsr	PrintVer
+e16b : cee19c           CONTR1		ldx	#MCLOFF
+e16e : bde07e           		jsr	PDATA1	;PRINT DATA STRING
+e171 : 8d39             		bsr	INEEE		;READ COMMAND CHARACTER
+                        
+                        ;COMMAND LOOKUP ROUTINE
+e173 : cee3d1           LOOK		ldx	#TABLE
+e176 : a100             OVER		cmpa	0,x
+e178 : 2607             		bne	SK3
+e17a : bde0cc           		jsr	OUTS	;SKIP SPACE
+e17d : ee01             		ldx	1,x
+e17f : 6e00             		jmp	0,x
+e181 : 08               SK3		inx
+e182 : 08               		inx
+e183 : 08               		inx
+e184 : 8ce3f8           		cpx	#TABEND+3
+e187 : 26ed             		bne	OVER
+                        ;
+                        ; Bob's change.  Branch to a later point.
+                        ;
+                        ;SWTL1		bra	SWTCTL
+e189 : 20e0             SWTL1		bra	CONTR1
+                        
+AS02 Assembler for M6802 [1.42].                                     Page   10
+------------------------------- xSWTBUG v1.2.1 -------------------------------
+
+                        ;SOFTWARE INTERRUPT ENTRY POINT
+e18b : fea012           SFE		ldx	SWIJMP	;JUMP TO VECTORED SOFTWARE INT
+e18e : 6e00             		jmp	0,x
+                        
+e190 : 533904           S9		db	'S','9',EOT	;END OF TAPE
+                        
+                        ;**************************************************
+e193 : 0d0a1500000053.. MTAPE1		db	CR,LF,$15,0,0,0,'S','1',EOT	;PUNCH FORMAT
+                        
+                        		VERIFY	$e19c
+                        
+e19c :                  MCLOFF		
+                        	if	NO_WEIRD
+e19c : 00               		db	0
+                        	else
+                        		db	$13	;READER OFF
+                        	endif
+                        		VERIFY	$e19d
+                        
+e19d :                  MCL
+                        	if	NO_WEIRD
+e19d : 0d0a240400000000 		db	CR,LF,'$',EOT,0,0,0,0
+                        	else
+                        		db	CR,LF,$15,0,0,0,'$',EOT
+                        	endif
+e1a5 : 204c             EIA5		bra	BILD	;BINARY LOADER INPUT
+                        ;**************************************************
+                        
+                        
+                        ;NMI SEQUENCE
+e1a7 : fea006           NMIV		ldx	NMI	;GET NMI VECTOR
+e1aa : 6e00             		jmp	0,x
+                        
+                        		VERIFY	$e1ac
+                        
+e1ac : 2040             INEEE		bra	INEEE1
+                        
+                        ;BYTE SEARCH ROUTINE
+e1ae : bde047           SEARCH		jsr	BADDR		;GET TOP ADDRESS
+e1b1 : ffa004           		stx	ENDA
+e1b4 : bde047           		jsr	BADDR		;GET BOTTOM ADDRESS
+e1b7 : bde055           		jsr	BYTE		;GET BYTE TO SEARCH FOR
+e1ba : 16               		tab
+e1bb : a600             OVE		ldaa	0,x
+e1bd : ffa00d           		stx	XHI
+e1c0 : 11               		cba
+e1c1 : 2702             		beq	PNT
+e1c3 : 2021             		bra	INCR1
+e1c5 : cee19d           PNT		ldx	#MCL
+e1c8 : bde07e           		jsr	PDATA1
+e1cb : cea00d           		ldx	#XHI
+e1ce : 2010             		bra	SKP0
+                        ;**************************************************
+                        
+                        ;GO TO USER PROGRAM ROUTINE
+e1d0 : 3b               GOTO		rti
+                        		VERIFY	$e1d1
+                        
+e1d1 : 203a             OUTEEE		bra	OUTEE1
+                        
+                        
+                        
+AS02 Assembler for M6802 [1.42].                                     Page   11
+------------------------------- xSWTBUG v1.2.1 -------------------------------
+
+                        ;SAVE IXR AND LOAD IXR WITH CORRECT
+                        ;PORT NUMBER AND TEST FOR TYPE
+e1d3 : ffa010           SAVGET		stx	XTEMP		;STORE INDEX REGISTER
+e1d6 : fea00a           GETPT1		ldx	PORADD
+                        		VERIFY	$E1D9
+                        
+e1d9 : 37               ISACIA		pshb
+e1da : e601             		ldab	1,x
+e1dc : e103             		cmpb	3,x
+e1de : 33               		pulb
+e1df : 39               		rts
+                        ;**************************************************
+                        
+                        ;CONTINUATION OF SEARCH ROUTINE
+e1e0 : bde0c8           SKP0		jsr	OUT4HS
+e1e3 : fea00d           		ldx	XHI
+e1e6 : bca004           INCR1		cpx	ENDA
+e1e9 : 279e             		beq	SWTL1
+e1eb : 08               		inx
+e1ec : 20cd             		bra	OVE
+                        
+e1ee : 8d06             INEEE1		bsr	INCH8		;INPUT 8 BIT CHARACTER
+e1f0 : 847f             		anda	#%01111111	;GET RID OF PARITY BIT
+e1f2 : 39               		rts
+                        
+e1f3 : 31               BILD		ins		;FIX	UP STACK WHEN USING
+e1f4 : 31               		ins		;BINARY LOADER ON SWTPC TAPES
+e1f5 : 31               		ins
+                        
+                        ;INPUT ONE CHAR INTO ACC B
+                        		VERIFY	$e1f6
+                        
+e1f6 : 37               INCH8		pshb		;SAVE	ACC B
+e1f7 : 8dda             		bsr	SAVGET	;SAVE IXR, GET PORT# AND TYPE
+e1f9 : 2628             		bne	IN1	;INPUT FROM PIA IF NOT
+e1fb : 8611             		ldaa	#$11	;RECONFIG FOR 8 BIT, 2 SB
+e1fd : a700             		staa	0,x
+e1ff : a600             ACIAIN		ldaa	0,x
+e201 : 47               		asra
+e202 : 24fb             		bcc	ACIAIN	;NOT READY
+e204 : a601             		ldaa	1,x	;LOAD CHAR
+e206 : f6a00c           		ldab	PORECH
+e209 : 2707             		beq	ACIOUT	;ECHO
+e20b : 2011             		bra	RES	;DON'T ECHO
+                        
+                        ;OUTPUT ONE CHARACTER
+e20d : 37               OUTEE1		pshb	;SAVE	ACC B
+e20e : 8dc3             		bsr	SAVGET
+e210 : 262e             		bne	IOUT
+                        
+e212 : c615             ACIOUT		ldab	#$15
+e214 : e700             		stab	0,x
+e216 : e600             ACIOU1		ldab	0,x
+e218 : 57               		asrb
+e219 : 57               		asrb
+e21a : 24fa             		bcc	ACIOU1
+e21c : a701             		staa	1,x	;OUTPUT CHARACTER
+e21e : 33               RES		pulb		;RESTORE ACC B
+e21f : fea010           		ldx	XTEMP
+e222 : 39               		rts
+                        
+                        ;PIA INPUT ROUTINE
+AS02 Assembler for M6802 [1.42].                                     Page   12
+------------------------------- xSWTBUG v1.2.1 -------------------------------
+
+e223 : a600             IN1		ldaa	0,x	;LOOK FOR START BIT
+e225 : 2bfc             		bmi	IN1
+e227 : 8d3a             		bsr	DDL	;DELAY HALF BIT TIME
+e229 : c604             		ldab	#4	;SET DEL FOR FULL BIT TIME
+e22b : e702             		stab	2,x
+e22d : 58               		aslb		;SET UP CNTR WITH 8
+e22e : 8d2a             IN3		bsr	DEL1	;WAIT ONE CHAR TIME
+e230 : 0d               		sec
+e231 : 6900             		rol	0,x
+e233 : 46               		rora
+e234 : 5a               		decb
+e235 : 26f7             		bne	IN3
+e237 : 8d21             		bsr	DEL1	;WAIT FOR STOP BIT
+e239 : f6a00c           		ldab	PORECH	;IS ECHO DESIRED?
+e23c : 2713             		beq	IOUT2	;ECHO
+e23e : 20de             		bra	RES	;RESTORE IXR,ACCB
+                        
+e240 : 8d23             IOUT		bsr	DDL1	;DELAY ONE HALF BIT TIME
+e242 : c60a             		ldab	#$A	;SET UP COUNTER
+e244 : 6a00             		dec	0,x	;SET START BIT
+e246 : 8d16             		bsr	DE	;START TIMER
+e248 : 8d10             OUT1		bsr	DEL1	;DELAY ONE BIT TIME
+e24a : a700             		sta	0,x	;PUT OUT ONE DATA BIT
+e24c : 0d               		sec
+e24d : 46               		rora		;SHIFT IN NEXT BIT
+e24e : 5a               		decb		;DECREMENT COUNTER
+e24f : 26f7             		bne	OUT1	;TEST FOR 0
+e251 : e602             IOUT2		ldab	2,x	;TEST FOR STOP BITS
+e253 : 58               		aslb		;SHIFT BIT TO SIGN
+e254 : 2ac8             		bpl	RES	;BRA FOR 1 STOP BIT
+e256 : 8d02             		bsr	DEL1	;DELAY FOR STOP BITS
+e258 : 20c4             		bra	RES
+e25a : 6d02             DEL1		tst	2,x	;IS TIME UP
+e25c : 2afc             		bpl	DEL1
+e25e : 6c02             DE		inc	2,x	;RESET TIMER
+e260 : 6a02             		dec	2,x
+e262 : 39               		rts
+                        
+e263 : 6f02             DDL		clr	2,x	;HALF BIT DELAY
+e265 : 8df7             DDL1		bsr	DE
+e267 : 20f1             		bra	DEL1
+                        
+                        
+                        ;OPTIONAL PORT ROUTINE
+e269 : 8d83             OPTL		bsr	INEEE1
+e26b : 16               		tab
+e26c : 7fa00b           		clr	PORADD+1	;SET I/O ADDRESS FOR $8000
+e26f : fea00a           		ldx	PORADD
+e272 : 8d10             		bsr	PIAINI	;INITIALIZE PIA
+e274 : 8d07             		bsr	PIAECH	;SET ECHO
+e276 : cee3ef           		ldx	#TABLE1	;P, L OR E
+e279 : 17               		tba
+e27a : 7ee176           		jmp	OVER	;LOOK AT TABLE FOR E, L OR P
+                        
+e27d : 8634             PIAECH		ldaa	#$34	;SET DDR
+e27f : a703             		staa	3,x
+e281 : a702             		staa	2,x
+e283 : 39               NOOPT		rts
+                        
+                        ;PIA INITIALIZATION ROUTINE
+e284 : 6c00             PIAINI		inc	0,x	;SET DDR
+e286 : 8607             		ldaa	#$7
+AS02 Assembler for M6802 [1.42].                                     Page   13
+------------------------------- xSWTBUG v1.2.1 -------------------------------
+
+e288 : a701             		staa	1,x
+e28a : 6c00             		inc	0,x
+e28c : a702             		staa	2,x
+e28e : 39               		rts
+                        
+                        ; MINIFLOPPY DISK BOOT
+e28f : 7f8014           DISK		clr	$8014
+e292 : 8d2e             		bsr	DELAY
+e294 : c60b             		ldab	#$0B
+e296 : 8d25             		bsr	RETT2
+e298 : e604             LOOP1		ldab	4,x
+e29a : c501             		bitb	#1
+e29c : 26fa             		bne	LOOP1
+e29e : 6f06             		clr	6,x
+e2a0 : 8d1d             		bsr	RETURN
+e2a2 : c69c             		ldab	#$9C
+e2a4 : 8d17             		bsr	RETT2
+e2a6 : ce2400           		ldx	#$2400
+e2a9 : c502             LOOP2		bitb	#2
+e2ab : 2706             		beq	LOOP3
+e2ad : b6801b           		lda	$801B
+e2b0 : a700             		sta	0,x
+e2b2 : 08               		inx
+e2b3 : f68018           LOOP3		ldab	$8018
+e2b6 : c501             		bitb	#1
+e2b8 : 26ef             		bne	LOOP2
+e2ba : 7e2400           		jmp	$2400
+e2bd : e704             RETT2		stab	4,x
+e2bf : 8d00             RETURN		bsr	RETT1
+e2c1 : 39               RETT1		rts
+                        
+                        
+                        ;GENERAL PURPOSE DELAY LOOP
+                        		VERIFY	$E2C2
+                        
+e2c2 : ceffff           DELAY		ldx	#$FFFF
+e2c5 : 09               DELAY1		dex
+e2c6 : 8c8014           		cpx	#$8014	;STOP AT 8014
+e2c9 : 26fa             DUM		bne	DELAY1
+e2cb : 39               		rts
+                        
+                        
+e2cc : cee009           CLEAR		ldx	#CURSOR
+e2cf : bde07e           		jsr	PDATA1
+e2d2 : 8df1             		bsr	DELAY1
+e2d4 : bde347           RDOFF1		jsr	RDOFF
+e2d7 : 2058             		bra	C4
+                        
+                        ;BREAKPOINT ENTERING ROUTINE
+e2d9 : cee123           BREAK		ldx	#SF0
+e2dc : bca012           		cpx	SWIJMP	;BREAKPOINTS ALREADY IN USE?
+e2df : 271a             		beq	INUSE
+e2e1 : 08               		inx
+e2e2 : 8d32             BREAK0		bsr	STO1
+e2e4 : bde047           		jsr	BADDR
+e2e7 : ffa014           		stx	BKPT
+e2ea : a600             		ldaa	0,x
+e2ec : b7a016           		staa	BKLST
+e2ef : 863f             		ldaa	#$3F
+e2f1 : a700             		staa	0,x
+e2f3 : cee123           		ldx	#SF0
+e2f6 : 8d1e             		bsr	STO1
+AS02 Assembler for M6802 [1.42].                                     Page   14
+------------------------------- xSWTBUG v1.2.1 -------------------------------
+
+e2f8 : 7ee16b           		jmp	CONTR1
+e2fb : fea014           INUSE		ldx	BKPT
+e2fe : b6a016           		ldaa	BKLST
+e301 : a700             		staa	0,x
+e303 : cee124           		ldx	#SFE1
+e306 : 20da             		bra	BREAK0
+                        
+e308 : b7a043           SWISET		staa	STACK+1	;FIX POWER UP INTERRUPT
+e30b : fea012           		ldx	SWIJMP
+e30e : 8ce123           		cpx	#SF0
+e311 : 2706             		beq	STORTN
+e313 : cee124           STO		ldx	#SFE1
+e316 : ffa012           STO1		stx	SWIJMP
+e319 : 39               STORTN		rts
+                        
+e31a : 8d5a             PUNCH1		bsr	PUNCH
+e31c : 200f             		bra	POFC4
+                        
+                        ;FORMAT END OF TAPE WITH PGM. CTR. AND S9
+e31e : cea049           PNCHS9		ldx	#$A049
+e321 : ffa004           		stx	ENDA
+e324 : 09               		dex
+e325 : 8d52             		bsr	PUNCH2
+e327 : cee190           		ldx	#S9
+e32a : bde07e           PDAT		jsr	PDATA1
+e32d : 8d24             POFC4		bsr	PNCHOF
+e32f : 8d91             		bsr	DELAY
+e331 : 7ee152           C4		jmp	CONTRL
+                        
+e334 :                  RDON
+                        	if NO_WEIRD
+e334 : 01010101010101.. 		nop	18
+                        	else
+                        		com	PORECH	;DISABLE ECHO FOR ACIA
+                        		ldaa	#$11		;RON CHAR.
+                        		ldab	#$20		;STROBE CHAR
+                        		bsr	STROBE
+                        		jsr	ISACIA	;CHECK TO SEE IF PIA
+                        		beq	RTNN
+                        		ldaa	#$3C		;DISABLE PIA ECHO IF PIA
+                        		staa	3,x
+                        	endif
+e346 : 39               RTNN		rts
+                        
+e347 :                  RDOFF
+                        	if NO_WEIRD
+e347 : 39               		rts
+e348 : 0101010101       		nop	5
+                        	else
+                        		ldaa	#$13	;TURN READER OFF
+                        		ldab	#$10
+                        		bra	STROBE
+                        	endif
+                        
+e34d :                  PNCHON
+                        	if NO_WEIRD
+e34d : 39               		rts
+e34e : 0101010101       		nop	5
+                        	else
+                        		ldaa	#$12
+                        		ldab	#4
+                        		bra	STROBE
+AS02 Assembler for M6802 [1.42].                                     Page   15
+------------------------------- xSWTBUG v1.2.1 -------------------------------
+
+                        	endif
+                        
+e353 :                  PNCHOF
+                        	if NO_WEIRD
+e353 : 39               		rts
+e354 : 010101           		nop	3
+                        	else
+                        		ldaa	#$14
+                        		ldab	#$8
+                        	endif
+                        
+                        ;PIA STROBING ROUTINE FOR PUNCH/READ ON/OFF
+e357 : bde075           STROBE		jsr	OUTCH
+e35a : bde1d6           		jsr	GETPT1
+e35d : 2716             		beq	RTN1
+e35f : 8602             		ldaa	#2
+e361 : ca01             		orab	#1
+e363 : 8d0c             		bsr	STR2
+e365 : 8d08             		bsr	STR1
+e367 : 8602             		ldaa	#2
+e369 : c601             		ldab	#1
+e36b : e700             		stab	0,x
+e36d : 8d02             		bsr	STR2
+e36f : 8606             STR1		ldaa	#6
+e371 : a701             STR2		staa	1,x
+e373 : e700             		stab	0,x
+e375 : 39               RTN1		rts
+                        
+                        ;PUNCH FROM BEGINNING ADDRESS (BEGA) THRU
+                        ;ENDING ADDRESS (ENDA)
+e376 : fea002           PUNCH		ldx	BEGA
+e379 : ffa044           PUNCH2		stx	TW
+e37c : 8dcf             		bsr	PNCHON
+e37e : b6a005           PUN11		ldaa	ENDA+1
+e381 : b0a045           		suba	TW+1
+e384 : f6a004           		ldab	ENDA
+e387 : f2a044           		sbcb	TW
+e38a : 2604             		bne	PUN22
+e38c : 8110             		cmpa	#16
+e38e : 2502             		bcs	PUN23
+e390 : 860f             PUN22		ldaa	#15
+e392 : 8b04             PUN23		adda	#4
+e394 : b7a047           		staa	BYTECT
+e397 : 8003             		suba	#3
+e399 : b7a046           		staa	TEMP
+                        ;PUNCH C/R L/F NULLS S1
+e39c : cee193           		ldx	#MTAPE1
+e39f : bde07e           		jsr	PDATA1
+e3a2 : 5f               		clrb
+                        ;PUNCH FRAME COUNT
+e3a3 : cea047           		ldx	#BYTECT
+e3a6 : 8d24             		bsr	PUNT2	;PUNCH 2 HEX CHARACTERS
+                        ;PUNCH ADDRESS
+e3a8 : cea044           		ldx	#TW
+e3ab : 8d1f             		bsr	PUNT2
+e3ad : 8d1d             		bsr	PUNT2
+                        ;PUNCH	DATA
+e3af : fea044           		ldx	TW
+e3b2 : 8d18             PUN32		bsr	PUNT2	;PUNCH ONE BYTE
+e3b4 : 7aa046           		dec	TEMP
+e3b7 : 26f9             		bne	PUN32
+e3b9 : ffa044           		stx	TW
+AS02 Assembler for M6802 [1.42].                                     Page   16
+------------------------------- xSWTBUG v1.2.1 -------------------------------
+
+e3bc : 53               		comb
+e3bd : 37               		pshb
+e3be : 30               		tsx
+e3bf : 8d0b             		bsr	PUNT2	;PUNCH CHECKSUM
+e3c1 : 33               		pulb		;RESTORE STACK
+e3c2 : fea044           		ldx	TW
+e3c5 : 09               		dex
+e3c6 : bca004           		cpx	ENDA
+e3c9 : 26b3             		bne	PUN11
+e3cb : 39               RTN5		rts
+                        
+                        ;PUNCH 2 HEX CHAR, UPDATE CHECKSUM
+e3cc : eb00             PUNT2		addb	0,x
+e3ce : 7ee0bf           		jmp	OUT2H	;OUTPUT 2 HEX CHAR AND RTS
+                        		page
+AS02 Assembler for M6802 [1.42].                                     Page   17
+------------------------------- xSWTBUG v1.2.1 -------------------------------
+
+                        ;COMMAND TABLE
+e3d1 : 47               TABLE		db	'G'	;GOTO
+e3d2 : e1d0             		dw	GOTO
+e3d4 : 5a               		db	'Z'	;GOTO PROM
+e3d5 : c000             		dw	PROM
+e3d7 : 4d               		db	'M'	;MEMORY EXAM AND CHANGE
+e3d8 : e088             		dw	CHANGE
+e3da : 46               		db	'F'	;BYTE SEARCH
+e3db : e1ae             		dw	SEARCH
+e3dd : 52               		db	'R'	;REGISTER DUMP
+e3de : e130             		dw	PRINT
+e3e0 : 4a               		db	'J'	;JUMP
+e3e1 : e005             		dw	JUMP
+                        	if EXTENDED
+e3e3 : 58               		db	'X'
+e3e4 : e611             		dw	ExtCmd
+                        	else
+                        		db	'C'	;CLEAR SCREEN
+                        		dw	CLEAR
+                        	endif	;EXTENDED
+e3e6 : 44               		db	'D'	;boot from disk
+e3e7 : e28f             		dw	DISK
+e3e9 : 42               		db	'B'	;BREAKPOINT
+e3ea : e2d9             		dw	BREAK
+e3ec : 4f               		db	'O'	;OPTIONAL PORT
+e3ed : e269             		dw	OPTL
+e3ef : 50               TABLE1		db	'P'	;ASCII PUNCH
+e3f0 : e31a             		dw	PUNCH1
+e3f2 : 4c               		db	'L'	;ASCII LOAD
+e3f3 : e00c             		dw	LOAD
+e3f5 : 45               TABEND		db	'E'	;END OF TAPE
+e3f6 : e31e             		dw	PNCHS9
+                        		page
+AS02 Assembler for M6802 [1.42].                                     Page   18
+------------------------------- xSWTBUG v1.2.1 -------------------------------
+
+                        	if EXTENDED
+                        ;***************************************************
+                        ; This is the signature for a piece of code to
+                        ; determine if it's running under normal SWTBUG or
+                        ; extended xSWTBUG.  The signature is always at
+                        ; $E400.
+                        ;
+e3f8 : 0000000000000000 		ds	$e400-*
+                        		VERIFY	$e400
+                        
+e400 : 5853575442554700 		db	"XSWTBUG",0
+                        ;
+                        ; These are the version and revision of this build.
+                        ; They are always at $E408 and $E409.
+                        ;
+                        		VERIFY	$e408
+                        
+e408 : 01               		db	VERSION
+e409 : 02               		db	REVISION
+                        ;
+                        ; These are vectors to internal functions that may
+                        ; be useful to user applications.  The vectors
+                        ; always start at $E40A.
+                        ;
+                        		VERIFY	$e40A
+                        
+                        	if	SD_SUPPORT
+e40a : 7ee798           		jmp	SdBoot		;load OS from SD Card
+e40d : 7ee450           		jmp	xParInit	;init parallel interface
+e410 : 7ee45f           		jmp	xParSetWrite	;set for writing
+e413 : 7ee474           		jmp	xParSetRead	;set for reading
+e416 : 7ee487           		jmp	xParWriteByte	;write one byte
+e419 : 7ee4b2           		jmp	xParReadByte	;read one byte
+                        ;
+                        ; Higher level disk functions
+                        ;
+e41c : 7ee540           		jmp	DiskReadSector
+e41f : 7ee56d           		jmp	DiskWriteSector
+e422 : 7ee5b8           		jmp	DiskStatus
+e425 : 7ee4e3           		jmp	DiskGetDrives
+e428 : 7ee58e           		jmp	DiskGetMounted
+e42b : 7ee592           		jmp	DiskNextMountedDrv
+e42e : 7ee4e6           		jmp	DiskUnmount
+e431 : 7ee4fd           		jmp	DiskMount
+e434 : 7ee519           		jmp	DiskDir
+e437 : 7ee520           		jmp	DiskDirNext
+                        	endif	;SD_SUPPORT
+                        		page
+AS02 Assembler for M6802 [1.42].                                     Page   19
+------------------------------- xSWTBUG v1.2.1 -------------------------------
+
+                        ;
+                        ;***************************************************
+                        ; Displaced code from LOAD function in original
+                        ; SWTBUG.
+                        ;
+                        	if	SUPPORT_S5
+e43a : 8135             LOADX		cmpa	#'5'
+e43c : 2708             		beq	LOADWE		;Wait for EOL
+e43e : 8131             		cmpa	#'1'
+e440 : 2601             		bne	LOAD3X		;2ND CHAR NOT 1
+e442 : 39               		rts
+e443 : 7ee00f           LOAD3X		jmp	LOAD3
+                        ;
+                        ; Keep eating characters until the end of the line.  N
+                        ; this might not be right, as it fails if the S5 recor
+                        ; not have a CR at the end.  A better approach would b
+                        ; get the byte count (next two bytes) and read twice t
+                        ; number of characters.
+                        ;
+e446 : bde078           LOADWE		jsr	INCH		;get char
+e449 : 810d             		cmpa	#CR		;end of line?
+e44b : 26f9             		bne	LOADWE		;nope
+e44d : 7ee044           		jmp	LOAD21		;done loading
+                        	endif
+                        ;
+                        ;***************************************************
+                        ; If the option is turned on, build in the SD card
+                        ; support functions
+                        ;
+                        	if	SD_SUPPORT
+                        		include	"pario.asm"
+                        ;*****************************************************
+                        ; These are the low-level I/O routines to talk to the
+                        ; Arduino processor connected to a 6821 PIA.
+                        ;
+                        ; August 2014, Bob Applegate K2UT, bob@corshamtech.com
+                        ;
+                        ; Which port bits are used for what:
+                        ;
+                        ; A0 = Data 0, alternates input/output
+                        ; A1 = Data 1, alternates input/output
+                        ; A2 = Data 2, alternates input/output
+                        ; A3 = Data 3, alternates input/output
+                        ; A4 = Data 4, alternates input/output
+                        ; A5 = Data 5, alternates input/output
+                        ; A6 = Data 6, alternates input/output
+                        ; A7 = Data 7, alternates input/output
+                        ;
+                        ; B0 = Direction bit, always output
+                        ; B1 = Write strobe or ACK, always output
+                        ; B2 = Read stroke or ACK, always input
+                        ;
+                        ;----------------------------------------------------
+                        ; Bits in the B register
+                        ;
+0001 =                  DIRECTION	equ	%00000001
+0002 =                  PSTROBE		equ	%00000010
+0004 =                  ACK		equ	%00000100
+                        ;
+                        ;----------------------------------------------------
+                        ; Constants that might be defined elsewhere and might
+                        ; need to be removed
+AS02 Assembler for M6802 [1.42].                                     Page   20
+------------------------------- xSWTBUG v1.2.1 -------------------------------
+
+                        ;
+                        ;false		equ	0
+                        ;true		equ	~false
+                        ;----------------------------------------------------
+                        ;
+                        ; Which slot the parallel board is in.  This needs to
+                        ; be set for the system in use.  As long as the user
+                        ; programs only call functions in here, no other
+                        ; file/application should know which slot the board
+                        ; is in.
+                        ;
+0006 =                  PIASLOT		equ	6
+                        ;
+                        ; Computed addresses of 6821 registers
+                        ;
+8018 =                  PIABASE		equ	$8000+(PIASLOT*4)
+8018 =                  PIAREGA		equ	PIABASE		;data reg A
+8018 =                  PIADDRA		equ	PIABASE		;data dir reg A
+8019 =                  PIACTLA		equ	PIABASE+1	;control reg A
+801a =                  PIAREGB		equ	PIABASE+2	;data reg B
+801a =                  PIADDRB		equ	PIABASE+2	;data dir reg B
+801b =                  PIACTLB		equ	PIABASE+3	;control reg B
+                        		code
+                        		page
+AS02 Assembler for M6802 [1.42].                                     Page   21
+------------------------------- xSWTBUG v1.2.1 -------------------------------
+
+                        ;*****************************************************
+                        ; This is the initialization function.  Call before
+                        ; doing anything else with the parallel port.
+                        ;
+e450 :                  xParInit
+                        ;
+                        ; Set up the data direction register for port B so tha
+                        ; the DIRECTION and PSTROBE bits are output.
+                        ;
+e450 : 8600             		lda	#0	;select DDR
+e452 : b7801b           		sta	PIACTLB	;...for port B
+e455 : 8603             		lda	#DIRECTION | PSTROBE
+e457 : b7801a           		sta	PIADDRB
+e45a : 8604             		lda	#4	;select data reg
+e45c : b7801b           		sta	PIACTLB
+                        ;
+                        ; Fall through to set up for writes...
+                        ;
+                        		page
+AS02 Assembler for M6802 [1.42].                                     Page   22
+------------------------------- xSWTBUG v1.2.1 -------------------------------
+
+                        ;*****************************************************
+                        ; This sets up for writing to the Arduino.  Sets up
+                        ; direction registers, drives the direction bit, etc.
+                        ;
+e45f : 8600             xParSetWrite	lda	#0	;select DDR
+e461 : b78019           		sta	PIACTLA	;...for port A
+e464 : 86ff             		lda	#$ff	;set bits for output
+e466 : b78018           		sta	PIADDRA
+e469 : 8604             		lda	#4	;select data reg
+e46b : b78019           		sta	PIACTLA
+                        ;
+                        ; Set direction flag to output, clear ACK bit
+                        ;
+e46e : 8601             		lda	#DIRECTION
+e470 : b7801a           		sta	PIAREGB
+e473 : 39               		rts
+                        		page
+AS02 Assembler for M6802 [1.42].                                     Page   23
+------------------------------- xSWTBUG v1.2.1 -------------------------------
+
+                        ;*****************************************************
+                        ; This sets up for reading from the Arduino.  Sets up
+                        ; direction registers, clears the direction bit, etc.
+                        ;
+e474 : 8600             xParSetRead	lda	#0	;select DDR
+e476 : b78019           		sta	PIACTLA	;...for port A
+e479 : 8600             		lda	#$00	;set bits for input
+e47b : b78018           		sta	PIADDRA
+e47e : 8604             		lda	#4	;select data reg
+e480 : b78019           		sta	PIACTLA
+                        ;
+                        ; Set direction flag to input, clear ACK bit
+                        ;
+e483 : 7f801a           		clr	PIAREGB
+e486 : 39               		rts
+                        		page
+AS02 Assembler for M6802 [1.42].                                     Page   24
+------------------------------- xSWTBUG v1.2.1 -------------------------------
+
+                        ;*****************************************************
+                        ; This writes a single byte to the Arduino.  On entry,
+                        ; the byte to write is in A.  This assumes ParSetWrite
+                        ; was already called.
+                        ;
+                        ; Destroys A, all other registers preserved.
+                        ;
+                        ; Write cycle:
+                        ;
+                        ;    1. Wait for other side to lower ACK.
+                        ;    2. Put data onto the bus.
+                        ;    3. Set DIRECTION and PSTROBE to indicate data
+                        ;       is valid and ready to read.
+                        ;    4. Wait for ACK line to go high, indicating the
+                        ;       other side has read the data.
+                        ;    5. Lower PSTROBE.
+                        ;    6. Wait for ACK to go low, indicating end of
+                        ;       transfer.
+                        ;
+e487 : 36               xParWriteByte	psha		;save data
+e488 : b6801a           Parwl22		lda	PIAREGB	;check status
+e48b : 8404             		anda	#ACK
+e48d : 26f9             		bne	Parwl22	;wait for ACK to go low
+                        ;
+                        ; Now put the data onto the bus
+                        ;
+e48f : 32               		pula
+e490 : b78018           		sta	PIAREGA
+                        ;
+                        ; Raise the strobe so the Arduino knows there is
+                        ; new data.
+                        ;
+e493 : b6801a           		lda	PIAREGB
+e496 : 8a02             		oraa	#PSTROBE
+e498 : b7801a           		sta	PIAREGB
+                        ;
+                        ; Wait for ACK to go high, indicating the Arduino has
+                        ; pulled the data and is ready for more.
+                        ;
+e49b : b6801a           Parwl33		lda	PIAREGB
+e49e : 8404             		anda	#ACK
+e4a0 : 27f9             		beq	Parwl33
+                        ;
+                        ; Now lower the strobe, then wait for the Arduino to
+                        ; lower ACK.
+                        ;
+e4a2 : b6801a           		lda	PIAREGB
+e4a5 : 84fd             		anda	#~PSTROBE
+e4a7 : b7801a           		sta	PIAREGB
+e4aa : b6801a           Parwl44		lda	PIAREGB
+e4ad : 8404             		anda	#ACK
+e4af : 26f9             		bne	Parwl44
+e4b1 : 39               		rts
+                        		page
+AS02 Assembler for M6802 [1.42].                                     Page   25
+------------------------------- xSWTBUG v1.2.1 -------------------------------
+
+                        ;*****************************************************
+                        ; This reads a byte from the Arduino and returns it in
+                        ; A.  Assumes ParSetRead was called before.
+                        ;
+                        ; This does not have a time-out.
+                        ;
+                        ; Preserves all other registers.
+                        ;
+                        ; Read cycle:
+                        ;
+                        ;    1. Wait for other side to raise ACK, indicating
+                        ;       data is ready.
+                        ;    2. Read data.
+                        ;    3. Raise PSTROBE indicating data was read.
+                        ;    4. Wait for ACK to go low.
+                        ;    5. Lower PSTROBE.
+                        ;
+e4b2 : b6801a           xParReadByte	lda	PIAREGB
+e4b5 : 8404             		anda	#ACK	;is their strobe high?
+e4b7 : 27f9             		beq	xParReadByte	;nope, no data
+                        ;
+                        ; Data is available, so grab and save it.
+                        ;
+e4b9 : b68018           		lda	PIAREGA
+e4bc : 36               		psha
+                        ;
+                        ; Now raise our strobe (their ACK), then wait for
+                        ; them to lower their strobe.
+                        ;
+e4bd : b6801a           		lda	PIAREGB
+e4c0 : 8a02             		oraa	#PSTROBE
+e4c2 : b7801a           		sta	PIAREGB
+e4c5 : b6801a           Parrlp1		lda	PIAREGB
+e4c8 : 8404             		anda	#ACK
+e4ca : 26f9             		bne	Parrlp1	;still active
+                        ;
+                        ; Lower our ack, then we’re done.
+                        ;
+e4cc : b6801a           		lda	PIAREGB
+e4cf : 84fd             		anda	#~PSTROBE
+e4d1 : b7801a           		sta	PIAREGB
+e4d4 : 32               		pula
+e4d5 : 39               		rts
+                        
+                        		include	"parproto.inc"
+                        ;*****************************************************
+                        ; Parallel port protocol
+                        ;
+                        ; This is the header file for making applications
+                        ; compliant with The Remote Disk Protocol Guide which
+                        ; is on the Corsham Technologies web page somewhere:
+                        ;
+                        ;    www.corshamtech.com
+                        ;
+                        ; This was updated 06/13/2015 to be compliant with the
+                        ; official specification, so the opcode values changed
+                        ;
+                        ;=====================================================
+                        ; Commands from host to Arduino
+                        ;
+0001 =                  PC_GET_VERSION	equ	$01
+0005 =                  PC_PING		equ	$05	;ping Arduino
+AS02 Assembler for M6802 [1.42].                                     Page   26
+------------------------------- xSWTBUG v1.2.1 -------------------------------
+
+0006 =                  PC_LED_CONTROL	equ	$06	;LED control
+0010 =                  PC_GET_DIR	equ	$10	;Get directory
+0011 =                  PC_GET_MOUNTED	equ	$11	;Get mounted drive list
+0012 =                  PC_MOUNT	equ	$12	;Mount drive
+0013 =                  PC_UNMOUNT	equ	$13	;Unmount drive
+0014 =                  PC_GET_STATUS	equ	$14	;Get status for one drive
+0015 =                  PC_DONE		equ	$15	;Stop data
+0015 =                  PC_ABORT	equ	PC_DONE
+0016 =                  PC_READ_FILE	equ	$16	;Read regular file (non-DSK)
+0017 =                  PC_READ_BYTES	equ	$17	;Read sequential bytes
+0018 =                  PC_RD_SECTOR	equ	$18	;Read FLEX sector
+0019 =                  PC_WR_SECTOR	equ	$19	;Write FLEX sector
+001a =                  PC_GET_MAX	equ	$1a	;Get maximum drives
+001b =                  PC_WRITE_FILE   equ	$1b	;Open file for writing
+001c =                  PC_WRITE_BYTES	equ	$1c	;Data to be written
+                        ;
+                        ;=====================================================
+                        ; Responses from Arduino to host
+                        ;
+0081 =                  PR_VERSION_INFO	equ	$81	;Contains version information
+0082 =                  PR_ACK		equ	$82	;ACK (no additional information)
+0083 =                  PR_NAK		equ	$83	;NAK - one status byte follows
+0085 =                  PR_PONG		equ	$85	;Reply to a ping
+0090 =                  PR_DIR_ENTRY	equ	$90	;Directory entry
+0091 =                  PR_DIR_END	equ	$91	;End of directory entries
+0092 =                  PR_FILE_DATA	equ	$92	;File data
+0093 =                  PR_STATUS	equ	$93	;Drive status
+0094 =                  PR_SECTOR_DATA	equ	$94	;Sector data
+0095 =                  PR_MOUNT_INFO	equ	$95	;Mount entry
+0096 =                  PR_MAX_DRIVES	equ	$96	;Maximum number of drives
+                        ;
+                        ;=====================================================
+                        ; Error codes for NAK events
+                        ;
+0000 =                  ERR_NONE	equ	$00
+0010 =                  ERR_NOT_MOUNTED	equ	$10
+0011 =                  ERR_MOUNTED	equ	$11
+0012 =                  ERR_NOT_FOUND	equ	$12
+0013 =                  ERR_READ_ONLY	equ	$13
+0014 =                  ERR_BAD_DRIVE	equ	$14
+0015 =                  ERR_BAD_TRACK	equ	$15
+0016 =                  ERR_BAD_SECTOR	equ	$16
+0017 =                  ERR_READ_ERROR	equ	$17
+                        
+                        
+                        		include	"diskfunc.asm"
+                        		list
+                        ;=====================================================
+                        ; This is a collection of functions for performing
+                        ; higher level disk functions.  This hides the nasty
+                        ; details of communications with the remote disk
+                        ; system.
+                        ;
+                        ; August 20, 2014 - Bob Applegate
+                        ;                   bob@corshamtech.com
+                        ;
+                        ; 06/14/2015 - Bob Applegate
+                        ;		Now that there is an official standard
+                        ;		for the protocol between the host (this
+                        ;		code) and the DCP (Arduino code), this
+                        ;		code has been updated to be compliant.
+                        ;
+AS02 Assembler for M6802 [1.42].                                     Page   27
+------------------------------- xSWTBUG v1.2.1 -------------------------------
+
+                        ;		include	"parproto.inc"
+                        ;
+                        ; Number of drives emulated
+                        ;
+0004 =                  DRIVES		equ	4
+                        
+                        		code
+                        	if	~IN_SWTBUG
+                        		org	$a800
+                        ;
+                        ;=====================================================
+                        ; This is a jump table to the various functions so
+                        ; callers of this code don't need to know exactly
+                        ; where each function is or what it's called.
+                        ;
+                        ; First, the low-level functions.  If the disk system
+                        ; has not been used yet, call ParInit first.
+                        ;
+                        		jmp	xParInit
+                        		jmp	xParSetWrite
+                        		jmp	xParSetRead
+                        		jmp	xParWriteByte
+                        		jmp	xParReadByte
+                        ;
+                        ; Followed by higher level functions
+                        ;
+                        		jmp	DiskReadSector
+                        		jmp	DiskWriteSector
+                        		jmp	DiskStatus
+                        		jmp	DiskGetDrives
+                        		jmp	DiskGetMounted
+                        		jmp	DiskNextMountedDrv
+                        		jmp	DiskUnmount
+                        		jmp	DiskMount
+                        		jmp	DiskDir
+                        		jmp	DiskDirNext
+                        	endif
+                        ;
+                        ;=====================================================
+                        ; This is a sanity check to verify connectivity to the
+                        ; Arduino code is working.  Returns C clear if all is
+                        ; good, or C set if not.
+                        ;
+e4d6 : 8605             DiskPing	lda	#PC_PING	;command
+e4d8 : 8dad             		jsr	xParWriteByte	;send to Arduino
+e4da : 8d98             		jsr	xParSetRead
+e4dc : 8dd4             		jsr	xParReadByte	;read their reply
+e4de : bde45f           DiskRetGood	jsr	xParSetWrite
+e4e1 : 0c               		clc			;assume it's good
+e4e2 : 39               		rts
+                        ;
+                        ;=====================================================
+                        ; Get the maximum number of drives supported.  This
+                        ; takes no input parameters.  Returns a value in A
+                        ; that is the number of drives supported.  This is a
+                        ; one based value, so a return of 4 indicates that fou
+                        ; drives are supported, 0 to 3.
+                        ;
+                        ; NOTE: FLEX only supports four drives, so fake it for
+                        ; now and always return 4.  This call might be silly
+                        ; and prime for removal.
+                        ;
+AS02 Assembler for M6802 [1.42].                                     Page   28
+------------------------------- xSWTBUG v1.2.1 -------------------------------
+
+e4e3 : 8604             DiskGetDrives	lda	#DRIVES
+e4e5 : 39               		rts
+                        		page
+AS02 Assembler for M6802 [1.42].                                     Page   29
+------------------------------- xSWTBUG v1.2.1 -------------------------------
+
+                        ;=====================================================
+                        ; Unmount a filesystem.  On entry, A contains the
+                        ; zero-based drive number.
+                        ;
+                        ; Returns with C clear on success.  If error, C is set
+                        ; and A contains the error code.
+                        ;
+e4e6 : 36               DiskUnmount	psha		;save drive
+e4e7 : 8613             		lda	#PC_UNMOUNT
+e4e9 : 8d9c             		jsr	xParWriteByte
+e4eb : 32               		pula
+e4ec : 8d99             		jsr	xParWriteByte
+                        ;
+                        ; Handy entry point.  This sets the mode to read, gets
+                        ; an ACK or NAK, and if a NAK, gets the error code
+                        ; and returns it in A.
+                        ;
+e4ee : 8d84             ComExit		jsr	xParSetRead	;get ready for response
+e4f0 : 8dc0             		jsr	xParReadByte
+e4f2 : 8182             		cmpa	#PR_ACK
+e4f4 : 27e8             		beq	DiskRetGood
+                        ;
+                        ; Assume it's a NAK.
+                        ;
+e4f6 : 8dba             DiskRetErrCode	jsr	xParReadByte	;get error code
+e4f8 : bde45f           DiskRetBad	jsr	xParSetWrite
+e4fb : 0d               		sec
+e4fc : 39               		rts
+                        		page
+AS02 Assembler for M6802 [1.42].                                     Page   30
+------------------------------- xSWTBUG v1.2.1 -------------------------------
+
+                        ;=====================================================
+                        ; Mount a filesystem.  On entry, A contains a zero
+                        ; based drive number, B is the read-only flag (0 or
+                        ; non-zero), and X points to a filename to mount on
+                        ; that drive.  
+                        ;
+                        ; Returns with C clear on success.  If error, C is set
+                        ; and A contains the error code.
+                        ;
+e4fd : 37               DiskMount       pshb		;save read-only flag
+e4fe : 36               		psha		;save drive
+e4ff : 8612             		lda	#PC_MOUNT
+e501 : 8d84             		jsr	xParWriteByte	;send the command
+e503 : 32               		pula
+e504 : 8d81             		jsr	xParWriteByte	;send drive number
+e506 : 33               		pulb
+e507 : bde487           		jsr	xParWriteByte	;send read-only flag
+                        ;
+                        ; Now send each byte of the filename until the end,
+                        ; which is a 0 byte.
+                        ;
+e50a : a600             dmnt1		lda	0,x
+e50c : 2706             		beq	dmnt2
+e50e : bde487           		jsr	xParWriteByte
+e511 : 08               		inx
+e512 : 20f6             		bra	dmnt1
+e514 : bde487           dmnt2		jsr	xParWriteByte	;send trailing null
+e517 : 20d5             		bra	ComExit
+                        		page
+AS02 Assembler for M6802 [1.42].                                     Page   31
+------------------------------- xSWTBUG v1.2.1 -------------------------------
+
+                        ;=====================================================
+                        ; This starts a directory read of the raw drive, not
+                        ; the mounted drive.  No input parameters.  This simpl
+                        ; sets up for reading the entries, then the user must
+                        ; read each entry.
+                        ;
+                        ; Returns with C clear on success.  If error, C is set
+                        ; and A contains the error code.
+                        ;
+e519 : 8610             DiskDir		lda	#PC_GET_DIR	;send command
+e51b : bde487           		jsr	xParWriteByte
+e51e : 0c               		clc		;assume it works
+e51f : 39               		rts
+                        		page
+AS02 Assembler for M6802 [1.42].                                     Page   32
+------------------------------- xSWTBUG v1.2.1 -------------------------------
+
+                        ;=====================================================
+                        ; Read the next directory entry.  On input, X points
+                        ; to a XXX byte area to receive the drive data.
+                        ; Returns C set if end of directory (ie, attempt to
+                        ; read and there are none left).  Else, C is clear
+                        ; and X points to the null at end of filename.
+                        ;
+e520 : bde474           DiskDirNext	jsr	xParSetRead	;read results
+e523 : 8d8d             		jsr	xParReadByte	;get response code
+e525 : 8183             		cmpa	#PR_NAK		;error?
+e527 : 2712             		beq	DDNErr
+e529 : 8191             		cmpa	#PR_DIR_END	;end?
+e52b : 270e             		beq	DDNErr
+                        ;
+                        ; This contains a directory entry.
+                        ;
+e52d : 8d83             DDNloop		jsr	xParReadByte
+e52f : a700             		sta	0,x
+e531 : 08               		inx
+e532 : 8100             		cmpa	#0	;end of file name?
+e534 : 26f7             		bne	DDNloop
+e536 : bde45f           DDNEnd		jsr	xParSetWrite
+e539 : 0c               		clc		;not end of files
+e53a : 39               		rts
+                        ;
+                        ; Error.  Set C and return.  This is not really
+                        ; proper, since this implies a simple end of the
+                        ; directory rather than an error.
+                        ;
+e53b : bde45f           DDNErr		jsr	xParSetWrite
+e53e : 0d               		sec
+e53f : 39               		rts
+                        		page
+AS02 Assembler for M6802 [1.42].                                     Page   33
+------------------------------- xSWTBUG v1.2.1 -------------------------------
+
+                        ;=====================================================
+                        ; This is a low level disk function for a real OS to
+                        ; perform a disk sector read.  On entry, X points to
+                        ; a disk parameter block with the following fields:
+                        ;
+                        ;    drive             DS   1
+                        ;    track             DS   1
+                        ;    sector            DS   1
+                        ;    sectors per track DS   1
+                        ;    ptr to data       DS   2   must be 256 bytes long
+                        ;
+                        ; The first three fields are zero based.  Sectors per
+                        ; track is a one based value.
+                        ;
+                        ; Returns with C clear on success.  If error, C is set
+                        ; and A contains the error code.
+                        ;
+e540 : 8618             DiskReadSector	lda	#PC_RD_SECTOR	;sector read command
+e542 : bde5ec           		jsr	Dsendinfo
+                        ;
+                        ; Now get the response.  Will be either a NAK followed
+                        ; by an error code, or a 97 followed by 256 bytes of
+                        ; data.
+                        ;
+e545 : bde474           		jsr	xParSetRead
+e548 : bde4b2           		jsr	xParReadByte	;response
+e54b : 8194             		cmpa	#PR_SECTOR_DATA	;data?
+e54d : 2612             		bne	DiskCerror	;no
+                        ;
+e54f : ee04             		ldx	4,x	;load buffer address
+e551 : c600             		ldab	#0	;256 bytes of data
+e553 : bde4b2           DiskReadLp	jsr	xParReadByte
+e556 : a700             		sta	0,x
+e558 : 08               		inx
+e559 : 5a               		decb
+e55a : 26f7             		bne	DiskReadLp
+                        ;
+                        ; All done
+                        ;
+e55c : bde45f           		jsr	xParSetWrite
+e55f : 5f               		clrb
+e560 : 39               		rts
+                        ;
+                        ; Common error handler.  Next byte is the error code
+                        ; which goes into B, set carry, and exit.
+                        ;
+e561 : bde4b2           DiskCerror	jsr	xParReadByte
+e564 : bde5db           		jsr	DiskErrTranslate
+e567 : 16               		tab
+e568 : bde45f           DiskCerr2	jsr	xParSetWrite
+e56b : 0d               		sec
+e56c : 39               		rts
+                        		page
+AS02 Assembler for M6802 [1.42].                                     Page   34
+------------------------------- xSWTBUG v1.2.1 -------------------------------
+
+                        ;=====================================================
+                        ; This is a low level disk function for a real OS to
+                        ; perform a disk sector write.  On entry, IX points to
+                        ; a disk parameter block with the following fields:
+                        ;
+                        ;    drive             DS   1
+                        ;    track             DS   1
+                        ;    sector            DS   1
+                        ;    sectors per track DS   1
+                        ;    ptr to data       DS   2   must be 256 bytes long
+                        ;
+                        ; The first three fields are zero based.  Sectors per
+                        ; track is one based.
+                        ;
+                        ; Returns with C clear on success.  If error, C is set
+                        ; and A contains the error code.
+                        ;
+e56d : 8619             DiskWriteSector	lda	#PC_WR_SECTOR	;write sector comman
+e56f : bde5ec           		jsr	Dsendinfo
+e572 : ee04             		ldx	4,x	;get pointer
+e574 : c600             		ldab	#0	;counter
+e576 : a600             DiskWriteLp	lda	0,x
+e578 : bde487           		jsr	xParWriteByte
+e57b : 08               		inx
+e57c : 5a               		decb
+e57d : 26f7             		bne	DiskWriteLp
+                        ;
+                        ; Now get response.
+                        ;
+e57f : bde474           		jsr	xParSetRead
+e582 : bde4b2           		jsr	xParReadByte
+e585 : 8183             		cmpa	#PR_NAK	;NAK?
+e587 : 27d8             		beq	DiskCerror
+                        ;
+                        ; This is a common "good" exit point.  Clears B, clear
+                        ; carry and sets Z.
+                        ;
+e589 : bde45f           DiskComEx	jsr	xParSetWrite
+e58c : 5f               		clrb		;clear error indicator
+e58d : 39               		rts
+                        		page
+AS02 Assembler for M6802 [1.42].                                     Page   35
+------------------------------- xSWTBUG v1.2.1 -------------------------------
+
+                        ;=====================================================
+                        ; Get list of mounted drives.  This starts the
+                        ; process, then each call to DiskNextMountedDrv will
+                        ; return the next drive in sequence.
+                        ;
+e58e : 8611             DiskGetMounted	lda	#PC_GET_MOUNTED	;start command
+e590 : 207c             		bra	DiskSendByte
+                        		page
+AS02 Assembler for M6802 [1.42].                                     Page   36
+------------------------------- xSWTBUG v1.2.1 -------------------------------
+
+                        ;=====================================================
+                        ; Get next mounted drive.  On entry, IX points to a
+                        ; XXX byte area to receive the data.  Each call loads
+                        ; the area with:
+                        ;
+                        ; Drive number - 1 byte
+                        ; Read-only flag.  0 = read/write, non-zero = read-onl
+                        ; File name    - X bytes of filename (xxxxxxxx.xxx)
+                        ; null         - 1 byte ($00)
+                        ;
+                        ; If C is clear, then the data area is populated with
+                        ; data.  If C is set, then there are no more entries.
+                        ;
+e592 :                  DiskNextMountedDrv
+e592 : bde474           		jsr	xParSetRead
+e595 : bde4b2           		jsr	xParReadByte
+e598 : 8191             		cmpa	#PR_DIR_END	;end?
+e59a : 27cc             		beq	DiskCerr2
+e59c : 8183             		cmpa	#PR_NAK		;NAK?
+e59e : 27c1             		beq	DiskCerror
+                        ;
+                        ; Get drive number, then read-only flag
+                        ;
+e5a0 : bde4b2           		jsr	xParReadByte	;drive
+e5a3 : a700             		sta	0,x
+e5a5 : 08               		inx
+e5a6 : bde4b2           		jsr	xParReadByte	;read-only flag
+e5a9 : a700             		sta	0,x
+e5ab : 08               		inx
+e5ac : bde4b2           DiskNMD		jsr	xParReadByte
+e5af : a700             		sta	0,x
+e5b1 : 08               		inx		;next byte in data
+e5b2 : 8100             		cmpa	#0	;end?
+e5b4 : 26f6             		bne	DiskNMD
+e5b6 : 20d1             		bra	DiskComEx	;all done
+                        		page
+AS02 Assembler for M6802 [1.42].                                     Page   37
+------------------------------- xSWTBUG v1.2.1 -------------------------------
+
+                        ;=====================================================
+                        ; Gets status of a specific drive.  The drive number
+                        ; (0-3) is in A on entry.
+                        ;
+                        ; Returns a bitmapped value in A meant to look sort
+                        ; of like a 1771 FDC status register:
+                        ;
+                        ; RW000000
+                        ;   P: Clear if the drive is present (mounted), set
+                        ;      if not present ("Not Ready").
+                        ;   W: Set if the drive is write protected.
+                        ;
+e5b8 : 36               DiskStatus	psha
+e5b9 : 8614             		lda	#PC_GET_STATUS	;get status command
+e5bb : bde487           		jsr	xParWriteByte	;send request for data
+e5be : 32               		pula
+e5bf : bde487           		jsr	xParWriteByte
+e5c2 : bde474           		jsr	xParSetRead
+e5c5 : bde4b2           		jsr	xParReadByte	;get result code
+e5c8 : 8193             		cmpa	#PR_STATUS	;status
+e5ca : 260c             		bne	DiskSt_1	;else assume error
+                        ;
+                        ; Get ONE byte of status:
+                        ;
+                        ;    00000ERU
+                        ;
+                        ;  U: 0 = mounted, 1 = Unmounted
+                        ;  R: 0 = Read/write, 1 = Read only
+                        ;  E: 0 = no error, 1 = access error (bad sector?)
+                        ;
+                        ; The E bit will never be set for status.
+                        ;
+e5cc : bde4b2           		jsr	xParReadByte	;what we care about
+e5cf : 36               		psha
+e5d0 : bde45f           		jsr	xParSetWrite
+e5d3 : 32               		pula
+e5d4 : bde5db           		jsr	DiskErrTranslate
+e5d7 : 39               		rts
+e5d8 : 8680             DiskSt_1	lda	#%10000000	;drive not present
+e5da : 39               		rts
+                        		page
+AS02 Assembler for M6802 [1.42].                                     Page   38
+------------------------------- xSWTBUG v1.2.1 -------------------------------
+
+                        ;
+                        ;=====================================================
+                        ; Given a status code from the SD software, convert
+                        ; to a 1771 equivalent error and return in A.
+                        ;
+                        ; RW000000
+                        ;   P: Clear if the drive is present (mounted), set
+                        ;      if not present ("Not Ready").
+                        ;   W: Set if the drive is write protected.
+                        ;
+e5db :                  DiskErrTranslate
+                        ; convert to table lookup eventually.  The 6502 sure
+                        ; was better at table lookups than the 6800!
+                        ;
+e5db : 5f               		clrb		;clear return value
+e5dc : 8501             		bita	#$01	;is drive mounted?
+e5de : 2604             		bne	det_1	;yes, leave top bit clear
+e5e0 : c480             		andb	#$80	;drive not mounted
+e5e2 : 2006             		bra	det_ret	;done
+e5e4 : 8502             det_1		bita	#$02	;read only?
+e5e6 : 2602             		bne	det_ret
+e5e8 : c440             		andb	#$40
+                        ;
+                        ; Return value is in B.  Move to A, return.
+                        ;
+e5ea : 17               det_ret		tba		;transfer B to A
+e5eb : 39               		rts
+                        ;
+                        ;=====================================================
+                        ; This formats a drive.  On entry, X points to a FCB
+                        ; with the following data fields:
+                        ;
+                        ;                      DS   1	;unused
+                        ;    number of tracks  DS   1
+                        ;    number of sectors DS   1	;sectors per track
+                        ;    sector fill value DS   1
+                        ;    ptr to filename   DS   2
+                        ;
+                        ; If the number of tracks or number of sectors is
+                        ; zero, then that indicates a value of 256.
+                        ;
+                        ; This only creates an empty file of the appropriate
+                        ; size; it does not initialize any data structures.
+                        ;
+                        ;DiskFormat	
+                        ;		rts
+                        ;
+                        ;=====================================================
+                        ; This is a helper function for the read and write
+                        ; functions.  Enter with A containing the command to
+                        ; be sent, X pointing to the data area.  This sends
+                        ; the command, then the drive, track, sector and
+                        ; sectors per track from the data area.
+                        ;
+                        ; This must not modify the FCB!  The caller might
+                        ; depend on the values in it.
+                        ;
+                        ; This also de-Flexes the sector number.  Ie, any
+                        ; track other than 0 and any sector on track zero
+                        ; greater than one has one subtraced from it.
+                        ;
+e5ec : bde487           Dsendinfo	jsr	xParWriteByte	;command
+AS02 Assembler for M6802 [1.42].                                     Page   39
+------------------------------- xSWTBUG v1.2.1 -------------------------------
+
+e5ef : a600             		lda	0,x	;get drive
+e5f1 : bde487           		jsr	xParWriteByte	;drive
+                        ;
+e5f4 : 8602             		lda	#2	;256 byte sectors
+e5f6 : bde487           		jsr	xParWriteByte
+                        ;
+                        ; If needed, change the sector number from the FLEX
+                        ; format to a zero based one.  First sector on the
+                        ; first track is sector 0, track 0, then the next
+                        ; sector is sector 2.  Yes, 2.  All other tracks
+                        ; start with sector 1.  This converts everything to
+                        ; a zero based sector number.
+                        ;
+e5f9 : a601             		lda	1,x	;get track
+e5fb : bde487           		jsr	xParWriteByte	;track
+e5fe : a601             		lda	1,x	;get track again
+e600 : 2604             		bne	Dtweak
+e602 : a602             		lda	2,x	;get sector
+e604 : 2703             		beq	Dnotweak
+e606 : a602             Dtweak		lda	2,x	;get sector
+e608 : 4a               		deca		;make zero based
+e609 : bde487           Dnotweak	jsr	xParWriteByte	;sector
+e60c : a603             		lda	3,x	;get tracks/sector
+e60e : 7ee487           DiskSendByte	jmp	xParWriteByte
+                        
+                        ;		include	"pario.asm"
+                        
+                        
+                        	endif	;SD_SUPPORT
+                        
+                        ;
+                        ;***************************************************
+                        ; This is the command loop while in extended command
+                        ; mode.  Same basic concept as the other loop.
+                        ;
+e611 :                  ExtCmd		
+                        	if	SD_CMDS
+e611 : bde450           		jsr	xParInit
+e614 : bde45f           		jsr	xParSetWrite
+                        	endif
+e617 : cee67c           		ldx	#extprompt
+e61a : bde07e           		jsr	PDATA1
+e61d : bde1ac           Extkey		jsr	INEEE
+e620 : 810d             		cmpa	#CR
+e622 : 27ed             		beq	ExtCmd
+                        ;
+                        ; If they typed a question mark, display all available
+                        ; commands.  This is done dynamically based on what's
+                        ; in the command table.
+                        ;
+e624 : 813f             		cmpa	#'?'
+e626 : 2637             		bne	scancmd	;no, so look for command
+e628 : bde075           		jsr	OUTCH
+e62b : cee682           		ldx	#ct_info
+e62e : bde07e           		jsr	PDATA1
+                        ;
+e631 : cee6ca           		ldx	#extcmd	;start of commands
+e634 : a600             helpnxt		lda	0,x
+e636 : 8100             		cmpa	#0
+e638 : 27d7             		beq	ExtCmd	;done when it's a zero
+e63a : bde075           		jsr	OUTCH	;display command
+e63d : 8620             		lda	#' '
+AS02 Assembler for M6802 [1.42].                                     Page   40
+------------------------------- xSWTBUG v1.2.1 -------------------------------
+
+e63f : bde075           		jsr	OUTCH
+e642 : 863d             		lda	#'='	;fancy print stuff
+e644 : bde075           		jsr	OUTCH
+e647 : 8620             		lda	#' '
+e649 : bde075           		jsr	OUTCH
+e64c : 08               		inx		;move to description
+e64d : 08               		inx
+e64e : 08               		inx
+e64f : bde07e           		jsr	PDATA1	;display description
+e652 : 860d             		lda	#CR
+e654 : bde075           		jsr	OUTCH
+e657 : 860a             		lda	#LF
+e659 : bde075           		jsr	OUTCH
+e65c : 08               		inx		;skip past the $04
+e65d : 20d5             		bra	helpnxt
+                        ;
+                        ; They entered a possible command so scan through the
+                        ; table looking for it.  The command is in A, so don't
+                        ; destroy it.
+                        ;
+e65f : cee6ca           scancmd		ldx	#extcmd	;start of commands
+e662 : e600             scannxt		ldab	0,x	;load B with current command
+e664 : c100             		cmpb	#0	;end of table?
+e666 : 27b5             		beq	Extkey	;if zero, end of table
+e668 : a100             		cmpa	0,x	;right one?
+e66a : 270c             		beq	extfnd	;yes
+                        ;
+                        ; Move to the next command in the table.
+                        ;
+e66c : 08               		inx		;move to handler addr hi
+e66d : 08               		inx		;move to handler addr lo
+                        ;
+                        ; Find EOT that marks end of description
+                        ;
+e66e : 08               scansk		inx		;move to description
+e66f : e600             		ldab	0,x
+e671 : c104             		cmpb	#EOT	;end of description?
+e673 : 26f9             		bne	scansk
+e675 : 08               		inx		;move to next command
+e676 : 20ea             		bra	scannxt	;see if this is the one
+                        ;
+                        ; This is the right entry
+                        ;
+e678 : ee01             extfnd		ldx	1,x	;load pointer...
+e67a : 6e00             		jmp	0,x	;...and execute command!
+                        ;
+                        ; This is the prompt for extended mode.  Feel free to
+                        ; change to whatever you like.
+                        ;
+e67c : 0d0a24242004     extprompt	db	CR,LF,'$','$',' ',EOT
+e682 : 0d0a0a           ct_info		db	CR,LF,LF
+e685 : 457874656e6465.. 		db	"Extended SWTBUG v"
+e696 : 312e32           		db	'0'+VERSION,'.','0'+REVISION
+e699 : 20627920436f72.. 		db	" by Corsham Technologies"
+e6b1 : 0d0a             		db	CR,LF
+e6b3 : 7777772e636f72.. 		db	"www.corshamtech.com",LF
+e6c7 : 0d0a04           crlfmsg		db	CR,LF,EOT
+                        ;
+                        ;***************************************************
+                        ; The extended command table.  This provides both
+                        ; command lookups and also some help.  Each entry
+                        ; has exactly the same format:
+AS02 Assembler for M6802 [1.42].                                     Page   41
+------------------------------- xSWTBUG v1.2.1 -------------------------------
+
+                        ;
+                        ;    1 byte command, or zero if end of table
+                        ;    2 byte address to command handler
+                        ;    multiple byte description
+                        ;    1 byte value of $04
+                        ;
+e6ca :                  extcmd
+e6ca : 58               		db	'X'
+e6cb : e152             		dw	CONTRL
+e6cd : 52657475726e20.. 		db	"Return to SWTBUG"
+e6dd : 04               		db	EOT
+                        ;
+                        	if	SD_BOOT
+e6de : 42               		db	'B'
+e6df : e798             		dw	SdBoot
+e6e1 : 426f6f74206672.. 		db	"Boot from SD card"
+e6f2 : 04               		db	EOT
+                        	endif	;SD_BOOT
+                        ;
+                        	if	SD_CMDS
+e6f3 : 50               		db	'P'
+e6f4 : e7de             		dw	SdPing
+e6f6 : 50696e67205344.. 		db	"Ping SD controller"
+e708 : 04               		db	EOT
+                        ;
+e709 : 44               		db	'D'
+e70a : e803             		dw	SdDirectory
+e70c : 446f2064697265.. 		db	"Do directory of SD card"
+e723 : 04               		db	EOT
+                        ;
+e724 : 54               		db	'T'
+e725 : e841             		dw	SdType
+e727 : 54797065206669.. 		db	"Type file from SD card"
+e73d : 04               		db	EOT
+                        ;
+e73e : 4c               		db	'L'
+e73f : e8e6             		dw	SdLoad
+e741 : 4c6f6164205352.. 		db	"Load SREC file from SD card"
+e75c : 04               		db	EOT
+                        	endif	;SD_CMDS
+                        ;
+                        	if	NUMGUESS
+e75d : 4e               		db	'N'
+e75e : ea92             		dw	NumGuess
+e760 : 4e756d62657220.. 		db	"Number guessing game"
+e774 : 04               		db	EOT
+                        	endif	;NUMGUESS
+                        ;
+                        	if	MEMTEST
+e775 : 4d               		db	'M'
+e776 : ef4b             		dw	MemTest
+e778 : 4d656d6f727920.. 		db	"Memory tester"
+e785 : 04               		db	EOT
+                        	endif	;MEMTEST
+                        
+                        	if	OTHELLO
+e786 : 4f               		db	'O'
+e787 : f0ce             		dw	Othello
+e789 : 4f7468656c6c6f   		db	"Othello"
+e790 : 04               		db	EOT
+                        	endif	;OTHELLO
+                        ;
+AS02 Assembler for M6802 [1.42].                                     Page   42
+------------------------------- xSWTBUG v1.2.1 -------------------------------
+
+                        ; End of table
+                        ;
+e791 : 00               		db	0
+                        ;
+                        ;***************************************************
+                        ; Handy little function that outputs a CR/LF.
+                        ;
+e792 : cee6c7           crlf		ldx	#crlfmsg
+e795 : 7ee07e           		jmp	PDATA1
+                        ;
+                        ;***************************************************
+                        ; This is the code to boot from an SD card.  Read
+                        ; track 0, sector 0, into address $2400 and then
+                        ; jump to it.
+                        ;
+                        ; Note that address $2400 is at the 9K boundary
+                        ; so the system needs more than 8K to boot, let
+                        ; alone run the DOS.
+                        ;
+                        	if	SD_BOOT
+e798 : cee7b2           SdBoot		ldx	#bootmsg
+e79b : bde07e           		jsr	PDATA1
+e79e : cee7d8           		ldx	#BootFCB
+e7a1 : bde540           		jsr	DiskReadSector
+e7a4 : 2503             		bcs	bootErr
+e7a6 : 7ea100           		jmp	BOOT_ADDR
+                        ;
+e7a9 : cee7c8           bootErr		ldx	#berrmsg
+e7ac : bde07e           		jsr	PDATA1
+e7af : 7ee611           		jmp	ExtCmd
+                        ;
+e7b2 : 0d0a426f6f7469.. bootmsg		db	CR,LF,"Booting from SD... ",EOT
+e7c8 : 0d0a424f4f5420.. berrmsg		db	CR,LF,"BOOT ERROR!",CR,LF,EOT
+                        ;
+                        ; FCB used to load the boot sector into memory
+                        ;
+e7d8 : 00               BootFCB		db	0	;drive 0
+e7d9 : 00               		db	0	;track 0
+e7da : 00               		db	0	;sector 0
+e7db : 14               		db	20	;sectors per track
+e7dc : a100             		dw	BOOT_ADDR	;buffer address
+                        	endif	;SD_BOOT
+                        		page
+AS02 Assembler for M6802 [1.42].                                     Page   43
+------------------------------- xSWTBUG v1.2.1 -------------------------------
+
+                        
+                        	if	SD_CMDS
+                        ;
+                        ; These are states for the loader state machine.
+                        ; Keep these as hex so debug output is easier to
+                        ; match up.
+                        ;
+0000 =                  ST_ECHO		equ	0x00	;just echo each char
+0001 =                  ST_WAIT_S	equ	0x01	;wait for 'S'
+0002 =                  ST_GET_TYPE	equ	0x02	;wait for digit record type
+0003 =                  ST_WAIT_EOF	equ	0x03	;basically, do nothing
+0004 =                  ST_CNT_HI	equ	0x04
+0005 =                  ST_CNT_LO	equ	0x05
+0006 =                  ST_GET_ADDR	equ	0x06	;get address field
+0007 =                  ST_DATA_HI	equ	0x07
+0008 =                  ST_DATA_LO	equ	0x08
+                        ;
+                        ;***************************************************
+                        ; Ping the Arduino to see if the link is alive.
+                        ;
+e7de : cee7f0           SdPing		ldx	#pingmsg
+e7e1 : bde07e           		jsr	PDATA1
+e7e4 : bde4d6           		jsr	DiskPing
+e7e7 : cee7f8           		ldx	#pinggmsg
+e7ea : bde07e           		jsr	PDATA1
+e7ed : 7ee611           		jmp	ExtCmd
+                        ;
+e7f0 : 696e672e2e2e2004 pingmsg		db	"ing... ",EOT
+e7f8 : 73756363657373.. pinggmsg	db	"success!",CR,LF,EOT
+                        ;
+                        ;***************************************************
+                        ; Do a disk directory
+                        ;
+e803 : cee832           SdDirectory	ldx	#DirMsg
+e806 : bde07e           		jsr	PDATA1
+e809 : 8620             		lda	#' '		;to pretty-up output
+e80b : b7a04a           		sta	FnBuffer
+e80e : b7a04b           		sta	FnBuffer+1
+e811 : b7a04c           		sta	FnBuffer+2
+                        ;
+e814 : bde519           		jsr	DiskDir		;start a disk directory
+e817 : cea04d           doDirLoop	ldx	#Filename	;where to put filename
+e81a : bde520           		jsr	DiskDirNext	;get next file name
+e81d : 2510             		bcs	doDirExit	;branch if End
+e81f : cea04a           		ldx	#FnBuffer	;where filename is at
+e822 : bdea87           		jsr	puts		;display name
+e825 : bde792           		jsr	crlf
+e828 : 20ed             		bra	doDirLoop	;lather, rinse, repeat
+e82a : bde792           doDirNend	jsr	crlf
+e82d : 20e8             		bra	doDirLoop
+e82f : 7ee611           doDirExit	jmp	ExtCmd
+                        ;
+e832 : 69726563746f72.. DirMsg		db	"irectory...",CR,LF,LF,EOT
+                        ;
+                        ;***************************************************
+                        ; Type a file; display its contents.  Great for
+                        ; looking at ASCII files.
+                        ;
+e841 : 8600             SdType		lda	#ST_ECHO	;initial state
+e843 : b7a05a           typeload	sta	sdState		;save state
+                        ;
+                        ; Prompt for a filename...
+AS02 Assembler for M6802 [1.42].                                     Page   44
+------------------------------- xSWTBUG v1.2.1 -------------------------------
+
+                        ;
+e846 : cee8f1           		ldx	#fnmsg
+e849 : bde07e           		jsr	PDATA1
+e84c : bdea43           		jsr	getfname	;get name
+e84f : b6a04d           		lda	Filename	;get first char
+e852 : 8104             		cmpa	#EOT	;empty line?
+e854 : 27d9             		beq	doDirExit
+                        ;
+                        ; Got a filename, so start sending the command to
+                        ; read a disk file
+                        ;
+e856 : 8616             		lda	#PC_READ_FILE
+e858 : bde487           		jsr	xParWriteByte
+e85b : cea04d           		ldx	#Filename
+e85e : 09               		dex
+e85f : 08               dotypeloop	inx		;point to filename
+e860 : a600             		lda	0,x
+e862 : 8104             		cmpa	#EOT
+e864 : 2705             		beq	dotydone
+e866 : bde487           		jsr	xParWriteByte	;send next piece of filename
+e869 : 20f4             		bra	dotypeloop
+                        
+e86b : 8600             dotydone	lda	#0
+e86d : bde487           		jsr	xParWriteByte
+e870 : bde474           		jsr	xParSetRead
+e873 : bde4b2           		jsr	xParReadByte	;read their reply
+                        ;
+                        ; It should be either an ACK (82) or NAK (83)
+                        ;
+e876 : 8182             		cmpa	#PR_ACK
+e878 : 271b             		beq	dotypeack
+                        ;
+                        ; A NAK.  Get the value and report it
+                        ;
+e87a : bde4b2           		jsr	xParReadByte
+e87d : b7a05b           		sta	temp
+e880 : cee8d2           		ldx	#gotnakmsg
+e883 : bde07e           		jsr	PDATA1
+e886 : cea05b           		ldx	#temp
+e889 : bde0ca           		jsr	OUT2HS
+e88c : bde792           		jsr	crlf
+e88f : bde45f           		jsr	xParSetWrite
+e892 : 7ee611           		jmp	ExtCmd
+                        ;
+                        ; Got an ACK, so now we sit in a loop of requesting mo
+                        ; data, reporting it, etc.
+                        ;
+e895 : bde45f           dotypeack	jsr	xParSetWrite
+e898 : 8617             		lda	#PC_READ_BYTES	;request data
+e89a : bde487           		jsr	xParWriteByte
+e89d : 8603             		lda	#BUFFSIZE-1
+e89f : bde487           		jsr	xParWriteByte	;request data
+e8a2 : bde474           		jsr	xParSetRead	;get ready to read response
+e8a5 : bde4b2           		jsr	xParReadByte	;get response
+e8a8 : bde4b2           		jsr	xParReadByte	;get number of bytes
+e8ab : 8100             		cmpa	#0		;any bytes?
+e8ad : 2718             		beq	dotypeof	;no, end of file
+e8af : 16               		tab		;move byte count into B
+e8b0 : cea093           		ldx	#buffer	;address of buffer
+                        ;
+                        ; Loop to read block of data
+                        ;
+AS02 Assembler for M6802 [1.42].                                     Page   45
+------------------------------- xSWTBUG v1.2.1 -------------------------------
+
+e8b3 : bde4b2           dotyperl	jsr	xParReadByte
+e8b6 : 37               		pshb
+e8b7 : ffa05c           		stx	tempx
+e8ba : bde904           		jsr	loadState	;let state machine process it
+e8bd : fea05c           		ldx	tempx
+e8c0 : 33               		pulb
+e8c1 : 08               		inx
+e8c2 : 5a               		decb
+e8c3 : 26ee             		bne	dotyperl
+e8c5 : 20ce             		bra	dotypeack
+                        ;
+                        ; Got EOF
+                        ;
+e8c7 : bde45f           dotypeof	jsr	xParSetWrite	;back to write mode
+e8ca : 8615             		lda	#PC_DONE	;end
+e8cc : bde487           		jsr	xParWriteByte
+e8cf : 7ee611           		jmp	ExtCmd
+                        ;
+e8d2 : 476f74204e414b.. gotnakmsg	db	"Got NAK with code: ",EOT
+                        ;
+                        ;***************************************************
+                        ; Load an S-Rec file from the SD card.  This shares
+                        ; a lot of code with the Type command, so set up a
+                        ; different initial state and then let the load
+                        ; logic do all the work.
+                        ;
+e8e6 : ceffff           SdLoad		ldx	#$ffff		;indicates no record
+e8e9 : ffa048           		stx	RTIVEC		;...loaded yet
+e8ec : 8601             		lda	#ST_WAIT_S
+e8ee : 7ee843           		jmp	typeload	;jump to common code
+                        ;
+e8f1 : 0d0a             fnmsg		db	CR,LF
+e8f3 : 456e7465722066.. 		db	"Enter filename: "
+e903 : 04               		db	EOT
+                        ;
+                        ;=====================================================
+                        ; This is the state machine for loading files from
+                        ; the SD drive.  On input, A contains the character
+                        ; to process.  This will maintain a state and perform
+                        ; any required actions.  The caller only needs to call
+                        ; this function for each byte read from the file.
+                        ;
+                        ; This starts by having the inbound character in A
+                        ; and the current state in B.
+                        ;
+e904 : f6a05a           loadState	ldab	sdState	;get current state
+e907 : c100             		cmpb	#ST_ECHO
+e909 : 2604             		bne	ls_1
+                        ;
+                        ; Just echo the character and we're done.  This is
+                        ; used for the Type command.
+                        ;
+e90b : bdef28           		jsr	putch
+e90e : 39               		rts
+                        ;
+e90f : c101             ls_1		cmpb	#ST_WAIT_S
+e911 : 260f             		bne	ls_2
+                        ;
+                        ; Wait for an 'S' to appear, then move to the next sta
+                        ; Each record starts with an 'S'.
+                        ;
+e913 : 8153             		cmpa	#'S'
+AS02 Assembler for M6802 [1.42].                                     Page   46
+------------------------------- xSWTBUG v1.2.1 -------------------------------
+
+e915 : 260a             		bne	ls_exit	;not what we wanted, just exit
+                        ;
+e917 : 862e             		lda	#'.'
+e919 : bdef28           		jsr	putch	;output status indicator
+                        ;
+e91c : 8602             		lda	#ST_GET_TYPE
+                        ;
+                        ; Common entry points.  ls_newstate saves the contents
+                        ; of A as the next state.  ls_exit is an RTS.
+                        ;
+e91e : b7a05a           ls_newstate	sta	sdState
+                        	if	DEBUG_STATE
+                        		ldx	#StateMsg
+                        		jsr	PDATA1
+                        		ldx	#state
+                        		jsr	OUT2HS
+                        		jsr	crlf
+                        	endif
+e921 : 39               ls_exit		rts
+                        
+                        	if	DEBUG_STATE
+                        StateMsg	db	"Set state: $",EOT
+                        StateAddr	db	"Record load address: $",EOT
+                        SizeMsg		db	"Bytes in record: $",EOT
+                        	endif
+                        ;
+e922 : c102             ls_2		cmpb	#ST_GET_TYPE
+e924 : 2627             		bne	ls_3
+                        ;
+                        ; It's the record type.  The Motorola spec says there
+                        ; are nine types, but we only process a few:
+                        ;
+                        ; 1 = Data with 16 bit address
+                        ; 5 = as02 uses this as an end of file
+                        ; 9 = real end of file
+                        ;
+                        ; 9 is the usual end of file, but for some reason the
+                        ; AS02 assembler outputs a 5 without the 9, so allow
+                        ; it to also be an EOF so I don't have to manually
+                        ; add the S9 record to files.
+                        ;
+e926 : 8131             		cmpa	#'1'
+e928 : 271f             		beq	st_data	;it's a data record
+e92a : 8135             		cmpa	#'5'
+e92c : 2708             		beq	st_end
+e92e : 8139             		cmpa	#'9'
+e930 : 2704             		beq	st_end
+                        ;
+                        ; Huh, it's not a record type we handle, so just
+                        ; go back to echo mode.
+                        ;
+e932 : 8600             		lda	#ST_ECHO
+e934 : 20e8             		bra	ls_newstate
+                        ;
+                        ; End of files are easy.  We're basically done, so
+                        ; just ignore everything until the end of the file.
+                        ;
+e936 : cee9f0           st_end		ldx	#firstaddrmsg
+e939 : bde07e           		jsr	PDATA1
+e93c : cea048           		ldx	#RTIVEC
+e93f : bde0c8           		jsr	OUT4HS
+e942 : bde792           		jsr	crlf
+AS02 Assembler for M6802 [1.42].                                     Page   47
+------------------------------- xSWTBUG v1.2.1 -------------------------------
+
+                        ;
+e945 : 8603             		lda	#ST_WAIT_EOF	;a do-nothing state
+e947 : 20d5             		bra	ls_newstate
+                        ;
+                        ; Woohoo!  It's a data record!  The rest of the record
+                        ; contains:
+                        ;
+                        ;    S1LLYYYY....
+                        ;
+                        ; Where LL is the number of bytes (the dots).
+                        ; YYYY is the 16 bit address where the data goes.
+                        ; ...is the data, LL bytes of them.
+                        ;
+                        ; So the next thing we need to get is the high nibble
+                        ; of the byte count.
+                        ;
+e949 : 8604             st_data		lda	#ST_CNT_HI
+e94b : 20d1             		bra	ls_newstate
+                        ;
+                        ; See if we're expecting the high nibble of the byte c
+                        ;
+e94d : c104             ls_3		cmpb	#ST_CNT_HI
+e94f : 260e             		bne	ls_4
+                        ;
+e951 : bdea0e           		jsr	tohex
+e954 : 48               		asla
+e955 : 48               		asla
+e956 : 48               		asla
+e957 : 48               		asla
+e958 : b7a05e           		sta	byteCnt
+e95b : 8605             		lda	#ST_CNT_LO
+e95d : 20bf             		bra	ls_newstate
+                        ;
+                        ; See if we are expecting the low nibble of the byte c
+                        ;
+e95f : c105             ls_4		cmpb	#ST_CNT_LO
+e961 : 261a             		bne	ls_5
+                        ;
+e963 : bdea0e           		jsr	tohex
+e966 : baa05e           		ora	byteCnt	;merge with hi nibble
+                        ;
+                        ; The byte count includes the address and checksum, so
+                        ; subtract three from the count.
+                        ;
+e969 : 8003             		suba	#3
+e96b : b7a05e           		sta	byteCnt
+                        	if	DEBUG_STATE
+                        		ldx	#SizeMsg
+                        		jsr	PDATA1
+                        		ldx	#byteCnt
+                        		jsr	OUT2HS
+                        		jsr	crlf
+                        	endif
+                        ;
+e96e : ce0000           		ldx	#0
+e971 : ffa05f           		stx	pointer
+e974 : 8604             		lda	#4	;number of nibbles to get
+e976 : b7a061           		sta	nibCnt
+e979 : 8606             		lda	#ST_GET_ADDR
+e97b : 20a1             		bra	ls_newstate
+                        ;
+e97d : c106             ls_5		cmpb	#ST_GET_ADDR
+AS02 Assembler for M6802 [1.42].                                     Page   48
+------------------------------- xSWTBUG v1.2.1 -------------------------------
+
+e97f : 263e             		bne	ls_6
+                        ;
+                        ; Roll the current address left by 4 bits
+                        ;
+e981 : 36               		psha
+e982 : b6a05f           		lda	pointer		;MSB
+e985 : f6a060           		ldab	pointer+1	;LSB
+e988 : 58               		aslb
+e989 : 49               		rola
+e98a : 58               		aslb
+e98b : 49               		rola
+e98c : 58               		aslb
+e98d : 49               		rola
+e98e : 58               		aslb
+e98f : 49               		rola
+e990 : b7a05f           		sta	pointer
+e993 : f7a060           		stab	pointer+1
+                        ;
+e996 : 32               		pula
+e997 : bdea0e           		jsr	tohex
+e99a : baa060           		oraa	pointer+1	;merge in new nibble
+e99d : b7a060           		sta	pointer+1
+                        ;
+                        ; Now see if there are more digits to go or not.
+                        ;
+e9a0 : 7aa061           		dec	nibCnt
+e9a3 : 2619             		bne	ls_5_1	;still more
+                        ;
+                        ; If RTIVEC is still FFFF (a load address that
+                        ; can never occur), then save this address there.
+                        ; This is a potential way to know the address where
+                        ; this file should be run from.
+                        ;
+e9a5 : fea048           		ldx	RTIVEC
+e9a8 : 8cffff           		cpx	#$ffff
+e9ab : 260c             		bne	ls_5_2	;no, already set
+                        ;
+e9ad : b6a05f           		lda	pointer	;set starting address
+e9b0 : b7a048           		sta	RTIVEC
+e9b3 : b6a060           		lda	pointer+1
+e9b6 : b7a049           		sta	RTIVEC+1
+                        ;
+e9b9 :                  ls_5_2
+                        	if	DEBUG_STATE
+                        		ldx	#StateAddr
+                        		jsr	PDATA1
+                        		ldx	#pointer
+                        		jsr	OUT4HS
+                        		jsr	crlf
+                        	endif
+e9b9 : 8607             ls_5_NXT	lda	#ST_DATA_HI
+e9bb : 7ee91e           		bra	ls_newstate
+e9be : 39               ls_5_1		rts
+                        ;
+e9bf : c107             ls_6		cmpb	#ST_DATA_HI
+e9c1 : 260f             		bne	ls_7
+                        ;
+                        ; This is the high byte of a byte.  Convert to
+                        ; a nibble and save in the upper nibble of temp,
+                        ; then move to a state to get the lower nibble.
+                        ;
+e9c3 : bdea0e           		jsr	tohex
+AS02 Assembler for M6802 [1.42].                                     Page   49
+------------------------------- xSWTBUG v1.2.1 -------------------------------
+
+e9c6 : 48               		asla
+e9c7 : 48               		asla
+e9c8 : 48               		asla
+e9c9 : 48               		asla
+e9ca : b7a05b           		sta	temp
+e9cd : 8608             		lda	#ST_DATA_LO
+e9cf : 7ee91e           		bra	ls_newstate
+                        ;
+e9d2 : c108             ls_7		cmpb	#ST_DATA_LO
+e9d4 : 2619             		bne	ls_8
+                        ;
+                        ; This is the lower nibble of a byte of data.
+                        ;
+e9d6 : bdea0e           		jsr	tohex
+e9d9 : baa05b           		ora	temp	;merge in upper nibble
+e9dc : fea05f           		ldx	pointer	;where it goes
+e9df : a700             		sta	0,x
+e9e1 : 08               		inx
+e9e2 : ffa05f           		stx	pointer	;update address
+e9e5 : 7aa05e           		dec	byteCnt	;all done?
+e9e8 : 26cf             		bne	ls_5_NXT	;nope, get high nibble of next byte
+                        ;
+                        ; We read all the data on this line.  Ideally, we shou
+                        ; have been keeping a checksum and then compare it to 
+                        ; checksum in the file, but I'm cheating and just goin
+                        ; back to wait for the next S record to start.
+                        ;
+e9ea : 8601             		lda	#ST_WAIT_S
+e9ec : 7ee91e           		bra	ls_newstate
+                        ;
+                        ; All states are handled, so this should not happen,
+                        ; but keep the label here for future expansion.
+                        ;
+e9ef : 39               ls_8		rts
+                        ;
+e9f0 : 0d0a             firstaddrmsg	db	CR,LF
+e9f2 : 4c6f616420646f.. 		db	"Load done.  First address: ",EOT
+                        ;
+                        ;=====================================================
+                        ; Given a character in A, convert it to a hex nibble
+                        ; in the lower 4 bits of A and C clear.  If not a hex
+                        ; character, return C set.
+                        ;
+ea0e : 8030             tohex		suba	#'0'
+ea10 : 2b10             		bmi	tohexbad
+ea12 : 8109             		cmpa	#9
+ea14 : 2f0a             		ble	tohexgud
+ea16 : 8111             		cmpa	#$11
+ea18 : 2b08             		bmi	tohexbad	;NOT HEX
+ea1a : 8116             		cmpa	#$16
+ea1c : 2e04             		bgt	tohexbad	;NOT HEX
+ea1e : 8007             		suba	#7
+ea20 : 0c               tohexgud	clc
+ea21 : 39               		rts
+ea22 : 0d               tohexbad	sec
+ea23 : 39               		rts
+                        ;
+                        ;=====================================================
+                        ; Print version of xSWTBUG
+                        ;
+ea24 : bde347           PrintVer	jsr	RDOFF	;TURN READER OFF-
+ea27 : ceea2e           		ldx	#greeting
+AS02 Assembler for M6802 [1.42].                                     Page   50
+------------------------------- xSWTBUG v1.2.1 -------------------------------
+
+ea2a : bdea87           		jsr	puts
+ea2d : 39               		rts
+                        ;
+ea2e : 0d0a0d0a         greeting	db	CR,LF,CR,LF
+ea32 : 78535754425547.. 		db	"xSWTBUG v1.2.1"
+ea40 : 0d0a00           		db	CR,LF,0
+                        ;
+                        ;=====================================================
+                        ; This gets a filename from the user and stores it in
+                        ; Filename.  Imposes a max size of 13 chars.  Returns
+                        ; when the user hits ENTER.
+                        ;
+                        ; Modifies A, B and X.
+                        ;
+ea43 : cea04d           getfname	ldx	#Filename	;where to put text
+ea46 : 5f               		clrb		;clear char count
+ea47 : bdef35           getlchar2	jsr	getch
+ea4a : 810d             		cmpa	#CR
+ea4c : 2732             		beq	getleol2	;branch if end of line
+                        ;
+ea4e : 817f             		cmpa	#DEL	;delete?
+ea50 : 2704             		beq	getdel2
+ea52 : 8108             		cmpa	#BS	;backspace?
+ea54 : 2615             		bne	getndel2
+                        ;
+                        ; Erase the last character
+                        ;
+ea56 : c100             getdel2		cmpb	#0	;is buffer empty?
+ea58 : 27ed             		beq	getlchar2
+ea5a : 09               		dex		;back up one
+ea5b : 5a               		decb		;one less char
+                        ;
+                        ; Erase old character with the old backspace-space-bac
+                        ; sequence.
+                        ;
+ea5c : bdef28           		jsr	putch	;move back
+ea5f : 8620             		lda	#' '
+ea61 : bdef28           		jsr	putch	;erase last char
+ea64 : 8608             		lda	#BS
+ea66 : bdef28           		jsr	putch	;and move back again
+ea69 : 20dc             		bra	getlchar2
+                        ;
+                        ; See if it's a legal character.
+                        ;
+ea6b : 8120             getndel2	cmpa	#' '	;lowest allowed
+ea6d : 2dd8             		blt	getlchar2
+ea6f : 817e             		cmpa	#'~'
+ea71 : 2ed4             		bgt	getlchar2
+                        ;
+                        ; Is there room?
+                        ;
+ea73 : c10c             		cmpb	#NAMESIZE
+ea75 : 27d0             		beq	getlchar2
+                        ;
+                        ; Finally, put the character into the buffer
+                        ; and echo it.
+                        ;
+ea77 : a700             		sta	0,x
+ea79 : 08               		inx
+ea7a : 5c               		incb
+ea7b : bdef28           		jsr	putch
+ea7e : 20c7             		bra	getlchar2
+AS02 Assembler for M6802 [1.42].                                     Page   51
+------------------------------- xSWTBUG v1.2.1 -------------------------------
+
+                        ;
+                        ; They hit ENTER.  Terminate the buffer and return.
+                        ; I stuck with the Moto tradition and used EOT ($04)
+                        ; to mark the end of the line.
+                        ;
+ea80 : 8604             getleol2		lda	#EOT
+ea82 : a700             		sta	0,x	;terminate line
+ea84 : 7ee792           		jmp	crlf
+                        	endif	;SD_CMDS
+                        ;
+                        ;***************************************************
+                        ; Given a pointer to a null terminated string in X,
+                        ; display the string and return.
+                        ;
+ea87 : a600             puts		lda	0,x
+ea89 : 2706             		beq	putsDone
+ea8b : bdef28           		jsr	putch
+ea8e : 08               		inx
+ea8f : 20f6             		bra	puts
+ea91 : 39               putsDone	rts
+                        		page
+AS02 Assembler for M6802 [1.42].                                     Page   52
+------------------------------- xSWTBUG v1.2.1 -------------------------------
+
+                        ;***************************************************
+                        ; Fun stuff that can optionally be built in...
+                        ;
+                        	if	NUMGUESS
+                        		include	"numguess.asm"
+                        ;=====================================================
+                        ; Number guess program written 09/03/2014 by 
+                        ; Bob Applegate, bob@corshamtech.com
+                        ;
+                        ; When I interviewed at Microsoft in the mid 1980s,
+                        ; I was passed from person to person, each of whom
+                        ; asked a lot of questions and offered challenges.
+                        ;
+                        ; One of the people took out a pile of dimes, put 
+                        ; them on his desk and said this (more or less
+                        ; quoting):
+                        ;
+                        ;    "There are ten dimes in the pile.  I'm thinking o
+                        ;    a number from 1 to 100.  If you want to guess the
+                        ;    number, there are rules:
+                        ;
+                        ;    "If you guess the number, you get to keep all the
+                        ;    dimes remaining in the pile.
+                        ;
+                        ;    "For each incorrect guess, I take away two dimes.
+                        ;
+                        ;    "If you run out of dimes and you still haven't
+                        ;    guessed the number, you have to give me two dimes
+                        ;    out of your pocket for each incorrect guess.
+                        ;
+                        ; "Would you play the game or not, and why."
+                        ;
+                        ; This game is a 6800 version of that interview
+                        ; question.  :-)
+                        ;
+                        ; Known bugs:
+                        ;
+                        ;    (1) If a player makes more than 99 incorrect
+                        ;        guesses, the dimes count is displayed wrong.
+                        ;
+                        ;    (2) If a player makes more than 255 incorrect
+                        ;        guesses, the dimes count is wrong.
+                        ;
+                        ;=====================================================
+                        ; Useful stuff in SWTBUG
+                        ;
+                        	if	~IN_SWTBUG
+                        PDATA1		equ	$e07e
+                        OUT2HS		equ	$e0ca
+                        ;INCH		equ	$e1ac	;use my routine instead
+                        ;OUTCH		equ	$e1d1	;ditto
+                        ;
+                        ;=====================================================
+                        ; ASCII constants
+                        ;
+                        EOT		equ	$04
+                        BEL		equ	$07
+                        BS		equ	$08
+                        LF		equ	$0a
+                        CR		equ	$0d
+                        DEL		equ	$7f
+                        	endif
+AS02 Assembler for M6802 [1.42].                                     Page   53
+------------------------------- xSWTBUG v1.2.1 -------------------------------
+
+                        ;
+                        ;=====================================================
+                        ; Other stuff, including build options
+                        ;
+0004 =                  BUFFSIZE	equ	4
+                        ;
+                        	if	~IN_SWTBUG
+                        false		equ	0
+                        true		equ	~false
+                        	endif
+                        ;
+                        ; This outputs lots of debug info, mainly useful for
+                        ; me to debug with.
+                        ;
+0000 =                  DEBUG		equ	false
+                        		page
+AS02 Assembler for M6802 [1.42].                                     Page   54
+------------------------------- xSWTBUG v1.2.1 -------------------------------
+
+                        ;=====================================================
+                        ; Data!  Woohoo!
+                        ;
+                        		bss
+                        	if	IN_SWTBUG
+a090 =                  		org	$A090
+                        	else
+                        		org	$0000
+                        	endif
+a090 =                  number		ds	1	;the random number
+a091 =                  guess		ds	1	;their guess
+a092 =                  dimes		ds	1	;how many dimes are left
+a093 =                  buffer		ds	BUFFSIZE
+                        		page
+AS02 Assembler for M6802 [1.42].                                     Page   55
+------------------------------- xSWTBUG v1.2.1 -------------------------------
+
+                        ;=====================================================
+                        ; The actual program.  Woohoo!
+                        ;
+                        		code
+                        	if	~IN_SWTBUG
+                        		org	$0100
+                        	endif
+ea92 : ceebfb           NumGuess	ldx	#intro
+ea95 : bde07e           		jsr	PDATA1
+ea98 : 860a             		lda	#10
+ea9a : b7a092           		sta	dimes
+ea9d : 4f               clr_rnd		clra
+ea9e : b7a090           		sta	number	;a legal starting value
+                        ;
+                        ; This waits for a key from the user.  While waiting,
+                        ; keep incrementing the random number.  Ie, the value
+                        ; depends on how quickly they press a key.  Pretty dar
+                        ; close to random, and probably a lot more random than
+                        ; many of the "random" number generators.
+                        ;
+eaa1 : 7ca090           y_or_n		inc	number	;bump random number
+eaa4 : b6a090           		lda	number
+eaa7 : 27f8             		beq	y_or_n	;zero not valid
+eaa9 : 8164             		cmpa	#100
+eaab : 2ef0             		bgt	clr_rnd	;reset if > 100
+                        ;
+eaad : bdef40           		jsr	kbhit	;key waiting yet?
+eab0 : 24ef             		bcc	y_or_n	;nope, keep randomizing
+                        ;
+                        ; A key is waiting
+                        ;
+eab2 : bdef35           		jsr	getch	;get key
+eab5 : 8159             		cmpa	#'Y'
+eab7 : 271b             		beq	play
+eab9 : 8179             		cmpa	#'y'
+eabb : 2717             		beq	play
+eabd : 816e             		cmpa	#'n'
+eabf : 2704             		beq	wimp
+eac1 : 814e             		cmpa	#'N'
+eac3 : 26dc             		bne	y_or_n
+                        ;
+                        ; They pressed N or n.
+                        ;
+eac5 : ceede8           wimp		ldx	#nomsg
+eac8 : bde07e           		jsr	PDATA1
+eacb : ceed6e           		ldx	#nextguy
+eace : bde07e           		jsr	PDATA1
+                        	if	IN_SWTBUG
+ead1 : 7ee611           		jmp	ExtCmd
+                        	else
+                        		bra	NumGuess
+                        	endif
+                        ;
+                        ; They want to play a game!  How about thermonuclear w
+                        ;
+ead4 : ceede2           play		ldx	#yesmsg
+ead7 : bde07e           		jsr	PDATA1
+                        ;
+                        ; number now contains a random number from 1 to 100.
+                        ;
+eada :                  gotrnd
+                        	if	DEBUG
+AS02 Assembler for M6802 [1.42].                                     Page   56
+------------------------------- xSWTBUG v1.2.1 -------------------------------
+
+                        		ldx	#dbg1	;print number for them
+                        		jsr	PDATA1
+                        		ldx	#number
+                        		jsr	OUT2HS
+                        		jsr	crlf
+                        	endif
+                        ;
+                        ; Collect their input
+                        ;
+eada : b6a092           gameloop	lda	dimes	;positive or negative?
+eadd : 2a11             		bpl	posdime
+                        ;
+                        ; Show how many dimes they owe us!
+                        ; "You owe me X dimes!  "
+                        ;
+eadf : ceeef4           		ldx	#owe1
+eae2 : bde07e           		jsr	PDATA1
+eae5 : bdebdd           		jsr	NegAsPos	;print number
+eae8 : ceef02           		ldx	#owe2
+eaeb : bde07e           		jsr	PDATA1
+eaee : 200f             		bra	cont
+                        ;
+                        ; There is a positive number of dimes so print a more
+                        ; polite message.  "There are X dimes left.  "
+                        ;
+eaf0 : ceef0c           posdime		ldx	#pos1
+eaf3 : bde07e           		jsr	PDATA1
+eaf6 : bdebd3           		jsr	printDimes
+eaf9 : ceef19           		ldx	#pos2
+eafc : bde07e           		jsr	PDATA1
+                        ;
+eaff : ceedc0           cont		ldx	#prompt
+eb02 : bde07e           		jsr	PDATA1
+eb05 : bdeb8a           		jsr	getline	;get their guess
+eb08 : bdeb65           		jsr	todecimal
+eb0b : f7a091           		stab	guess
+                        	if	DEBUG
+                        		ldx	#dbg2	;show their input
+                        		jsr	PDATA1
+                        		ldx	#guess
+                        		jsr	OUT2HS
+                        		jsr	crlf
+                        	endif
+                        ;
+                        ; Now see if they got it or not.  Offer some
+                        ; hints if not.
+                        ;
+eb0e : b6a091           		lda	guess
+eb11 : b1a090           		cmpa	number
+eb14 : 2715             		beq	equal	;they won!
+eb16 : 2d0e             		blt	less	;they guessed too low
+                        ;
+                        ; They guessed too high.
+                        ;
+eb18 : ceeded           		ldx	#high_msg
+eb1b : bde07e           wrong		jsr	PDATA1
+eb1e : 7aa092           		dec	dimes	;that'll cost them twenty cents!
+eb21 : 7aa092           		dec	dimes
+eb24 : 20b4             		bra	gameloop
+                        ;
+                        ; Guessed too low.
+                        ;
+AS02 Assembler for M6802 [1.42].                                     Page   57
+------------------------------- xSWTBUG v1.2.1 -------------------------------
+
+eb26 : ceee0a           less		ldx	#low_msg
+eb29 : 20f0             		bra	wrong
+                        ;
+                        ; They got it!  Getting it is good, but see if they
+                        ; get any money or if they owe me.
+                        ;
+eb2b : ceee26           equal		ldx	#perfect
+eb2e : bde07e           		jsr	PDATA1
+                        ;
+                        ; Decide which message based on whether they have
+                        ; any dimes left or not.
+                        ;
+eb31 : b6a092           		lda	dimes
+eb34 : 2609             		bne	notzero
+                        ;
+                        ; They broke even.
+                        ;
+eb36 : ceeea4           		ldx	#evenmsg
+eb39 : bde07e           		jsr	PDATA1
+eb3c : 7eea92           		jmp	NumGuess
+                        ;
+eb3f : 2b12             notzero		bmi	lostbig
+                        ;
+                        ; They won!
+                        ;
+eb41 : ceee4b           		ldx	#wonmsg
+eb44 : bde07e           		jsr	PDATA1
+eb47 : bdebce           		jsr	printPosDimes
+eb4a : ceee5c           		ldx	#wonmsg2
+eb4d : bde07e           		jsr	PDATA1
+eb50 : 7eea92           		jmp	NumGuess
+                        ;
+                        ; They lost
+                        ;
+eb53 : ceee74           lostbig		ldx	#lostmsg
+eb56 : bde07e           		jsr	PDATA1
+eb59 : bdebdd           		jsr	NegAsPos
+eb5c : ceee8f           		ldx	#lostmsg2
+eb5f : bde07e           		jsr	PDATA1
+eb62 : 7eea92           		jmp	NumGuess
+                        ;
+                        ;=====================================================
+                        ; Convert the number in the buffer to a decimal value
+                        ; and return with it in A.  If bad input, this will
+                        ; return 0.
+                        ;
+eb65 : cea093           todecimal	ldx	#buffer
+eb68 : 5f               		clrb		;B contains return value
+eb69 : a600             todec_1		lda	0,x	;get next digit
+eb6b : 8104             		cmpa	#EOT	;end?
+eb6d : 2717             		beq	todec_end
+                        ;
+                        ; See if it's a digit and convert to binary in A if so
+                        ;
+eb6f : 8130             		cmpa	#'0'
+eb71 : 2d15             		blt	todec_bad	;bad input
+eb73 : 8139             		cmpa	#'9'
+eb75 : 2e11             		bgt	todec_bad
+eb77 : 8030             		suba	#'0'	;to binary
+eb79 : 36               		psha		;and save
+                        ;
+                        ; Multiple the existing number in B by 10.
+AS02 Assembler for M6802 [1.42].                                     Page   58
+------------------------------- xSWTBUG v1.2.1 -------------------------------
+
+                        ;
+eb7a : 58               		aslb		;*2
+eb7b : 17               		tba		;save
+eb7c : 58               		aslb		;*4
+eb7d : 58               		aslb		;*8
+eb7e : 1b               		aba		;*10 in A
+eb7f : 16               		tab		;back into B
+                        ;
+                        ; Now add in the new value
+                        ;
+eb80 : 32               		pula
+eb81 : 1b               		aba
+eb82 : 16               		tab
+eb83 : 08               		inx		;move to next digit
+eb84 : 20e3             		bra	todec_1
+                        ;
+                        ; End of input, return value.
+                        ;
+eb86 : 17               todec_end	tba
+eb87 : 39               		rts
+                        ;
+                        ; Bad input, so return 0.  This will result in an
+                        ; error message.
+                        ;
+eb88 : 4f               todec_bad	clra
+eb89 : 39               		rts
+                        ;
+                        ;=====================================================
+                        ; Outputs a CR/LF.  Modifies A.
+                        ;
+                        	if	~IN_SWTBUG
+                        crlf		lda	#CR
+                        		jsr	putch
+                        		lda	#LF
+                        		jmp	putch
+                        	endif
+                        ;
+                        ;=====================================================
+                        ; This gets a line from the user and stores it in the
+                        ; buffer.  Imposes a size limit.  Returns when the use
+                        ; hits ENTER.
+                        ;
+                        ; Modifies A, B and X.
+                        ;
+eb8a : cea093           getline		ldx	#buffer	;where to put text
+eb8d : 5f               		clrb		;clear char count
+eb8e : bdef35           getlchar	jsr	getch
+eb91 : 810d             		cmpa	#CR
+eb93 : 2732             		beq	getleol	;branch if end of line
+                        ;
+eb95 : 817f             		cmpa	#DEL	;delete?
+eb97 : 2704             		beq	getdel
+eb99 : 8108             		cmpa	#BS	;backspace?
+eb9b : 2615             		bne	getndel
+                        ;
+                        ; Erase the last character
+                        ;
+eb9d : c100             getdel		cmpb	#0	;is buffer empty?
+eb9f : 27ed             		beq	getlchar
+eba1 : 09               		dex		;back up one
+eba2 : 5a               		decb		;one less char
+                        ;
+AS02 Assembler for M6802 [1.42].                                     Page   59
+------------------------------- xSWTBUG v1.2.1 -------------------------------
+
+                        ; Erase old character with the old backspace-space-bac
+                        ; sequence.
+                        ;
+eba3 : bdef28           		jsr	putch	;move back
+eba6 : 8620             		lda	#' '
+eba8 : bdef28           		jsr	putch	;erase last char
+ebab : 8608             		lda	#BS
+ebad : bdef28           		jsr	putch	;and move back again
+ebb0 : 20dc             		bra	getlchar
+                        ;
+                        ; See if it's a legal character.
+                        ;
+ebb2 : 8120             getndel		cmpa	#' '	;lowest allowed
+ebb4 : 2dd8             		blt	getlchar
+ebb6 : 817e             		cmpa	#'~'
+ebb8 : 2ed4             		bgt	getlchar
+                        ;
+                        ; Is there room?
+                        ;
+ebba : c103             		cmpb	#BUFFSIZE-1
+ebbc : 27d0             		beq	getlchar
+                        ;
+                        ; Finally, put the character into the buffer
+                        ; and echo it.
+                        ;
+ebbe : a700             		sta	0,x
+ebc0 : 08               		inx
+ebc1 : 5c               		incb
+ebc2 : bdef28           		jsr	putch
+ebc5 : 20c7             		bra	getlchar
+                        ;
+                        ; They hit ENTER.  Terminate the buffer and return.
+                        ; I stuck with the Moto tradition and used EOT ($04)
+                        ; to mark the end of the line.
+                        ;
+ebc7 : 8604             getleol		lda	#EOT
+ebc9 : a700             		sta	0,x	;terminate line
+ebcb : 7ee792           		jmp	crlf
+                        		page
+AS02 Assembler for M6802 [1.42].                                     Page   60
+------------------------------- xSWTBUG v1.2.1 -------------------------------
+
+                        ;
+                        ;=====================================================
+                        ; This prints the number as a positive, and without
+                        ; the negative sign.  This only works if the number
+                        ; is positive.
+                        ;
+ebce : b6a092           printPosDimes	lda	dimes
+ebd1 : 200f             		bra	positive
+                        ;
+                        ;=====================================================
+                        ; This displays the value in dimes as a decimal number
+                        ; This value can range from 10 to -90, so this code
+                        ; must deal with negative numbers.
+                        ;
+ebd3 : b6a092           printDimes	lda	dimes
+ebd6 : 2a0a             		bpl	positive	;it's a positive number
+                        ;
+                        ; Invert bits and add one to negative number to make
+                        ; it positive.  Also print the minus sign.
+                        ;
+ebd8 : 862d             		lda	#'-'
+ebda : bdef28           		jsr	putch
+                        ;
+                        ; This prints a negative number as positive, but does
+                        ; not print the minus sign in front.  Handy for when
+                        ; you specifically tell someone the value is negative.
+                        ;
+ebdd : b6a092           NegAsPos	lda	dimes
+ebe0 : 43               		coma		;make positive
+ebe1 : 4c               		inca		;adjust
+                        ;
+                        ; Now we have a positive number to print.
+                        ;
+ebe2 : 810a             positive	cmpa	#10
+ebe4 : 2d10             		blt	notens
+ebe6 : 5f               		clrb		;clear 10s counter
+                        ;
+ebe7 : 800a             cnt_10		suba	#10
+ebe9 : 5c               		incb
+ebea : 8109             		cmpa	#9
+ebec : 2ef9             		bgt	cnt_10
+                        ;
+ebee : 36               		psha
+ebef : 17               		tba
+ebf0 : 8b30             		adda	#'0'
+ebf2 : bdef28           		jsr	putch
+ebf5 : 32               		pula
+                        ;
+                        ; The value in A are ones, so print it.
+                        ;
+ebf6 : 8b30             notens		adda	#'0'
+ebf8 : 7eef28           		jmp	putch
+                        ;
+                        ;=====================================================
+                        ; Text messages and other constants
+                        ;
+ebfb : 0d0a0a0a         intro		db	CR,LF,LF,LF
+ebff : 49206861766520.. 		db	"I have a stack of ten dimes ($1) and am"
+ec26 : 0d0a             		db	CR,LF
+ec28 : 7468696e6b696e.. 		db	"thinking of a number from 1 to 100.  If"
+ec4f : 0d0a             		db	CR,LF
+ec51 : 796f7520706c61.. 		db	"you play the game, then each time you guess"
+AS02 Assembler for M6802 [1.42].                                     Page   61
+------------------------------- xSWTBUG v1.2.1 -------------------------------
+
+ec7c : 0d0a             		db	CR,LF
+ec7e : 77726f6e672049.. 		db	"wrong I'm going to take away two dimes."
+eca5 : 0d0a             		db	CR,LF
+eca7 : 496620796f7520.. 		db	"If you guess right, you get the remaining"
+ecd0 : 0d0a             		db	CR,LF
+ecd2 : 64696d65732e20.. 		db	"dimes.  If the pile runs out, then you have"
+ecfd : 0d0a             		db	CR,LF
+ecff : 746f2074616b65.. 		db	"to take dimes out of your pocket and pay me"
+ed2a : 0d0a             		db	CR,LF
+ed2c : 666f7220656163.. 		db	"for each incorrect guess."
+ed45 : 0d0a0a           		db	CR,LF,LF
+ed48 : 446f20796f7520.. 		db	"Do you want to play or not (Y or N)? ",EOT
+                        ;
+ed6e : 0d0a             nextguy		db	CR,LF
+ed70 : 596561682c2079.. 		db	"Yeah, you looked kind of whimpy!  Step aside and
+eda1 : 6769766520736f.. 		db	"give someone else a chance."
+edbc : 0d0a0a04         		db	CR,LF,LF,EOT
+                        ;
+edc0 : 456e7465722079.. prompt		db	"Enter your guess, from 1 to 100: ",EOT
+                        ;
+                        	if	DEBUG
+                        dbg1:		db	"Computer's number: $",EOT
+                        dbg2:		db	"User input: $",EOT
+                        	endif
+                        ;
+ede2 : 5965730d0a04     yesmsg		db	"Yes",CR,LF,EOT
+ede8 : 4e6f0d0a04       nomsg		db	"No",CR,LF,EOT
+                        
+eded : 536f7272792c20.. high_msg	db	"Sorry, you guessed too high.",EOT
+ee0a : 536f7272792c20.. low_msg		db	"Sorry, you guessed too low.",EOT
+ee26 : 0d0a0a           perfect		db	CR,LF,LF
+ee29 : 596f7520676f74.. 		db	"You got it!!!  Congratulations!"
+ee48 : 0d0a04           		db	CR,LF,EOT
+ee4b : 596f7520676574.. wonmsg		db	"You get to keep ",EOT
+ee5c : 20287669727475.. wonmsg2		db	" (virtual) dimes :-)"
+ee70 : 0d0a0a04         		db	CR,LF,LF,EOT
+ee74 : 556e666f727475.. lostmsg		db	"Unfortunately, you owe me ",EOT
+ee8f : 207265616c2064.. lostmsg2	db	" real dimes.  :-("
+eea0 : 0d0a0a04         		db	CR,LF,LF,EOT
+eea4 : 596f7520757365.. evenmsg		db	"You used all ten dimes, so you win "
+eec7 : 6e6f7468696e67.. 		db	"nothing, but you also don't owe anything!"
+eef0 : 0d0a0a04         		db	CR,LF,LF,EOT
+eef4 : 0d0a             owe1		db	CR,LF
+eef6 : 596f75206f7765.. 		db	"You owe me ",EOT
+ef02 : 2064696d657321.. owe2		db	" dimes!  ",EOT
+ef0c : 0d0a             pos1		db	CR,LF
+ef0e : 54686572652061.. 		db	"There are ",EOT
+ef19 : 2064696d657320.. pos2		db	" dimes left.  ",EOT
+                        
+                        		include	"console.asm"
+                        		list
+                        ;=====================================================
+                        ; This provides basic console services for an MP-S
+                        ; (or similiar) board.  This is a nice alternative
+                        ; to the SWTBUG functions because (A) it doesn't echo
+                        ; every character typed, and (B) it provides a way to
+                        ; test for a waiting character.
+                        ;
+                        ; Bob Applegate, August 2014
+                        ;=====================================================
+                        ;
+                        ; Set the slot the MP-S is in.
+AS02 Assembler for M6802 [1.42].                                     Page   62
+------------------------------- xSWTBUG v1.2.1 -------------------------------
+
+                        ;
+0001 =                  ACIA_SLOT	equ	1
+                        ;
+8000 =                  IO_BASE		equ	$8000
+8004 =                  ACIA_BASE	equ	IO_BASE+(ACIA_SLOT*4)
+                        ;
+                        ; Addresses used by the 6850 ACIA
+                        ;
+8004 =                  ACIA_STATUS	equ	ACIA_BASE
+8004 =                  ACIA_CONTROL	equ	ACIA_BASE
+8005 =                  ACIA_DATA	equ	ACIA_BASE + 1
+                        ;
+                        ; Control and status bits in the ACIA
+                        ;
+0000 =                  ACIA_DIV_1	equ	%00000000
+0001 =                  ACIA_DIV_16	equ	%00000001
+0002 =                  ACIA_DIV_64	equ	%00000010
+0003 =                  ACIA_RESET	equ	%00000011
+                        ;
+0000 =                  ACIA_7E2	equ	%00000000
+0004 =                  ACIA_7O2	equ	%00000100
+0008 =                  ACIA_7E1	equ	%00001000
+000c =                  ACIA_7O1	equ	%00001100
+0010 =                  ACIA_8N2	equ	%00010000
+0014 =                  ACIA_8N1	equ	%00010100
+0018 =                  ACIA_8E1	equ	%00011000
+001c =                  ACIA_8O1	equ	%00011100
+                        ;
+0001 =                  ACIA_RDRF	equ	%00000001	;receive data register full
+0002 =                  ACIA_TDRE	equ	%00000010	;transmit data register empty
+                        
+                        		code
+                        ;
+                        ;=====================================================
+                        ; This provides basic character output.  The character
+                        ; in A is sent to the console.  Preserves all register
+                        ;
+ef28 : 36               putch		psha
+ef29 : b68004           putch_1		lda	ACIA_STATUS
+ef2c : 8402             		anda	#ACIA_TDRE
+ef2e : 27f9             		beq	putch_1
+ef30 : 32               		pula
+ef31 : b78005           		sta	ACIA_DATA
+ef34 : 39               		rts
+                        ;
+                        ;=====================================================
+                        ; This waits for a character at the console and return
+                        ; it in A.  All other registers are preserved.  This
+                        ; does NOT echo the character.
+                        ;
+ef35 : b68004           getch		lda	ACIA_STATUS
+ef38 : 8401             		anda	#ACIA_RDRF
+ef3a : 27f9             		beq	getch
+ef3c : b68005           		lda	ACIA_DATA
+ef3f : 39               		rts
+                        
+                        ;=====================================================
+                        ; Determines if a key is waiting or not.  Returns C
+                        ; set if a key is waiting, C clear if not.  The
+                        ; character is not read.
+                        ;
+ef40 : b68004           kbhit		lda	ACIA_STATUS
+AS02 Assembler for M6802 [1.42].                                     Page   63
+------------------------------- xSWTBUG v1.2.1 -------------------------------
+
+ef43 : 8401             		anda	#ACIA_RDRF
+ef45 : 2702             		beq	kbhit_empty
+ef47 : 0d               		sec
+ef48 : 39               		rts
+ef49 : 0c               kbhit_empty	clc
+ef4a : 39               		rts
+                        
+                        
+                        
+                        
+                        	endif	;NUMGUESS
+                        
+                        	if	MEMTEST
+                        		include	"memtest.asm"
+                        ;=====================================================
+                        ; A basic memory test for the 6800, using some calls
+                        ; in SWTBUG.  August, 2014 by Bob Applegate
+                        ; bob@corshamtech.com
+                        ;
+                        ; This uses a 9 byte repeating sequence.  Since the
+                        ; pattern repeats every nine locations, it can detect
+                        ; shorted address bits.
+                        ;
+                        	if	~IN_SWTBUG	;SWTUB provides much of this
+                        EOT		equ	$04
+                        LF		equ	$0a
+                        CR		equ	$0d
+                        
+                        BADDR		equ	$e047
+                        PDATA1		equ	$e07e
+                        OUT4HS		equ	$e0c8
+                        OUT2HS		equ	$e0ca
+                        CONTRL		equ	$e0e3
+                        ;OUTCH		equ	$e1d1
+                        	endif
+                        
+                        ;
+                        ; After rolling through all 8 bits, this is the
+                        ; ninth value written.  Can be anything, but I'd
+                        ; suggest not using a power of two.
+                        ;
+0055 =                  SPECIAL		equ	$55
+                        
+                        
+                        		bss
+a080 =                  		org	$a080
+a080 =                  LOMEM		dw	$a300
+a082 =                  HIMEM		dw	$bfff
+a084 =                  pattern		ds	1
+a085 =                  expected	ds	1
+a086 =                  got		ds	1
+a087 =                  failaddr	ds	2
+                        
+                        ;
+                        ; If part of SWTBUG then don't set ORG, let SWTBUG do 
+                        ;
+                        		code
+                        	if	~IN_SWTBUG
+                        		org	$a100
+                        	endif
+ef4b : cef025           MemTest		ldx	#startmsg	;initial hello message
+ef4e : bde07e           		jsr	PDATA1
+AS02 Assembler for M6802 [1.42].                                     Page   64
+------------------------------- xSWTBUG v1.2.1 -------------------------------
+
+                        ;
+                        ; Ask for and save the starting address to test
+                        ;
+ef51 : cef029           		ldx	#lomsg
+ef54 : bde07e           		jsr	PDATA1
+ef57 : bde047           		jsr	BADDR
+ef5a : ffa080           		stx	LOMEM
+ef5d : bde792           		jsr	crlf
+                        ;
+                        ; Now ask for the ending address
+                        ;
+ef60 : cef051           		ldx	#himsg
+ef63 : bde07e           		jsr	PDATA1
+ef66 : bde047           		jsr	BADDR
+ef69 : ffa082           		stx	HIMEM
+                        ;
+                        ; Display the range we're testing just for a sanity ch
+                        ;
+ef6c : cef079           		ldx	#addrmsg
+ef6f : bde07e           		jsr	PDATA1
+ef72 : cea080           		ldx	#LOMEM
+ef75 : bde0c8           		jsr	OUT4HS
+ef78 : cef089           		ldx	#endmsg
+ef7b : bde07e           		jsr	PDATA1
+ef7e : cea082           		ldx	#HIMEM
+ef81 : bde0c8           		jsr	OUT4HS
+ef84 : cef08d           		ldx	#anykeymsg
+ef87 : bde07e           		jsr	PDATA1
+                        ;
+                        ; Initialize loop
+                        ;
+ef8a : 8601             		lda	#$01		;starting pattern
+                        ;
+                        ; Upon entry, the contents of A are saved as the start
+                        ; pattern for the next fill operation.
+                        ;
+ef8c : b7a084           save_start	sta	pattern		;save for comparison
+ef8f : fea080           		ldx	LOMEM
+                        ;
+                        ; Loop to fill the next memory location
+                        ;
+ef92 : a700             fill		sta	0,x
+ef94 : bca082           		cpx	HIMEM		;at last byte?
+ef97 : 2714             		beq	dotest		;yes, test memory
+ef99 : 08               		inx			;move to next address
+                        ;
+                        ; Move to next pattern
+                        ;
+ef9a : 8180             		cmpa	#$80		;last bit roll?
+ef9c : 2707             		beq	fspec		;yes, so do special
+ef9e : 8155             		cmpa	#SPECIAL	;just did special?
+efa0 : 2707             		beq	fbit		;yes, so back to the starting bit pattern
+efa2 : 48               		asla			;roll bit
+efa3 : 20ed             		bra	fill		;write next pattern
+efa5 : 8655             fspec		lda	#SPECIAL
+efa7 : 20e9             		bra	fill
+efa9 : 8601             fbit		lda	#$01
+efab : 20e5             		bra	fill
+                        ;
+                        ; Done filling
+                        ;
+efad : b6a084           dotest		lda	pattern		;get first pattern written
+AS02 Assembler for M6802 [1.42].                                     Page   65
+------------------------------- xSWTBUG v1.2.1 -------------------------------
+
+efb0 : fea080           		ldx	LOMEM		;starting address
+efb3 : e600             test		ldab	0,x		;load expected value
+efb5 : 11               		cba			;what it should be?
+efb6 : 2622             		bne	fail		;no
+efb8 : bca082           		cpx	HIMEM		;at end?
+efbb : 2714             		beq	passed
+efbd : 08               		inx
+                        ;
+efbe : 8180             		cmpa	#$80		;last bit roll?
+efc0 : 2707             		beq	tspec		;yes, so do special
+efc2 : 8155             		cmpa	#SPECIAL	;just did special?
+efc4 : 2707             		beq	tbit		;yes, so back to the starting bit pattern
+efc6 : 48               		asla			;else roll bit
+efc7 : 20ea             		bra	test		;write next pattern
+efc9 : 8655             tspec		lda	#SPECIAL
+efcb : 20e6             		bra	test
+efcd : 8601             tbit		lda	#$01
+efcf : 20e2             		bra	test
+                        ;
+                        ; It passed!  Print a progress dot and move on.
+                        ;
+efd1 : 36               passed		psha
+efd2 : 862e             		lda	#'.'
+efd4 : bdf00d           		jsr	myOUTCH
+                        ;
+                        ; See if the user pressed a key.  If so, get it and th
+                        ; this program.
+                        ;
+                        ;		lda	$8004
+                        ;		anda	#$01
+                        ;		beq	continue
+                        ;		pula
+                        ;		lda	$8005		;get waiting character
+                        ;		bra	exit		;and then exit
+                        ;
+                        ;continue
+efd7 : 32               		pula
+efd8 : 20b2             		jmp	save_start
+                        ;
+                        ; Failed.  On entry, A contains the expected pattern, 
+                        ; the address that failed, and B is the actual value.
+                        ;
+efda : b7a085           fail		sta	expected	;save values for later display
+efdd : f7a086           		stab	got
+efe0 : ffa087           		stx	failaddr
+efe3 : cef0a6           		ldx	#failmsg
+efe6 : bde07e           		jsr	PDATA1
+                        ;
+efe9 : cea087           		ldx	#failaddr	;display the failed address
+efec : bde0c8           		jsr	OUT4HS
+efef : cef0bb           		ldx	#fail2msg
+eff2 : bde07e           		jsr	PDATA1
+eff5 : cea085           		ldx	#expected	;display expected value
+eff8 : bde0ca           		jsr	OUT2HS
+effb : cef0c5           		ldx	#fail3msg
+effe : bde07e           		jsr	PDATA1
+f001 : fea087           		ldx	failaddr	;display the actual value
+f004 : bde0ca           		jsr	OUT2HS
+f007 : bde792           		jsr	crlf
+                        ;
+                        ; Return to SWTBUG
+                        ;
+AS02 Assembler for M6802 [1.42].                                     Page   66
+------------------------------- xSWTBUG v1.2.1 -------------------------------
+
+f00a :                  exit
+                        	if	IN_SWTBUG
+f00a : 7ee611           		jmp	ExtCmd
+                        	else
+                        		jmp	CONTRL
+                        	endif
+                        ;
+                        ;------------------------------------------------
+                        ; Print carriage return/line feed
+                        ;
+                        	if	~IN_SWTBUG
+                        crlf		ldx	#crlfmsg
+                        		jmp	PDATA1
+                        	endif
+                        ;
+                        ;------------------------------------------------
+                        ; I wrote my own OUTCH rather than using SWTBUG's
+                        ; because this will output the character in A,
+                        ; then check to see if a key has been hit.  If so,
+                        ; exit the program.
+                        ;
+f00d : 36               myOUTCH		psha			;save character
+f00e : b68004           outch1		lda	$8004		;ACIA status register
+f011 : 8402             		anda	#$02		;transmitter free?
+f013 : 27f9             		beq	outch1		;loop if not
+f015 : 32               		pula
+f016 : b78005           		sta	$8005
+f019 : 36               		psha			;save it again
+f01a : b68004           		lda	$8004
+f01d : 8401             		anda	#$01		;char waiting in receiver?
+f01f : 2702             		beq	outch2		;no
+f021 : 20e7             		bra	exit		;yes, so exit
+f023 : 32               outch2		pula
+f024 : 39               		rts
+                        
+f025 : 0d0a0a           startmsg	db	CR,LF,LF
+                        	if	~IN_SWTBUG
+                        		db	"Bob's RAM test - bob@corshamtech.com"
+                        		db	CR,LF,LF
+                        	endif
+f028 : 04               		db	EOT
+f029 : 456e7465722073.. lomsg		db	"Enter starting address (4 hex digits): ",EO
+f051 : 456e7465722065.. himsg		db	"Enter ending address:                  ",EO
+f079 : 0d0a5465737469.. addrmsg		db	CR,LF,"Testing from ",EOT
+f089 : 746f2004         endmsg		db	"to ",EOT
+                        	if	~IN_SWTBUG
+                        crlfmsg		db	CR,LF,EOT
+                        	endif	
+f08d : 0d0a5072657373.. anykeymsg	db	CR,LF,"Press any key to abort",EOT
+f0a6 : 0d0a             failmsg		db	CR,LF
+f0a8 : 4661696c656420.. 		db	"Failed at address ",EOT
+f0bb : 65787065637465.. fail2msg	db	"expected ",EOT
+f0c5 : 62757420676f74.. fail3msg	db	"but got ",EOT
+                        ;
+f0ce =                  last		equ	$
+                        
+                        
+                        	endif
+                        
+                        	if	OTHELLO
+                        		include	"othello.asm"
+                        	list
+AS02 Assembler for M6802 [1.42].                                     Page   67
+------------------------------- xSWTBUG v1.2.1 -------------------------------
+
+                        ;       NAM    OTHELLO
+                        *****************************
+                        * OTHELLO GAME
+                        * BY UNKNOWN SOURCE
+                        * RECOVERED FROM OLD FLOPPIES
+                        *
+                        * ADOPTED TO RUN ON THE MC3
+                        * BY DANIEL TUFVESSON 2014
+                        *****************************
+                        
+                        ;OUTCH  equ    $C003
+                        ;INCH   equ    $C006
+                        ;CONTRL equ    $C000
+                        
+                        	if	~IN_SWTBUG
+                        OUTCH  equ    $e1d1
+                        INCH   equ    $e1ac
+                        CONTRL equ    $e0e3
+                        
+                        LF	equ	$0a
+                        CR	equ	$0d
+                        	endif
+                        
+                        	bss
+0020 =                  	org	$0020
+                        
+0020 =                  TROW   rmb    1
+0021 =                  TCOL   rmb    1
+0022 =                  CROW   rmb    2
+0024 =                  CPUTRY rmb    1
+0025 =                  CPUSCR rmb    1
+0026 =                  FORFIT rmb    1
+0027 =                  ROW    rmb    1
+0028 =                  COL    rmb    1
+0029 =                  PIECE  rmb    1
+002a =                         org    *
+002a =                  XXOO   fcc    'O'
+002b =                  WAIT   fcb    0         ;NO WAIT
+002c =                  STRTGY fcb    2         ;BEST STRATEGY
+002d =                  WHO1ST fcb    1         ;HUMAN FIRST
+002e =                  COUNT  rmb    1
+002f =                  TEMPX1 rmb    2
+0031 =                  TEMP1  rmb    1
+0032 =                  RDIR   rmb    1
+0033 =                  CDIR   rmb    1
+                        
+0034 =                  CPU    rmb    1
+0035 =                  ME     rmb    1
+0036 =                  TOTAL  rmb    1
+0037 =                  FLAG   rmb    1
+0038 =                  FLAG1  rmb    1
+0039 =                  SCORE1 rmb    1
+003a =                  SCORE2 rmb    1
+003b =                  SCORE3 rmb    1
+003c =                  MATRIX rmb    8*8
+                        
+                        	code
+                        	if	~IN_SWTBUG
+                        	org	$0100
+                        	endif
+                        
+f0ce : cef4e5           Othello	ldx    #GREET	;	LDS    #$C07F    GREETINGS
+AS02 Assembler for M6802 [1.42].                                     Page   68
+------------------------------- xSWTBUG v1.2.1 -------------------------------
+
+f0d1 : 8d6c                    bsr    OUTIN
+f0d3 : 8159                    cmpa   #'Y'
+f0d5 : 2602                    bne    PROMT1
+f0d7 : 2003                    bra    PROMT2
+                        
+                        * SHOULD CPU WAIT?
+                        
+f0d9 : cef6d0           PROMT1 ldx    #IWAIT
+f0dc : 8d61             PROMT2 bsr    OUTIN     ;WAIT?
+f0de : 5f                      clrb
+f0df : 8159                    cmpa   #'Y'
+f0e1 : 2604                    bne    STORWT
+f0e3 : bdf4bf                  jsr    PDATA9
+f0e6 : 5c                      incb
+f0e7 : d72b             STORWT stab   WAIT
+f0e9 : cef724                  ldx    #BEST     ;STRATEGY?
+f0ec : 8d51                    bsr    OUTIN
+f0ee : 5f                      clrb
+f0ef : 814e                    cmpa   #'N'
+f0f1 : 2702                    beq    STORBT
+f0f3 : c602                    ldab   #2
+f0f5 : d72c             STORBT stab   STRTGY
+f0f7 : cef788                  ldx    #XORO     ;WANT X OR O ?
+f0fa : 8d43                    bsr    OUTIN
+f0fc : 8158                    cmpa   #'X'
+f0fe : 2702                    beq    STORXO
+f100 : 864f                    ldaa   #'O'
+f102 : 972a             STORXO staa   XXOO
+f104 : cef7a5                  ldx    #FIRST    ;MOVE?
+f107 : 8d36                    bsr    OUTIN
+f109 : 5f                      clrb
+f10a : 814e                    cmpa   #'N'
+f10c : 2701                    beq    STOR1
+f10e : 5c                      incb
+f10f : d72d             STOR1  stab   WHO1ST
+f111 : bdf4d5                  jsr    PCRLF
+                        
+                        * INITIAL BOARD
+                        
+f114 : c62e             INITAL ldab   #'.'
+f116 : ce003c                  ldx    #MATRIX
+f119 : e700             ZAP    stab   0,x		;stab   0,X+
+f11b : 08                      inx
+f11c : 8c007d                  cpx    #MATRIX+65
+f11f : 26f8                    bne    ZAP
+f121 : ce4f58                  ldx    #$4F58    	;O X
+f124 : df57                    stx    MATRIX+27
+f126 : ce584f                  ldx    #$584F    	;X O
+f129 : df5f                    stx    MATRIX+35
+                        
+                        * INITIAL PIECE SCORE
+                        
+f12b : ce0204                  ldx    #$0204
+f12e : df34                    stx    CPU       	;CPU=ME=2
+f130 : df35                    stx    ME        	;TOTAL=4
+f132 : 9726                    staa   FORFIT    	;=0
+                        
+                        * PRINT INITIAL BOARD
+                        
+f134 : bdf3ca                  jsr    Print
+                        
+                        * WHO'S FIRST?
+AS02 Assembler for M6802 [1.42].                                     Page   69
+------------------------------- xSWTBUG v1.2.1 -------------------------------
+
+                        
+f137 : 7d002d                  tst    WHO1ST
+f13a : 2711                    beq    COMPTR
+f13c : 7ef22a                  jmp    HUMAN
+f13f : bdf4bf           OUTIN  jsr    PDATA9
+f142 : bde078           INE    jsr    INCH 
+f145 : 811b                    cmpa   #$1B      	;ESCAPE
+f147 : 2603                    bne    rts1
+f149 : 7ef335                  jmp    REPLAY
+f14c : 39               rts1   rts
+                        
+                        * SHOULD CPU WAIT
+                        
+f14d : 7d002b           COMPTR tst    WAIT
+f150 : 2702                    beq    CPUGO
+f152 : 8dee                    bsr    INE
+                        
+                        * SETUP CPU'S PIECE
+                        
+f154 : 962a             CPUGO  ldaa   XXOO
+f156 : 8817                    eora   #$17      	;FLIP
+f158 : 9729                    staa   PIECE
+                        
+                        * INITIAL VARIABLES
+                        
+f15a : 8640                    ldaa   #64
+f15c : 9724                    staa   CPUTRY
+f15e : 7f0027                  clr    ROW
+f161 : 7f0028                  clr    COL
+f164 : 7f0025                  clr    CPUSCR
+f167 : 7f003b                  clr    SCORE3
+                        
+                        * CHECK FOR EMPTY SQUARE
+                        
+f16a : ce0027           TESTPT ldx    #ROW
+f16d : bdf355                  jsr    GETMTX
+f170 : 812e                    cmpa   #'.'
+f172 : 2638                    bne    NOGOOD
+                        
+                        * TEST FOR PROPER NEIGHBOR
+                        
+f174 : bdf369                  jsr    PROPER
+f177 : 4d                      tsta
+f178 : 2732                    beq    NOGOOD
+                        
+                        * CHECK FOR FLANKED ROW
+                        
+f17a : 7f0037                  clr    FLAG
+f17d : bdf3f6                  jsr    SCORE
+f180 : d639                    ldab   SCORE1
+f182 : 2728                    beq    NOGOOD
+                        
+                        * BEST MOVE SO FAR?
+                        
+f184 : 9627                    ldaa   ROW
+f186 : 2704                    beq    CKROW
+f188 : 8107                    cmpa   #7
+f18a : 2602                    bne    CKROW1
+f18c : db2c             CKROW  addb   STRTGY
+f18e : 9628             CKROW1 ldaa   COL
+f190 : 2704                    beq    ADSTRT
+f192 : 8107                    cmpa   #7
+AS02 Assembler for M6802 [1.42].                                     Page   70
+------------------------------- xSWTBUG v1.2.1 -------------------------------
+
+f194 : 2602                    bne    CKSCOR
+f196 : db2c             ADSTRT addb   STRTGY
+f198 : d125             CKSCOR cmpb   CPUSCR
+f19a : 2206                    bhi    STCPUS
+f19c : 260e                    bne    NOGOOD
+f19e : c501                    bitb   #1        ;RANDOM CHOICE
+f1a0 : 270a                    beq    NOGOOD
+                        
+                        * FOUND BETTER MOVE FOR CPU
+                        
+f1a2 : 9639             STCPUS ldaa   SCORE1
+f1a4 : 973b                    staa   SCORE3
+f1a6 : d725                    stab   CPUSCR
+f1a8 : de27                    ldx    ROW
+f1aa : df22                    stx    CROW
+                        
+                        * ALL SQ'S TESTED?
+                        
+f1ac : 7a0024           NOGOOD dec    CPUTRY
+f1af : 2714                    beq    TSTSCR
+                        
+                        * TRY AGAIN
+                        
+f1b1 : 5f                      clrb
+f1b2 : 7c0028                  inc    COL
+f1b5 : 9628                    ldaa   COL
+f1b7 : 8107                    cmpa   #7
+f1b9 : 2303                    bls    DOROW
+f1bb : d728                    stab   COL
+f1bd : 5c                      incb
+f1be : 9627             DOROW  ldaa   ROW
+f1c0 : 1b                      aba
+f1c1 : 9727                    staa   ROW
+f1c3 : 20a5                    bra    TESTPT
+                        
+                        * ANY CAPTURED?
+                        
+f1c5 : 7d003b           TSTSCR tst    SCORE3
+f1c8 : 2753                    beq    CPUFOR
+                        
+                        * UPDATE SCORES
+                        
+f1ca : 7f0026           GOODMV clr    FORFIT
+f1cd : 9634                    ldaa   CPU
+f1cf : 9b3b                    adda   SCORE3
+f1d1 : 4c                      inca
+f1d2 : 9734                    staa   CPU
+f1d4 : 9635                    ldaa   ME
+f1d6 : 903b                    suba   SCORE3
+f1d8 : 9735                    staa   ME
+f1da : 7c0036                  inc    TOTAL
+                        
+                        * PRINT CPU'S MOVE
+                        
+f1dd : cef91b                  ldx    #IMOVE
+f1e0 : bdf4bf                  jsr    PDATA9
+f1e3 : 9622                    ldaa   CROW
+f1e5 : 8b31                    adda   #$31      ;MAKE ASCII
+f1e7 : bde075                  jsr    OUTCH 
+f1ea : 9623                    ldaa   CROW+1
+f1ec : 8b41                    adda   #$41      ;MAKE ASCII LETTER
+f1ee : bde075                  jsr    OUTCH     ;OUTPUT LETTER
+AS02 Assembler for M6802 [1.42].                                     Page   71
+------------------------------- xSWTBUG v1.2.1 -------------------------------
+
+                        
+                        * PRINT # CAPTURED
+                        
+f1f1 : cef927                  ldx    #THAT1
+f1f4 : bdf4bf                  jsr    PDATA9    ;THAT GIVES ME
+f1f7 : ce003b                  ldx    #SCORE3
+f1fa : bdf4a8                  jsr    PRTDEC
+f1fd : cef937                  ldx    #YOUR
+f200 : bdf4bf                  jsr    PDATA9    ;YOUR PIECES
+                        
+                        * FLIP CAPTURED PIECES
+                        
+f203 : de22                    ldx    CROW
+f205 : df27                    stx    ROW
+f207 : 7c0037                  inc    FLAG
+f20a : bdf3f6                  jsr    SCORE
+f20d : bdf3ca                  jsr    Print
+                        
+                        * TEST FOR END OF GAME
+                        
+f210 : 9635                    ldaa   ME
+f212 : 2706                    beq    THEND
+f214 : 9636             TSTTOT ldaa   TOTAL
+f216 : 8140                    cmpa   #64
+f218 : 2610                    bne    HUMAN
+f21a : 7ef2ce           THEND  jmp    THEEND
+                        
+                        * CPU FORFITS MOVE
+                        
+f21d : cef948           CPUFOR ldx    #CPU0
+f220 : bdf4bf                  jsr    PDATA9
+f223 : 9626                    ldaa   FORFIT
+f225 : 26f3                    bne    THEND
+f227 : 7c0026                  inc    FORFIT
+                        
+                        * GET HUMAN'S ROW,COL I/P
+                        
+f22a : 962a             HUMAN  ldaa   XXOO
+f22c : 9729                    staa   PIECE
+f22e : cef772                  ldx    #MOVE
+f231 : bdf13f                  jsr    OUTIN
+f234 : 8158                    cmpa   #'X'
+f236 : 2605                    bne    CHKCOL
+f238 : bdf3ca                  jsr    Print
+f23b : 20ed                    bra    HUMAN
+f23d : 8138             CHKCOL cmpa   #'8'
+f23f : 2277                    bhi    HUMFOR
+f241 : 8031                    suba   #$31
+f243 : 2573                    bcs    HUMFOR
+f245 : 9727                    staa   ROW
+f247 : bdf142                  jsr    INE
+f24a : 8148                    cmpa   #'H'
+f24c : 226a                    bhi    HUMFOR
+f24e : 8041                    suba   #$41      ;=A
+f250 : 2566                    bcs    HUMFOR
+f252 : 9728                    staa   COL
+                        
+                        * OCCUPIED SQ?
+                        
+f254 : ce0027                  ldx    #ROW
+f257 : bdf355                  jsr    GETMTX
+f25a : cef746                  ldx    #SORRY
+AS02 Assembler for M6802 [1.42].                                     Page   72
+------------------------------- xSWTBUG v1.2.1 -------------------------------
+
+f25d : 812e                    cmpa   #'.'
+f25f : 2617                    bne    PRNT2
+                        
+                        * PROPER NEIGHBOR?
+                        
+f261 : bdf369           EMPTY  jsr    PROPER
+f264 : cef7bf                  ldx    #NONEXT
+f267 : 4d                      tsta
+f268 : 270e                    beq    PRNT2
+                        
+                        * FLANK?
+                        
+f26a : 7f0037           CKFLNK clr    FLAG
+f26d : bdf3f6                  jsr    SCORE
+f270 : 7d0039                  tst    SCORE1
+f273 : 2608                    bne    LEGAL
+f275 : cef7f7                  ldx    #NOFLNK
+f278 : bdf4bf           PRNT2  jsr    PDATA9
+f27b : 20ad             HUM1   bra    HUMAN
+                        
+                        * ALL LEGAL
+                        
+f27d : 7f0026           LEGAL  clr    FORFIT
+f280 : cef82a                  ldx    #THAT
+f283 : bdf4bf                  jsr    PDATA9
+f286 : ce0039                  ldx    #SCORE1
+f289 : bdf4a8                  jsr    PRTDEC
+f28c : cef83b                  ldx    #OFMY
+f28f : bdf4bf                  jsr    PDATA9
+                        
+                        * UPDATE SCORES
+                        
+f292 : 9635                    ldaa   ME
+f294 : 9b39                    adda   SCORE1
+f296 : 4c                      inca
+f297 : 9735                    staa   ME
+f299 : 9634                    ldaa   CPU
+f29b : 9039                    suba   SCORE1
+f29d : 9734                    staa   CPU
+f29f : 7c0036                  inc    TOTAL
+                        
+                        * FLIP BOARD PIECES
+                        
+f2a2 : 7c0037                  inc    FLAG
+f2a5 : bdf3f6                  jsr    SCORE
+f2a8 : bdf3ca                  jsr    Print
+                        
+                        * TEST FOR END OF GAME
+                        
+f2ab : 9634                    ldaa   CPU
+f2ad : 271f                    beq    THEEND
+f2af : 9636                    ldaa   TOTAL
+f2b1 : 8140                    cmpa   #64
+f2b3 : 2719                    beq    THEEND
+f2b5 : 7ef14d           GOCPU  jmp    COMPTR
+                        
+                        * HUMAN FORFITS MOVE
+                        
+f2b8 : cef963           HUMFOR ldx    #HUM0
+f2bb : bdf13f                  jsr    OUTIN
+f2be : 8159                    cmpa   #'Y'
+f2c0 : 26b9                    bne    HUM1
+AS02 Assembler for M6802 [1.42].                                     Page   73
+------------------------------- xSWTBUG v1.2.1 -------------------------------
+
+f2c2 : bdf4d5           BYEBYE jsr    PCRLF
+f2c5 : 9626                    ldaa   FORFIT
+f2c7 : 2605                    bne    THEEND
+f2c9 : 7c0026                  inc    FORFIT
+f2cc : 20e7                    bra    GOCPU
+f2ce : cef849           THEEND ldx    #YOUHAV
+f2d1 : bdf4bf                  jsr    PDATA9
+f2d4 : ce0035                  ldx    #ME
+f2d7 : bdf4a8                  jsr    PRTDEC
+f2da : cef854                  ldx    #ANDI
+f2dd : bdf4bf                  jsr    PDATA9
+f2e0 : ce0034                  ldx    #CPU
+f2e3 : bdf4a8                  jsr    PRTDEC
+f2e6 : cef868                  ldx    #PTEXT
+f2e9 : bdf4bf                  jsr    PDATA9
+                        
+                        * DETERMINE WINNER
+                        
+f2ec : cef88b                  ldx    #ATIE     ;TIE
+f2ef : 9635                    ldaa   ME
+f2f1 : 9134                    cmpa   CPU
+f2f3 : 273d                    beq    PRNT1     ;TIE
+f2f5 : 220c                    bhi    HUMWON
+f2f7 : cef871                  ldx    #IWON
+f2fa : bdf4bf                  jsr    PDATA9
+f2fd : d634                    ldab   CPU
+f2ff : d035                    subb   ME
+f301 : 200a                    bra    HOWBAD
+f303 : cef892           HUMWON ldx    #MEWON
+f306 : bdf4bf                  jsr    PDATA9
+f309 : d635                    ldab   ME
+f30b : d034                    subb   CPU
+                        
+                        * HOW BAD WAS OTHER GUY TROUNCED?
+                        
+f30d : cef89f           HOWBAD ldx    #TTYPE
+f310 : bdf4bf                  jsr    PDATA9
+f313 : cef8ab                  ldx    #PERFCT
+f316 : d136                    cmpb   TOTAL
+f318 : 2718                    beq    PRNT1     ;PERFECT GAME
+f31a : cef8d4                  ldx    #SQEAK
+f31d : c105                    cmpb   #5
+f31f : 2311                    bls    PRNT1     ;SQUEAKER
+f321 : cef8ca                  ldx    #HOT
+f324 : c10a                    cmpb   #10
+f326 : 230a                    bls    PRNT1     ;HOT GAME
+f328 : cef8c3                  ldx    #FIGHT
+f32b : c10f                    cmpb   #15
+f32d : 2303                    bls    PRNT1     ;FIGHT!
+f32f : cef8b9                  ldx    #WALK     ;WALKAWAY!
+f332 : bdf4bf           PRNT1  jsr    PDATA9
+f335 : cef8de           REPLAY ldx    #ANOTHR   ;PLAY AGAIN?
+f338 : bdf13f                  jsr    OUTIN
+f33b : 814e                    cmpa   #'N'
+f33d : 2706                    beq    FIN
+f33f : bdf4d5                  jsr    PCRLF
+f342 : 7ef114                  jmp    INITAL
+f345 : cef903           FIN    ldx    #THANX
+f348 : bdf4bf                  jsr    PDATA9
+                        	if	IN_SWTBUG
+f34b : 7ee611           	jmp	ExtCmd
+                        	else
+AS02 Assembler for M6802 [1.42].                                     Page   74
+------------------------------- xSWTBUG v1.2.1 -------------------------------
+
+                        	jmp	CONTRL
+                        	endif
+                        
+                        *********************
+                        * STORMX SUBROUTINE *
+                        *********************
+                        
+f34e : 8d05             STORMX bsr    GETMTX    ;POINT TO PLACE
+f350 : 9629                    ldaa   PIECE
+f352 : a700                    staa   0,x
+f354 : 39                      rts
+                        
+                        *********************
+                        * GETMTX SUBROUTINE *
+                        *********************
+                        
+f355 : a600             GETMTX ldaa   0,x       ;PASSED ROW # (0-7)
+f357 : e601                    ldab   1,x       ;PASSED COL # (0-7)
+f359 : 48                      asla             ;MULTIPLY
+f35a : 48                      asla             ;BY
+f35b : 48                      asla             ;EIGHT
+f35c : ce003c                  ldx    #MATRIX   ;START ADDR
+f35f : 1b                      aba
+f360 : 2704                    beq    LOADA
+f362 : 08               BUILDX inx    		;BUMP
+f363 : 4a                      deca
+f364 : 26fc                    bne    BUILDX
+f366 : a600             LOADA  ldaa   0,x       ;MATRIX ELEMENT REQ'D
+f368 : 39                      rts
+                        
+                        *********************
+                        * PROPER SUBROUTINE *
+                        *********************
+                        
+f369 : 9629             PROPER ldaa   PIECE     ;OTHER PLAYER'S PIECE
+f36b : 8817                    eora   #$17      ;FLIP
+f36d : 9731                    staa   TEMP1
+f36f : 8608                    ldaa   #8        ;8 NEIGHBORS
+f371 : 972e                    staa   COUNT     ;TO CHECK
+f373 : cef3ba                  ldx    #NEIBOR   ;START ADDR
+f376 : df2f                    stx    TEMPX1    ;OF NEIGHBOR
+f378 : d627             GETROW ldab   ROW       ;ROW COORD
+f37a : a600                    ldaa   0,x       ;ROW'S DIRECTION
+f37c : 270d                    beq    SETR      ;=0
+f37e : 2b07                    bmi    MROW      ;=-
+f380 : 5c               AROW   incb
+f381 : c107                    cmpb   #7        ;OFF OF BOARD
+f383 : 2228                    bhi    NONEIB    ;YES
+f385 : 2004                    bra    SETR      ;NO
+f387 : 5d               MROW   tstb             ;OFF OF BOARD
+f388 : 2723                    beq    NONEIB    ;YES
+f38a : 5a                      decb             ;NO
+f38b : d720             SETR   stab   TROW      ;STORE NEIGHBOR'S ROW #
+f38d : d628             GETCOL ldab   COL       ;COL COORD
+f38f : de2f                    ldx    TEMPX1    ;COL'S
+f391 : a601                    ldaa   1,x       ;DIRECTION
+f393 : 270d                    beq    SETC      ;=0
+f395 : 2b07                    bmi    MCOL      ;=-
+f397 : 5c               ACOL   incb
+f398 : c107                    cmpb   #7        ;OFF OF BOARD
+f39a : 2211                    bhi    NONEIB    ;YES
+f39c : 2004                    bra    SETC      ;NO
+AS02 Assembler for M6802 [1.42].                                     Page   75
+------------------------------- xSWTBUG v1.2.1 -------------------------------
+
+f39e : 5d               MCOL   tstb             ;OFF OF BOARD
+f39f : 270c                    beq    NONEIB    ;YES
+f3a1 : 5a                      decb             ;NO
+f3a2 : d721             SETC   stab   TCOL      ;STORE NEIGHBOR'S COL #
+f3a4 : ce0020                  ldx    #TROW     ;GET PIECE
+f3a7 : 8dac                    bsr    GETMTX    ;AT NEIGHBOR'S COORDS
+f3a9 : 9131                    cmpa   TEMP1     ;GET OTHER PLAYER'S PIECE
+f3ab : 270c                    beq    rts2      ;IS PROPER
+                        
+                        * NO NEIGHBOR
+                        
+f3ad : de2f             NONEIB ldx    TEMPX1
+f3af : 08                      inx              ;BUMP NEIGHBOR POINTER
+f3b0 : 08                      inx
+f3b1 : df2f                    stx    TEMPX1
+f3b3 : 7a002e                  dec    COUNT     ;DEC COUNT
+f3b6 : 26c0                    bne    GETROW    ;OF ENTRIES TO CHECK
+f3b8 : 4f                      clra             ;FLAG=NO NEIGHBOR
+f3b9 : 39               rts2   rts
+f3ba : 0001             NEIBOR fcb    0,1       ;DOWN
+f3bc : ff01                    fcb    $FF,1     ;LOWER-LEFT
+f3be : ff00                    fcb    $FF,0     ;LEFT
+f3c0 : ffff                    fcb    $FF,$FF   ;UPPER-LEFT
+f3c2 : 00ff                    fcb    0,$FF     ;UP
+f3c4 : 01ff                    fcb    1,$FF     ;UPPER-RIGHT
+f3c6 : 0100                    fcb    1,0       ;RIGHT
+f3c8 : 0101                    fcb    1,1       ;LOWER RIGHT
+                        
+                        ********************
+                        * PRINT SUBROUTINE *
+                        ********************
+                        
+f3ca : cef98c           Print	ldx	#LETTERa
+f3cd : bdf4bf                  jsr    PDATA9
+f3d0 : ce003c                  ldx    #MATRIX
+f3d3 : 8630                    ldaa   #'0'
+f3d5 : 4c               BOARD  inca
+f3d6 : 972e                    staa   COUNT
+f3d8 : bde075                  jsr    OUTCH     ;LINE #
+f3db : c608                    ldab   #8        ;8 CHARS TO PRINT
+f3dd : 8620             EIGHT  ldaa   #$20
+f3df : bde075                  jsr    OUTCH     ;SPACE
+f3e2 : a600                    ldaa   0,x       ;OUTPUT
+f3e4 : bde075                  jsr    OUTCH     ;CHAR
+f3e7 : 08                      inx    		;BUMP CHAR PTR
+f3e8 : 5a                      decb             ;DEC CHAR COUNT
+f3e9 : 26f2                    bne    EIGHT     ;MORE TO DO
+f3eb : 8d06                    bsr    PCR
+f3ed : 962e                    ldaa   COUNT
+f3ef : 8138                    cmpa   #'8'
+f3f1 : 26e2                    bne    BOARD     ;BOARD
+f3f3 : 7ef4d5           PCR    jmp    PCRLF
+                        
+                        ********************
+                        * SCORE SUBROUTINE *
+                        ********************
+                        
+f3f6 : 7d0037           SCORE  tst    FLAG      ;HERE FOR SCORE ONLY
+f3f9 : 2706                    beq    NOSTOR    ;YES
+f3fb : ce0027                  ldx    #ROW
+f3fe : bdf34e                  jsr    STORMX    ;PUT PIECE ON BOARD
+f401 : 7f0039           NOSTOR clr    SCORE1    ;ZERO OVERALL CTR
+AS02 Assembler for M6802 [1.42].                                     Page   76
+------------------------------- xSWTBUG v1.2.1 -------------------------------
+
+f404 : 8608                    ldaa   #8
+f406 : 972e                    staa   COUNT     ;8 NEIGHBORS TO CHECK
+f408 : cef3ba                  ldx    #NEIBOR   ;START ADDR
+f40b : df2f                    stx    TEMPX1    ;OF NEIGHBOR
+f40d : de2f             LOOP1b ldx    TEMPX1    ;ADDR OF 'NEW' NEIGHBORS
+f40f : a600                    ldaa   0,x
+f411 : 9732                    staa   RDIR      ;ROW VECT
+f413 : a601                    ldaa   1,x
+f415 : 9733                    staa   CDIR      ;COL VECT
+f417 : 7f0038                  clr    FLAG1     ;ZERO STORAGE FLAG
+f41a : 9627             LOOP1A ldaa   ROW       ;PASSED ROW #
+f41c : 9720                    staa   TROW
+f41e : 9628                    ldaa   COL       ;PASSED COL #
+f420 : 9721                    staa   TCOL
+f422 : 7f003a                  clr    SCORE2    ;ZERO INTERMEDIATE SCORE
+f425 : 9632             LOOP2b  ldaa   RDIR      ;ROW VECT
+f427 : 2715                    beq    NEWCOL    ;=0
+f429 : 2b0b                    bmi    NROW      ;=-
+f42b : 7c0020           PROW   inc    TROW      ;TROW=TROW+1
+f42e : 9620                    ldaa   TROW
+f430 : 8107                    cmpa   #7        ;OFF OF BOARD
+f432 : 225f                    bhi    END1      ;YES
+f434 : 2008                    bra    NEWCOL    ;NO
+f436 : 7d0020           NROW   tst    TROW      ;OFF OF BOARD
+f439 : 2758                    beq    END1      ;YES
+f43b : 7a0020                  dec    TROW      ;ROW=ROW-1
+f43e : 9633             NEWCOL ldaa   CDIR      ;COL VECT
+f440 : 2715                    beq    CHECK     ;=0
+f442 : 2b0b                    bmi    NCOL      ;=-
+f444 : 7c0021           PCOL   inc    TCOL      ;COL=COL+1
+f447 : 9621                    ldaa   TCOL
+f449 : 8107                    cmpa   #7        ;OFF OF BOARD
+f44b : 2246                    bhi    END1      ;YES
+f44d : 2008                    bra    CHECK
+f44f : 7d0021           NCOL   tst    TCOL      ;OFF OF BOARD
+f452 : 273f                    beq    END1      ;YES
+f454 : 7a0021                  dec    TCOL      ;COL=COL-1
+f457 : ce0020           CHECK  ldx    #TROW     ;GET PIECE
+f45a : bdf355                  jsr    GETMTX    ;AT TROW,TCOL
+f45d : 16                      tab
+f45e : 9629                    ldaa   PIECE     ;GET OPPONENTS CODE
+f460 : 8817                    eora   #$17      ;FLIP
+f462 : 11                      cba              ;CAPTURED OPPONENT'S PIECE
+f463 : 2610                    bne    ISME      ;NO
+f465 : 7c003a                  inc    SCORE2    ;YES
+f468 : 7d0038                  tst    FLAG1     ;STORE IT?
+f46b : 27b8                    beq    LOOP2b     ;NO
+f46d : ce0020                  ldx    #TROW     ;YES
+f470 : bdf34e                  jsr    STORMX
+f473 : 20b0                    bra    LOOP2b
+f475 : d129             ISME   cmpb   PIECE     ;FOUND ONE OF MY PIECES
+f477 : 261a                    bne    END1      ;NO-FOUND BLANK
+f479 : 7d0038                  tst    FLAG1     ;HERE ON SCORE PASS
+f47c : 2606                    bne    TEST      ;NO
+f47e : 963a                    ldaa   SCORE2    ;UPDATE
+f480 : 9b39                    adda   SCORE1    ;# PIECES
+f482 : 9739                    staa   SCORE1    ;CAPTURED
+f484 : 7d0037           TEST   tst    FLAG      ;FOR REAL?
+f487 : 270a                    beq    END1      ;NO
+f489 : 7d0038                  tst    FLAG1     ;OPPONENT'S PIECES FLIPPED YET
+f48c : 2605                    bne    END1      ;YES
+f48e : 7c0038                  inc    FLAG1     ;NO-SET FLAG
+AS02 Assembler for M6802 [1.42].                                     Page   77
+------------------------------- xSWTBUG v1.2.1 -------------------------------
+
+f491 : 2087                    bra    LOOP1A    ;FLIP OPPONENT
+f493 : 9630             END1   ldaa   TEMPX1+1
+f495 : 8b02                    adda   #2        ;UPDATE
+f497 : d62f                    ldab   TEMPX1    ;NEIGHBOR
+f499 : c900                    adcb   #0        ;POINTER
+f49b : 9730                    staa   TEMPX1+1
+f49d : d72f                    stab   TEMPX1
+f49f : 7a002e                  dec    COUNT     ;ALL CHECKED?
+f4a2 : 2703                    beq    RETURNb    ;YES
+f4a4 : 7ef40d                  jmp    LOOP1b
+f4a7 : 39               RETURNb rts
+                        
+                        ********************
+                        *PRTDEC SUBROUTINE *
+                        ********************
+                        
+f4a8 : e600             PRTDEC ldab   0,x       ;LOAD PASSED HEX #
+f4aa : 4f                      clra             ;ZERO HIGH ORDER DIGIT
+f4ab : 4c               DECLOP inca
+f4ac : c00a                    subb   #10       ;NN=NN-10
+f4ae : 24fb                    bcc    DECLOP
+f4b0 : cb0a                    addb   #10       ;RESTORE B
+f4b2 : 4a                      deca
+f4b3 : 2702                    beq    OUTB      ;SUPPRESS LEADING ZERO
+f4b5 : 8d01                    bsr    OUTASC
+f4b7 : 17               OUTB   tba
+f4b8 : 8b30             OUTASC adda   #'0'
+f4ba : 7ee075                  jmp    OUTCH 
+                        
+                        *********************
+                        * PDATA9 SUBROUTINE *
+                        *********************
+                        
+f4bd : 8d23             PDATAa bsr    OUTE
+f4bf : a600             PDATA9 ldaa   0,x
+f4c1 : 08                      inx
+f4c2 : 815e                    cmpa   #'^'
+f4c4 : 2604                    bne    CKCR
+f4c6 : 8610                    ldaa   #$10
+f4c8 : 8d11                    bsr    CLRSCN    ;CLEAR SCREEN
+f4ca : 810d             CKCR   cmpa   #$0D       ;C.R.?
+f4cc : 2602                    bne    CKEND
+f4ce : 8d05                    bsr    PCRLF     ;C.R. L.F.
+f4d0 : 813b             CKEND  cmpa   #';'
+f4d2 : 26e9                    bne    PDATAa
+f4d4 : 39                      rts
+f4d5 : 860d             PCRLF  ldaa   #$D
+f4d7 : 8d09                    bsr    OUTE
+f4d9 : 860a                    ldaa   #$A
+f4db : 8d05             CLRSCN bsr    OUTE
+f4dd : 8d00             NUL4   bsr    NUL2
+f4df : 8d00             NUL2   bsr    NUL1
+f4e1 : 4f               NUL1   clra
+f4e2 : 7ee075           OUTE   jmp    OUTCH 
+                        
+f4e5 : 0d0a0a           GREET	db	CR,LF,LF
+f4e8 : 4752454554494e..        fcc    "GREETINGS FROM OTHELLO"
+f4fe : 0d0a             	db	CR,LF
+f500 : 444f20594f5520.. INST0  fcc    "DO YOU WANT INSTRUCTIONS? ;"
+f51b : 0d               INST1  	db	CR
+f51c : 4f5448454c4c4f.. 	fcc    "OTHELLO IS PLAYED ON AN "
+f534 : 38204259203820..        fcc    "8 BY 8 CHECKER BOARD WITH"
+AS02 Assembler for M6802 [1.42].                                     Page   78
+------------------------------- xSWTBUG v1.2.1 -------------------------------
+
+f54d : 0d               	db	CR
+f54e : 524f5753204e55..        fcc    "ROWS NUMBERED 1 TO 8 "
+f563 : 414e4420434f4c..        fcc    "AND COLUMNS A TO H."
+f576 : 0d               	db	CR
+f577 : 54484520494e49..        fcc    "THE INITIAL CONFIGURATION "
+f591 : 495320414c4c20..        fcc    "IS ALL BLANK EXCEPT"
+f5a4 : 0d               	db	CR
+f5a5 : 464f5220544845..        fcc    "FOR THE CENTER FOUR SQUARES, "
+f5c2 : 57484943482046..        fcc    "WHICH FORM THE PATTERN:"
+f5d9 : 0d               	db	CR
+f5da : 20202020202020..        fcc    "          O X"
+f5e7 : 0d               	db	CR
+f5e8 : 20202020202020..        fcc    "          X O"
+f5f5 : 0d               	db	CR
+f5f6 : 50555420594f55..        fcc    "PUT YOUR PIECE SO THAT MINE IS "
+f615 : 4245545745454e..        fcc    "BETWEEN 2 OF YOURS, SUCH AS:"
+f631 : 0d               	db	CR
+f632 : 20202020202020.. 	db	"        X O X",CR
+f640 : 20202020202020.. 	db	"          X O",CR
+f64e : 54484953205749..        fcc    "THIS WILL 'FLIP' MY TOP 'O' INTO YOUR '
+f677 : 0d               	db	CR
+f678 : 4e4f54453a2059..        fcc    "NOTE: YOU MAY CAPTURE 1 OR MORE OF "
+f69b : 4d592050494543..        fcc    "MY PIECES THIS WAY,"
+f6ae : 0d               	db	CR
+f6af : 4f5220594f5520..        fcc    "OR YOU MAY FORFEIT BY TYPING 'Z';"
+f6d0 : 0d0a             IWAIT  	db	CR,LF
+f6d2 : 53484f554c4420.. 	fcc    "SHOULD I WAIT BEFORE "
+f6e7 : 4d414b494e4720..        fcc    "MAKING MY MOVES? ;"
+f6f9 : 0d               OKWAIT 	db	CR
+f6fa : 4f4b2e20545950.. 	fcc	"OK. TYPING ANY CHARACTER "
+f713 : 57494c4c204c45.. 	fcc	"WILL LET ME GO!"
+f722 : 0d3b             	db	CR,';'
+f724 : 0d               BEST  	db	CR
+f725 : 53484f554c4420.. 	fcc	"SHOULD I PLAY MY BEST STRATEGY? ;"
+f746 : 0d               SORRY	db	CR
+f747 : 534f5252592c20.. 	fcc    "SORRY, THAT SQUARE IS OCCUPIED. TRY AGAIN!;"
+f772 : 594f5552204d4f.. MOVE	fcc	"YOUR MOVE--(ROW,COL)?;"
+f788 : 0d               XORO	db	CR
+f789 : 444f20594f5520.. 	fcc	"DO YOU WANT TO HAVE X OR O?;"
+f7a5 : 0d               FIRST	db	CR
+f7a6 : 444f20594f5520.. 	fcc	"DO YOU WANT TO GO FIRST?;"
+f7bf : 534f5252592c20.. NONEXT fcc	"SORRY, YOU ARE NOT NEXT TO "
+f7da : 4f4e45204f4620..        fcc	"ONE OF MY PIECES. TRY AGAIN!;"
+f7f7 : 0d               NOFLNK	db	CR
+f7f8 : 534f5252592c20.. 	fcc    "SORRY, THAT MOVE DOES NOT FLANK A ROW. TRY AG
+f82a : 0d               THAT	db	CR
+f82b : 54484154204749.. 	fcc	"THAT GIVES YOU ;"
+f83b : 204f46204d5920.. OFMY	fcc	" OF MY PIECES;"
+f849 : 07               YOUHAV fcb    7
+f84a : 594f5520484156..        fcc    "YOU HAVE ;"
+f854 : 20504945434553.. ANDI   fcc    " PIECES AND I HAVE ;"
+f868 : 20504945434553.. PTEXT  fcc    " PIECES!;"
+f871 : 0d               IWON	db	CR
+f872 : 534f5252592c20.. 	fcc    "SORRY, I WON THAT ONE!  ;"
+f88b : 4120544945213b   ATIE   fcc    "A TIE!;"
+f892 : 0d               MEWON	db	CR
+f893 : 594f5520574f4e.. 	fcc    "YOU WON!!  ;"
+f89f : 54484154205741.. TTYPE  fcc    "THAT WAS A ;"
+f8ab : 50455246454354.. PERFCT fcc    "PERFECT GAME!;"
+f8b9 : 57414c4b415741.. WALK   fcc    "WALKAWAY!;"
+f8c3 : 4649474854213b   FIGHT  fcc    "FIGHT!;"
+f8ca : 484f542047414d.. HOT    fcc    "HOT GAME!;"
+AS02 Assembler for M6802 [1.42].                                     Page   79
+------------------------------- xSWTBUG v1.2.1 -------------------------------
+
+f8d4 : 53515545414b45.. SQEAK  fcc    "SQUEAKER!;"
+f8de : 0d0a             ANOTHR	db	CR,LF
+f8e0 : 444f20594f5520.. 	fcc    "DO YOU WANT TO PLAY ANOTHER GAME? ;"
+f903 : 0d0a             THANX	db	CR,LF
+f905 : 5448414e4b5320.. 	fcc	"THANKS FOR PLAYING!"
+f918 : 0d0a3b           	db	CR,LF,';'
+f91b : 0d               IMOVE	db	CR
+f91c : 49204d4f564520.. 	fcc    "I MOVE TO ;"
+f927 : 0d               THAT1	db	CR
+f928 : 54484154204749.. 	fcc	"THAT GIVES ME ;"
+f937 : 204f4620594f55.. YOUR	fcc	" OF YOUR PIECES.;"
+f948 : 49204841564520.. CPU0   fcc    "I HAVE TO FORFIT MY MOVE!"
+f961 : 0d3b             	db	CR,';'
+f963 : 0d               HUM0	db	CR
+f964 : 41524520594f55.. 	fcc    "ARE YOU FORFEITING "
+f977 : 594f5552205455..        fcc    "YOUR TURN (Y OR N)? ;"
+f98c : 0d               LETTERa	db	CR
+f98d : 20204120422043.. 	fcc    "  A B C D E F G H"
+f99e : 0d3b             	db	CR,';'
+                        
+                        
+                        
+                        	endif
+                        
+                        	endif	;EXTENDED
+                        
+                        ;
+                        ;***************************************************
+                        ; Vectors.  What's our vector, Victor?
+                        ;
+fff8 =                  		org	ROM_BASE + (1 << ADDR_BITS) - 8
+                        
+fff8 : e000             		dw	IRQV 	;IRQ VECTOR
+fffa : e18b             		dw	SFE	;SOFTWARE INTERRUPT
+fffc : e1a7             		dw	NMIV	;NMI VECTOR
+fffe : e0d0             		dw	START	;RESTART VECTOR
+                        
+                        
+                        
+                        
+No errors in pass 2.
+Wrote binary from address $e000 through $ffff.
+Total size 8192 bytes.
+
