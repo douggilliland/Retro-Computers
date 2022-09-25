@@ -1,0 +1,2961 @@
+AS65 Assembler for R6502 [1.42].                                     Page    1
+-------------------------------- ctmon65.asm ---------------------------------
+
+<<<<<<< HEAD
+2407 lines read, no errors in pass 1.
+=======
+2401 lines read, no errors in pass 1.
+>>>>>>> H_bug
+                        ;*****************************************************
+                        ; CTMON65
+                        ;
+                        ; This is the monitor for the Corsham Techologies, LLC
+                        ; SS-50 65C02 board.  It's a fairly generic monitor th
+                        ; can be ported to other 6502 based systems.
+                        ;
+                        ; Written mostly while on a family vacation in 2018, b
+                        ; ideas and code were taken from other Corsham Tech
+                        ; projects and various web pages (credit given in the
+                        ; code).
+                        ;
+                        ; Bob Applegate
+                        ; bob@corshamtech.com
+                        ; www.corshamtech.com
+                        ;*****************************************************
+<<<<<<< HEAD
+                        
+                        ;=====================================================
+                        ;-----------------------------------------------------
+                        
+=======
+                        ;
+>>>>>>> H_bug
+                        		include	"config.inc"
+                        ;*****************************************************
+                        ; FILE: config.inc
+                        ;
+                        ; General configuration file
+                        ;*****************************************************
+                        ;
+0000 =                  FALSE		equ	0
+0001 =                  TRUE		equ	!FALSE
+                        ;
+                        ; SS-50 bus constants
+                        ;
+e000 =                  IO_BASE		equ	$e000
+0010 =                  IO_SIZE		equ	16
+                        ;
+                        ; Memory usage
+                        ;
+00f0 =                  ZERO_PAGE_START	equ	$00f0
+f000 =                  ROM_START	equ	$f000
+df00 =                  RAM_START	equ	$df00
+                        ;
+                        ; If enabled, turn on buffered input code.
+                        ;
+0000 =                  BUFFERED_INPUT	equ	FALSE
+                        ;
+0005 =                  MAX_ARGC	equ	5
+                        ;
+                        ; If enabled, the debugger will display the flag regis
+                        ; in ASCII.  Nice, but takes more code.
+                        ;
+0001 =                  FULL_STATUS	equ	TRUE
+                        ;
+                        ; Enable EXTENDED_CMDS to allow linking external comma
+                        ; to the command handler.
+                        ;
+0000 =                  EXTENDED_CMDS	equ	FALSE
+<<<<<<< HEAD
+AS65 Assembler for R6502 [1.42].                                     Page    2
+-------------------------------- ctmon65.asm ---------------------------------
+
+=======
+>>>>>>> H_bug
+                        ;
+                        ; Define to enable SD related functions
+                        ;
+0001 =                  SD_ENABLED	equ	TRUE
+                        ;
+                        ; Size of the keyboard buffer
+                        ;
+0084 =                  BUFFER_SIZE	equ	132
+AS65 Assembler for R6502 [1.42].                                     Page    2
+-------------------------------- ctmon65.asm ---------------------------------
+
+                        
+                        
+                        ;
+<<<<<<< HEAD
+                        ; Version and revision
+                        ;
+                        ;VERSION		equ	0
+                        ;REVISION	equ	2
+=======
+                        ; Current version and revision
+                        ;
+0000 =                  VERSION		equ	0
+0003 =                  REVISION	equ	3
+>>>>>>> H_bug
+                        ;
+                        ;-----------------------------------------------------
+                        ; ASCII constants
+                        ;
+0007 =                  BELL		equ	$07
+0008 =                  BS		equ	$08
+000a =                  LF		equ	$0a
+000d =                  CR		equ	$0d
+                        ;
+                        ; Max number of bytes per line for hex dump
+                        ;
+0010 =                  BYTESLINE	equ	16
+                        ;
+                        ; These are various buffer sizes
+                        ;
+000c =                  FILENAME_SIZE	equ	12
+                        ;
+                        ; Intel HEX record types
+                        ;
+0000 =                  DATA_RECORD	equ	$00
+0001 =                  EOF_RECORD	equ	$01
+                        ;
+                        ; Zero-page data
+                        ;
+                        ;		zpage
+                        		bss
+00f0 =                  		org	ZERO_PAGE_START
+00f0 =                  sptr		ds	2
+00f2 =                  INL		ds	1
+00f3 =                  INH		ds	1
+00f4 =                  putsp		ds	2
+                        ;
+                        ; Non zero-page data
+                        ;
+                        		bss
+df00 =                  		org	RAM_START
+                        ;
+                        ; The use of memory starting from here will remain
+                        ; constant through different versions of CTMON65.
+                        ;
+df00 =                  IRQvec		ds	2
+df02 =                  NMIvec		ds	2
+                        ;
+                        ; Before a L(oad) command, these are set to $FF.
+                        ; After loading, if they are different, jump to
+                        ; that address.
+                        ;
+AS65 Assembler for R6502 [1.42].                                     Page    3
+-------------------------------- ctmon65.asm ---------------------------------
+
+df04 =                  AutoRun		ds	2
+                        ;
+                        ; Pointer to the subroutine that gets the next input
+                        ; character.  Used for doing disk/console input.
+                        ;
+df06 =                  inputVector	ds	2
+                        ;
+                        ; Same thing for output.
+AS65 Assembler for R6502 [1.42].                                     Page    3
+-------------------------------- ctmon65.asm ---------------------------------
+
+                        ;
+df08 =                  outputVector	ds	2
+                        ;
+                        ; Buffer for GETLINE
+                        ;
+df0a =                  buffer		ds	BUFFER_SIZE
+                        ;
+                        ; Anything from here can be moved between versions.
+                        ;
+df8e =                  SaveA		ds	1
+df8f =                  SaveX		ds	1
+df90 =                  SaveY		ds	1
+df91 =                  SavePC		ds	2
+df93 =                  SaveC		ds	1
+df94 =                  SaveSP		ds	1
+df95 =                  SAL		ds	1
+df96 =                  SAH		ds	1
+df97 =                  EAL		ds	1
+df98 =                  EAH		ds	1
+df99 =                  tempA		ds	1
+df9a =                  filename	ds	FILENAME_SIZE+1
+dfa7 =                  diskBufOffset	ds	1
+dfa8 =                  diskBufLength	ds	1
+dfa9 =                  CHKL		ds	1
+dfaa =                  ID		ds	1
+dfab =                  Temp16L		ds	1
+dfac =                  Temp16H		ds	1
+                        ;
+                        ; This weird bit of DBs is to allow for the fact that
+                        ; I'm putting a 4K monitor into the top half of an
+                        ; 8K EEPROM.  This forces the actual code to the top
+                        ; 4K section.
+                        ;
+                        		code
+e000 =                  		org	ROM_START-$1000
+e000 : 54686973207370.. 		db	"This space for rent.",CR,LF
+e016 : 41637475616c6c.. 		db	"Actually, this just forces the "
+e035 : 62696e61727920.. 		db	"binary file to be 8K long."
+                        ;
+f000 =                  		org	ROM_START
+                        ;
+                        ;=====================================================
+                        ; Jump table to common functions.  The entries in this
+                        ; table are used by external programs, so nothing can 
+                        ; moved or removed from this table.  New entries alway
+                        ; go at the end.  Many of these are internal functions
+                        ; and I figured they might be handy for others.
+                        ;
+f000 : 4c45f0           COLDvec		jmp	RESET
+f003 : 4cb4f0           WARMvec		jmp	WARM
+                        ;
+                        ; These are the major and minor revision numbers so th
+                        ; code can check to see which CTMON65 version is runni
+                        ;
+AS65 Assembler for R6502 [1.42].                                     Page    4
+-------------------------------- ctmon65.asm ---------------------------------
+
+f006 : 00               CTMON65ver	db	VERSION
+f007 : 03               CTMON65rev	db	REVISION
+f008 : 00               		db	0
+                        ;
+                        ; Console related functions
+                        ;
+<<<<<<< HEAD
+f009 : 4c19fb           CINvec		jmp	cin
+f00c : 4c0cfb           COUTvec		jmp	cout
+f00f : 4c24fb           CSTATvec	jmp	cstatus
+f012 : 4c6ffa           PUTSILvec	jmp	putsil
+f015 : 4cadfa           GETLINEvec	jmp	getline
+f018 : 4ce5fa           CRLFvec		jmp	crlf
+f01b : 4cc8fa           OUTHEXvec	jmp	HexA
+=======
+f009 : 4c0bfb           CINvec		jmp	cin
+f00c : 4cfefa           COUTvec		jmp	cout
+AS65 Assembler for R6502 [1.42].                                     Page    4
+-------------------------------- ctmon65.asm ---------------------------------
+
+f00f : 4c16fb           CSTATvec	jmp	cstatus
+f012 : 4c61fa           PUTSILvec	jmp	putsil
+f015 : 4c9ffa           GETLINEvec	jmp	getline
+f018 : 4cd7fa           CRLFvec		jmp	crlf
+f01b : 4cbafa           OUTHEXvec	jmp	HexA
+>>>>>>> H_bug
+                        ;
+                        ; Low-level functions to access the SD card system
+                        ;
+                        	if	SD_ENABLED
+f01e : 4c1cfb           XPARINITvev	jmp	xParInit
+f021 : 4c2bfb           XPARSETWRITEvec	jmp	xParSetWrite
+f024 : 4c40fb           XPARSETREADvec	jmp	xParSetRead
+f027 : 4c55fb           XPARWRITEvec	jmp	xParWriteByte
+f02a : 4c80fb           XPARREADvec	jmp	xParReadByte
+                        ;
+                        ; Higher level SD card functions
+                        ;
+f02d : 4ca4fb           DISKPINGvec	jmp	DiskPing
+f030 : 4cb7fb           DISKDIRvec	jmp	DiskDir
+f033 : 4cc1fb           DISKDIRNEXTVEC	jmp	DiskDirNext
+f036 : 4cf2fb           DISKOPENREADvec	jmp	DiskOpenRead
+f039 : 4c23fc           DISKOPENWRITvec	jmp	DiskOpenWrite
+f03c : 4c28fc           DISKREADvec	jmp	DiskRead
+f03f : 4c5afc           DISKWRITEvec	jmp	DiskWrite
+f042 : 4c91fc           DISKCLOSEvec	jmp	DiskClose
+                        	endif	;SD_ENABLED
+                        ;
+                        ;-----------------------------------------------------
+                        ; Cold start entry point
+                        ;
+f045 : a2ff             RESET		ldx	#$ff
+f047 : 9a               		txs
+f048 : 20f2fa           		jsr	cinit
+f04b : 201cfb           		jsr	xParInit
+                        ;
+                        ; Reset the NMI and IRQ vectors
+                        ;
+f04e : a99c             		lda	#DefaultNMI&$ff
+f050 : 8d02df           		sta	NMIvec
+f053 : a9fc             		lda	#DefaultNMI>>8
+f055 : 8d03df           		sta	NMIvec+1
+                        ;
+f058 : a99c             		lda	#DefaultIRQ&$ff
+f05a : 8d00df           		sta	IRQvec
+f05d : a9fc             		lda	#DefaultIRQ>>8
+f05f : 8d01df           		sta	IRQvec+1
+                        ;
+                        ; Print start-up message
+                        ;
+f062 : 2061fa           		jsr	putsil
+f065 : 0d0a0a0a0a       		db	CR,LF,LF,LF,LF
+f06a : 43544d4f4e3635.. 		db	"CTMON65 rev "
+f076 : 302e             		db	VERSION+'0','.'
+<<<<<<< HEAD
+f078 : 31               		db	REVISION+'0'
+AS65 Assembler for R6502 [1.42].                                     Page    5
+-------------------------------- ctmon65.asm ---------------------------------
+
+=======
+f078 : 33               		db	REVISION+'0'
+>>>>>>> H_bug
+f079 : 0d0a             		db	CR,LF
+f07b : 30392f32302f32.. 		db	"09/20/2018 by Bob Applegate K2UT"
+f09b : 2c20626f624063.. 		db	", bob@corshamtech.com"
+f0b0 : 0d0a0a00         		db	CR,LF,LF,0
+                        ;
+                        ;-----------------------------------------------------
+                        ; Warm start entry point.  This is the best place to j
+                        ; in the code after a user program has ended.  Go thro
+<<<<<<< HEAD
+=======
+AS65 Assembler for R6502 [1.42].                                     Page    5
+-------------------------------- ctmon65.asm ---------------------------------
+
+>>>>>>> H_bug
+                        ; the vector, of course!
+                        ;
+f0b4 : a2ff             WARM		ldx	#$ff
+f0b6 : 9a               		txs
+                        ;
+                        ; Prompt the user and get a line of text
+                        ;
+<<<<<<< HEAD
+f0b7 : 2092f9           prompt		jsr	setOutputConsole
+f0ba : 20adf9           		jsr	setInputConsole
+f0bd : 206ffa           		jsr	putsil
+=======
+f0b7 : 2084f9           prompt		jsr	setOutputConsole
+f0ba : 209ff9           		jsr	setInputConsole
+f0bd : 2061fa           		jsr	putsil
+>>>>>>> H_bug
+f0c0 : 0d0a             		db	CR,LF
+f0c2 : 43544d4f4e3635.. 		db	"CTMON65> "
+f0cb : 00               		db	0
+f0cc : 200bfb           prompt2		jsr	cin
+f0cf : c90d             		cmp	#CR
+f0d1 : f0e4             		beq	prompt
+f0d3 : c90a             		cmp	#LF
+f0d5 : f0f5             		beq	prompt2	;don't prompt
+f0d7 : 8d99df           		sta	tempA
+                        ;
+                        ; Now cycle through the list of commands looking for
+                        ; what the user just pressed.
+                        ;
+f0da : a9f3             		lda	#commandTable&$ff
+f0dc : 85f0             		sta	sptr
+f0de : a9f0             		lda	#commandTable/256
+f0e0 : 85f1             		sta	sptr+1
+f0e2 : 2074f2           		jsr	searchCmd	;try to find it
+                        ;
+                        ; Hmmm... wasn't one of the built in commands, so
+                        ; see if it's an extended command.
+                        ;
+                        	if	EXTENDED_CMDS
+                        		lda	ExtensionAddr
+                        		sta	sptr
+                        		lda	ExtensionAddr+1
+                        		sta	sptr+1
+                        		jsr	searchCmd	;try to find it
+                        	endif
+                        ;
+                        ; If that returns, then the command was not found.
+                        ; Print that it's unknown.
+                        ;
+f0e5 : 2061fa           		jsr	putsil
+f0e8 : 202d204875683f00 		db	" - Huh?",0
+f0f0 : 4cb7f0           cmdFound	jmp	prompt
+                        ;
+                        ;=====================================================
+                        ; Vector table of commands.  Each entry consists of a
+                        ; single ASCII character (the command), a pointer to
+                        ; the function which handles the command, and a pointe
+                        ; to a string that describes the command.
+                        ;
+f0f3 : 3f               commandTable	db	'?'
+<<<<<<< HEAD
+AS65 Assembler for R6502 [1.42].                                     Page    6
+-------------------------------- ctmon65.asm ---------------------------------
+
+f0f4 : a5f7             		dw	showHelp
+=======
+f0f4 : 97f7             		dw	showHelp
+>>>>>>> H_bug
+f0f6 : 2bf1             		dw	quesDesc
+                        ;
+f0f8 : 43               		db	'C'
+f0f9 : 00f7             		dw	doContinue
+f0fb : 48f1             		dw	cDesc
+                        ;
+f0fd : 44               		db	'D'
+AS65 Assembler for R6502 [1.42].                                     Page    6
+-------------------------------- ctmon65.asm ---------------------------------
+
+f0fe : 2af9             		dw	doDiskDir
+f100 : 69f1             		dw	dDesc
+                        ;
+f102 : 45               		db	'E'	;edit memory
+f103 : 42f3             		dw	editMemory
+f105 : 86f1             		dw	eDesc
+                        ;
+f107 : 48               		db	'H'	;hex dump
+f108 : b2f2             		dw	hexDump
+f10a : a0f1             		dw	hDesc
+                        ;
+f10c : 4a               		db	'J'	;jump to address
+f10d : 98f2             		dw	jumpAddress
+f10f : bef1             		dw	jDesc
+                        ;
+f111 : 4c               		db	'L'	;load Intel HEX file
+f112 : a3f3             		dw	loadHex
+f114 : dcf1             		dw	lDesc
+                        ;
+f116 : 4d               		db	'M'	;perform memory test
+f117 : eaf7             		dw	memTest
+f119 : f8f1             		dw	mDesc
+                        ;
+f11b : 50               		db	'P'	;ping remote disk
+f11c : 0af9             		dw	pingDisk
+f11e : 12f2             		dw	pDesc
+                        ;
+f120 : 53               		db	'S'	;save memory as hex file
+f121 : e9f4             		dw	saveHex
+f123 : 35f2             		dw	sDesc
+                        ;
+f125 : 54               		db	'T'	;type a file on SD
+f126 : f8f9             		dw	typeFile
+f128 : 57f2             		dw	tDesc
+                        ;
+f12a : 00               		db	0	;marks end of table
+                        ;
+                        ;=====================================================
+                        ; Descriptions for each command in the command table.
+                        ; This wastes a lot of space... I'm open for any
+                        ; suggestions to keep the commands clear but reducing
+                        ; the amount of space this table consumes.
+                        ;
+f12b : 3f202e2e2e2e2e.. quesDesc	db	"? ........... Show this help",0
+f148 : 43202e2e2e2e2e.. cDesc		db	"C ........... Continue execution",0
+f169 : 44202e2e2e2e2e.. dDesc		db	"D ........... Disk directory",0
+f186 : 45207878787820.. eDesc		db	"E xxxx ...... Edit memory",0
+f1a0 : 48207878787820.. hDesc		db	"H xxxx xxxx . Hex dump memory",0
+f1be : 4a207878787820.. jDesc		db	"J xxxx ...... Jump to address",0
+f1dc : 4c202e2e2e2e2e.. lDesc		db	"L ........... Load HEX file",0
+f1f8 : 4d207878787820.. mDesc		db	"M xxxx xxxx . Memory test",0
+f212 : 50202e2e2e2e2e.. pDesc		db	"P ........... Ping disk controller",0
+f235 : 53207878787820.. sDesc		db	"S xxxx xxxx . Save memory to file",0
+f257 : 54202e2e2e2e2e.. tDesc		db	"T ........... Type disk file",0
+<<<<<<< HEAD
+AS65 Assembler for R6502 [1.42].                                     Page    7
+-------------------------------- ctmon65.asm ---------------------------------
+
+=======
+>>>>>>> H_bug
+                        ;
+                        ;=====================================================
+                        ; This subroutine will search for a command in a table
+                        ; and call the appropriate handler.  See the command
+                        ; table near the start of the code for what the format
+                        ; is.  If a match is found, pop off the return address
+                        ; from the stack and jump to the code.  Else, return.
+                        ;
+AS65 Assembler for R6502 [1.42].                                     Page    7
+-------------------------------- ctmon65.asm ---------------------------------
+
+f274 : a000             searchCmd	ldy	#0
+f276 : b1f0             cmdLoop		lda	(sptr),y
+f278 : f01d             		beq	cmdNotFound
+f27a : cd99df           		cmp	tempA	;compare to user's input
+f27d : f007             		beq	cmdMatch
+f27f : c8               		iny		;start of function ptr
+f280 : c8               		iny
+f281 : c8               		iny		;start of help
+f282 : c8               		iny
+f283 : c8               		iny		;move to next command
+f284 : d0f0             		bne	cmdLoop
+                        ;
+                        ; It's found!  Load up the address of the code to call
+                        ; pop the return address off the stack and jump to the
+                        ; handler.
+                        ;
+f286 : c8               cmdMatch	iny
+f287 : b1f0             		lda	(sptr),y	;handler LSB
+f289 : 48               		pha
+f28a : c8               		iny
+f28b : b1f0             		lda	(sptr),y	;handler MSB
+f28d : 85f1             		sta	sptr+1
+f28f : 68               		pla
+f290 : 85f0             		sta	sptr
+f292 : 68               		pla		;pop return address
+f293 : 68               		pla
+f294 : 6cf000           		jmp	(sptr)
+                        ;
+                        ; Not found, so just return.
+                        ;
+f297 : 60               cmdNotFound	rts
+                        ;
+                        ;=====================================================
+                        ; Handles the command to prompt for an address and the
+                        ; jump to it.
+                        ;
+f298 : 2061fa           jumpAddress	jsr	putsil
+f29b : 4a756d7020746f.. 		db	"Jump to ",0
+f2a4 : 2054f7           		jsr	getStartAddr
+f2a7 : b006             		bcs	cmdRet	;branch on bad address
+f2a9 : 20d7fa           		jsr	crlf
+f2ac : 6c95df           		jmp	(SAL)	;else jump to address
+                        ;
+f2af : 4cb7f0           cmdRet		jmp	prompt
+                        ;
+                        ;=====================================================
+                        ; Do a hex dump of a region of memory.
+                        ;
+                        ; Slight bug: the starting address is rounded down to
+                        ; a multiple of 16.  I'll fix it eventually.
+                        ;
+<<<<<<< HEAD
+AS65 Assembler for R6502 [1.42].                                     Page    8
+-------------------------------- ctmon65.asm ---------------------------------
+
+f2b2 : 206ffa           hexDump		jsr	putsil
+f2b5 : 4865782064756d.. 		db	"Hex dump ",0
+f2bf : 2086f7           		jsr	getAddrRange
+=======
+f2b2 : 2061fa           hexDump		jsr	putsil
+f2b5 : 4865782064756d.. 		db	"Hex dump ",0
+f2bf : 2078f7           		jsr	getAddrRange
+>>>>>>> H_bug
+f2c2 : b0eb             		bcs	cmdRet
+f2c4 : 20d7fa           		jsr	crlf
+                        ;
+                        ; Move start address to sptr but rounded down to the
+                        ; 16 byte boundary.  While it's really cool to start a
+                        ; the exact address specified by the user, it adds
+                        ; code that really doesn't add much (any?) value.
+                        ;
+AS65 Assembler for R6502 [1.42].                                     Page    8
+-------------------------------- ctmon65.asm ---------------------------------
+
+f2c7 : ad96df           		lda	SAH
+f2ca : 85f1             		sta	sptr+1
+f2cc : ad95df           		lda	SAL
+f2cf : 29f0             		and	#$f0	;force to 16 byte
+f2d1 : 85f0             		sta	sptr
+                        ;
+                        ;-----------------------------------------------------
+                        ; This starts each line.  Set flag to indcate we're
+                        ; doing the hex portion, print address, etc.
+                        ;
+f2d3 : 20d7fa           hexdump1	jsr	crlf
+f2d6 : a5f1             		lda	sptr+1
+f2d8 : 20bafa           		jsr	HexA	;print the address
+f2db : a5f0             		lda	sptr
+f2dd : 20bafa           		jsr	HexA
+f2e0 : 20e7fa           		jsr	space2	;two spaces after address
+                        ;
+                        ;-----------------------------------------------------
+                        ; This loop gets the next byte, prints the value in
+                        ; hex and adds the appropriate ASCII character to the
+                        ; buffer.
+                        ;
+f2e3 : a000             		ldy	#0	;offset from sptr
+f2e5 : a200             hexdump3	ldx	#0	;bytes on line
+f2e7 : b1f0             hexdump2	lda	(sptr),y	;get byte
+f2e9 : 20bafa           		jsr	HexA	;print hex version of it
+f2ec : 20eafa           		jsr	space	;space before next value
+                        ;
+                        ; Put the byte into the buffer.  If it is not printabl
+                        ; ASCII then substitute a dot instead.
+                        ;
+f2ef : c920             		cmp	#' '
+f2f1 : 9004             		bcc	hexdot
+f2f3 : c97e             		cmp	#'~'
+f2f5 : 9002             		bcc	hexpr
+f2f7 : a92e             hexdot		lda	#'.'
+f2f9 : 9d0adf           hexpr		sta	buffer,x	;save for later
+                        ;
+                        ; See if the end of the user defined area was just dum
+                        ;
+f2fc : a5f0             hexdumpchk	lda	sptr
+f2fe : cd97df           		cmp	EAL
+f301 : d007             		bne	hexdump4
+f303 : a5f1             		lda	sptr+1
+f305 : cd98df           		cmp	EAH
+f308 : f00e             		beq	hexdumpend
+                        ;
+                        ; Not done yet, so see if at end of the line
+                        ;
+<<<<<<< HEAD
+                        ; Now increment to the next address
+AS65 Assembler for R6502 [1.42].                                     Page    9
+-------------------------------- ctmon65.asm ---------------------------------
+
+                        ;
+f31c : 08               		php
+f31d : 2011f9           		jsr	INCPT
+f320 : 28               		plp
+f321 : 901a             		bcc	hexlntst
+                        ;
+f323 : 2c99df           		bit	tempA
+f326 : 3022             		bmi	hexdone
+f328 : ca               		dex
+f329 : 3006             		bmi	hexdomap
+f32b : 20f2fa           hexdump5	jsr	space3
+f32e : ca               		dex
+f32f : 10fa             		bpl	hexdump5
+f331 : ce99df           hexdomap	dec	tempA
+f334 : 68               		pla
+f335 : 85f1             		sta	sptr+1
+f337 : 68               		pla
+f338 : 85f0             		sta	sptr
+f33a : 4ce5f2           		jmp     hexdump2
+f33d : ca               hexlntst	dex
+f33e : 10b3             		bpl	hexdump3
+f340 : 2c99df           		bit	tempA
+f343 : 10ec             		bpl	hexdomap
+f345 : 68               		pla
+f346 : 68               		pla
+f347 : 4cd3f2           		jmp	hexdump1
+                        ;
+                        ; Clean up the stack and we're done
+                        ;
+f34a : 20e5fa           hexdone		jsr	crlf
+f34d : 4cb7f0           ret1		jmp	prompt
+=======
+f30a : 2003f9           hexdump4	jsr	INCPT	;move to next address
+f30d : e8               		inx
+f30e : e010             		cpx	#BYTESLINE
+f310 : d0d5             		bne	hexdump2
+                        ;
+                        ; At end, so dump ASCII contents
+                        ;
+f312 : 2022f3           		jsr	dumpBuffer
+f315 : 4cd3f2           		jmp	hexdump1
+                        ;
+                        ; At the end but still need to dump the ASCII version.
+                        ;
+f318 : e8               hexdumpend	inx		;count last byte output
+AS65 Assembler for R6502 [1.42].                                     Page    9
+-------------------------------- ctmon65.asm ---------------------------------
+
+f319 : 2022f3           		jsr	dumpBuffer
+f31c : 20d7fa           		jsr	crlf
+f31f : 4cb7f0           ret1		jmp	prompt
+                        ;
+                        ;=====================================================
+                        ; A helper function that prints the ASCII data in the
+                        ; buffer.  On entry X contains the number of bytes
+                        ; in the buffer.
+                        ;
+f322 : e010             dumpBuffer	cpx	#BYTESLINE	;is buffer full?
+f324 : f00b             		beq	hexdump91	;jump if so
+f326 : a920             		lda	#' '	;else fill with spaces
+f328 : 9d0adf           		sta	buffer,x
+f32b : 20e4fa           		jsr	space3	;and space over
+f32e : e8               		inx
+f32f : d0f1             		bne	dumpBuffer
+                        ;
+f331 : 20e4fa           hexdump91	jsr	space3	;separate the two passes
+f334 : a200             		ldx	#0
+f336 : bd0adf           hexdump99	lda	buffer,x
+f339 : 20fefa           		jsr	cout	;print char in buffer
+f33c : e8               		inx
+f33d : e010             		cpx	#BYTESLINE
+f33f : d0f5             		bne	hexdump99
+f341 : 60               		rts
+>>>>>>> H_bug
+                        ;
+                        ;=====================================================
+                        ; Edit memory.  This waits for a starting address to b
+                        ; entered.  It will display the current address and it
+                        ; contents.  Possible user inputs and actions:
+                        ;
+                        ;   Two hex digits will place that value in memory
+                        ;   RETURN moves to next address
+                        ;   BACKSPACE moves back one address
+                        ;
+f342 : 2061fa           editMemory	jsr	putsil
+f345 : 45646974206d65.. 		db	"Edit memory ",0
+f352 : 2054f7           		jsr	getStartAddr
+f355 : b0c8             		bcs	ret1
+f357 : ad95df           		lda	SAL	;move address into...
+f35a : 85f0             		sta	sptr	;...POINT
+f35c : ad96df           		lda	SAH
+f35f : 85f1             		sta	sptr+1
+                        ;
+                        ; Display the current location
+                        ;
+<<<<<<< HEAD
+f36f : 20e5fa           editMem1	jsr	crlf
+f372 : a5f1             		lda	sptr+1
+f374 : 20c8fa           		jsr	HexA
+f377 : a5f0             		lda	sptr
+f379 : 20c8fa           		jsr	HexA
+f37c : 20f8fa           		jsr	space
+f37f : a000             		ldy	#0
+f381 : b1f0             		lda	(sptr),y	;get byte
+f383 : 20c8fa           		jsr	HexA	;print it
+f386 : 20f8fa           		jsr	space
+AS65 Assembler for R6502 [1.42].                                     Page   10
+-------------------------------- ctmon65.asm ---------------------------------
+
+                        ;
+f389 : 2028f7           		jsr	getHex
+f38c : b00d             		bcs	editMem2	;not hex
+f38e : a000             		ldy	#0
+f390 : 91f0             		sta	(sptr),y	;save new value
+                        ;
+=======
+f361 : 20d7fa           editMem1	jsr	crlf
+f364 : a5f1             		lda	sptr+1
+f366 : 20bafa           		jsr	HexA
+f369 : a5f0             		lda	sptr
+f36b : 20bafa           		jsr	HexA
+f36e : 20eafa           		jsr	space
+f371 : a000             		ldy	#0
+f373 : b1f0             		lda	(sptr),y	;get byte
+f375 : 20bafa           		jsr	HexA	;print it
+f378 : 20eafa           		jsr	space
+                        ;
+f37b : 201af7           		jsr	getHex
+f37e : b00d             		bcs	editMem2	;not hex
+f380 : a000             		ldy	#0
+f382 : 91f0             		sta	(sptr),y	;save new value
+                        ;
+AS65 Assembler for R6502 [1.42].                                     Page   10
+-------------------------------- ctmon65.asm ---------------------------------
+
+>>>>>>> H_bug
+                        ; Bump POINT to next location
+                        ;
+f384 : e6f0             editMem3	inc	sptr
+f386 : d0d9             		bne	editMem1
+f388 : e6f1             		inc	sptr+1
+f38a : 4c61f3           		jmp	editMem1
+                        ;
+                        ; Not hex, so see if another command
+                        ;
+f38d : c90d             editMem2	cmp	#CR
+f38f : f0f3             		beq	editMem3	;move to next
+f391 : c908             		cmp	#BS
+f393 : d08a             		bne     ret1		;else exit
+                        ;
+                        ; Move back one location
+                        ;
+f395 : 38               		sec
+f396 : a5f0             		lda	sptr
+f398 : e901             		sbc	#1
+f39a : 85f0             		sta	sptr
+f39c : b0c3             		bcs	editMem1
+f39e : c6f1             		dec	sptr+1
+f3a0 : 4c61f3           		jmp	editMem1
+                        ;
+                        ;=====================================================
+                        ; This handles the Load hex command.
+                        ;
+<<<<<<< HEAD
+f3b1 : a9ff             loadHex		lda	#$ff
+f3b3 : 8d05df           		sta	AutoRun+1
+                        ;
+f3b6 : 206ffa           		jsr	putsil
+f3b9 : 0d0a             		db	CR,LF
+f3bb : 456e7465722066.. 		db	"Enter filename, or Enter to "
+f3d7 : 6c6f6164206672.. 		db	"load from console: ",0
+                        ;
+f3eb : 2025f6           		jsr	getFileName	;get filename
+f3ee : ad9adf           		lda	filename	;null?
+f3f1 : f02d             		beq	loadHexConsole	;load from console
+=======
+f3a3 : a9ff             loadHex		lda	#$ff
+f3a5 : 8d05df           		sta	AutoRun+1
+                        ;
+f3a8 : 2061fa           		jsr	putsil
+f3ab : 0d0a             		db	CR,LF
+f3ad : 456e7465722066.. 		db	"Enter filename, or Enter to "
+f3c9 : 6c6f6164206672.. 		db	"load from console: ",0
+                        ;
+f3dd : 2017f6           		jsr	getFileName	;get filename
+f3e0 : ad9adf           		lda	filename	;null?
+f3e3 : f02d             		beq	loadHexConsole	;load from console
+>>>>>>> H_bug
+                        ;
+                        ; Open the file
+                        ;
+f3e5 : a09a             		ldy	#filename&$ff
+f3e7 : a2df             		ldx	#filename/256
+f3e9 : 20f2fb           		jsr	DiskOpenRead
+f3ec : 901e             		bcc	loadHexOk	;opened ok
+                        ;
+<<<<<<< HEAD
+f3fc : 206ffa           openfail	jsr	putsil
+f3ff : 0d0a             		db	CR,LF
+f401 : 4661696c656420.. 		db	"Failed to open file"
+f414 : 0d0a00           		db	CR,LF,0
+f417 : 4cb7f0           cmdRet3		jmp	prompt
+=======
+f3ee : 2061fa           openfail	jsr	putsil
+f3f1 : 0d0a             		db	CR,LF
+f3f3 : 4661696c656420.. 		db	"Failed to open file"
+f406 : 0d0a00           		db	CR,LF,0
+f409 : 4cb7f0           cmdRet3		jmp	prompt
+>>>>>>> H_bug
+                        ;
+f40c : 20b3f9           loadHexOk	jsr	setInputFile	;redirect input
+f40f : 4c40f4           		jmp	loadStart
+                        ;
+                        ; They are loading from the console
+<<<<<<< HEAD
+AS65 Assembler for R6502 [1.42].                                     Page   11
+-------------------------------- ctmon65.asm ---------------------------------
+
+                        ;
+f420 : 206ffa           loadHexConsole	jsr	putsil
+f423 : 0d0a             		db	CR,LF
+f425 : 57616974696e67.. 		db	"Waiting for file, or ESC to"
+f440 : 20657869742e2e2e 		db	" exit..."
+f448 : 0d0a00           		db	CR,LF,0
+f44b : 20adf9           		jsr	setInputConsole
+=======
+                        ;
+f412 : 2061fa           loadHexConsole	jsr	putsil
+f415 : 0d0a             		db	CR,LF
+f417 : 57616974696e67.. 		db	"Waiting for file, or ESC to"
+f432 : 20657869742e2e2e 		db	" exit..."
+f43a : 0d0a00           		db	CR,LF,0
+AS65 Assembler for R6502 [1.42].                                     Page   11
+-------------------------------- ctmon65.asm ---------------------------------
+
+f43d : 209ff9           		jsr	setInputConsole
+>>>>>>> H_bug
+                        ;
+                        ; The start of a line.  First character should be a
+                        ; colon, but toss out CRs, LFs, etc.  Anything else
+                        ; causes an abort.
+                        ;
+f440 : 20c6f9           loadStart	jsr	redirectedGetch	;get start of line
+f443 : c90d             		cmp	#CR
+f445 : f0f9             		beq	loadStart
+f447 : c90a             		cmp	#LF
+f449 : f0f5             		beq	loadStart
+f44b : c93a             		cmp	#':'	;what we expect
+f44d : d034             		bne	loadAbort
+                        ;
+                        ; Get the header of the record
+                        ;
+f44f : a900             		lda	#0
+f451 : 8da9df           		sta	CHKL	;initialize checksum
+                        ;
+f454 : 201af7           		jsr	getHex	;get byte count
+f457 : b02a             		bcs	loadAbort
+f459 : 8d8fdf           		sta	SaveX	;save byte count
+f45c : 205df9           		jsr	updateCrc
+f45f : 201af7           		jsr	getHex	;get the MSB of offset
+f462 : b01f             		bcs	loadAbort
+f464 : 85f1             		sta	sptr+1
+f466 : 205df9           		jsr	updateCrc
+f469 : 201af7           		jsr	getHex	;get LSB of offset
+f46c : b015             		bcs	loadAbort
+f46e : 85f0             		sta	sptr
+f470 : 205df9           		jsr	updateCrc
+f473 : 201af7           		jsr	getHex	;get the record type
+f476 : b00b             		bcs	loadAbort
+f478 : 205df9           		jsr	updateCrc
+                        ;
+                        ; Only handle two record types:
+                        ;    00 = data record
+                        ;    01 = end of file record
+                        ;
+f47b : c900             		cmp	#DATA_RECORD
+f47d : f03a             		beq	loadDataRec
+f47f : c901             		cmp	#EOF_RECORD
+f481 : f016             		beq	loadEof
+                        ;
+                        ; Unknown record type
+                        ;
+<<<<<<< HEAD
+f491 : 206ffa           loadAbort       jsr	putsil
+f494 : 0d0a             		db	CR,LF
+f496 : 41626f7274696e67 		db	"Aborting"
+f49e : 0d0a00           		db	CR,LF,0
+f4a1 : 20adf9           loadExit	jsr	setInputConsole
+f4a4 : 4cb7f0           		jmp	prompt
+                        ;
+                        ; EOF is easy
+                        ;
+f4a7 : 2028f7           loadEof		jsr	getHex	;get checksum
+AS65 Assembler for R6502 [1.42].                                     Page   12
+-------------------------------- ctmon65.asm ---------------------------------
+
+f4aa : 206ffa           		jsr	putsil
+f4ad : 0d0a             		db	CR,LF
+f4af : 5375636365737321 		db	"Success!"
+f4b7 : 0d0a00           		db	CR,LF,0
+                        ;
+                        ; If the auto-run vector is no longer $ffff, then jump
+=======
+f483 : 2061fa           loadAbort       jsr	putsil
+f486 : 0d0a             		db	CR,LF
+f488 : 41626f7274696e67 		db	"Aborting"
+f490 : 0d0a00           		db	CR,LF,0
+f493 : 209ff9           loadExit	jsr	setInputConsole
+f496 : 4cb7f0           		jmp	prompt
+                        ;
+                        ; EOF is easy
+                        ;
+f499 : 201af7           loadEof		jsr	getHex	;get checksum
+f49c : 2061fa           		jsr	putsil
+f49f : 0d0a             		db	CR,LF
+f4a1 : 5375636365737321 		db	"Success!"
+f4a9 : 0d0a00           		db	CR,LF,0
+                        ;
+                        ; If the auto-run vector is no longer $ffff, then jump
+AS65 Assembler for R6502 [1.42].                                     Page   12
+-------------------------------- ctmon65.asm ---------------------------------
+
+>>>>>>> H_bug
+                        ; to whatever it points to.
+                        ;
+f4ac : ad05df           		lda	AutoRun+1
+f4af : c9ff             		cmp	#$ff		;unchanged?
+f4b1 : f003             		beq	lExit1
+f4b3 : 6c04df           		jmp	(AutoRun)	;execute!
+                        ;
+f4b6 : 4c93f4           lExit1		jmp	loadExit
+                        ;
+                        ; Data records have more work.  After processing the
+                        ; line, print a dot to indicate progress.  This should
+                        ; be re-thought as it could slow down loading a really
+                        ; big file if the console speed is slow.
+                        ;
+f4b9 : ae8fdf           loadDataRec	ldx	SaveX	;byte count
+f4bc : a000             		ldy	#0	;offset
+f4be : 8e8fdf           loadData1	stx	SaveX
+f4c1 : 8c90df           		sty	SaveY
+f4c4 : 201af7           		jsr	getHex
+f4c7 : b0ba             		bcs	loadAbort
+f4c9 : 205df9           		jsr	updateCrc
+f4cc : ac90df           		ldy	SaveY
+f4cf : ae8fdf           		ldx	SaveX
+f4d2 : 91f0             		sta	(sptr),y
+f4d4 : c8               		iny
+f4d5 : ca               		dex
+f4d6 : d0e6             		bne	loadData1
+                        ;
+                        ; All the bytes were read so get the checksum and see
+                        ; if it agrees.  The checksum is a twos-complement, so
+                        ; just add the checksum into what we've been calculati
+                        ; and if the result is zero then the record is good.
+                        ;
+f4d8 : 201af7           		jsr	getHex	;get checksum
+f4db : 18               		clc
+f4dc : 6da9df           		adc	CHKL
+f4df : d0a2             		bne	loadAbort	;non-zero is error
+                        ;
+f4e1 : a92e             		lda	#'.'	;sanity indicator when
+f4e3 : 20fefa           		jsr	cout	;...loading from file
+f4e6 : 4c40f4           		jmp	loadStart
+                        ;
+                        ;=====================================================
+                        ; Handles the command to save a region of memory as a
+                        ; file on the SD.
+                        ;
+f4e9 : 2078f7           saveHex		jsr	getAddrRange	;get range to dump
+f4ec : b0c8             		bcs	lExit1	;abort on error
+                        ;
+                        ; Get the filename to save to
+                        ;
+f4ee : 2061fa           		jsr	putsil
+f4f1 : 0d0a             		db	CR,LF
+f4f3 : 456e7465722066.. 		db	"Enter filename, or Enter to "
+f50f : 6c6f6164206672.. 		db	"load from console: ",0
+                        ;
+<<<<<<< HEAD
+AS65 Assembler for R6502 [1.42].                                     Page   13
+-------------------------------- ctmon65.asm ---------------------------------
+
+f531 : 2025f6           		jsr	getFileName	;get filename
+f534 : ad9adf           		lda	filename	;null?
+f537 : f012             		beq	saveHexConsole	;dump to console
+=======
+f523 : 2017f6           		jsr	getFileName	;get filename
+f526 : ad9adf           		lda	filename	;null?
+f529 : f012             		beq	saveHexConsole	;dump to console
+>>>>>>> H_bug
+                        ;
+                        ; They selected a file, so try to open it.
+                        ;
+AS65 Assembler for R6502 [1.42].                                     Page   13
+-------------------------------- ctmon65.asm ---------------------------------
+
+f52b : a2df             		ldx	#filename>>8
+f52d : a09a             		ldy	#filename&$ff
+f52f : 2023fc           		jsr	DiskOpenWrite	;attempt to open file
+f532 : 9003             		bcc	sopenok		;branch if opened ok
+f534 : 4ceef3           		jmp	openfail
+                        ;
+f537 : 208ff9           sopenok		jsr	setOutputFile
+f53a : 4c40f5           		jmp	savehex2
+                        ;
+                        ; They are saving to the console.  Set up the output
+                        ; vector and do the job.
+                        ;
+f53d : 2084f9           saveHexConsole	jsr	setOutputConsole
+                        ;
+                        ; Compute the number of bytes to dump
+                        ;
+f540 : 38               savehex2	sec
+f541 : ad97df           		lda	EAL
+f544 : ed95df           		sbc	SAL
+f547 : 8dabdf           		sta	Temp16L
+f54a : ad98df           		lda	EAH
+f54d : ed96df           		sbc	SAH
+f550 : 8dacdf           		sta	Temp16H
+f553 : 9042             		bcc	SDone	;start > end
+f555 : 0500             		ora	0
+f557 : 303e             		bmi	SDone	;more than 32K seems wrong
+                        ;
+                        ; Add one to the count
+                        ;
+f559 : eeabdf           		inc	Temp16L
+f55c : d003             		bne	slab1
+f55e : eeacdf           		inc	Temp16H
+                        ;
+                        ; Move pointer to zero page
+                        ;
+f561 : ad95df           slab1		lda	SAL
+f564 : 85f0             		sta	sptr
+f566 : ad96df           		lda	SAH
+f569 : 85f1             		sta	sptr+1
+                        ;
+                        ; Top of each loop.  Start by seeing if there are any 
+                        ; left to dump.
+                        ;
+f56b : adacdf           Sloop1		lda	Temp16H
+f56e : d02a             		bne	Sgo	;more to do
+f570 : adabdf           		lda	Temp16L
+f573 : d025             		bne	Sgo	;more to do
+                        ;
+                        ; At end of the region, so output an end record.  This
+                        ; probably looks like overkill but keep in mind this
+                        ; might be going to a file so we can't use the normal
+                        ; string put functions.
+                        ;
+<<<<<<< HEAD
+f583 : a93a             		lda	#':'
+f585 : 208ff9           		jsr	redirectedOutch
+f588 : a900             		lda	#0
+AS65 Assembler for R6502 [1.42].                                     Page   14
+-------------------------------- ctmon65.asm ---------------------------------
+
+f58a : 2075f9           		jsr	HexToOutput
+f58d : 2075f9           		jsr	HexToOutput
+f590 : 2075f9           		jsr	HexToOutput
+f593 : a901             		lda	#1
+f595 : 2075f9           		jsr	HexToOutput
+f598 : a9ff             		lda	#$ff
+f59a : 2075f9           		jsr	HexToOutput
+                        ;
+                        ; If output to file, flush and close the file.
+                        ;
+f59d : ad9adf           		lda	filename
+f5a0 : f003             		beq	SDone		;it's going to console
+f5a2 : 2060fa           		jsr	CloseOutFile
+f5a5 : 4cb7f0           SDone		jmp	prompt		;back to the monitor
+=======
+f575 : a93a             		lda	#':'
+f577 : 2081f9           		jsr	redirectedOutch
+f57a : a900             		lda	#0
+f57c : 2067f9           		jsr	HexToOutput
+f57f : 2067f9           		jsr	HexToOutput
+f582 : 2067f9           		jsr	HexToOutput
+f585 : a901             		lda	#1
+f587 : 2067f9           		jsr	HexToOutput
+f58a : a9ff             		lda	#$ff
+AS65 Assembler for R6502 [1.42].                                     Page   14
+-------------------------------- ctmon65.asm ---------------------------------
+
+f58c : 2067f9           		jsr	HexToOutput
+                        ;
+                        ; If output to file, flush and close the file.
+                        ;
+f58f : ad9adf           		lda	filename
+f592 : f003             		beq	SDone		;it's going to console
+f594 : 2052fa           		jsr	CloseOutFile
+f597 : 4cb7f0           SDone		jmp	prompt		;back to the monitor
+>>>>>>> H_bug
+                        ;
+                        ; This dumps the next line.  See how many bytes are le
+                        ; and if more than BYTESLINE, then just do BYTESLINE.
+                        ;
+f59a : adacdf           Sgo		lda	Temp16H
+f59d : d007             		bne	Sdef	;do default number of bytes
+f59f : adabdf           		lda	Temp16L
+f5a2 : c910             		cmp	#BYTESLINE
+f5a4 : 9002             		bcc	Scnt	;more than max per line
+f5a6 : a910             Sdef		lda	#BYTESLINE
+f5a8 : 8d99df           Scnt		sta	tempA	;for decrementing
+f5ab : 8daadf           		sta	ID	;for subtracting
+                        ;
+                        ; Put out the header
+                        ;
+f5ae : a93a             		lda	#':'
+f5b0 : 2081f9           		jsr	redirectedOutch
+                        ;
+f5b3 : ad99df           		lda	tempA
+f5b6 : 8da9df           		sta	CHKL	;start checksum
+f5b9 : 2067f9           		jsr	HexToOutput
+                        ;
+f5bc : a5f1             		lda	sptr+1	;starting address
+f5be : 205df9           		jsr	updateCrc
+f5c1 : 2067f9           		jsr	HexToOutput
+f5c4 : a5f0             		lda	sptr
+f5c6 : 205df9           		jsr	updateCrc
+f5c9 : 2067f9           		jsr	HexToOutput
+                        ;
+f5cc : a900             		lda	#0	;record type - data
+f5ce : 2067f9           		jsr	HexToOutput
+                        ;
+                        ; Now print the proper number of bytes
+                        ;
+f5d1 : a000             Sloop2		ldy	#0
+f5d3 : b1f0             		lda	(sptr),y	;get byte
+f5d5 : 205df9           		jsr	updateCrc
+f5d8 : 2067f9           		jsr	HexToOutput
+f5db : 2003f9           		jsr	INCPT	;increment pointer
+                        ;
+f5de : ce99df           sdec		dec	tempA
+f5e1 : d0ee             		bne	Sloop2
+                        ;
+                        ; Now print checksum
+                        ;
+<<<<<<< HEAD
+f5f1 : ada9df           		lda	CHKL
+f5f4 : 49ff             		eor	#$ff	;one's complement
+f5f6 : 18               		clc
+AS65 Assembler for R6502 [1.42].                                     Page   15
+-------------------------------- ctmon65.asm ---------------------------------
+
+f5f7 : 6901             		adc	#1	;two's complement
+f5f9 : 2075f9           		jsr	HexToOutput
+=======
+f5e3 : ada9df           		lda	CHKL
+f5e6 : 49ff             		eor	#$ff	;one's complement
+f5e8 : 18               		clc
+f5e9 : 6901             		adc	#1	;two's complement
+f5eb : 2067f9           		jsr	HexToOutput
+>>>>>>> H_bug
+                        ;
+                        ; Output a CR/LF
+                        ;
+f5ee : a90d             		lda	#CR
+AS65 Assembler for R6502 [1.42].                                     Page   15
+-------------------------------- ctmon65.asm ---------------------------------
+
+f5f0 : 2081f9           		jsr	redirectedOutch
+f5f3 : a90a             		lda	#LF
+f5f5 : 2081f9           		jsr	redirectedOutch
+                        ;
+                        ; If saving to disk, output a dot to indicate progress
+                        ;
+f5f8 : ad9adf           		lda	filename
+f5fb : f005             		beq	shf2
+                        ;
+f5fd : a92e             		lda	#'.'
+f5ff : 20fefa           		jsr	cout	;goes to console
+                        ;
+f602 : 38               shf2		sec
+f603 : adabdf           		lda	Temp16L
+f606 : edaadf           		sbc	ID
+f609 : 8dabdf           		sta	Temp16L
+f60c : adacdf           		lda	Temp16H
+f60f : e900             		sbc	#0
+f611 : 8dacdf           		sta	Temp16H
+                        ;
+f614 : 4c6bf5           		jmp	Sloop1
+                        ;
+                        ;=====================================================
+                        ; Get a disk filename.
+                        ;
+f617 : a200             getFileName	ldx	#0
+f619 : 200bfb           getFilename1	jsr	cin	;get next key
+f61c : c90d             		cmp	#CR	;end of the input?
+f61e : f027             		beq	getFnDone
+f620 : c908             		cmp	#BS	;backspace?
+f622 : f00d             		beq	getFnDel
+f624 : e00c             		cpx	#FILENAME_SIZE	;check size
+f626 : f0f1             		beq	getFilename1	;at length limit
+f628 : 9d9adf           		sta	filename,x	;else save it
+f62b : 20fefa           		jsr	cout
+f62e : e8               		inx
+f62f : d0e8             		bne	getFilename1
+                        ;
+f631 : ca               getFnDel	dex
+f632 : 3010             		bmi	getFnU	;no charac here
+f634 : a908             		lda	#BS
+f636 : 20fefa           		jsr	cout
+f639 : a920             		lda	#' '
+f63b : 20fefa           		jsr	cout
+f63e : a908             		lda	#BS
+f640 : 20fefa           		jsr	cout
+f643 : ca               		dex
+f644 : e8               getFnU		inx		;can't go past start
+f645 : 10d2             		bpl	getFilename1
+f647 : a900             getFnDone       lda	#0	;terminate line
+f649 : 9d9adf           		sta	filename,x
+f64c : 4cd7fa           		jmp	crlf
+                        ;
+                        ;=====================================================
+                        ; Add the byte in A to the output buffer.  If the
+                        ; buffer is full, flush it to disk.
+<<<<<<< HEAD
+AS65 Assembler for R6502 [1.42].                                     Page   16
+-------------------------------- ctmon65.asm ---------------------------------
+
+                        ;
+f65d : aea7df           putNextFileByte	ldx	diskBufOffset
+f660 : e084             		cpx	#BUFFER_SIZE	;buffer full?
+f662 : d00d             		bne	pNFB		;no
+=======
+                        ;
+f64f : aea7df           putNextFileByte	ldx	diskBufOffset
+f652 : e084             		cpx	#BUFFER_SIZE	;buffer full?
+f654 : d00d             		bne	pNFB		;no
+                        ;
+                        ; The buffer is full, so write it out.
+AS65 Assembler for R6502 [1.42].                                     Page   16
+-------------------------------- ctmon65.asm ---------------------------------
+
+>>>>>>> H_bug
+                        ;
+f656 : 48               		pha			;save byte
+f657 : a984             		lda	#BUFFER_SIZE
+f659 : a2df             		ldx	#buffer>>8
+f65b : a00a             		ldy	#buffer&$ff
+f65d : 205afc           		jsr	DiskWrite
+                        ;
+f660 : a200             		ldx	#0		;reset index
+f662 : 68               		pla
+f663 : 9d0adf           pNFB		sta	buffer,x
+f666 : e8               		inx
+f667 : 8ea7df           		stx	diskBufOffset
+f66a : 60               		rts
+                        ;
+                        ;*****************************************************
+                        ; Dump the current registers based on values in the Sa
+                        ; locations.
+                        ;
+f66b : 2061fa           DumpRegisters	jsr	putsil
+f66e : 50433a00         		db	"PC:",0
+f672 : ad92df           		lda	SavePC+1
+f675 : 20bafa           		jsr	HexA
+f678 : ad91df           		lda	SavePC
+f67b : 20bafa           		jsr	HexA
+                        ;
+f67e : 2061fa           		jsr	putsil
+f681 : 20413a00         		db	" A:",0
+f685 : ad8edf           		lda	SaveA
+f688 : 20bafa           		jsr	HexA
+                        ;
+f68b : 2061fa           		jsr	putsil
+f68e : 20583a00         		db	" X:",0
+f692 : ad8fdf           		lda	SaveX
+f695 : 20bafa           		jsr	HexA
+                        ;
+f698 : 2061fa           		jsr	putsil
+f69b : 20593a00         		db	" Y:",0
+f69f : ad90df           		lda	SaveY
+f6a2 : 20bafa           		jsr	HexA
+                        ;
+f6a5 : 2061fa           		jsr	putsil
+f6a8 : 2053503a00       		db	" SP:",0
+f6ad : ad94df           		lda	SaveSP
+f6b0 : 20bafa           		jsr	HexA
+                        ;
+                        ; Last is the condition register.  For this, print the
+                        ; actual flags.  Lower case for clear, upper for set.
+                        ;
+f6b3 : 2061fa           		jsr	putsil
+f6b6 : 20466c6167733a00 		db	" Flags:",0
+                        	if	FULL_STATUS
+                        ;
+                        ; N - bit 7
+                        ;
+<<<<<<< HEAD
+f6cc : a980             		lda	#$80	;bit to test
+f6ce : a24e             		ldx	#'N'	;set ACII char
+AS65 Assembler for R6502 [1.42].                                     Page   17
+-------------------------------- ctmon65.asm ---------------------------------
+
+f6d0 : 20fff6           		jsr	testbit
+=======
+f6be : a980             		lda	#$80	;bit to test
+f6c0 : a24e             		ldx	#'N'	;set ACII char
+f6c2 : 20f1f6           		jsr	testbit
+>>>>>>> H_bug
+                        ;
+                        ; V - bit 6
+                        ;
+f6c5 : a940             		lda	#$40	;bit to test
+f6c7 : a256             		ldx	#'V'	;set ACII char
+AS65 Assembler for R6502 [1.42].                                     Page   17
+-------------------------------- ctmon65.asm ---------------------------------
+
+f6c9 : 20f1f6           		jsr	testbit
+                        ;
+f6cc : a92d             		lda	#'-'	;unused bit
+f6ce : 20fefa           		jsr	cout
+                        ;
+                        ; B - bit 4
+                        ;
+f6d1 : a910             		lda	#$10	;bit to test
+f6d3 : a242             		ldx	#'B'	;set ACII char
+f6d5 : 20f1f6           		jsr	testbit
+                        ;
+                        ; D - bit 3
+                        ;
+f6d8 : a908             		lda	#$08	;bit to test
+f6da : a244             		ldx	#'D'	;set ACII char
+f6dc : 20f1f6           		jsr	testbit
+                        ;
+                        ; I - bit 2
+                        ;
+f6df : a904             		lda	#$04	;bit to test
+f6e1 : a249             		ldx	#'I'	;set ACII char
+f6e3 : 20f1f6           		jsr	testbit
+                        ;
+                        ; Z - bit 1
+                        ;
+f6e6 : a902             		lda	#$02	;bit to test
+f6e8 : a25a             		ldx	#'Z'	;set ACII char
+f6ea : 20f1f6           		jsr	testbit
+                        ;
+                        ; C - bit 0
+                        ;
+f6ed : a901             		lda	#$01	;bit to test
+f6ef : a243             		ldx	#'C'	;set ACII char
+                        ;
+                        ; Fall through...
+                        ;
+                        ;*****************************************************
+                        ; Given a bit mask in A and an upper case character
+                        ; indicating the flag name in X, see if the flag is se
+                        ; not.  Output upper case if set, lower case if not.
+                        ;
+f6f1 : 2d93df           testbit		and	SaveC	;is bit set?
+f6f4 : d006             		bne	testbit1	;yes
+f6f6 : 8a               		txa
+f6f7 : 0920             		ora	#$20	;make lower case
+f6f9 : 4cfefa           		jmp	cout
+f6fc : 8a               testbit1	txa
+f6fd : 4cfefa           		jmp	cout
+                        	else
+                        		lda	SaveSP
+                        		jmp	HexA
+                        	endif
+                        ;
+                        ;=====================================================
+                        ; This continues executing from the last saved state,
+                        ; such as from a call to DefaultNMI.
+<<<<<<< HEAD
+AS65 Assembler for R6502 [1.42].                                     Page   18
+-------------------------------- ctmon65.asm ---------------------------------
+
+                        ;
+f70e :                  doContinue
+f70e : ae94df           		ldx	SaveSP
+f711 : 9a               		txs
+f712 : ad92df           		lda	SavePC+1
+f715 : 48               		pha
+f716 : ad91df           		lda	SavePC
+f719 : 48               		pha
+f71a : ad93df           		lda	SaveC
+f71d : 48               		pha
+f71e : ae8fdf           		ldx	SaveX
+f721 : ac90df           		ldy	SaveY
+f724 : ad8edf           		lda	SaveA
+f727 : 40               		rti
+=======
+                        ;
+f700 :                  doContinue
+f700 : ae94df           		ldx	SaveSP
+f703 : 9a               		txs
+f704 : ad92df           		lda	SavePC+1
+f707 : 48               		pha
+AS65 Assembler for R6502 [1.42].                                     Page   18
+-------------------------------- ctmon65.asm ---------------------------------
+
+f708 : ad91df           		lda	SavePC
+f70b : 48               		pha
+f70c : ad93df           		lda	SaveC
+f70f : 48               		pha
+f710 : ae8fdf           		ldx	SaveX
+f713 : ac90df           		ldy	SaveY
+f716 : ad8edf           		lda	SaveA
+f719 : 40               		rti
+>>>>>>> H_bug
+                        ;
+                        ;=====================================================
+                        ; This gets two hex characters and returns the value
+                        ; in A with carry clear.  If a non-hex digit is
+                        ; entered, then A contans the offending character and
+                        ; carry is set.
+                        ;
+f71a : 2032f7           getHex		jsr	getNibble
+f71d : b020             		bcs	getNibBad
+f71f : 0a               		asl	a
+f720 : 0a               		asl	a
+f721 : 0a               		asl	a
+f722 : 0a               		asl	a
+f723 : 29f0             		and	#$f0
+f725 : 8d99df           		sta	tempA
+f728 : 2032f7           		jsr	getNibble
+f72b : b012             		bcs	getNibBad
+f72d : 0d99df           		ora	tempA
+f730 : 18               		clc
+f731 : 60               		rts
+                        ;
+                        ; Helper.  Gets next input char and converts to a
+                        ; value from 0-F in A and returns C clear.  If not a
+                        ; valid hex character, return C set.
+                        ;
+f732 : 20c6f9           getNibble	jsr	redirectedGetch
+f735 : a20f             		ldx	#nibbleHexEnd-nibbleHex-1
+f737 : dd44f7           getNibble1	cmp	nibbleHex,x
+f73a : f005             		beq	getNibF	;got match
+f73c : ca               		dex
+f73d : 10f8             		bpl	getNibble1
+f73f : 38               getNibBad	sec
+f740 : 60               		rts
+                        
+f741 : 8a               getNibF		txa		;index is value
+f742 : 18               		clc
+f743 : 60               		rts
+                        ;
+f744 : 30313233343536.. nibbleHex	db	"0123456789ABCDEF"
+f754 =                  nibbleHexEnd	equ	*
+                        ;
+                        ;=====================================================
+                        ; Gets a four digit hex address amd places it in
+                        ; SAL and SAH.  Returns C clear if all is well, or C
+                        ; set on error and A contains the character.
+                        ;
+<<<<<<< HEAD
+f762 : 2028f7           getStartAddr	jsr	getHex
+f765 : b00c             		bcs	getDone
+AS65 Assembler for R6502 [1.42].                                     Page   19
+-------------------------------- ctmon65.asm ---------------------------------
+
+f767 : 8d96df           		sta	SAH
+f76a : 2028f7           		jsr	getHex
+f76d : b004             		bcs	getDone
+f76f : 8d95df           		sta	SAL
+f772 : 18               		clc
+f773 : 60               getDone		rts
+=======
+f754 : 201af7           getStartAddr	jsr	getHex
+f757 : b00c             		bcs	getDone
+f759 : 8d96df           		sta	SAH
+f75c : 201af7           		jsr	getHex
+f75f : b004             		bcs	getDone
+f761 : 8d95df           		sta	SAL
+f764 : 18               		clc
+f765 : 60               getDone		rts
+AS65 Assembler for R6502 [1.42].                                     Page   19
+-------------------------------- ctmon65.asm ---------------------------------
+
+>>>>>>> H_bug
+                        ;
+                        ;=====================================================
+                        ; Gets a four digit hex address and places it in
+                        ; EAL and EAH.  Returns C clear if all is well, or C
+                        ; set on error and A contains the character.
+                        ;
+f766 : 201af7           getEndAddr	jsr	getHex
+f769 : b0fa             		bcs	getDone
+f76b : 8d98df           		sta	EAH
+f76e : 201af7           		jsr	getHex
+f771 : b0f2             		bcs	getDone
+f773 : 8d97df           		sta	EAL
+f776 : 18               		clc
+f777 : 60               		rts
+                        ;
+                        ;=====================================================
+                        ; Get an address range and leave them in SAL and EAL.
+                        ;
+f778 : 2061fa           getAddrRange	jsr	putsil
+f77b : 53746172743a2000 		db	"Start: ",0
+f783 : 2054f7           		jsr	getStartAddr
+f786 : b0dd             		bcs	getDone
+f788 : 2061fa           		jsr	putsil
+f78b : 2c20456e643a2000 		db	", End: ",0
+f793 : 2066f7           		jsr	getEndAddr
+f796 : 60               		rts
+                        ;
+                        ;=====================================================
+                        ; Command handler for the ? command
+                        ;
+f797 : 2061fa           showHelp	jsr	putsil
+f79a : 0d0a             		db	CR,LF
+f79c : 417661696c6162.. 		db	"Available commands:"
+f7af : 0d0a0a00         		db	CR,LF,LF,0
+                        ;
+                        ; Print help for built-in commands...
+                        ;
+f7b3 : a9f3             		lda	#commandTable&$ff
+f7b5 : 85f0             		sta	sptr
+f7b7 : a9f0             		lda	#commandTable/256
+f7b9 : 85f1             		sta	sptr+1
+f7bb : 20c1f7           		jsr	displayHelp	;display help
+                        ;
+                        ; Now print help for the extension commands...
+                        ;
+                        	if	EXTENDED_CMDS
+                        		lda	ExtensionAddr
+                        		sta	sptr
+                        		lda	ExtensionAddr+1
+                        		sta	sptr+1
+                        		jsr	displayHelp
+                        		jsr	crlf
+                        	endif
+<<<<<<< HEAD
+f7cc : 4cb7f0           		jmp	prompt
+                        ;
+                        ;=====================================================
+AS65 Assembler for R6502 [1.42].                                     Page   20
+-------------------------------- ctmon65.asm ---------------------------------
+
+                        ; Given a pointer to a command table in POINT, display
+                        ; the help text for all commands in the table.
+                        ;
+f7cf : a000             displayHelp	ldy	#0	;index into command table
+f7d1 : b1f0             showHelpLoop	lda	(sptr),y	;get command
+f7d3 : f01c             		beq	showHelpDone	;jump if at end
+=======
+f7be : 4cb7f0           		jmp	prompt
+                        ;
+                        ;=====================================================
+                        ; Given a pointer to a command table in POINT, display
+                        ; the help text for all commands in the table.
+                        ;
+f7c1 : a000             displayHelp	ldy	#0	;index into command table
+f7c3 : b1f0             showHelpLoop	lda	(sptr),y	;get command
+f7c5 : f01c             		beq	showHelpDone	;jump if at end
+AS65 Assembler for R6502 [1.42].                                     Page   20
+-------------------------------- ctmon65.asm ---------------------------------
+
+>>>>>>> H_bug
+                        ;
+                        ; Display this entry's descriptive text
+                        ;
+f7c7 : c8               		iny		;skip over command
+f7c8 : c8               		iny		;skip over function ptr
+f7c9 : c8               		iny
+f7ca : b1f0             		lda	(sptr),y
+f7cc : 85f2             		sta	INL
+f7ce : c8               		iny
+f7cf : b1f0             		lda	(sptr),y
+f7d1 : 85f3             		sta	INH
+f7d3 : 98               		tya
+f7d4 : 48               		pha
+f7d5 : 20e7fa           		jsr	space2
+f7d8 : 2084fa           		jsr	puts	;print description
+f7db : 20d7fa           		jsr	crlf
+f7de : 68               		pla
+f7df : a8               		tay
+f7e0 : c8               		iny		;point to next entry
+f7e1 : d0e0             		bne	showHelpLoop
+f7e3 : 60               showHelpDone	rts
+                        ;
+                        ;=====================================================
+                        ; This does a memory test of a region of memory.
+                        ;
+                        ; Asks for the starting and ending locations.
+                        ;
+                        ; This cycles a rolling bit, then adds a ninth
+                        ; pattern to help detect shorted address bits.
+                        ; Ie: 01, 02, 04, 08, 10, 20, 40, 80, BA
+                        ;
+df8e =                  pattern		equ	SaveA	;re-use some other locations
+df8f =                  original	equ	SaveX
+                        ;
+                        ; Test patterns
+                        ;
+0001 =                  PATTERN_0	equ	$01
+00ba =                  PATTERN_9	equ	$ba
+                        ;
+<<<<<<< HEAD
+f7f2 : 2019fb           memabort	jsr	cin	;eat pending key
+f7f5 : 4cb7f0           cmdRet2		jmp	prompt
+=======
+f7e4 : 200bfb           memabort	jsr	cin	;eat pending key
+f7e7 : 4cb7f0           cmdRet2		jmp	prompt
+>>>>>>> H_bug
+                        ;
+f7ea : 2061fa           memTest		jsr	putsil
+f7ed : 4d656d6f727920.. 		db	"Memory test ",0
+f7fa : 2078f7           		jsr	getAddrRange	;get range
+f7fd : b0e8             		bcs	cmdRet2		;branch if abort
+                        ;
+f7ff : 2061fa           		jsr	putsil
+f802 : 0d0a             		db	CR,LF
+f804 : 54657374696e67.. 		db	"Testing memory.  Press any key to abort"
+f82b : 00               		db	0
+f82c : a901             		lda	#PATTERN_0	;only set initial...
+f82e : 8d8edf           		sta	pattern		;..pattern once
+                        ;
+                        ; Start of loop.  This fills/tests one complete pass
+                        ; of memory.
+<<<<<<< HEAD
+AS65 Assembler for R6502 [1.42].                                     Page   21
+-------------------------------- ctmon65.asm ---------------------------------
+
+                        ;
+f83f : 2024fb           memTestMain	jsr	cstatus	;key pressed?
+f842 : d0ae             		bne	memabort	;branch if yes
+f844 : ad95df           		lda	SAL	;reset pointer to start
+f847 : 85f0             		sta	sptr
+f849 : ad96df           		lda	SAH
+f84c : 85f1             		sta	sptr+1
+=======
+                        ;
+f831 : 2016fb           memTestMain	jsr	cstatus	;key pressed?
+f834 : d0ae             		bne	memabort	;branch if yes
+f836 : ad95df           		lda	SAL	;reset pointer to start
+f839 : 85f0             		sta	sptr
+f83b : ad96df           		lda	SAH
+AS65 Assembler for R6502 [1.42].                                     Page   21
+-------------------------------- ctmon65.asm ---------------------------------
+
+f83e : 85f1             		sta	sptr+1
+>>>>>>> H_bug
+                        ;
+                        ; Fill memory with the rolling pattern until the last
+                        ; location is filled.
+                        ;
+f840 : a000             		ldy	#0
+f842 : ad8edf           		lda	pattern
+f845 : 8d8fdf           		sta	original
+f848 : 91f0             memTestFill	sta	(sptr),y
+f84a : c9ba             		cmp	#PATTERN_9	;at last pattern?
+f84c : d005             		bne	memFill3
+f84e : a901             		lda	#PATTERN_0	;restart pattern
+f850 : 4c58f8           		jmp	memFill4
+                        ;
+                        ; Rotate pattern left one bit
+                        ;
+f853 : 0a               memFill3	asl	a
+f854 : 9002             		bcc	memFill4	;branch if not overflow
+f856 : a9ba             		lda	#PATTERN_9	;ninth pattern
+                        ;
+                        ; The new pattern is in A.  Now see if we've reached
+                        ; the end of the area to be tested.
+                        ;
+f858 : 48               memFill4	pha		;save pattern
+f859 : a5f0             		lda	sptr
+f85b : cd97df           		cmp	EAL
+f85e : d007             		bne	memFill5
+f860 : a5f1             		lda	sptr+1
+f862 : cd98df           		cmp	EAH
+f865 : f007             		beq	memCheck
+                        ;
+                        ; Not done, so move to next address and keep going.
+                        ;
+f867 : 2003f9           memFill5	jsr	INCPT
+f86a : 68               		pla		;recover pattern
+f86b : 4c48f8           		jmp	memTestFill
+                        ;
+                        ; Okay, memory is filled, so now go back and test it.
+                        ; We kept a backup copy of the initial pattern to
+                        ; use, but save the current pattern as the starting
+                        ; point for the next pass.
+                        ;
+f86e : 68               memCheck	pla
+f86f : 8d8edf           		sta	pattern	;for next pass
+f872 : ad95df           		lda	SAL	;reset pointer to start
+f875 : 85f0             		sta	sptr
+f877 : ad96df           		lda	SAH
+f87a : 85f1             		sta	sptr+1
+f87c : ad8fdf           		lda	original	;restore initial pattern
+f87f : a000             		ldy	#0
+f881 : d1f0             memTest2	cmp	(sptr),y
+f883 : d02c             		bne	memFail
+f885 : c9ba             		cmp	#PATTERN_9
+f887 : d004             		bne	memTest3
+                        ;
+                        ; Time to reload the pattern
+<<<<<<< HEAD
+AS65 Assembler for R6502 [1.42].                                     Page   22
+-------------------------------- ctmon65.asm ---------------------------------
+
+                        ;
+f897 : a901             		lda	#PATTERN_0
+f899 : d005             		bne	memTest4
+=======
+                        ;
+f889 : a901             		lda	#PATTERN_0
+f88b : d005             		bne	memTest4
+>>>>>>> H_bug
+                        ;
+                        ; Rotate pattern left one bit
+                        ;
+AS65 Assembler for R6502 [1.42].                                     Page   22
+-------------------------------- ctmon65.asm ---------------------------------
+
+f88d : 0a               memTest3	asl	a
+f88e : 9002             		bcc	memTest4
+f890 : a9ba             		lda	#PATTERN_9
+                        ;
+                        ; The new pattern is in A.
+                        ;
+f892 : 48               memTest4	pha		;save pattern
+f893 : a5f0             		lda	sptr
+f895 : cd97df           		cmp	EAL
+f898 : d007             		bne	memTest5	;not at end
+f89a : a5f1             		lda	sptr+1
+f89c : cd98df           		cmp	EAH
+f89f : f007             		beq	memDone	;at end of pass
+                        ;
+                        ; Not at end yet, so inc pointer and continue
+                        ;
+f8a1 : 2003f9           memTest5	jsr	INCPT
+f8a4 : 68               		pla
+f8a5 : 4c81f8           		jmp	memTest2
+                        ;
+                        ; Another pass has completed.
+                        ;
+f8a8 : 68               memDone		pla
+f8a9 : a92e             		lda	#'.'
+f8ab : 20fefa           		jsr	cout
+f8ae : 4c31f8           		jmp	memTestMain
+                        ;
+                        ; Failure.  Display the failed address, the expected
+                        ; value and what was actually there.
+                        ;
+<<<<<<< HEAD
+f8bf : 48               memFail		pha		;save pattern for error report
+f8c0 : 206ffa           		jsr	putsil
+f8c3 : 0d0a             		db	CR,LF
+f8c5 : 4661696c757265.. 		db	"Failure at address ",0
+f8d9 : a5f1             		lda	sptr+1
+f8db : 20c8fa           		jsr	HexA
+f8de : a5f0             		lda	sptr
+f8e0 : 20c8fa           		jsr	HexA
+f8e3 : 206ffa           		jsr	putsil
+f8e6 : 2e202045787065.. 		db	".  Expected ",0
+f8f3 : 68               		pla
+f8f4 : 20c8fa           		jsr	HexA
+f8f7 : 206ffa           		jsr	putsil
+f8fa : 2062757420676f.. 		db	" but got ",0
+f904 : a000             		ldy	#0
+f906 : b1f0             		lda	(sptr),y
+f908 : 20c8fa           		jsr	HexA
+f90b : 20e5fa           		jsr	crlf
+f90e : 4cb7f0           cmdRet4		jmp	prompt
+=======
+f8b1 : 48               memFail		pha		;save pattern for error report
+f8b2 : 2061fa           		jsr	putsil
+f8b5 : 0d0a             		db	CR,LF
+f8b7 : 4661696c757265.. 		db	"Failure at address ",0
+f8cb : a5f1             		lda	sptr+1
+f8cd : 20bafa           		jsr	HexA
+f8d0 : a5f0             		lda	sptr
+f8d2 : 20bafa           		jsr	HexA
+f8d5 : 2061fa           		jsr	putsil
+f8d8 : 2e202045787065.. 		db	".  Expected ",0
+f8e5 : 68               		pla
+f8e6 : 20bafa           		jsr	HexA
+f8e9 : 2061fa           		jsr	putsil
+f8ec : 2062757420676f.. 		db	" but got ",0
+f8f6 : a000             		ldy	#0
+f8f8 : b1f0             		lda	(sptr),y
+f8fa : 20bafa           		jsr	HexA
+f8fd : 20d7fa           		jsr	crlf
+f900 : 4cb7f0           cmdRet4		jmp	prompt
+>>>>>>> H_bug
+                        ;
+                        ;=====================================================
+                        ; Increment sptr
+                        ;
+<<<<<<< HEAD
+f911 : e6f0             INCPT		inc	sptr
+f913 : d002             		bne	incpt2
+f915 : e6f1             		inc	sptr+1
+AS65 Assembler for R6502 [1.42].                                     Page   23
+-------------------------------- ctmon65.asm ---------------------------------
+
+f917 : 60               incpt2		rts
+=======
+f903 : e6f0             INCPT		inc	sptr
+f905 : d002             		bne	incpt2
+f907 : e6f1             		inc	sptr+1
+f909 : 60               incpt2		rts
+>>>>>>> H_bug
+                        ;
+                        ;=====================================================
+                        ; Ping the Arduino disk controller.  This just sends t
+                        ; PING command gets back one character, then returns.
+                        ; Not much of a test but is sufficient to prove the
+AS65 Assembler for R6502 [1.42].                                     Page   23
+-------------------------------- ctmon65.asm ---------------------------------
+
+                        ; link is working.
+                        ;
+<<<<<<< HEAD
+f918 : 206ffa           pingDisk	jsr	putsil
+f91b : 50696e672e2e2e.. 		db	"Ping... ",0
+f924 : 20b2fb           		jsr	DiskPing
+f927 : 206ffa           		jsr	putsil
+f92a : 7375636365737321 		db	"success!"
+f932 : 0d0a00           		db	CR,LF,0
+f935 : 4cb7f0           doDiskDirEnd	jmp	prompt
+=======
+f90a : 2061fa           pingDisk	jsr	putsil
+f90d : 50696e672e2e2e.. 		db	"Ping... ",0
+f916 : 20a4fb           		jsr	DiskPing
+f919 : 2061fa           		jsr	putsil
+f91c : 7375636365737321 		db	"success!"
+f924 : 0d0a00           		db	CR,LF,0
+f927 : 4cb7f0           doDiskDirEnd	jmp	prompt
+>>>>>>> H_bug
+                        ;
+                        ;=====================================================
+                        ; Do a disk directory of the SD card.
+                        ;
+f92a : 2061fa           doDiskDir	jsr	putsil
+f92d : 4469736b204469.. 		db	"Disk Directory..."
+f93e : 0d0a00           		db	CR,LF,0
+                        ;		jsr	xParInit
+f941 : 20b7fb           		jsr	DiskDir
+                        ;
+                        ; Get/Display each entry
+                        ;
+f944 : a2df             doDiskDirLoop   ldx	#filename/256	;pointer to buffer
+f946 : a09a             		ldy	#filename&$ff
+f948 : 86f3             		stx	INH		;save for puts
+f94a : 84f2             		sty	INL
+f94c : 20c1fb           		jsr	DiskDirNext	;get next entry
+f94f : b0d6             		bcs	doDiskDirEnd	;carry = end of list
+f951 : 20e4fa           		jsr	space3
+f954 : 2084fa           		jsr	puts		;else print name
+f957 : 20d7fa           		jsr	crlf
+f95a : 4c44f9           		jmp	doDiskDirLoop	;do next entry
+                        ;
+                        ;=====================================================
+                        ; Adds the character in A to the CRC.  Preserves A.
+                        ;
+f95d : 48               updateCrc	pha
+f95e : 18               		clc
+f95f : 6da9df           		adc	CHKL
+f962 : 8da9df           		sta	CHKL
+f965 : 68               		pla
+f966 : 60               		rts
+                        ;
+                        ;=====================================================
+                        ; Print character in A as two hex digits to the
+                        ; current output device (console or file).
+                        ;
+<<<<<<< HEAD
+f975 : 48               HexToOutput	pha		;save return value
+f976 : 48               		pha
+f977 : 4a               		lsr	a	;move top nibble to bottom
+f978 : 4a               		lsr	a
+f979 : 4a               		lsr	a
+f97a : 4a               		lsr	a
+f97b : 2084f9           		jsr	hexta	;output nibble
+f97e : 68               		pla
+f97f : 2084f9           		jsr	hexta
+f982 : 68               		pla		;restore
+AS65 Assembler for R6502 [1.42].                                     Page   24
+-------------------------------- ctmon65.asm ---------------------------------
+
+f983 : 60               		rts
+                        ;
+f984 : 290f             hexta		and	#%0001111
+f986 : c90a             		cmp	#$0a
+f988 : 18               		clc
+f989 : 3002             		bmi	hexta1
+f98b : 6907             		adc	#7
+f98d : 6930             hexta1		adc	#'0'	;then fall into...
+=======
+f967 : 48               HexToOutput	pha		;save return value
+f968 : 48               		pha
+f969 : 4a               		lsr	a	;move top nibble to bottom
+f96a : 4a               		lsr	a
+f96b : 4a               		lsr	a
+f96c : 4a               		lsr	a
+f96d : 2076f9           		jsr	hexta	;output nibble
+f970 : 68               		pla
+f971 : 2076f9           		jsr	hexta
+f974 : 68               		pla		;restore
+f975 : 60               		rts
+                        ;
+f976 : 290f             hexta		and	#%0001111
+f978 : c90a             		cmp	#$0a
+f97a : 18               		clc
+f97b : 3002             		bmi	hexta1
+AS65 Assembler for R6502 [1.42].                                     Page   24
+-------------------------------- ctmon65.asm ---------------------------------
+
+f97d : 6907             		adc	#7
+f97f : 6930             hexta1		adc	#'0'	;then fall into...
+>>>>>>> H_bug
+                        ;
+                        ;=====================================================
+                        ; This is a helper function used for redirected I/O.
+                        ; It simply does a jump through the output vector
+                        ; pointer to send the character in A to the proper
+                        ; device.
+                        ;
+f981 : 6c08df           redirectedOutch	jmp	(outputVector)
+                        ;
+                        ;=====================================================
+                        ; Set up the output vector to point to the normal
+                        ; console output subroutine.
+                        ;
+f984 :                  setOutputConsole
+f984 : a9fe             		lda	#cout&$ff
+f986 : 8d08df           		sta     outputVector
+f989 : a9fa             		lda	#cout/256
+f98b : 8d09df           		sta	outputVector+1
+f98e : 60               		rts
+                        ;
+                        ;=====================================================
+                        ; Set up the output vector to point to a file write
+                        ; subroutine.
+                        ;
+f98f : a94f             setOutputFile	lda	#putNextFileByte&$ff
+f991 : 8d08df           		sta     outputVector
+f994 : a9f6             		lda	#putNextFileByte/256
+f996 : 8d09df           		sta	outputVector+1
+                        ;
+                        ; Clear counts and offsets so the next read will
+                        ; cause the file to be read.
+                        ;
+f999 : a900             		lda	#0
+f99b : 8da7df           		sta	diskBufOffset
+f99e : 60               		rts
+                        ;
+                        ;=====================================================
+                        ; Set up the input vector to point to the normal
+                        ; console input subroutine.
+                        ;
+f99f : a9aa             setInputConsole	lda	#cinecho&$ff
+f9a1 : 8d06df           		sta     inputVector
+f9a4 : a9f9             		lda	#cinecho/256
+f9a6 : 8d07df           		sta	inputVector+1
+f9a9 : 60               		rts
+                        ;
+f9aa : 200bfb           cinecho		jsr	cin
+f9ad : 48               		pha
+f9ae : 20fefa           		jsr	cout
+f9b1 : 68               		pla
+f9b2 : 60               		rts
+                        ;
+                        ;=====================================================
+                        ; Set up the input vector to point to a file read
+<<<<<<< HEAD
+=======
+                        ; subroutine.
+                        ;
+f9b3 : a9c9             setInputFile    lda	#getNextFileByte&$ff
+f9b5 : 8d06df           		sta     inputVector
+f9b8 : a9f9             		lda	#getNextFileByte/256
+f9ba : 8d07df           		sta	inputVector+1
+>>>>>>> H_bug
+AS65 Assembler for R6502 [1.42].                                     Page   25
+-------------------------------- ctmon65.asm ---------------------------------
+
+                        ; subroutine.
+                        ;
+                        ; Clear counts and offsets so the next read will
+                        ; cause the file to be read.
+                        ;
+f9bd : a900             		lda	#0
+f9bf : 8da7df           		sta	diskBufOffset
+f9c2 : 8da8df           		sta	diskBufLength
+f9c5 : 60               		rts
+                        ;
+                        ;=====================================================
+                        ; This is a helper function used for redirected I/O.
+                        ; It simply does a jump through the input vector
+                        ; pointer to get the next input character.
+                        ;
+f9c6 : 6c06df           redirectedGetch	jmp	(inputVector)
+                        ;
+                        ;=====================================================
+                        ; This gets the next byte from an open disk file.  If
+                        ; there are no more bytes left, this returns C set.
+                        ; Else, C is clear and A contains the character.
+                        ;
+f9c9 : aea7df           getNextFileByte ldx 	diskBufOffset
+f9cc : eca8df           		cpx	diskBufLength
+f9cf : d014             		bne	hasdata		;branch if still data
+                        ;
+                        ; There is no data left in the buffer, so read a
+                        ; block from the SD system.
+                        ;
+f9d1 : a984             		lda	#BUFFER_SIZE
+f9d3 : a2df             		ldx	#buffer>>8
+f9d5 : a00a             		ldy	#buffer&$ff
+f9d7 : 2028fc           		jsr	DiskRead
+f9da : b012             		bcs	getNextEof
+                        ;
+                        ; A contains the number of bytes actually read.
+                        ;
+f9dc : 8da8df           		sta	diskBufLength	;save length
+f9df : c900             		cmp	#0		;shouldn't happen
+f9e1 : f00b             		beq	getNextEof
+                        ;
+f9e3 : a200             		ldx	#0
+f9e5 : bd0adf           hasdata		lda	buffer,x
+f9e8 : e8               		inx
+f9e9 : 8ea7df           		stx	diskBufOffset
+f9ec : 18               		clc
+f9ed : 60               		rts
+                        ;
+f9ee : a900             getNextEof	lda	#0
+f9f0 : 8da7df           		sta	diskBufOffset
+f9f3 : 8da8df           		sta	diskBufLength
+f9f6 : 38               		sec
+f9f7 : 60               		rts
+                        		page
+AS65 Assembler for R6502 [1.42].                                     Page   26
+-------------------------------- ctmon65.asm ---------------------------------
+
+                        ;
+                        ;=====================================================
+                        ; Type the contents of an SD file to console.
+                        ;
+f9f8 : 2061fa           typeFile	jsr	putsil
+f9fb : 456e7465722066.. 		db	"Enter filename to type: ",0
+fa14 : 2017f6           		jsr	getFileName
+fa17 : a09a             		ldy	#filename&$ff
+fa19 : a2df             		ldx	#filename/256
+                        ;		jsr	xParInit
+fa1b : 20f2fb           		jsr	DiskOpenRead
+fa1e : 901e             		bcc	typeFile1	;opened ok
+                        ;
+<<<<<<< HEAD
+fa2e : 206ffa           		jsr	putsil
+fa31 : 0d0a             		db	CR,LF
+fa33 : 4661696c656420.. 		db	"Failed to open file"
+fa46 : 0d0a00           		db	CR,LF,0
+fa49 : 4cb7f0           		jmp	prompt
+=======
+fa20 : 2061fa           		jsr	putsil
+fa23 : 0d0a             		db	CR,LF
+fa25 : 4661696c656420.. 		db	"Failed to open file"
+fa38 : 0d0a00           		db	CR,LF,0
+fa3b : 4cb7f0           		jmp	prompt
+>>>>>>> H_bug
+                        ;
+                        ; Now just keep reading in bytes and displaying them.
+                        ;
+fa3e : 20b3f9           typeFile1	jsr	setInputFile	;reading from file
+fa41 : 20c9f9           typeFileLoop	jsr	getNextFileByte
+fa44 : b006             		bcs	typeEof
+fa46 : 20fefa           		jsr	cout	;display character
+fa49 : 4c41fa           		jmp	typeFileLoop
+                        ;
+<<<<<<< HEAD
+fa5a : 209ffc           typeEof		jsr	DiskClose
+fa5d : 4cb7f0           		jmp	prompt
+=======
+fa4c : 2091fc           typeEof		jsr	DiskClose
+fa4f : 4cb7f0           		jmp	prompt
+>>>>>>> H_bug
+                        ;
+                        ;=====================================================
+                        ; This flushes any data remaining in the disk buffer
+                        ; and then closes the file.
+                        ;
+fa52 : ada7df           CloseOutFile	lda	diskBufOffset
+fa55 : f007             		beq	closeonly
+fa57 : a2df             		ldx	#buffer>>8
+fa59 : a00a             		ldy	#buffer&$ff
+fa5b : 205afc           		jsr	DiskWrite
+                        ;
+fa5e : 4c91fc           closeonly	jmp	DiskClose
+                        ;
+                        		include	"io.asm"
+                        ;*****************************************************
+                        ; FILE: io.asm
+                        ;
+                        ; This contains slightly higher level console related
+                        ; functions like text output, reading a line, etc.
+                        ;*****************************************************
+                        ;
+                        ;		zpage
+                        ;putsp		ds	2
+                        ;
+                        		bss
+dfad =                  BUFFER		ds	BUFFER_SIZE
+e031 =                  argc		ds	1
+e032 =                  argv		ds	MAX_ARGC
+                        ;
+                        		code
+                        ;
+                        ;*****************************************************
+                        ; Print the string that follows the JSR to this code.
+AS65 Assembler for R6502 [1.42].                                     Page   27
+-------------------------------- ctmon65.asm ---------------------------------
+
+                        ; Taken from http://www.6502.org/source/io/primm.htm
+                        ; The last example by Ross Archer.
+                        ;
+fa61 : 68               putsil		pla		;Get the low part of "return" address
+                        				;(data start address)
+fa62 : 85f4             		sta	putsp
+fa64 : 68               		pla
+fa65 : 85f5             		sta	putsp+1	;Get the high part of "return" address
+                        				;(data start address)
+                        				;Note: actually we're pointing one short
+fa67 : a001             PSINB		ldy	#1
+fa69 : b1f4             		lda	(putsp),y	;Get the next string character
+fa6b : e6f4             		inc	putsp	;update the pointer
+fa6d : d002             		bne	PSICHO	;if not, we're pointing to next character
+fa6f : e6f5             		inc	putsp+1	;account for page crossing
+fa71 : 0900             PSICHO		ora	#0	;Set flags according to contents of
+                        				;   Accumulator
+fa73 : f006             		beq	PSIX1	;don't print the final NULL
+fa75 : 20fefa           		jsr	cout	;write it out
+fa78 : 4c67fa           		jmp	PSINB	;back around
+fa7b : e6f4             PSIX1		inc	putsp
+fa7d : d002             		bne	PSIX2
+fa7f : e6f5             		inc	putsp+1	;account for page crossing
+fa81 : 6cf400           PSIX2		jmp	(putsp)	;return to byte following final NUL
+                        ;
+                        ;=====================================================
+                        ; This prints the null terminated string pointed to by
+                        ; INL and INH.  Modifies those locations to point to
+                        ; the end of the string.
+                        ;
+fa84 : a000             puts		ldy	#0
+fa86 : b1f2             putsy		lda	(INL),y
+fa88 : e6f2             		inc	INL
+fa8a : d002             		bne	puts1
+fa8c : e6f3             		inc	INH
+fa8e : 0900             puts1		ora	#0
+fa90 : f00c             		beq	putsdone
+fa92 : 8c90df           		sty	SaveY
+fa95 : 20fefa           		jsr	cout	;print character
+fa98 : ac90df           		ldy	SaveY
+fa9b : 4c86fa           		jmp	putsy
+fa9e : 60               putsdone	rts
+                        ;
+                        ;*****************************************************
+                        ; Get a line of text from the console and put it into
+                        ; BUFFER.  This only allows printable characters, will
+                        ; limit the amount of text to BUFFER_SIZE-1 characters
+                        ; and allows some editing.  Returns the string with a 
+                        ; byte at the end and the length in A.  If the length 
+                        ; zero, return Z set.
+                        ;
+fa9f :                  getline
+                        	if 0
+                        		ldx	#0
+                        		beq	getline1
+                        ;
+                        ; This outputs a bell.  Used when the user
+                        ; does something bad, like non-printable
+                        ; characters or exceeding line length.
+                        ;
+                        getline2	lda	#BELL
+                        		jsr	cout
+AS65 Assembler for R6502 [1.42].                                     Page   28
+-------------------------------- ctmon65.asm ---------------------------------
+
+                        ;
+                        ; Get the next character
+                        ;
+                        getline1	jsr	cin	;get character
+                        		cmp	#' '
+                        		bcc	getline2	;not printable
+                        		cmp	#'~'+1
+                        		bcs	getline2	;not printable
+                        		cmp	#CR	;end of input?
+                        		beq	getline3
+                        		cpx	#BUFFER_SIZE-1
+                        		beq	getline1	;too long
+                        		sta	BUFFER,x
+                        		jsr	cout	;echo, echo, echo...
+                        		inx
+                        		bne	getline1
+                        ;
+                        ; Got a CR, so terminate the string.
+                        ;
+                        getline3	lda	#0
+                        		sta	BUFFER,x
+                        		txa		;will set/clear Z
+                        	endif
+fa9f : 60               		rts
+                        ;
+                        ;*****************************************************
+                        ; This converts the buffer to all lower case.
+                        ;
+faa0 : a200             ToLower		ldx	#0
+faa2 : bdaddf           ToLower1	lda	BUFFER,x
+faa5 : f011             		beq	ToLowerDone
+                        ;
+faa7 : c961             		cmp	#'a'
+faa9 : 900a             		bcc	ToLower2
+faab : c97b             		cmp	#'z'+1
+faad : b006             		bcs	ToLower2
+faaf : 18               		clc
+fab0 : e920             		sbc	#$20	;convert
+fab2 : 9daddf           		sta	BUFFER,x
+fab5 : e8               ToLower2	inx
+fab6 : d0ea             		bne	ToLower1
+                        ;
+fab8 : 60               ToLowerDone	rts
+                        ;
+                        ;*****************************************************
+                        ; This parses the current contents of BUFFER.  It scan
+                        ; until finding whitespace, terminates the string (put
+                        ; null), then scans until finding the next non-whitesp
+                        ; and repeats the process again.  Saves the offset to 
+                        ; word in argc, and has a total count in argv.  Yes, I
+                        ; a C programmer.
+                        ;
+fab9 :                  parse
+                        	if 0
+                        		ldx	#0
+                        		stx	argc	;clear count
+                        		dex
+                        ;
+                        ; Skip whitespace
+                        ;
+                        parse1		inx
+                        		lda	BUFFER,x
+AS65 Assembler for R6502 [1.42].                                     Page   29
+-------------------------------- ctmon65.asm ---------------------------------
+
+                        		beq	parse2	;at EOL
+                        		cmp	#' '
+                        		beq	parse1	;whitespace
+                        ;
+                        ; Not whitespace
+                        ;
+                        		ldy	argc
+                        		stx	argv,y
+                        		iny
+                        		cpy	#MAX_ARGC
+                        		beq	parse2
+                        		sty	argv
+                        ;
+                        ; Now skip until whitespace found again
+                        ;
+                        parse3		inx
+                        		lda	BUFFER,x
+                        		beq	parse2
+                        		cmp	#' '
+                        		bne	parse3
+                        		lda	#0
+                        		sta	BUFFER,x	;terminate
+                        		jmp	parse1
+                        ;
+                        	endif
+fab9 : 60               parse2		rts
+                        ;
+                        ;*****************************************************
+                        ; Dump the contents of A as two hex digits.  Preserves
+                        ; all registers.
+                        ;
+faba : 48               HexA		pha		;save value
+fabb : 48               		pha
+fabc : 4a               		lsr	a
+fabd : 4a               		lsr	a
+fabe : 4a               		lsr	a
+fabf : 4a               		lsr	a
+fac0 : 20c9fa           		jsr	HexDigit
+fac3 : 68               		pla
+fac4 : 20c9fa           		jsr	HexDigit
+fac7 : 68               		pla		;restore value
+fac8 : 60               		rts
+                        ;
+fac9 : 290f             HexDigit	and	#$0f
+facb : c90a             		cmp	#$0a
+facd : 18               		clc
+face : 3002             		bmi	HexDigit1
+fad0 : 6907             		adc	#7
+fad2 : 6930             HexDigit1	adc	#'0'
+fad4 : 4cfefa           		jmp	cout
+                        ;
+                        ;*****************************************************
+                        ; Output a CR/LF combination to the console.  Preserve
+                        ; all registers.
+                        ;
+fad7 : 48               crlf		pha
+fad8 : a90d             		lda	#CR
+fada : 20fefa           		jsr	cout
+fadd : a90a             		lda	#LF
+fadf : 20fefa           		jsr	cout
+fae2 : 68               		pla
+fae3 : 60               		rts
+AS65 Assembler for R6502 [1.42].                                     Page   30
+-------------------------------- ctmon65.asm ---------------------------------
+
+                        ;
+                        ;*****************************************************
+                        ; Output one, two or three spaces.  Preserves all
+                        ; register.
+                        ;
+fae4 : 20eafa           space3		jsr	space
+fae7 : 20eafa           space2		jsr	space
+faea : 48               space		pha
+faeb : a920             		lda	#' '
+faed : 20fefa           		jsr	cout
+faf0 : 68               		pla
+faf1 : 60               		rts
+                        
+                        
+                        
+                        		include	"acia.asm"
+                        ;*****************************************************
+                        ; FILE: acia.asm
+                        ;*****************************************************
+                        ;
+0001 =                  CONSOLE_SLOT	equ	1
+                        ;
+e010 =                  ACIA		equ	(CONSOLE_SLOT*IO_SIZE)+IO_BASE
+0001 =                  RDRF		equ	%00000001
+0002 =                  TDRE		equ	%00000010
+                        ;
+                        ;*****************************************************
+                        ; Initialize the ACIA
+                        ;
+faf2 : a903             cinit		lda	#%00000011	;reset
+faf4 : 8d10e0           		sta	ACIA
+faf7 : ea               		nop
+faf8 : a911             		lda	#%00010001	;8N2
+fafa : 8d10e0           		sta	ACIA
+fafd : 60               		rts
+                        ;
+                        ;*****************************************************
+                        ; Output the character in A to the console.  This will
+                        ; block until the character is queued.  Preserves all
+                        ; registers.
+                        ;
+fafe : 48               cout		pha
+faff : ad10e0           cout1		lda	ACIA
+fb02 : 2902             		and	#TDRE
+fb04 : f0f9             		beq	cout1		;not empty
+fb06 : 68               		pla
+fb07 : 8d11e0           		sta	ACIA+1
+fb0a : 60               		rts
+                        ;
+                        ;*****************************************************
+                        ; Gets a character from the console and returns it in 
+                        ; Modifies no other registers.  This blocks until a
+                        ; character is available.
+                        ;
+fb0b : ad10e0           cin		lda	ACIA
+fb0e : 2901             		and	#RDRF
+fb10 : f0f9             		beq	cin
+fb12 : ad11e0           		lda	ACIA+1
+fb15 : 60               		rts
+                        ;
+                        ;*****************************************************
+                        ; Get the status of the console.  Returns Z set if no
+AS65 Assembler for R6502 [1.42].                                     Page   31
+-------------------------------- ctmon65.asm ---------------------------------
+
+                        ; characters are available, Z clear if a character is
+                        ; ready.
+                        ;
+fb16 : ad10e0           cstatus		lda	ACIA
+fb19 : 2901             		and	#RDRF
+fb1b : 60               		rts
+                        
+                        	if SD_ENABLED
+                        		include	"parproto.inc"
+                        ;*****************************************************
+                        ; Parallel port protocol
+                        ;
+                        ; This is the header file for making applications
+                        ; compliant with The Remote Disk Protocol Guide which
+                        ; is on the Corsham Technologies web page somewhere:
+                        ;
+                        ;    www.corshamtech.com
+                        ;
+                        ; This was updated 06/13/2015 to be compliant with the
+                        ; official specification, so the opcode values changed
+                        ;
+                        ; Another update on 09/04/2017
+                        ;
+                        ;=====================================================
+                        ; Commands from host to Arduino
+                        ;
+0001 =                  PC_GET_VERSION	equ	$01
+0005 =                  PC_PING		equ	$05	;ping Arduino
+0006 =                  PC_LED_CONTROL	equ	$06	;LED control
+0010 =                  PC_GET_DIR	equ	$10	;Get directory
+0011 =                  PC_GET_MOUNTED	equ	$11	;Get mounted drive list
+0012 =                  PC_MOUNT	equ	$12	;Mount drive
+0013 =                  PC_UNMOUNT	equ	$13	;Unmount drive
+0014 =                  PC_GET_STATUS	equ	$14	;Get status for one drive
+0015 =                  PC_DONE		equ	$15	;Stop data
+0015 =                  PC_ABORT	equ	PC_DONE
+0016 =                  PC_READ_FILE	equ	$16	;Read regular file (non-DSK)
+0017 =                  PC_READ_BYTES	equ	$17	;Read sequential bytes
+0018 =                  PC_RD_SECTOR	equ	$18	;Read FLEX sector
+0019 =                  PC_WR_SECTOR	equ	$19	;Write FLEX sector
+001a =                  PC_GET_MAX	equ	$1a	;Get maximum drives
+001b =                  PC_WRITE_FILE   equ	$1b	;Open file for writing
+001c =                  PC_WRITE_BYTES	equ	$1c	;Data to be written
+001d =                  PC_SAVE_CONFIG	equ	$1d	;Save SD.CFG with current value
+001e =                  PC_SET_TIMER	equ	$1e	;Set RTC timer
+001f =                  PC_WR_SEC_LONG	equ	$1f	;Write sector with long sec num
+0020 =                  PC_RD_SEC_LONG	equ	$20	;Read sector with long sec num
+                        ;
+                        ;=====================================================
+                        ; Responses from Arduino to host
+                        ;
+0081 =                  PR_VERSION_INFO	equ	$81	;Contains version information
+0082 =                  PR_ACK		equ	$82	;ACK (no additional information)
+0083 =                  PR_NAK		equ	$83	;NAK - one status byte follows
+0085 =                  PR_PONG		equ	$85	;Reply to a ping
+0090 =                  PR_DIR_ENTRY	equ	$90	;Directory entry
+0091 =                  PR_DIR_END	equ	$91	;End of directory entries
+0092 =                  PR_FILE_DATA	equ	$92	;File data
+0093 =                  PR_STATUS	equ	$93	;Drive status
+0094 =                  PR_SECTOR_DATA	equ	$94	;Sector data
+0095 =                  PR_MOUNT_INFO	equ	$95	;Mount entry
+0096 =                  PR_MAX_DRIVES	equ	$96	;Maximum number of drives
+AS65 Assembler for R6502 [1.42].                                     Page   32
+-------------------------------- ctmon65.asm ---------------------------------
+
+                        ;
+                        ;=====================================================
+                        ; Error codes for NAK events.  Yes, these are in
+                        ; decimal due to an error in the original
+                        ; documentation.
+                        ;
+0000 =                  ERR_NONE	equ	0
+000a =                  ERR_NOT_MOUNTED	equ	10
+000b =                  ERR_MOUNTED	equ	11
+000c =                  ERR_NOT_FOUND	equ	12
+000d =                  ERR_READ_ONLY	equ	13
+000e =                  ERR_BAD_DRIVE	equ	14
+000f =                  ERR_BAD_TRACK	equ	15
+0010 =                  ERR_BAD_SECTOR	equ	16
+0011 =                  ERR_READ_ERROR	equ	17
+0012 =                  ERR_WRITE_ERROR	equ	18
+0013 =                  ERR_NOT_PRESENT	equ	19
+0014 =                  ERR_NOT_IMPL	equ	20	;Command not implemented
+                        
+                        
+                        		include	"pario.asm"
+                        
+                        ;CTMON65 version using a 6821
+                        
+                        ;*****************************************************
+                        ; These are the low-level I/O routines to talk to the
+                        ; Arduino processor connected to the KIM's I/O port.
+                        ;
+                        ; August 2014, Bob Applegate K2UT, bob@corshamtech.com
+                        ;
+                        ; Which port bits are used for what:
+                        ;
+                        ; A0 = Data 0, alternates input/output
+                        ; A1 = Data 1, alternates input/output
+                        ; A2 = Data 2, alternates input/output
+                        ; A3 = Data 3, alternates input/output
+                        ; A4 = Data 4, alternates input/output
+                        ; A5 = Data 5, alternates input/output
+                        ; A6 = Data 6, alternates input/output
+                        ; A7 = Data 7, alternates input/output
+                        ;
+                        ; B0 = Direction bit, always output
+                        ; B1 = Write strobe or ACK, always output
+                        ; B2 = Read stroke or ACK, always input
+                        ;
+                        ;----------------------------------------------------
+                        ; Bits in the B register
+                        ;
+0001 =                  DIRECTION	equ	%00000001
+0002 =                  PSTROBE		equ	%00000010
+0004 =                  ACK		equ	%00000100
+                        ;
+                        ;----------------------------------------------------
+                        ; Which slot the parallel board is in.  This needs to
+                        ; be set for the system in use.  As long as the user
+                        ; programs only call functions in here, no other
+                        ; file/application should know which slot the board
+                        ; is in.
+                        ;
+0006 =                  PIASLOT		equ	6
+                        ;
+                        ; Computed addresses of 6821 registers
+AS65 Assembler for R6502 [1.42].                                     Page   33
+-------------------------------- ctmon65.asm ---------------------------------
+
+                        ;
+e060 =                  PIABASE		equ	IO_BASE+(PIASLOT*IO_SIZE)
+e060 =                  PIAREGA		equ	PIABASE		;data reg A
+e060 =                  PIADDRA		equ	PIABASE		;data dir reg A
+e061 =                  PIACTLA		equ	PIABASE+1	;control reg A
+e062 =                  PIAREGB		equ	PIABASE+2	;data reg B
+e062 =                  PIADDRB		equ	PIABASE+2	;data dir reg B
+e063 =                  PIACTLB		equ	PIABASE+3	;control reg B
+                        		code
+                        		page
+AS65 Assembler for R6502 [1.42].                                     Page   34
+-------------------------------- ctmon65.asm ---------------------------------
+
+                        ;
+                        ;*****************************************************
+                        ; This is the initialization function.  Call before
+                        ; doing anything else with the parallel port.
+                        ;
+fb1c :                  xParInit
+                        ;
+                        ; Set up the data direction register for port B so tha
+                        ; the DIRECTION and PSTROBE bits are output.
+                        ;
+fb1c : a900             		lda	#0	;select DDR
+fb1e : 8d63e0           		sta	PIACTLB	;...for port B
+fb21 : a903             		lda	#DIRECTION | PSTROBE
+fb23 : 8d62e0           		sta	PIADDRB
+fb26 : a904             		lda	#4	;select data reg
+fb28 : 8d63e0           		sta	PIACTLB
+                        ;
+                        ; Fall through to set up for writes...
+                        ;
+                        		page
+AS65 Assembler for R6502 [1.42].                                     Page   35
+-------------------------------- ctmon65.asm ---------------------------------
+
+                        ;*****************************************************
+                        ; This sets up for writing to the Arduino.  Sets up
+                        ; direction registers, drives the direction bit, etc.
+                        ;
+fb2b : a900             xParSetWrite	lda	#0	;select DDR
+fb2d : 8d61e0           		sta	PIACTLA	;...for port A
+fb30 : a9ff             		lda	#$ff	;set bits for output
+fb32 : 8d60e0           		sta	PIADDRA
+fb35 : a904             		lda	#4	;select data reg
+fb37 : 8d61e0           		sta	PIACTLA
+                        ;
+                        ; Set direction flag to output, clear ACK bit
+                        ;
+fb3a : a901             		lda	#DIRECTION
+fb3c : 8d62e0           		sta	PIAREGB
+fb3f : 60               		rts
+                        		page
+AS65 Assembler for R6502 [1.42].                                     Page   36
+-------------------------------- ctmon65.asm ---------------------------------
+
+                        ;*****************************************************
+                        ; This sets up for reading from the Arduino.  Sets up
+                        ; direction registers, clears the direction bit, etc.
+                        ;
+fb40 : a900             xParSetRead	lda	#0	;select DDR
+fb42 : 8d61e0           		sta	PIACTLA	;...for port A
+fb45 : a900             		lda	#$00	;set bits for input
+fb47 : 8d60e0           		sta	PIADDRA
+fb4a : a904             		lda	#4	;select data reg
+fb4c : 8d61e0           		sta	PIACTLA
+                        ;
+                        ; Set direction flag to input, clear ACK bit
+                        ;
+fb4f : a900             		lda	#0
+fb51 : 8d62e0           		sta	PIAREGB
+fb54 : 60               		rts
+                        		page
+AS65 Assembler for R6502 [1.42].                                     Page   37
+-------------------------------- ctmon65.asm ---------------------------------
+
+                        ;*****************************************************
+                        ; This writes a single byte to the Arduino.  On entry,
+                        ; the byte to write is in A.  This assumes ParSetWrite
+                        ; was already called.
+                        ;
+                        ; Destroys A, all other registers preserved.
+                        ;
+                        ; Write cycle:
+                        ;
+                        ;    1. Wait for other side to lower ACK.
+                        ;    2. Put data onto the bus.
+                        ;    3. Set DIRECTION and PSTROBE to indicate data
+                        ;       is valid and ready to read.
+                        ;    4. Wait for ACK line to go high, indicating the
+                        ;       other side has read the data.
+                        ;    5. Lower PSTROBE.
+                        ;    6. Wait for ACK to go low, indicating end of
+                        ;       transfer.
+                        ;
+fb55 : 48               xParWriteByte	pha		;save data
+fb56 : ad62e0           Parwl22		lda	PIAREGB	;check status
+fb59 : 2904             		and	#ACK
+fb5b : d0f9             		bne	Parwl22	;wait for ACK to go low
+                        ;
+                        ; Now put the data onto the bus
+                        ;
+fb5d : 68               		pla
+fb5e : 8d60e0           		sta	PIAREGA
+                        ;
+                        ; Raise the strobe so the Arduino knows there is
+                        ; new data.
+                        ;
+fb61 : ad62e0           		lda	PIAREGB
+fb64 : 0902             		ora	#PSTROBE
+fb66 : 8d62e0           		sta	PIAREGB
+                        ;
+                        ; Wait for ACK to go high, indicating the Arduino has
+                        ; pulled the data and is ready for more.
+                        ;
+fb69 : ad62e0           Parwl33		lda	PIAREGB
+fb6c : 2904             		and	#ACK
+fb6e : f0f9             		beq	Parwl33
+                        ;
+                        ; Now lower the strobe, then wait for the Arduino to
+                        ; lower ACK.
+                        ;
+fb70 : ad62e0           		lda	PIAREGB
+fb73 : 29fd             		and	#~PSTROBE
+fb75 : 8d62e0           		sta	PIAREGB
+fb78 : ad62e0           Parwl44		lda	PIAREGB
+fb7b : 2904             		and	#ACK
+fb7d : d0f9             		bne	Parwl44
+fb7f : 60               		rts
+                        		page
+AS65 Assembler for R6502 [1.42].                                     Page   38
+-------------------------------- ctmon65.asm ---------------------------------
+
+                        ;*****************************************************
+                        ; This reads a byte from the Arduino and returns it in
+                        ; A.  Assumes ParSetRead was called before.
+                        ;
+                        ; This does not have a time-out.
+                        ;
+                        ; Preserves all other registers.
+                        ;
+                        ; Read cycle:
+                        ;
+                        ;    1. Wait for other side to raise ACK, indicating
+                        ;       data is ready.
+                        ;    2. Read data.
+                        ;    3. Raise PSTROBE indicating data was read.
+                        ;    4. Wait for ACK to go low.
+                        ;    5. Lower PSTROBE.
+                        ;
+fb80 : ad62e0           xParReadByte	lda	PIAREGB
+fb83 : 2904             		and	#ACK	;is their strobe high?
+fb85 : f0f9             		beq	xParReadByte	;nope, no data
+                        ;
+                        ; Data is available, so grab and save it.
+                        ;
+fb87 : ad60e0           		lda	PIAREGA
+fb8a : 48               		pha
+                        ;
+                        ; Now raise our strobe (their ACK), then wait for
+                        ; them to lower their strobe.
+                        ;
+fb8b : ad62e0           		lda	PIAREGB
+fb8e : 0902             		ora	#PSTROBE
+fb90 : 8d62e0           		sta	PIAREGB
+fb93 : ad62e0           Parrlp1		lda	PIAREGB
+fb96 : 2904             		and	#ACK
+fb98 : d0f9             		bne	Parrlp1	;still active
+                        ;
+                        ; Lower our ack, then we’re done.
+                        ;
+fb9a : ad62e0           		lda	PIAREGB
+fb9d : 29fd             		and	#~PSTROBE
+fb9f : 8d62e0           		sta	PIAREGB
+fba2 : 68               		pla
+fba3 : 60               		rts
+                        
+                        		include "diskfunc.asm"
+                        		list
+                        ;=====================================================
+                        ; This is a collection of functions for performing
+                        ; higher level disk functions.  This hides the nasty
+                        ; details of communications with the remote disk
+                        ; system.
+                        ;
+                        ; August 20, 2014 - Bob Applegate
+                        ;                   bob@corshamtech.com
+                        ;
+                        ; 06/14/2015 - Bob Applegate
+                        ;		Now that there is an official standard
+                        ;		for the protocol between the host (this
+                        ;		code) and the DCP (Arduino code), this
+                        ;		code has been updated to be compliant.
+                        ;
+                        ; 01/14/2016 - Bob Applegate
+AS65 Assembler for R6502 [1.42].                                     Page   39
+-------------------------------- ctmon65.asm ---------------------------------
+
+                        ;              Finally converted to 6502.
+                        ;
+                        ;		include	"parproto.inc"
+                        ;
+                        ; Number of drives emulated
+                        ;
+0004 =                  DRIVES		equ	4
+                        ;
+                        ;=====================================================
+                        ; This is a sanity check to verify connectivity to the
+                        ; Arduino code is working.  Returns C clear if all is
+                        ; good, or C set if not.
+                        ;
+fba4 : 202bfb           DiskPing	jsr	xParSetWrite
+fba7 : a905             		lda	#PC_PING	;command
+fba9 : 2055fb           		jsr	xParWriteByte	;send to Arduino
+fbac : 2040fb           		jsr	xParSetRead
+fbaf : 2080fb           		jsr	xParReadByte	;read their reply
+fbb2 : 202bfb           DiskRetGood	jsr	xParSetWrite
+fbb5 : 18               		clc			;assume it's good
+fbb6 : 60               		rts
+                        		page
+AS65 Assembler for R6502 [1.42].                                     Page   40
+-------------------------------- ctmon65.asm ---------------------------------
+
+                        ;=====================================================
+                        ; This starts a directory read of the raw drive, not
+                        ; the mounted drive.  No input parameters.  This simpl
+                        ; sets up for reading the entries, then the user must
+                        ; read each entry.
+                        ;
+                        ; Returns with C clear on success.  If error, C is set
+                        ; and A contains the error code.
+                        ;
+fbb7 : 202bfb           DiskDir		jsr	xParSetWrite
+fbba : a910             		lda	#PC_GET_DIR	;send command
+fbbc : 2055fb           		jsr	xParWriteByte
+fbbf : 18               		clc		;assume it works
+fbc0 : 60               		rts
+                        		page
+AS65 Assembler for R6502 [1.42].                                     Page   41
+-------------------------------- ctmon65.asm ---------------------------------
+
+                        ;=====================================================
+                        ; Read the next directory entry.  On input, X (MSB)
+                        ; and Y (LSB) point to a 13 byte area to receive the
+                        ; drive data.
+                        ;
+                        ; Returns C set if end of directory (ie, attempt to
+                        ; read and there are none left).  Else, C is clear
+                        ; and X/Y point to the null at end of filename.
+                        ;
+fbc1 : 86f1             DiskDirNext	stx	sptr+1
+fbc3 : 84f0             		sty	sptr
+fbc5 : 2040fb           		jsr	xParSetRead	;read results
+fbc8 : 2080fb           		jsr	xParReadByte	;get response code
+fbcb : c983             		cmp	#PR_NAK		;error?
+fbcd : f01e             		beq	DDNErr
+fbcf : c991             		cmp	#PR_DIR_END	;end?
+fbd1 : f01a             		beq	DDNErr
+                        ;
+                        ; This contains a directory entry.
+                        ;
+fbd3 : a000             		ldy	#0
+fbd5 : 2080fb           DDNloop		jsr	xParReadByte
+fbd8 : 91f0             		sta	(sptr),y
+fbda : c900             		cmp	#0	;end?
+fbdc : f006             		beq	DDNEnd
+fbde : 2003f9           		jsr	INCPT
+fbe1 : 4cd5fb           		jmp	DDNloop
+fbe4 : 202bfb           DDNEnd		jsr	xParSetWrite
+fbe7 : a6f1             		ldx	sptr+1
+fbe9 : a4f0             		ldy	sptr
+fbeb : 18               		clc		;not end of files
+fbec : 60               		rts
+                        ;
+                        ; Error.  Set C and return.  This is not really
+                        ; proper, since this implies a simple end of the
+                        ; directory rather than an error.
+                        ;
+fbed : 202bfb           DDNErr		jsr	xParSetWrite
+fbf0 : 38               		sec
+fbf1 : 60               		rts
+                        		page
+AS65 Assembler for R6502 [1.42].                                     Page   42
+-------------------------------- ctmon65.asm ---------------------------------
+
+                        ;=====================================================
+                        ; This opens a file on the SD for reading.  On entry,
+                        ; X (MSB) and Y (LSB) point to a null-terminated
+                        ; filename to open.  On return, C is clear if the file
+                        ; is open, or C set if an error (usually means the
+                        ; file does not exist.
+                        ;
+                        ; Assumes write mode has been set.  Returns with it se
+                        ;
+fbf2 : a916             DiskOpenRead	lda	#PC_READ_FILE
+fbf4 : 84f2             DiskOpen	sty	INL	;save ptr to filename
+fbf6 : 86f3             		stx	INH
+fbf8 : 48               		pha
+fbf9 : 202bfb           		jsr	xParSetWrite
+fbfc : 68               		pla
+fbfd : 2055fb           		jsr	xParWriteByte
+fc00 : a0ff             		ldy	#-1
+fc02 : c8               DiskOpenLoop	iny
+fc03 : b1f2             		lda	(INL),y
+fc05 : 2055fb           		jsr	xParWriteByte
+fc08 : b1f2             		lda	(INL),y
+fc0a : d0f6             		bne	DiskOpenLoop
+fc0c : 2040fb           		jsr	xParSetRead
+fc0f : 2080fb           		jsr	xParReadByte	;get response
+fc12 : c982             		cmp	#PR_ACK
+fc14 : d005             		bne	DiskOpenErr
+fc16 : 202bfb           		jsr	xParSetWrite	;back to write mode
+fc19 : 18               		clc
+fc1a : 60               		rts
+                        ;
+                        ; Got an error.
+                        ;
+fc1b : 2080fb           DiskOpenErr	jsr	xParReadByte	;get error code
+fc1e : 202bfb           		jsr	xParSetWrite	;back to write mode
+fc21 : 38               		sec
+fc22 : 60               		rts
+                        ;=====================================================
+                        ; This opens a file on the SD for writing.  On entry,
+                        ; X (MSB) and Y (LSB) point to a null-terminated
+                        ; filename to open.  On return, C is clear if the file
+                        ; is open, or C set if an error.
+                        ;
+                        ; Assumes write mode has been set.  Returns with it se
+                        ;
+fc23 : a91b             DiskOpenWrite	lda	#PC_WRITE_FILE
+fc25 : 4cf4fb           		jmp	DiskOpen	;jump into common code
+                        ;
+                        ;=====================================================
+                        ; On entry, A contains the number of bytes to read
+                        ; from the file, X (MSB) and Y (LSB) point to the
+                        ; buffer where to put the data.  On return, C will
+                        ; be set if EOF was reached (and no data read), or
+                        ; C will be clear and A contains the number of bytes
+                        ; actually read into the buffer.
+                        ;
+                        ; Modifies A, X and Y.  Also modifies INL and INH
+                        ; (00F8 and 00F9).
+                        ;
+fc28 : 48               DiskRead	pha
+fc29 : 84f2             		sty	INL	;save ptr to buffer
+fc2b : 86f3             		stx	INH
+fc2d : a917             		lda	#PC_READ_BYTES
+AS65 Assembler for R6502 [1.42].                                     Page   43
+-------------------------------- ctmon65.asm ---------------------------------
+
+fc2f : 2055fb           		jsr	xParWriteByte	;command
+fc32 : 68               		pla		;number of bytes to get
+fc33 : 2055fb           		jsr	xParWriteByte
+fc36 : 2040fb           		jsr	xParSetRead	;get ready for response
+fc39 : 2080fb           		jsr	xParReadByte	;assume PR_FILE_DATA
+fc3c : 2080fb           		jsr	xParReadByte	;length
+fc3f : 48               		pha
+fc40 : aa               		tax			;count
+fc41 : f011             		beq	DiskReadEof	;zero = EOF
+fc43 : a000             		ldy	#0	;offset
+fc45 : 2080fb           DiskReadLoop	jsr	xParReadByte
+fc48 : 91f2             		sta	(INL),y
+fc4a : c8               		iny		;next offset
+fc4b : ca               		dex
+fc4c : d0f7             		bne	DiskReadLoop
+fc4e : 202bfb           		jsr	xParSetWrite
+fc51 : 68               		pla		;retrieve byte count
+fc52 : 18               DiskOk		clc	
+fc53 : 60               		rts
+fc54 : 202bfb           DiskReadEof	jsr	xParSetWrite
+fc57 : 68               		pla
+fc58 : 38               		sec
+fc59 : 60               		rts
+                        ;
+                        ;=====================================================
+                        ; On entry, A contains the number of bytes to write
+                        ; to the file, X (MSB) and Y (LSB) point to the
+                        ; buffer where to get the data.  On return, C will
+                        ; be set if an error was detected, or C will be clear
+                        ; if no error.  Note that if A contains 0 on entry,
+                        ; no bytes are written.
+                        ;
+                        ; Modifies A, X and Y.  Also modifies INL and INH
+                        ; (00F8 and 00F9).
+                        ;
+fc5a : c900             DiskWrite	cmp	#0
+fc5c : f0f4             		beq	DiskOk
+fc5e : 84f2             		sty	INL	;save ptr to filename
+fc60 : 86f3             		stx	INH
+fc62 : 48               		pha
+fc63 : a91c             		lda	#PC_WRITE_BYTES
+fc65 : 2055fb           		jsr	xParWriteByte	;command
+fc68 : 68               		pla		;number of bytes to write
+fc69 : 48               		pha		;save again
+fc6a : 2055fb           		jsr	xParWriteByte
+fc6d : 68               		pla
+fc6e : aa               		tax			;count
+fc6f : a000             		ldy	#0	;offset
+fc71 : b1f2             DiskWriteLoop	lda	(INL),y	;get next byte
+fc73 : 2055fb           		jsr	xParWriteByte
+fc76 : c8               		iny		;next offset
+fc77 : ca               		dex
+fc78 : d0f7             		bne	DiskWriteLoop
+fc7a : 2040fb           		jsr	xParSetRead ;read the status
+fc7d : 2080fb           		jsr	xParReadByte
+fc80 : c982             		cmp	#PR_ACK
+fc82 : f008             		beq	DiskOk1	;all good
+fc84 : 2080fb           		jsr	xParReadByte	;read error code
+fc87 : 202bfb           		jsr	xParSetWrite 
+fc8a : 38               		sec	
+fc8b : 60               		rts
+                        ;
+AS65 Assembler for R6502 [1.42].                                     Page   44
+-------------------------------- ctmon65.asm ---------------------------------
+
+fc8c : 202bfb           DiskOk1		jsr	xParSetWrite
+fc8f : 18               		clc
+fc90 : 60               		rts
+                        ;
+                        ;=====================================================
+                        ; Call this to close any open file.  No parameters
+                        ; and no return status.
+                        ;
+fc91 : a915             DiskClose	lda	#PC_DONE
+fc93 : 4c55fb           		jmp	xParWriteByte
+                        
+                        
+                        
+                        	endif
+                        ;
+                        ;*****************************************************
+                        ; Handlers for the interrupts.  Basiclly just jump 
+                        ; through the vectors and hope they are set up properl
+                        ;
+fc96 : 6c02df           HandleNMI	jmp	(NMIvec)
+fc99 : 6c00df           HandleIRQ	jmp	(IRQvec)
+                        ;
+                        ;*****************************************************
+                        ; Default handler.  Save the state of the machine for
+                        ; debugging.  This is taken from the KIM monitor SAVE
+                        ; routine.
+                        ;
+fc9c :                  DefaultNMI
+fc9c : 8d8edf           DefaultIRQ	sta	SaveA
+fc9f : 68               		pla
+fca0 : 8d93df           		sta	SaveC
+fca3 : 68               		pla
+fca4 : 8d91df           		sta	SavePC
+fca7 : 68               		pla
+fca8 : 8d92df           		sta	SavePC+1
+fcab : 8c90df           		sty	SaveY
+fcae : 8e8fdf           		stx	SaveX
+fcb1 : ba               		tsx
+fcb2 : 8e94df           		stx	SaveSP
+fcb5 : 206bf6           		jsr	DumpRegisters
+fcb8 : 20d7fa           		jsr	crlf
+fcbb : 4cb4f0           		jmp	WARM
+                        ;
+                        ;*****************************************************
+                        ; 6502 vectors
+                        ;
+fffa =                  		org	$fffa
+fffa : 96fc             		dw	HandleNMI
+fffc : 45f0             		dw	RESET
+fffe : 99fc             		dw	HandleIRQ
+                        
+                        
+No errors in pass 2.
+Wrote binary from address $e000 through $ffff.
+Total size 8192 bytes.
+

@@ -1,0 +1,2690 @@
+AS09 Assembler for M6809 [1.42].                                     Page    1
+---------------------------------- sbug.asm ----------------------------------
+
+2525 lines read, no errors in pass 1.
+                        		title	"SBUG18 MP-09 MONITOR"
+                        		list
+                        ;=====================================================
+                        ;
+                        ; MONITOR PROGRAM FOR THE SOUTHWEST TECHNICAL
+                        ; PRODUCTS MP-09 CPU BOARD AS COMMENTED BY....
+                        ;
+                        ; ALLEN CLARK            WALLACE WATSON
+                        ; 2502 REGAL OAKS LANE   4815 EAST 97th AVE.
+                        ; LUTZ, FLA. 33549       TEMPLE TERRACE, FLA. 33617
+                        ; PH. 813-977-0347       PH. 813-985-1359
+                        ;
+                        ; MODIFIED TO SBUG09 VER 1.8 BY:  RANDY JARRETT
+                        ;                                 2561 NANTUCKET DR AP
+                        ;                                 ATLANTA, GA  30345
+                        ;                                 PH. 404-320-1043
+                        ;
+                        ; Modified by Bob Applegate, bob@corshamtech.com in
+                        ; late 2014 to add some extra flexibility at build
+                        ; time.  Also made it compatible with the AS09
+                        ; assembler.
+                        ;
+                        ; I've added notes in some sections of code while
+                        ; working through some of the logic, and left them in
+                        ; case they are helpful to others as well.
+                        ;
+                        ; 1.8.2 has the updated functions to do long sector
+                        ; read/writes and other support for NitrOS/9.
+                        ;
+                        ; Memory map note:
+                        ;
+                        ; At start-up, the only memory hard-wired to a
+                        ; specific address is from FF00 to FFFF which is
+                        ; mapped to the upper 256 bytes of the EPROM, probably
+                        ; containing SBUG.
+                        ;
+                        ; The code in the upper 256 bytes will do setup of the
+                        ; DAT registers, then the rest of the EPROM is availbl
+                        ;
+                        ;       *** COMMANDS ***
+                        
+                        ; CONTROL A   = ALTER THE "A" ACCUMULATOR
+                        ; CONTROL B   = ALTER THE "B" ACCUMULATOR
+                        ; CONTROL C   = ALTER THE CONDITION CODE REGISTER
+                        ; CONTROL D   = ALTER THE DIRECT PAGE REGISTER
+                        ; CONTROL P   = ALTER THE PROGRAM COUNTER
+                        ; CONTROL U   = ALTER USER STACK POINTER
+                        ; CONTROL X   = ALTER "X" INDEX REGISTER
+                        ; CONTROL Y   = ALTER "Y" INDEX REGISTER
+                        ; B hhhh      = SET BREAKPOINT AT LOCATION $hhhh
+                        ; D           = BOOT A SWTPC 8 INCH FLOPPY SYSTEM
+                        ; U           = BOOT A SWTPC 5 INCH FLOPPY SYSTEM
+                        ; E ssss-eeee = EXAMINE MEMORY FROM STARTING ADDRESS s
+                        ;              -TO ENDING ADDRESS eeee.
+                        ; G           = CONTINUE EXECUTION FROM BREAKPOINT OR 
+                        ; L           = LOAD TAPE
+                        ; M hhhh      = EXAMINE AND CHANGE MEMORY LOCATION hhh
+                        ; P ssss-eeee = PUNCH TAPE, START ssss TO END eeee ADD
+                        ; Q ssss-eeee = TEST MEMORY FROM ssss TO eeee
+                        ; R           = DISPLAY REGISTER CONTENTS
+                        ; S           = DISPLAY STACK FROM ssss TO $DFC0
+AS09 Assembler for M6809 [1.42].                                     Page    2
+---------------------------- SBUG18 MP-09 MONITOR ----------------------------
+
+                        ; X           = REMOVE ALL BREAKPOINTS
+                        ;
+                        ; Useful constants
+                        ;
+0000 =                  false		equ	0
+ffff =                  true		equ	~false
+                        ;
+                        ;***************************************************
+                        ; This is so other files included (if any) can tell
+                        ; they are being assembled into SBUG.  This should
+                        ; always be true.
+                        ;
+ffff =                  IN_SBUG		equ	true
+                        ;
+                        ;***************************************************
+                        ; Allow S5 recognition for the L command.  Some
+                        ; assemblers output S5 instead of S9, but it takes
+                        ; more space for S5 processing.
+                        ;
+ffff =                  ALLOW_S5	equ	true
+                        ;
+                        ;***************************************************
+                        ; Include Tiny BASIC in the lower 2K.
+                        ;
+0000 =                  ENABLE_BASIC	equ	false
+                        ;
+                        ;***************************************************
+                        ; Include SD card drivers and commands.  Note that
+                        ; the ENABLE_BASIC option ***MUST*** be false if
+                        ; this is true; there just isn't enough space for
+                        ; both sets of code.
+                        ;
+ffff =                  SD_SUPPORT	equ	true
+                        ;
+                        		if	SD_SUPPORT
+                        		if	ENABLE_BASIC
+                        		error	You cannot have both options on!
+                        		endif
+                        		endif
+                        ;
+                        ;***************************************************
+                        ; This enables/disables tape read control codes.
+                        ; This should be true to emulate the original SBUG,
+                        ; but false is fine for modern use.
+                        ;
+0000 =                  READER_CONTROL	equ	false
+                        ;
+                        ;***************************************************
+                        ; This macro is used to verify that the current
+                        ; address meets a required value.  Used mostly to
+                        ; guarantee changes don't cause entry points to
+                        ; move.  These are used right before documented
+                        ; entry points.
+                        ;
+                        VERIFY		macro	expected
+                        		if * != expected
+                        		fail	Not at requested address (expected)
+                        		endif
+                        		endm
+                        
+                        FORCE		macro	desired
+                        		if * > desired
+AS09 Assembler for M6809 [1.42].                                     Page    3
+---------------------------- SBUG18 MP-09 MONITOR ----------------------------
+
+                        		fail	Past expected address (desired)
+                        		else
+                        		if * < desired
+                        		ds	desired-*
+                        		endif
+                        		endif
+                        		endm
+                        
+                        ;
+                        ; A test pattern used for sizing
+                        ;
+55aa =                  TSTPAT		equ	$55AA	;TEST PATTERN
+                        
+                        
+                        		bss
+dfc0 =                  		org	$dfc0
+dfc0 =                  STACK		ds	2	;TOP OF INTERNAL STACK / USER VECTOR
+dfc2 =                  SWI3		ds	2	;SOFTWARE INTERRUPT VECTOR #3
+dfc4 =                  SWI2		ds	2	;SOFTWARE INTERRUPT VECTOR #2
+dfc6 =                  FIRQ		ds	2	;FAST INTERRUPT VECTOR
+dfc8 =                  IRQ		ds	2	;INTERRUPT VECTOR
+dfca =                  SWI		ds	2	;SOFTWARE INTERRUPT VECTOR
+dfcc =                  SVCVO		ds	2	;SUPERVISOR CALL VECTOR ORGIN
+dfce =                  SVCVL		ds	2	;SUPERVISOR CALL VECTOR LIMIT
+dfd0 =                  LRARAM		ds	16	;LRA ADDRESSES
+dfe0 =                  CPORT		ds	2	;RE-VECTORABLE CONTROL PORT
+dfe2 =                  ECHO		ds	1	;ECHO FLAG
+dfe3 =                  BPTBL		ds	24	;BREAKPOINT TABLE BASE ADDR
+                        
+                        ;
+                        ; The original code was hard coded for the I/O base ad
+                        ; be at E000, each slot occupied 4 bytes, and the MP-S
+                        ; was always in slot 1.  I've added EQUates to set the
+                        ;
+e000 =                  IO_BASE		equ	$e000	;usually $E000, but $8000 on unmodi
+0010 =                  IO_SIZE		equ	16	;number of addresses per I/O slot
+0001 =                  MPS_SLOT	equ	1	;which slot console MP-S is in
+e010 =                  ACIAS		equ	(MPS_SLOT*IO_SIZE)+IO_BASE	;CONTROL PORT
+                        ;
+                        ; Disk drive options you can turn on/off.  If you
+                        ; turn them off, then the command disappears from
+                        ; the list.
+                        ;
+0000 =                  DMAF2		equ	false	;SWTPC DMAf2 controller
+0000 =                  DC_X		equ	false	;SWTPC DX-x disk controller
+                        ;
+                        ; This sets up disk drive addresses.  The code
+                        ; appears to be suited to a controller occupying
+                        ; slots 5 and 6's address space.
+                        ;
+                        	if	DC_X
+                        DISK_SLOT	equ	5
+                        DISK_BASE	equ	(DISK_SLOT*IO_SIZE)+IO_BASE
+                        Comreg		equ	DISK_BASE+4	;COMMAND REGISTER
+                        Drvreg		equ	DISK_BASE	;DRIVE REGISTER
+                        Secreg		equ	DISK_BASE+6	;SECTOR REGISTER
+                        Datreg		equ	DISK_BASE+7	;DATA REGISTER
+                        	endif
+                        ;
+                        ; Not sure what card this is for but it's in upper
+                        ; address space
+                        ;
+AS09 Assembler for M6809 [1.42].                                     Page    4
+---------------------------- SBUG18 MP-09 MONITOR ----------------------------
+
+                        	if	DMAF2
+                        ADDREG		equ	$F000	;ADDRESS REGISTER
+                        CNTREG		equ	$F002	;COUNT REGISTER
+                        CCREG		equ	$F010	;CHANNEL CONTROL REGISTER
+                        PRIREG		equ	$F014	;DMA PRIORITY REGISTER
+                        AAAREG		equ	$F015	;???
+                        BBBREG		equ	$F016	;???
+                        COMREG		equ	$F020	;1791 COMMAND REGISTER
+                        SECREG		equ	$F022	;SECTOR REGISTER
+                        DRVREG		equ	$F024	;DRIVE SELECT LATCH
+                        CCCREG		equ	$F040	;???
+                        	endif
+                        ;
+                        ; The Dynamic Address Translation (DAT) uses 16 write-
+                        ; only registers from FFF0 to FFFF.  The lower 4 bits
+                        ; are the inverse of the values presented to A12-A15,
+                        ; while the upper 4 bits are the non-inverted bank
+                        ; select (A16-A19).
+                        ;
+fff0 =                  DATREGS		equ	$FFF0	;DAT RAM CHIP
+                        ;
+                        ; Common ASCII characters
+                        ;
+0004 =                  EOT		equ	$04
+0008 =                  BS		equ	$08
+000a =                  LF		equ	$0a
+000d =                  CR		equ	$0d
+                        ;
+                        ; Since the Corsham Tech board takes 8K EPROMs but the
+                        ; memory space for the EPROM is only 4K, put something
+                        ; here so the EPROM programmer will locate the file
+                        ; properly in its memory.
+                        ;
+                        		code
+e000 =                  		org	$e000
+e000 : 446f6e27742070.. 		db	"Don't put anything here"
+                        ;
+                        ; If you put in the jumper on the Corsham Tech CPU
+                        ; board for 4K of EPROM, then the code starts here
+                        ; for the lower 2K.
+                        ;
+f000 =                  		org	$f000
+                        	if	ENABLE_BASIC
+                        		include	"basic.asm"
+                        	else
+                        	if	SD_SUPPORT
+f000 : 7efb07           		jmp	SdBoot		;load OS from SD Card
+f003 : 203412           		jmp	xParInit	;init parallel interface
+f006 : 204012           		jmp	xParSetWrite	;set for writing
+f009 : 205212           		jmp	xParSetRead	;set for reading
+f00c : 206212           		jmp	xParWriteByte	;write one byte
+f00f : 7ef09d           		jmp	xParReadByte
+                        ;
+f012 : 7ef13a           		jmp	DiskReadSector
+f015 : 7ef167           		jmp	DiskWriteSector
+f018 : 7ef1cc           		jmp	DiskStatus
+f01b : 7ef0d1           		jmp	DiskGetDrives
+f01e : 7ef1a4           		jmp	DiskGetMounted
+f021 : 7ef1a9           		jmp	DiskNextMountedDrv
+f024 : 7ef0d4           		jmp	DiskUnmount
+f027 : 7ef0ef           		jmp	DiskMount
+f02a : 7ef110           		jmp	DiskDir
+AS09 Assembler for M6809 [1.42].                                     Page    5
+---------------------------- SBUG18 MP-09 MONITOR ----------------------------
+
+f02d : 7ef118           		jmp	DiskDirNext
+f030 : 7ef0c3           		jmp	DiskPing
+                        ;
+f033 : 7ef186           		jmp	DiskReadLong
+f036 : 7ef19a           		jmp	DiskWriteLong	
+                        
+                        
+                        		include	"pario.asm"
+                        ;*****************************************************
+                        ; These are the low-level I/O routines to talk to the
+                        ; Arduino processor connected to a 6821 PIA.
+                        ;
+                        ; August 2014, Bob Applegate K2UT, bob@corshamtech.com
+                        ;
+                        ; Modified 08/08/2015 to build for 6809
+                        ;
+                        ; Which port bits are used for what:
+                        ;
+                        ; A0 = Data 0, alternates input/output
+                        ; A1 = Data 1, alternates input/output
+                        ; A2 = Data 2, alternates input/output
+                        ; A3 = Data 3, alternates input/output
+                        ; A4 = Data 4, alternates input/output
+                        ; A5 = Data 5, alternates input/output
+                        ; A6 = Data 6, alternates input/output
+                        ; A7 = Data 7, alternates input/output
+                        ;
+                        ; B0 = Direction bit, always output
+                        ; B1 = Write strobe or ACK, always output
+                        ; B2 = Read stroke or ACK, always input
+                        ;
+                        ;----------------------------------------------------
+                        ; Bits in the B register
+                        ;
+0001 =                  DIRECTION	equ	%00000001
+0002 =                  PSTROBE		equ	%00000010
+0004 =                  ACK		equ	%00000100
+                        ;
+                        ;----------------------------------------------------
+                        ; Constants that might be defined elsewhere and might
+                        ; need to be removed
+                        ;
+                        ;false		equ	0
+                        ;true		equ	~false
+                        ;----------------------------------------------------
+                        ;
+                        ; Which slot the parallel board is in.  This needs to
+                        ; be set for the system in use.  As long as the user
+                        ; programs only call functions in here, no other
+                        ; file/application should know which slot the board
+                        ; is in.
+                        ;
+0006 =                  PIASLOT		equ	6
+                        ;
+                        ; Computed addresses of 6821 registers
+                        ;
+e060 =                  PIABASE		equ	$e000+(PIASLOT*16)
+e060 =                  PIAREGA		equ	PIABASE		;data reg A
+e060 =                  PIADDRA		equ	PIABASE		;data dir reg A
+e061 =                  PIACTLA		equ	PIABASE+1	;control reg A
+e062 =                  PIAREGB		equ	PIABASE+2	;data reg B
+e062 =                  PIADDRB		equ	PIABASE+2	;data dir reg B
+AS09 Assembler for M6809 [1.42].                                     Page    6
+---------------------------- SBUG18 MP-09 MONITOR ----------------------------
+
+e063 =                  PIACTLB		equ	PIABASE+3	;control reg B
+                        		code
+                        		page
+AS09 Assembler for M6809 [1.42].                                     Page    7
+---------------------------- SBUG18 MP-09 MONITOR ----------------------------
+
+                        ;*****************************************************
+                        ; This is the initialization function.  Call before
+                        ; doing anything else with the parallel port.
+                        ;
+f039 :                  xParInit
+                        ;
+                        ; Set up the data direction register for port B so tha
+                        ; the DIRECTION and PSTROBE bits are output.
+                        ;
+f039 : 8600             		lda	#0	;select DDR
+f03b : b7e063           		sta	PIACTLB	;...for port B
+f03e : 8603             		lda	#DIRECTION | PSTROBE
+f040 : b7e062           		sta	PIADDRB
+f043 : 8604             		lda	#4	;select data reg
+f045 : b7e063           		sta	PIACTLB
+                        ;
+                        ; Fall through to set up for writes...
+                        ;
+                        		page
+AS09 Assembler for M6809 [1.42].                                     Page    8
+---------------------------- SBUG18 MP-09 MONITOR ----------------------------
+
+                        ;*****************************************************
+                        ; This sets up for writing to the Arduino.  Sets up
+                        ; direction registers, drives the direction bit, etc.
+                        ;
+f048 : 8600             xParSetWrite	lda	#0	;select DDR
+f04a : b7e061           		sta	PIACTLA	;...for port A
+f04d : 86ff             		lda	#$ff	;set bits for output
+f04f : b7e060           		sta	PIADDRA
+f052 : 8604             		lda	#4	;select data reg
+f054 : b7e061           		sta	PIACTLA
+                        ;
+                        ; Set direction flag to output, clear ACK bit
+                        ;
+f057 : 8601             		lda	#DIRECTION
+f059 : b7e062           		sta	PIAREGB
+f05c : 39               		rts
+                        		page
+AS09 Assembler for M6809 [1.42].                                     Page    9
+---------------------------- SBUG18 MP-09 MONITOR ----------------------------
+
+                        ;*****************************************************
+                        ; This sets up for reading from the Arduino.  Sets up
+                        ; direction registers, clears the direction bit, etc.
+                        ;
+f05d : 8600             xParSetRead	lda	#0	;select DDR
+f05f : b7e061           		sta	PIACTLA	;...for port A
+f062 : 8600             		lda	#$00	;set bits for input
+f064 : b7e060           		sta	PIADDRA
+f067 : 8604             		lda	#4	;select data reg
+f069 : b7e061           		sta	PIACTLA
+                        ;
+                        ; Set direction flag to input, clear ACK bit
+                        ;
+f06c : 7fe062           		clr	PIAREGB
+f06f : 39               		rts
+                        		page
+AS09 Assembler for M6809 [1.42].                                     Page   10
+---------------------------- SBUG18 MP-09 MONITOR ----------------------------
+
+                        ;*****************************************************
+                        ; This writes a single byte to the Arduino.  On entry,
+                        ; the byte to write is in A.  This assumes ParSetWrite
+                        ; was already called.
+                        ;
+                        ; Destroys A, all other registers preserved.
+                        ;
+                        ; Write cycle:
+                        ;
+                        ;    1. Wait for other side to lower ACK.
+                        ;    2. Put data onto the bus.
+                        ;    3. Set DIRECTION and PSTROBE to indicate data
+                        ;       is valid and ready to read.
+                        ;    4. Wait for ACK line to go high, indicating the
+                        ;       other side has read the data.
+                        ;    5. Lower PSTROBE.
+                        ;    6. Wait for ACK to go low, indicating end of
+                        ;       transfer.
+                        ;
+f070 : 3402             xParWriteByte	pshs	a	;save data
+f072 : b6e062           Parwl22		lda	PIAREGB	;check status
+f075 : 8404             		anda	#ACK
+f077 : 26f9             		bne	Parwl22	;wait for ACK to go low
+                        ;
+                        ; Now put the data onto the bus
+                        ;
+f079 : 3502             		puls	a
+f07b : b7e060           		sta	PIAREGA
+                        ;
+                        ; Raise the strobe so the Arduino knows there is
+                        ; new data.
+                        ;
+f07e : b6e062           		lda	PIAREGB
+f081 : 8a02             		ora	#PSTROBE
+f083 : b7e062           		sta	PIAREGB
+                        ;
+                        ; Wait for ACK to go high, indicating the Arduino has
+                        ; pulled the data and is ready for more.
+                        ;
+f086 : b6e062           Parwl33		lda	PIAREGB
+f089 : 8404             		anda	#ACK
+f08b : 27f9             		beq	Parwl33
+                        ;
+                        ; Now lower the strobe, then wait for the Arduino to
+                        ; lower ACK.
+                        ;
+f08d : b6e062           		lda	PIAREGB
+f090 : 84fd             		anda	#~PSTROBE
+f092 : b7e062           		sta	PIAREGB
+f095 : b6e062           Parwl44		lda	PIAREGB
+f098 : 8404             		anda	#ACK
+f09a : 26f9             		bne	Parwl44
+f09c : 39               		rts
+                        		page
+AS09 Assembler for M6809 [1.42].                                     Page   11
+---------------------------- SBUG18 MP-09 MONITOR ----------------------------
+
+                        ;*****************************************************
+                        ; This reads a byte from the Arduino and returns it in
+                        ; A.  Assumes ParSetRead was called before.
+                        ;
+                        ; This does not have a time-out.
+                        ;
+                        ; Preserves all other registers.
+                        ;
+                        ; Read cycle:
+                        ;
+                        ;    1. Wait for other side to raise ACK, indicating
+                        ;       data is ready.
+                        ;    2. Read data.
+                        ;    3. Raise PSTROBE indicating data was read.
+                        ;    4. Wait for ACK to go low.
+                        ;    5. Lower PSTROBE.
+                        ;
+f09d : b6e062           xParReadByte	lda	PIAREGB
+f0a0 : 8404             		anda	#ACK	;is their strobe high?
+f0a2 : 27f9             		beq	xParReadByte	;nope, no data
+                        ;
+                        ; Data is available, so grab and save it.
+                        ;
+f0a4 : b6e060           		lda	PIAREGA
+f0a7 : 3402             		pshs	a
+                        ;
+                        ; Now raise our strobe (their ACK), then wait for
+                        ; them to lower their strobe.
+                        ;
+f0a9 : b6e062           		lda	PIAREGB
+f0ac : 8a02             		ora	#PSTROBE
+f0ae : b7e062           		sta	PIAREGB
+f0b1 : b6e062           Parrlp1		lda	PIAREGB
+f0b4 : 8404             		anda	#ACK
+f0b6 : 26f9             		bne	Parrlp1	;still active
+                        ;
+                        ; Lower our ack, then we’re done.
+                        ;
+f0b8 : b6e062           		lda	PIAREGB
+f0bb : 84fd             		anda	#~PSTROBE
+f0bd : b7e062           		sta	PIAREGB
+f0c0 : 3502             		puls	a
+f0c2 : 39               		rts
+                        
+                        		include	"diskfunc.asm"
+                        		list
+                        ;=====================================================
+                        ; This is a collection of functions for performing
+                        ; higher level disk functions.  This hides the nasty
+                        ; details of communications with the remote disk
+                        ; system.
+                        ;
+                        ; August 20, 2014 - Bob Applegate
+                        ;                   bob@corshamtech.com
+                        ;
+                        ; 06/14/2015 - Bob Applegate
+                        ;              Now that there is an official standard
+                        ;              for the protocol between the host (this
+                        ;              code) and the DCP (Arduino code), this
+                        ;              code has been updated to be compliant.
+                        ;
+                        ; 05/02/2017 - Bob Applegate
+AS09 Assembler for M6809 [1.42].                                     Page   12
+---------------------------- SBUG18 MP-09 MONITOR ----------------------------
+
+                        ;              Added support for reading/writing
+                        ;              sectors using long (32 bit) sector
+                        ;              numbers instead of tracks/sectors.
+                        ;              This complies with standard v 1.1.
+                        ;
+                        		include	"parproto.inc"
+                        ;*****************************************************
+                        ; Parallel port protocol
+                        ;
+                        ; This is the header file for making applications
+                        ; compliant with The Remote Disk Protocol Guide which
+                        ; is on the Corsham Technologies web page somewhere:
+                        ;
+                        ;    www.corshamtech.com
+                        ;
+                        ; This was updated 06/13/2015 to be compliant with the
+                        ; official specification, so the opcode values changed
+                        ;
+                        ;=====================================================
+                        ; Commands from host to Arduino
+                        ;
+0001 =                  PC_GET_VERSION	equ	$01
+0005 =                  PC_PING		equ	$05	;ping Arduino
+0006 =                  PC_LED_CONTROL	equ	$06	;LED control
+0007 =                  PC_GET_CLOCK	equ	$07	;Get RTC
+0008 =                  PC_SET_CLOCK	equ	$08	;Set RTC
+0010 =                  PC_GET_DIR	equ	$10	;Get directory
+0011 =                  PC_GET_MOUNTED	equ	$11	;Get mounted drive list
+0012 =                  PC_MOUNT	equ	$12	;Mount drive
+0013 =                  PC_UNMOUNT	equ	$13	;Unmount drive
+0014 =                  PC_GET_STATUS	equ	$14	;Get status for one drive
+0015 =                  PC_DONE		equ	$15	;Stop data
+0015 =                  PC_ABORT	equ	PC_DONE
+0016 =                  PC_READ_FILE	equ	$16	;Read regular file (non-DSK)
+0017 =                  PC_READ_BYTES	equ	$17	;Read sequential bytes
+0018 =                  PC_RD_SECTOR	equ	$18	;Read FLEX sector
+0019 =                  PC_WR_SECTOR	equ	$19	;Write FLEX sector
+001a =                  PC_GET_MAX	equ	$1a	;Get maximum drives
+001b =                  PC_WRITE_FILE   equ	$1b	;Open file for writing
+001c =                  PC_WRITE_BYTES	equ	$1c	;Data to be written
+001d =                  PC_SAVE_CONFIG	equ	$1d	;Save current config data to fi
+001e =                  PC_SET_TIMER	equ	$1e	;Turn on/off RTC timer
+001f =                  PC_READ_LONG	equ	$1f	;read sector using long sector nu
+0020 =                  PC_WRITE_LONG	equ	$20	;write sector using long sec num
+                        ;
+                        ;=====================================================
+                        ; Responses from Arduino to host
+                        ;
+0081 =                  PR_VERSION_INFO	equ	$81	;Contains version information
+0082 =                  PR_ACK		equ	$82	;ACK (no additional information)
+0083 =                  PR_NAK		equ	$83	;NAK - one status byte follows
+0085 =                  PR_PONG		equ	$85	;Reply to a ping
+0087 =                  PR_CLOCK_DATA	equ	$87	;Clock data
+0090 =                  PR_DIR_ENTRY	equ	$90	;Directory entry
+0091 =                  PR_DIR_END	equ	$91	;End of directory entries
+0092 =                  PR_FILE_DATA	equ	$92	;File data
+0093 =                  PR_STATUS	equ	$93	;Drive status
+0094 =                  PR_SECTOR_DATA	equ	$94	;Sector data
+0095 =                  PR_MOUNT_INFO	equ	$95	;Mount entry
+0096 =                  PR_MAX_DRIVES	equ	$96	;Maximum number of drives
+                        ;
+                        ;=====================================================
+AS09 Assembler for M6809 [1.42].                                     Page   13
+---------------------------- SBUG18 MP-09 MONITOR ----------------------------
+
+                        ; Error codes for NAK events
+                        ;
+0000 =                  ERR_NONE	equ	00
+000a =                  ERR_NOT_MOUNTED	equ	10
+000b =                  ERR_MOUNTED	equ	11
+000c =                  ERR_NOT_FOUND	equ	12
+000d =                  ERR_READ_ONLY	equ	13
+000e =                  ERR_BAD_DRIVE	equ	14
+000f =                  ERR_BAD_TRACK	equ	15
+0010 =                  ERR_BAD_SECTOR	equ	16
+0011 =                  ERR_READ_ERROR	equ	17
+                        
+                        
+                        ;
+                        ; Number of drives emulated.  Should always be 4 for
+                        ; use with FLEX.
+                        ;
+0004 =                  DRIVES		equ	4
+                        ;
+                        ; This is the address where the first bootloader from
+                        ; the SD card is supposed to be loaded.
+                        ;
+c100 =                  BOOT_ADDR	equ	$c100
+                        ;
+                        		code
+                        	if	~IN_SBUG
+                        		org	$a800
+                        ;
+                        ;=====================================================
+                        ; This is a jump table to the various functions so
+                        ; callers of this code don't need to know exactly
+                        ; where each function is or what it's called.
+                        ;
+                        ; First, the low-level functions.  If the disk system
+                        ; has not been used yet, call ParInit first.
+                        ;
+                        		jmp	xParInit
+                        		jmp	xParSetWrite
+                        		jmp	xParSetRead
+                        		jmp	xParWriteByte
+                        		jmp	xParReadByte
+                        ;
+                        ; Followed by higher level functions
+                        ;
+                        		jmp	DiskReadSector
+                        		jmp	DiskWriteSector
+                        		jmp	DiskStatus
+                        		jmp	DiskGetDrives
+                        		jmp	DiskGetMounted
+                        		jmp	DiskNextMountedDrv
+                        		jmp	DiskUnmount
+                        		jmp	DiskMount
+                        		jmp	DiskDir
+                        		jmp	DiskDirNext
+                        		jmp	DiskPing
+                        ;
+                        		jmp	DiskReadLong
+                        		jmp	DiskWriteLong
+                        
+                        
+                        	include	"pario.asm"
+                        	endif
+AS09 Assembler for M6809 [1.42].                                     Page   14
+---------------------------- SBUG18 MP-09 MONITOR ----------------------------
+
+                        ;
+                        ;=====================================================
+                        ; This is a sanity check to verify connectivity to the
+                        ; Arduino code is working.  Returns C clear if all is
+                        ; good, or C set if not.
+                        ;
+f0c3 : 8605             DiskPing	lda	#PC_PING	;command
+f0c5 : 8da9             		jsr	xParWriteByte	;send to Arduino
+f0c7 : 8d94             		jsr	xParSetRead
+f0c9 : 8dd2             		jsr	xParReadByte	;read their reply
+f0cb : bdf048           DiskRetGood	jsr	xParSetWrite
+f0ce : 1cfe             		andcc	#$fe		;assume it's good
+f0d0 : 39               		rts
+                        ;
+                        ;=====================================================
+                        ; Get the maximum number of drives supported.  This
+                        ; takes no input parameters.  Returns a value in A
+                        ; that is the number of drives supported.  This is a
+                        ; one based value, so a return of 4 indicates that fou
+                        ; drives are supported, 0 to 3.
+                        ;
+                        ; NOTE: FLEX only supports four drives, so fake it for
+                        ; now and always return 4.  This call might be silly
+                        ; and prime for removal.
+                        ;
+f0d1 : 8604             DiskGetDrives	lda	#DRIVES
+f0d3 : 39               		rts
+                        		page
+AS09 Assembler for M6809 [1.42].                                     Page   15
+---------------------------- SBUG18 MP-09 MONITOR ----------------------------
+
+                        ;=====================================================
+                        ; Unmount a filesystem.  On entry, A contains the
+                        ; zero-based drive number.
+                        ;
+                        ; Returns with C clear on success.  If error, C is set
+                        ; and A contains the error code.
+                        ;
+f0d4 : 3402             DiskUnmount	pshs	a		;save drive
+f0d6 : 8613             		lda	#PC_UNMOUNT
+f0d8 : 8d96             		jsr	xParWriteByte
+f0da : 3502             		puls	a
+f0dc : 8d92             		jsr	xParWriteByte
+                        ;
+                        ; Handy entry point.  This sets the mode to read, gets
+                        ; an ACK or NAK, and if a NAK, gets the error code
+                        ; and returns it in A.
+                        ;
+f0de : bdf05d           ComExit		jsr	xParSetRead	;get ready for response
+f0e1 : 8dba             		jsr	xParReadByte
+f0e3 : 8182             		cmpa	#PR_ACK
+f0e5 : 27e4             		beq	DiskRetGood
+                        ;
+                        ; Assume it's a NAK.
+                        ;
+f0e7 : 8db4             DiskRetErrCode	jsr	xParReadByte	;get error code
+f0e9 : bdf048           DiskRetBad	jsr	xParSetWrite
+f0ec : 1a01             		orcc	#$01
+f0ee : 39               		rts
+                        		page
+AS09 Assembler for M6809 [1.42].                                     Page   16
+---------------------------- SBUG18 MP-09 MONITOR ----------------------------
+
+                        ;=====================================================
+                        ; Mount a filesystem.  On entry, A contains a zero
+                        ; based drive number, B is the read-only flag (0 or
+                        ; non-zero), and X points to a filename to mount on
+                        ; that drive.  
+                        ;
+                        ; Returns with C clear on success.  If error, C is set
+                        ; and A contains the error code.
+                        ;
+f0ef : 3404             DiskMount       pshs	b		;save read-only flag
+f0f1 : 3402             		pshs	a		;save drive
+f0f3 : 8612             		lda	#PC_MOUNT
+f0f5 : bdf070           		jsr	xParWriteByte	;send the command
+f0f8 : 3502             		puls	a
+f0fa : bdf070           		jsr	xParWriteByte	;send drive number
+f0fd : 3504             		puls	b
+f0ff : bdf070           		jsr	xParWriteByte	;send read-only flag
+                        ;
+                        ; Now send each byte of the filename until the end,
+                        ; which is a 0 byte.
+                        ;
+f102 : a680             dmnt1		lda	,x+
+f104 : 2705             		beq	dmnt2
+f106 : bdf070           		jsr	xParWriteByte
+f109 : 20f7             		bra	dmnt1
+f10b : bdf070           dmnt2		jsr	xParWriteByte	;send trailing null
+f10e : 20ce             		bra	ComExit
+                        		page
+AS09 Assembler for M6809 [1.42].                                     Page   17
+---------------------------- SBUG18 MP-09 MONITOR ----------------------------
+
+                        ;=====================================================
+                        ; This starts a directory read of the raw drive, not
+                        ; the mounted drive.  No input parameters.  This simpl
+                        ; sets up for reading the entries, then the user must
+                        ; read each entry.
+                        ;
+                        ; Returns with C clear on success.  If error, C is set
+                        ; and A contains the error code.
+                        ;
+f110 : 8610             DiskDir		lda	#PC_GET_DIR	;send command
+f112 : bdf070           		jsr	xParWriteByte
+f115 : 1cfe             		andcc	#$fe		;assume it works
+f117 : 39               		rts
+                        		page
+AS09 Assembler for M6809 [1.42].                                     Page   18
+---------------------------- SBUG18 MP-09 MONITOR ----------------------------
+
+                        ;=====================================================
+                        ; Read the next directory entry.  On input, X points
+                        ; to a XXX byte area to receive the drive data.
+                        ; Returns C set if end of directory (ie, attempt to
+                        ; read and there are none left).  Else, C is clear
+                        ; and X points to the null at end of filename.
+                        ;
+f118 : bdf05d           DiskDirNext	jsr	xParSetRead	;read results
+f11b : 8d80             		jsr	xParReadByte	;get response code
+f11d : 8183             		cmpa	#PR_NAK		;error?
+f11f : 2713             		beq	DDNErr
+f121 : 8191             		cmpa	#PR_DIR_END	;end?
+f123 : 270f             		beq	DDNErr
+                        ;
+                        ; This contains a directory entry.
+                        ;
+f125 : bdf09d           DDNloop		jsr	xParReadByte
+f128 : a780             		sta	,x+
+f12a : 8100             		cmpa	#0	;end of file name?
+f12c : 26f7             		bne	DDNloop
+f12e : bdf048           DDNEnd		jsr	xParSetWrite
+f131 : 1cfe             		andcc	#$fe		;not end of files
+f133 : 39               		rts
+                        ;
+                        ; Error.  Set C and return.  This is not really
+                        ; proper, since this implies a simple end of the
+                        ; directory rather than an error.
+                        ;
+f134 : bdf048           DDNErr		jsr	xParSetWrite
+f137 : 1a01             		orcc	#$01
+f139 : 39               		rts
+                        		page
+AS09 Assembler for M6809 [1.42].                                     Page   19
+---------------------------- SBUG18 MP-09 MONITOR ----------------------------
+
+                        ;=====================================================
+                        ; This is a low level disk function for a real OS to
+                        ; perform a disk sector read.  On entry, X points to
+                        ; a disk parameter block with the following fields:
+                        ;
+                        ;    drive             DS   1
+                        ;    track             DS   1
+                        ;    sector            DS   1
+                        ;    sectors per track DS   1
+                        ;    ptr to data       DS   2   must be 256 bytes long
+                        ;
+                        ; The first three fields are zero based.  Sectors per
+                        ; track is a one based value.
+                        ;
+                        ; Returns with C clear on success.  If error, C is set
+                        ; and A contains the error code.
+                        ;
+f13a : 8618             DiskReadSector	lda	#PC_RD_SECTOR	;sector read command
+f13c : bdf205           		jsr	Dsendinfo
+                        ;
+                        ; Now get the response.  Will be either a NAK followed
+                        ; by an error code, or a 97 followed by 256 bytes of
+                        ; data.
+f13f : bdf05d           		jsr	xParSetRead
+f142 : bdf09d           		jsr	xParReadByte	;response
+f145 : 8194             		cmpa	#PR_SECTOR_DATA	;data?
+f147 : 2610             		bne	DiskCerror	;no
+                        ;
+f149 : ae04             		ldx	4,x	;load buffer address
+f14b : 5f               		clrb		;256 bytes of data
+f14c : bdf09d           DiskReadLp	jsr	xParReadByte
+f14f : a780             		sta	,x+
+f151 : 5a               		decb
+f152 : 26f8             		bne	DiskReadLp
+                        ;
+                        ; All done
+                        ;
+f154 : bdf048           		jsr	xParSetWrite
+f157 : 5f               		clrb
+f158 : 39               		rts
+                        ;
+                        ; Common error handler.  Next byte is the error code
+                        ; which goes into B, set carry, and exit.
+                        ;
+f159 : bdf09d           DiskCerror	jsr	xParReadByte
+f15c : bdf1f3           		jsr	DiskErrTranslate
+f15f : 1f89             		tfr	a,b
+f161 : bdf048           DiskCerr2	jsr	xParSetWrite
+f164 : 1a01             		orcc	#$01
+f166 : 39               		rts
+                        		page
+AS09 Assembler for M6809 [1.42].                                     Page   20
+---------------------------- SBUG18 MP-09 MONITOR ----------------------------
+
+                        ;=====================================================
+                        ; This is a low level disk function for a real OS to
+                        ; perform a disk sector write.  On entry, IX points to
+                        ; a disk parameter block with the following fields:
+                        ;
+                        ;    drive             DS   1
+                        ;    track             DS   1
+                        ;    sector            DS   1
+                        ;    sectors per track DS   1
+                        ;    ptr to data       DS   2   must be 256 bytes long
+                        ;
+                        ; The first three fields are zero based.  Sectors per
+                        ; track is one based.
+                        ;
+                        ; Returns with C clear on success.  If error, C is set
+                        ; and A contains the error code.
+                        ;
+f167 : 8619             DiskWriteSector	lda	#PC_WR_SECTOR	;write sector comman
+f169 : bdf205           		jsr	Dsendinfo
+f16c : ae04             		ldx	4,x	;get pointer
+f16e : 5f               		clrb		;counter
+f16f : a680             DiskWriteLp	lda	,x+
+f171 : bdf070           		jsr	xParWriteByte
+f174 : 5a               		decb
+f175 : 26f8             		bne	DiskWriteLp
+                        ;
+                        ; Now get response.
+                        ;
+f177 : bdf05d           		jsr	xParSetRead
+f17a : bdf09d           		jsr	xParReadByte
+f17d : 8183             		cmpa	#PR_NAK	;NAK?
+f17f : 27d8             		beq	DiskCerror
+                        ;
+                        ; This is a common "good" exit point.  Clears B, clear
+                        ; carry and sets Z.
+                        ;
+f181 : bdf048           DiskComEx	jsr	xParSetWrite
+f184 : 5f               		clrb		;clear error indicator
+f185 : 39               		rts
+                        		page
+AS09 Assembler for M6809 [1.42].                                     Page   21
+---------------------------- SBUG18 MP-09 MONITOR ----------------------------
+
+                        ;=====================================================
+                        ; This is a low level disk function for a real OS to
+                        ; perform a disk sector read using a single long
+                        ; sector number.  On entry, X points to a disk
+                        ; parameter block with the following fields:
+                        ;
+                        ;    drive             DS   1
+                        ;    sector            DS   4   MSB first
+                        ;    ptr to data       DS   2   must be 256 bytes long
+                        ;
+                        ; The drive and sector number are zero based.
+                        ;
+                        ; Returns with C clear on success.  If error, C is set
+                        ; and A contains the error code.
+                        ;
+f186 : 861f             DiskReadLong	lda	#PC_READ_LONG	;sector read command
+f188 : bdf22a           		jsr	DsendLong
+f18b : bdf05d           		jsr	xParSetRead
+f18e : bdf09d           		jsr	xParReadByte	;response
+f191 : 8194             		cmpa	#PR_SECTOR_DATA	;data?
+f193 : 26c4             		bne	DiskCerror	;no
+                        ;
+f195 : ae05             		ldx	5,x	;load buffer address
+f197 : 5f               		clrb		;256 bytes of data
+                        ;
+f198 : 20b2             		jmp	DiskReadLp
+                        		page
+AS09 Assembler for M6809 [1.42].                                     Page   22
+---------------------------- SBUG18 MP-09 MONITOR ----------------------------
+
+                        ;=====================================================
+                        ; This is a low level disk function for a real OS to
+                        ; perform a disk sector write using a long (32 bit)
+                        ; sector number.  On entry, IX points to a disk
+                        ; parameter block with the following fields:
+                        ;
+                        ;    drive             DS   1
+                        ;    sector            DS   4   MSB is first byte
+                        ;    ptr to data       DS   2   must be 256 bytes long
+                        ;
+                        ; The drive and sector number are zero based.
+                        ;
+                        ; Returns with C clear on success.  If error, C is set
+                        ; and A contains the error code.
+                        ;
+f19a : 8620             DiskWriteLong	lda	#PC_WRITE_LONG	;write sector command
+f19c : bdf22a           		jsr	DsendLong
+f19f : ae05             		ldx	5,x	;get pointer
+f1a1 : 5f               		clrb		;counter
+f1a2 : 20cb             		jmp	DiskWriteLp
+                        		page
+AS09 Assembler for M6809 [1.42].                                     Page   23
+---------------------------- SBUG18 MP-09 MONITOR ----------------------------
+
+                        ;=====================================================
+                        ; Get list of mounted drives.  This starts the
+                        ; process, then each call to DiskNextMountedDrv will
+                        ; return the next drive in sequence.
+                        ;
+f1a4 : 8611             DiskGetMounted	lda	#PC_GET_MOUNTED	;start command
+f1a6 : 207f12           		jmp	DiskSendByte
+                        		page
+AS09 Assembler for M6809 [1.42].                                     Page   24
+---------------------------- SBUG18 MP-09 MONITOR ----------------------------
+
+                        ;=====================================================
+                        ; Get next mounted drive.  On entry, IX points to a
+                        ; XXX byte area to receive the data.  Each call loads
+                        ; the area with:
+                        ;
+                        ; Drive number - 1 byte
+                        ; Read-only flag.  0 = read/write, non-zero = read-onl
+                        ; File name    - X bytes of filename (xxxxxxxx.xxx)
+                        ; null         - 1 byte ($00)
+                        ;
+                        ; If C is clear, then the data area is populated with
+                        ; data.  If C is set, then there are no more entries.
+                        ;
+f1a9 :                  DiskNextMountedDrv
+f1a9 : bdf05d           		jsr	xParSetRead
+f1ac : bdf09d           		jsr	xParReadByte
+f1af : 8191             		cmpa	#PR_DIR_END	;end?
+f1b1 : 27ae             		beq	DiskCerr2
+f1b3 : 8183             		cmpa	#PR_NAK		;NAK?
+f1b5 : 27a2             		beq	DiskCerror
+                        ;
+                        ; Get drive number, then read-only flag
+                        ;
+f1b7 : bdf09d           		jsr	xParReadByte	;drive
+f1ba : a780             		sta	,x+
+f1bc : bdf09d           		jsr	xParReadByte	;read-only flag
+f1bf : a780             		sta	,x+
+f1c1 : bdf09d           DiskNMD		jsr	xParReadByte
+f1c4 : a780             		sta	,x+
+f1c6 : 8100             		cmpa	#0	;end?
+f1c8 : 26f7             		bne	DiskNMD
+f1ca : 20b5             		bra	DiskComEx	;all done
+                        		page
+AS09 Assembler for M6809 [1.42].                                     Page   25
+---------------------------- SBUG18 MP-09 MONITOR ----------------------------
+
+                        ;=====================================================
+                        ; Gets status of a specific drive.  The drive number
+                        ; (0-3) is in A on entry.
+                        ;
+                        ; Returns a bitmapped value in A meant to look sort
+                        ; of like a 1771 FDC status register:
+                        ;
+                        ; RW000000
+                        ;   P: Clear if the drive is present (mounted), set
+                        ;      if not present ("Not Ready").
+                        ;   W: Set if the drive is write protected.
+                        ;
+f1cc : 3402             DiskStatus	pshs	a
+f1ce : 8614             		lda	#PC_GET_STATUS	;get status command
+f1d0 : bdf070           		jsr	xParWriteByte	;send request for data
+f1d3 : 3502             		puls	a
+f1d5 : bdf070           		jsr	xParWriteByte
+f1d8 : bdf05d           		jsr	xParSetRead
+f1db : bdf09d           		jsr	xParReadByte	;get result code
+f1de : 8193             		cmpa	#PR_STATUS	;status
+f1e0 : 260e             		bne	DiskSt_1	;else assume error
+                        ;
+                        ; Get ONE byte of status:
+                        ;
+                        ;    00000ERU
+                        ;
+                        ;  U: 0 = mounted, 1 = Unmounted
+                        ;  R: 0 = Read/write, 1 = Read only
+                        ;  E: 0 = no error, 1 = access error (bad sector?)
+                        ;
+                        ; The E bit will never be set for status.
+                        ;
+f1e2 : bdf09d           		jsr	xParReadByte	;what we care about
+f1e5 : 3402             		pshs	a
+f1e7 : bdf048           		jsr	xParSetWrite
+f1ea : 3502             		puls	a
+f1ec : bdf1f3           		jsr	DiskErrTranslate
+f1ef : 39               		rts
+f1f0 : 8680             DiskSt_1	lda	#%10000000	;drive not present
+f1f2 : 39               		rts
+                        		page
+AS09 Assembler for M6809 [1.42].                                     Page   26
+---------------------------- SBUG18 MP-09 MONITOR ----------------------------
+
+                        ;
+                        ;=====================================================
+                        ; Given a status code from the SD software, convert
+                        ; to a 1771 equivalent error and return in A.
+                        ;
+                        ; RW000000
+                        ;   P: Clear if the drive is present (mounted), set
+                        ;      if not present ("Not Ready").
+                        ;   W: Set if the drive is write protected.
+                        ;
+f1f3 :                  DiskErrTranslate
+                        ; convert to table lookup eventually.  The 6502 sure
+                        ; was better at table lookups than the 6800!
+                        ;
+f1f3 : 5f               		clrb		;clear return value
+f1f4 : 8501             		bita	#$01	;is drive mounted?
+f1f6 : 2604             		bne	det_1	;yes, leave top bit clear
+f1f8 : c480             		andb	#$80	;drive not mounted
+f1fa : 2006             		bra	det_ret	;done
+f1fc : 8502             det_1		bita	#$02	;read only?
+f1fe : 2602             		bne	det_ret
+f200 : c440             		andb	#$40
+                        ;
+                        ; Return value is in B.  Move to A, return.
+                        ;
+f202 : 1f98             det_ret		tfr	b,a	;transfer B to A
+f204 : 39               		rts
+                        ;
+                        ;=====================================================
+                        ; This is a helper function for the read and write
+                        ; functions.  Enter with A containing the command to
+                        ; be sent, X pointing to the data area.  This sends
+                        ; the command, then the drive, track, sector and
+                        ; sectors per track from the data area.
+                        ;
+                        ; This must not modify the FCB!  The caller might
+                        ; depend on the values in it.
+                        ;
+                        ; This also de-Flexes the sector number.  Ie, any
+                        ; track other than 0 and any sector on track zero
+                        ; greater than one has one subtraced from it.
+                        ;
+f205 : bdf070           Dsendinfo	jsr	xParWriteByte	;command
+f208 : a684             		lda	0,x	;get drive
+f20a : bdf070           		jsr	xParWriteByte	;drive
+                        ;
+f20d : 8602             		lda	#2	;256 byte sectors
+f20f : bdf070           		jsr	xParWriteByte
+                        ;
+                        ; If needed, change the sector number from the FLEX
+                        ; format to a zero based one.  First sector on the
+                        ; first track is sector 0, track 0, then the next
+                        ; sector is sector 2.  Yes, 2.  All other tracks
+                        ; start with sector 1.  This converts everything to
+                        ; a zero based sector number.
+                        ;
+f212 : a601             		lda	1,x	;get track
+f214 : bdf070           		jsr	xParWriteByte	;track
+f217 : a601             		lda	1,x	;get track again
+f219 : 2604             		bne	Dtweak
+f21b : a602             		lda	2,x	;get sector
+f21d : 2703             		beq	Dnotweak
+AS09 Assembler for M6809 [1.42].                                     Page   27
+---------------------------- SBUG18 MP-09 MONITOR ----------------------------
+
+f21f : a602             Dtweak		lda	2,x	;get sector
+f221 : 4a               		deca		;make zero based
+f222 : bdf070           Dnotweak	jsr	xParWriteByte	;sector
+f225 : a603             		lda	3,x	;get tracks/sector
+f227 : 7ef070           DiskSendByte	jmp	xParWriteByte
+                        ;
+                        ;=====================================================
+                        ; This is a helper function for the read and write
+                        ; functions using long sector numbers.  Enter with A
+                        ; containing the command to be sent, X pointing to the
+                        ; data area.  This sends the command, then the long
+                        ; sector number from the data area.
+                        ;
+                        ; This must not modify the FCB!  The caller might
+                        ; depend on the values in it.
+                        ;
+f22a : bdf070           DsendLong	jsr	xParWriteByte	;command
+f22d : a684             		lda	0,x	;get drive
+f22f : bdf070           		jsr	xParWriteByte	;drive
+                        ;
+f232 : 8602             		lda	#2	;256 byte sectors
+f234 : bdf070           		jsr	xParWriteByte
+                        ;
+                        ; Now send the four byte sector number.
+                        ;
+f237 : a601             		lda	1,x
+f239 : bdf070           		jsr	xParWriteByte
+f23c : a602             		lda	2,x
+f23e : bdf070           		jsr	xParWriteByte
+f241 : a603             		lda	3,x
+f243 : bdf070           		jsr	xParWriteByte
+f246 : a604             		lda	4,x
+f248 : 7ef070           		jmp	xParWriteByte
+                        
+                        
+                        	else
+                        		db	"You have 4K of EPROM enabled!"
+                        	endif
+                        	endif
+                        ;
+                        ; This is the real start of the 2K monitor...
+                        ;
+                        ; The vector table to handy functions.  It's nice that
+                        ; SWTPC did this so the code can move around inside
+                        ; SBUG without breaking user programs.
+                        ;
+                        		code
+f800 =                  		org	$f800
+f800 : f81e             		dw	MONITOR
+f802 : f86b             		dw	NEXTCMD
+f804 : fd7a             		dw	INCH
+f806 : fd74             		dw	INCHE
+f808 : fd8a             		dw	INCHEK
+f80a : fd99             		dw	OUTCH
+f80c : fd68             		dw	PDATA
+f80e : fd5c             		dw	PCRLF
+f810 : fd58             		dw	PSTRNG
+f812 : fb81             		dw	LRA
+                        ;
+                        ; These are additional vectors to useful functions wit
+                        ; SBUG that other programs can use.
+                        ;
+AS09 Assembler for M6809 [1.42].                                     Page   28
+---------------------------- SBUG18 MP-09 MONITOR ----------------------------
+
+f814 : fd97             		dw	OUT1S	;output a space
+f816 : fd2c             		dw	OUT2H	;output A as 2 hex characters
+f818 : fd24             		dw	OUT4H	;output X as 4 hex characters
+f81a : fceb             		dw	BYTE	;input 2 hex digits, return in A
+f81c : fcda             		dw	IN1ADR	;input 4 hex digits, return in X
+                        
+                        ; MONITOR
+                        
+                        ; VECTOR ADDRESS STRING IS.....
+                        ; $F8A1-$F8A1-$F8A1-$F8A1-$F8A1-$FAB0-$FFFF-$FFFF
+                        
+                        ;		VERIFY	$f814
+f81e : 8efdf7           MONITOR		ldx	#RAMVEC	;POINT TO VECTOR ADDR. STRING
+f821 : 108edfc0         		ldy	#STACK	;POINT TO RAM VECTOR LOCATION
+f825 : c610             		ldb	#$10	;BYTES TO MOVE = 16
+f827 : a680             LOOPA		lda	,x+	;GET VECTOR BYTE
+f829 : a7a0             		sta	,y+	;PUT VECTORS IN RAM / $DFC0-$DFCF
+f82b : 5a               		decb		;SUBTRACT 1 FROM NUMBER OF BYTES TO MOVE
+f82c : 26f9             		bne	LOOPA	;CONTINUE UNTIL ALL VECTORS MOVED
+                        
+                        * CONTENTS     FROM         TO      FUNCTION
+                        *  $F8A1       $FE40      $DFC0     USER-V
+                        *  $F8A1       $FE42      $DFC2     SWI3-V
+                        *  $F8A1       $FE44      $DFC4     SWI2-V
+                        *  $F8A1       $FE46      $DFC6     FIRQ-V
+                        *  $F8A1       $FE48      $DFC8     IRQ-V
+                        *  $FAB0       $FE4A      $DFCA     SWI-V
+                        *  $FFFF       $FE4C      $DFCC     SVC-VO
+                        *  $FFFF       $FE4E      $DFCE     SVC-VL
+                        
+                        ;		VERIFY	$f824
+f82e : 8ee010           		ldx	#ACIAS	;GET CONTROL PORT ADDR.
+f831 : bfdfe0           		stx	CPORT	;STORE ADDR. IN RAM
+f834 : bdfab4           		lbsr	XBKPNT	;CLEAR OUTSTANDING BREAKPOINTS
+f837 : c60c             		ldb	#12	;CLEAR 12 BYTES ON STACK
+f839 : 6fe2             CLRSTK		clr	,-s
+f83b : 5a               		decb
+f83c : 26fb             		bne	CLRSTK
+f83e : 308cdd           		leax	MONITOR,pc	;SET PC TO SBUG-E ENTRY
+f841 : af6a             		stx	10,s	;ON STACK
+f843 : 86d0             		lda	#$D0	;PRESET CONDITION CODES ON STACK
+f845 : a7e4             		sta	,s
+f847 : 1f43             		tfr	s,u
+f849 : bdfdab           		lbsr	ACINIZ	;INITIALIZE CONTROL PORT
+f84c : 8efe07           		ldx	#MSG1	;POINT TO 'SBUG 1.8' MESSAGE
+f84f : bdfd68           		lbsr	PDATA	;PRINT MSG
+f852 : 8edfd0           		ldx	#LRARAM	;POINT TO LRA RAM STORAGE AREA
+f855 : 4f               		clra		;START TOTAL AT ZERO
+f856 : c60d             		ldb	#13	;TOTAL UP ALL ACTIVE RAM MEMORY
+f858 : 6d85             FNDREL		tst	b,x	;TEST FOR RAM AT NEXT LOC.
+f85a : 2703             		beq	RELPAS	;IF NO RAM GO TO NEXT LOC.
+f85c : 8b04             		adda	#4	;ELSE ADD 4K TO TOTAL
+f85e : 19               		daa		;ADJ. TOTAL FOR DECIMAL
+f85f : 5a               RELPAS		decb		;SUB. 1 FROM LOCS. TO TEST
+f860 : 2af6             		bpl	FNDREL	;PRINT TOTAL OF RAM
+f862 : bdfd2c           		lbsr	OUT2H	;OUTPUT HEX BYTE AS ASCII
+f865 : 8efe2b           		ldx	#MSG2	;POINT TO MSG 'K' CR/LF + 3 NULS
+f868 : bdfd68           		lbsr	PDATA	;PRINT MSG
+                        
+                        ***** NEXTCMD *****
+                        
+                        ;		VERIFY	$f861
+AS09 Assembler for M6809 [1.42].                                     Page   29
+---------------------------- SBUG18 MP-09 MONITOR ----------------------------
+
+f86b : 8efe2f           NEXTCMD		ldx	#MSG3	;POINT TO MSG ">"
+f86e : bdfd58           		lbsr	PSTRNG	;PRINT MSG
+f871 : bdfd7a           		lbsr	INCH	;GET ONE CHAR. FROM TERMINAL
+f874 : 847f             		anda	#$7F	;STRIP PARITY FROM CHAR.
+f876 : 810d             		cmpa	#$0D	;IS IT CARRIAGE RETURN ?
+f878 : 27f1             		beq	NEXTCMD	;IF CR THEN GET ANOTHER CHAR.
+f87a : 1f89             		tfr	a,b	;PUT CHAR. IN "B" ACCUM.
+f87c : 8120             		cmpa	#$20	;IS IT CONTROL OR DATA CHAR ?
+f87e : 2c09             		bge	PRTCMD	;IF CMD CHAR IS DATA, PRNT IT
+f880 : 865e             		lda	#'^'	;ELSE CNTRL CHAR CMD SO...
+f882 : bdfd99           		lbsr	OUTCH	;PRINT "^"
+f885 : 1f98             		tfr	b,a	;RECALL CNTRL CMD CHAR
+f887 : 8b40             		adda	#'A'-1	;CONVERT IT TO ASCII LETTER
+f889 : bdfd99           PRTCMD		lbsr	OUTCH	;PRNT CMD CHAR
+f88c : bdfd97           		lbsr	OUT1S	;PRNT SPACE
+f88f : c160             		cmpb	#$60
+f891 : 2f02             		ble	NXTCH0
+f893 : c020             		subb	#$20
+                        
+                        
+                        ***** DO TABLE LOOKUP *****
+                        *   FOR COMMAND FUNCTIONS
+                        
+                        ;		VERIFY	$f88b
+f895 : 8efdbe           NXTCH0		ldx	#JMPTAB	;POINT TO JUMP TABLE
+f898 : e180             NXTCHR		cmpb	,x+	;DOES COMMAND MATCH TABLE ENTRY ?
+f89a : 270f             		beq	JMPCMD	;BRANCH IF MATCH FOUND
+f89c : 3002             		leax	2,x	;POINT TO NEXT ENTRY IN TABLE
+f89e : 8cfdf7           		cmpx	#TABEND	;REACHED END OF TABLE YET ?
+f8a1 : 26f5             		bne	NXTCHR	;IF NOT END, CHECK NEXT ENTRY
+f8a3 : 8efe31           		ldx	#MSG4	;POINT TO MSG "WHAT?"
+f8a6 : bdfd68           		lbsr	PDATA	;PRINT MSG
+f8a9 : 20c0             		bra	NEXTCMD	;IF NO MATCH, PRMPT FOR NEW CMD
+f8ab : ad94             JMPCMD		jsr	[,x]	;JUMP TO COMMAND ROUTINE
+f8ad : 20bc             		bra	NEXTCMD	;PROMPT FOR NEW COMMAND
+                        *
+                        * "G" GO OR CONTINUE
+                        
+                        ;		VERIFY	$f8a5
+f8af : 1f34             GO		tfr	u,s
+f8b1 : 3b               RTI		rti
+                        
+                        * "R" DISPLAY REGISTERS
+                        
+                        ;		VERIFY	$f8a8
+f8b2 : 8efe37           REGSTR		ldx	#MSG5	;POINT TO MSG " - "
+f8b5 : bdfd58           		lbsr	PSTRNG	;PRINT MSG
+f8b8 : bdfc6d           		lbsr	PRTSP	;$FCBF
+f8bb : bdfc78           		lbsr	PRTUS	;$FCCA
+f8be : bdfc83           		lbsr	PRTDP	;$FCD5
+f8c1 : bdfc8e           		lbsr	PRTIX	;$FCE0
+f8c4 : bdfc99           		lbsr	PRTIY	;$FCEB
+f8c7 : 8efe37           		ldx	#MSG5	;POINT TO MSG " - "
+f8ca : bdfd58           		lbsr	PSTRNG	;PRINT MSG
+f8cd : bdfca4           		lbsr	PRTPC	;$FCF5
+f8d0 : bdfcae           		lbsr	PRTA	;$FCFF
+f8d3 : bdfcb8           		lbsr	PRTB	;$FD09
+f8d6 : 7efcc2           		lbra	PRTCC	;$FD13
+                        
+                        
+                        * ALTER "PC" PROGRAM COUNTER
+                        
+AS09 Assembler for M6809 [1.42].                                     Page   30
+---------------------------- SBUG18 MP-09 MONITOR ----------------------------
+
+                        ;		VERIFY	$f8cf
+f8d9 : bdfca4           ALTRPC		lbsr	PRTPC	;$FCF5 PRINT MSG " PC = "
+f8dc : bdfd97           		lbsr	OUT1S	;OUTPUT SPACE
+f8df : bdfcda           		lbsr	IN1ADR	;GET NEW CONTENTS FOR "PC"
+f8e2 : 2902             		bvs	ALTPCD	;EXIT IF INVALID HEX
+f8e4 : af4a             		stx	10,u	;POKE IN NEW CONTENTS
+f8e6 : 39               ALTPCD		rts
+                        
+                        
+                        * ALTER "U" USER STACK POINTER
+                        
+                        ;		VERIFY	$f8dd
+f8e7 : bdfc78           ALTRU		lbsr	PRTUS	;$FCCA PRINT MSG " US = "
+f8ea : bdfd97           		lbsr	OUT1S	;OUTPUT SPACE
+f8ed : bdfcda           		lbsr	IN1ADR
+f8f0 : 2902             		bvs	ALTUD
+f8f2 : af48             		stx	8,u
+f8f4 : 39               ALTUD		rts
+                        
+                        *
+                        * ALTER "Y" INDEX REGISTER
+                        
+                        
+f8f5 : bdfc99           ALTRY		lbsr	PRTIY	;PRINT MSG " IY = "
+f8f8 : bdfd97           		lbsr	OUT1S	;OUTPUT SPACE
+f8fb : bdfcda           		lbsr	IN1ADR
+f8fe : 2902             		bvs	ALTYD
+f900 : af46             		stx	6,u	;$F8F0
+f902 : 39               ALTYD		rts
+                        
+                        
+                        * ALTER "X" INDEX REGISTER
+                        
+                        
+f903 : bdfc8e           ALTRX		lbsr	PRTIX	;$FCE0 PRINT MSG " IX = "
+f906 : bdfd97           		lbsr	OUT1S	;OUTPUT SPACE
+f909 : bdfcda           		lbsr	IN1ADR
+f90c : 2902             		bvs	ALTXD
+f90e : af44             		stx	4,u
+f910 : 39               ALTXD		rts
+                        
+                        
+                        * ALTER "DP" DIRECT PAGE REGISTER
+                        
+                        
+f911 : bdfc83           ALTRDP		lbsr	PRTDP	;$FCD5 PRINT MSG " DP = "
+f914 : bdfd97           		lbsr	OUT1S	;OUTPUT SPACE
+f917 : bdfceb           		lbsr	BYTE	;INPUT BYTE (2 HEX CHAR)
+f91a : 2902             		bvs	ALTDPD
+f91c : a743             		sta	3,u
+f91e : 39               ALTDPD		rts
+                        
+                        
+                        * ALTER "B" ACCUMULATOR
+                        
+                        
+f91f : bdfcb8           ALTRB		lbsr	PRTB	;$FD09 PRINT MSG " B = "
+f922 : bdfd97           		lbsr	OUT1S	;OUTPUT SPACE
+f925 : bdfceb           		lbsr	BYTE	;INPUT BYTE (2 HEX CHAR)
+f928 : 2902             		bvs	ALTBD
+f92a : a742             		sta	2,u
+f92c : 39               ALTBD		rts		;$F91C
+AS09 Assembler for M6809 [1.42].                                     Page   31
+---------------------------- SBUG18 MP-09 MONITOR ----------------------------
+
+                        
+                        
+                        * ALTER "A" ACCUMULATOR
+                        
+                        *
+f92d : bdfcae           ALTRA		lbsr	PRTA	;$FCFF RINT MSG " A = "
+f930 : bdfd97           		lbsr	OUT1S	;OUTPUT SPACE
+f933 : bdfceb           		lbsr	BYTE	;INPUT BYTE (2 HEX CHAR)
+f936 : 2902             		bvs	ALTAD
+f938 : a741             		sta	1,u
+f93a : 39               ALTAD		rts
+                        
+                        
+                        * ALTER "CC" REGISTER
+                        
+                        
+f93b : bdfcc2           ALTRCC		lbsr	PRTCC	;$FD13 PRINT MSG " CC: "
+f93e : bdfd97           		lbsr	OUT1S	;OUTPUT SPACE
+f941 : bdfceb           		lbsr	BYTE	;INPUT BYTE (2 HEX CHAR)
+f944 : 2904             		bvs	ALTCCD
+f946 : 8a80             		ora	#$80	;SETS "E" FLAG IN PRINT LIST
+f948 : a7c4             		sta	,u
+f94a : 39               ALTCCD		rts
+                        
+                        ***** "M" MEMORY EXAMINE AND CHANGE *****
+                        
+                        ;		VERIFY	$f941
+f94b : bdfcda           MEMCHG		lbsr	IN1ADR	;INPUT ADDRESS
+f94e : 292d             		bvs	CHRTN	;IF NOT HEX, RETURN
+f950 : 1f12             		tfr	x,y	;SAVE ADDR IN "Y"
+f952 : 8efe37           MEMC2		ldx	#MSG5	;POINT TO MSG " - "
+f955 : bdfd58           		lbsr	PSTRNG	;PRINT MSG
+f958 : 1f21             		tfr	y,x	;FETCH ADDRESS
+f95a : bdfd24           		lbsr	OUT4H	;PRINT ADDR IN HEX
+f95d : bdfd97           		lbsr	OUT1S	;OUTPUT SPACE
+f960 : a6a4             		lda	,y	;GET CONTENTS OF CURRENT ADDR.
+f962 : bdfd2c           		lbsr	OUT2H	;OUTPUT CONTENTS IN ASCII
+f965 : bdfd97           		lbsr	OUT1S	;OUTPUT SPACE
+f968 : bdfceb           		lbsr	BYTE	;LOOP WAITING FOR OPERATOR INPUT
+f96b : 2811             		bvc	CHANGE	;IF VALID HEX GO CHANGE MEM. LOC.
+f96d : 8108             		cmpa	#8	;IS IT A BACKSPACE (CNTRL H)?
+f96f : 27e1             		beq	MEMC2	;PROMPT OPERATOR AGAIN
+f971 : 8118             		cmpa	#$18	;IS IT A CANCEL (CNTRL X)?
+f973 : 27dd             		beq	MEMC2	;PROMPT OPERATOR AGAIN
+f975 : 815e             		cmpa	#'^'	;IS IT AN UP ARROW?
+f977 : 2717             		beq	BACK	;DISPLAY PREVIOUS BYTE
+f979 : 810d             		cmpa	#$D	;IS IT A CR?
+f97b : 260f             		bne	FORWRD	;DISPLAY NEXT BYTE
+f97d : 39               CHRTN		rts		;EXIT ROUTINE
+                        
+                        
+f97e : a7a4             CHANGE		sta	,y	;CHANGE BYTE IN MEMORY
+f980 : a1a4             		cmpa	,y	;DID MEMORY BYTE CHANGE?
+f982 : 2708             		beq	FORWRD	;$F972
+f984 : bdfd97           		lbsr	OUT1S	;OUTPUT SPACE
+f987 : 863f             		lda	#'?'	;LOAD QUESTION MARK
+f989 : bdfd99           		lbsr	OUTCH	;PRINT IT
+f98c : 3121             FORWRD		leay	1,y	;POINT TO NEXT HIGHER MEM LOCATION
+f98e : 20c2             		bra	MEMC2	;PRINT LOCATION & CONTENTS
+f990 : 313f             BACK		leay	-1,y	;POINT TO LAST MEM LOCATION
+f992 : 20be             		bra	MEMC2	;PRINT LOCATION & CONTENTS
+                        
+AS09 Assembler for M6809 [1.42].                                     Page   32
+---------------------------- SBUG18 MP-09 MONITOR ----------------------------
+
+                        * "S" DISPLAY STACK
+                        * HEX-ASCII DISPLAY OF CURRENT STACK CONTENTS FROM
+                        * CURRENT STACK POINTER TO INTERNAL STACK LIMIT.
+                        
+f994 : bdfc6d           DISSTK		lbsr	PRTSP	;PRINT CURRENT STACK POINTER
+f997 : 1f32             		tfr	u,y
+f999 : 8edfc0           		ldx	#STACK	;LOAD INTERNAL STACK AS UPPER LIMIT
+f99c : 301f             		leax	-1,x	;POINT TO CURRENT STACK
+f99e : 2005             		bra	MDUMP1	;ENTER MEMORY DUMP OF STACK CONTENTS
+                        
+                        * "E" DUMP MEMORY FOR EXAMINE IN HEX AND ASCII
+                        * AFTER CALLING 'IN2ADR' LOWER ADDRESS IN Y-REG.
+                        *                        UPPER ADDRESS IN X-REG.
+                        * IF HEX ADDRESSES ARE INVALID (V)=1.
+                        
+                        ;		VERIFY	$f996
+f9a0 : bdfccf           MEMDUMP		lbsr	IN2ADR	;INPUT ADDRESS BOUNDRIES
+f9a3 : 2906             		bvs	EDPRTN	;NEW COMMAND IF ILLEGAL HEX
+                        ;
+                        ; The start address is now in IY and the end in IX
+                        ;
+f9a5 : 3420             MDUMP1		pshs	y	;COMPARE LOWER TO UPPER BOUNDS
+f9a7 : ace1             		cmpx	,s++	;LOWER BOUNDS > UPPER BOUNDS?
+f9a9 : 2401             		bcc	AJDUMP	;IF NOT, DUMP HEX AND ASCII
+f9ab : 39               EDPRTN		rts
+                        
+                        * ADJUST LOWER AND UPPER ADDRESS LIMITS
+                        * TO EVEN 16 BYTE BOUNDRIES.
+                        
+                        * IF LOWER ADDR = $4532
+                        * LOWER BOUNDS WILL BE ADJUSTED TO = $4530.
+                        
+                        * IF UPPER ADDR = $4567
+                        * UPPER BOUNDS WILL BE ADJUSTED TO = $4570.
+                        
+                        * ENTER WITH LOWER ADDRESS IN X-REG.
+                        *           -UPPER ADDRESS ON TOP OF STACK.
+                        
+f9ac : 1f10             AJDUMP		tfr	x,d	;GET UPPER ADDR IN D-REG
+f9ae : c30010           		addd	#$10	;ADD 16 TO UPPER ADDRESS
+f9b1 : c4f0             		andb	#$F0	;MASK TO EVEN 16 BYTE BOUNDRY
+f9b3 : 3406             		pshs	a,b	;SAVE ON STACK AS UPPER DUMP LIMIT
+f9b5 : 1f20             		tfr	y,d	;$F9A5 GET LOWER ADDRESS IN D-REG
+f9b7 : c4f0             		andb	#$F0	;MASK TO EVEN 16 BYTE BOUNDRY
+f9b9 : 1f01             		tfr	d,x	;PUT IN X-REG AS LOWER DUMP LIMIT
+f9bb : ace4             NXTLIN		cmpx	,s	;COMPARE LOWER TO UPPER LIMIT
+f9bd : 2705             		beq	SKPDMP	;IF EQUAL SKIP HEX-ASCII DUMP
+f9bf : bdfd8a           		lbsr	INCHEK	;CHECK FOR INPUT FROM KEYBOARD
+f9c2 : 2703             		beq	EDUMP	;IF NONE, CONTINUE WITH DUMP
+f9c4 : 3262             SKPDMP		leas	2,s	;READJUST STACK IF NOT DUMPING
+f9c6 : 39               		rts
+                        
+                        * PRINT 16 HEX BYTES FOLLOWED BY 16 ASCII CHARACTERS
+                        * FOR EACH LINE THROUGHOUT ADDRESS LIMITS.
+                        
+f9c7 : 3410             EDUMP		pshs	x	;PUSH LOWER ADDR LIMIT ON STACK
+f9c9 : 8efe37           		ldx	#MSG5	;POINT TO MSG " - "
+f9cc : bdfd58           		lbsr	PSTRNG	;PRINT MSG
+f9cf : aee4             		ldx	,s	;LOAD LOWER ADDR FROM TOP OF STACK
+f9d1 : bdfd24           		lbsr	OUT4H	;PRINT THE ADDRESS		
+f9d4 : bdfd95           		lbsr	OUT2S	;PRINT 2 SPACES
+f9d7 : c610             		ldb	#$10	;LOAD COUNT OF 16 BYTES TO DUMP
+AS09 Assembler for M6809 [1.42].                                     Page   33
+---------------------------- SBUG18 MP-09 MONITOR ----------------------------
+
+f9d9 : a680             ELOOP		lda	,x+	;GET FROM MEMORY HEX BYTE TO PRINT
+f9db : bdfd2c           		lbsr	OUT2H	;OUTPUT HEX BYTE AS ASCII
+f9de : bdfd97           		lbsr	OUT1S	;OUTPUT SPACE
+f9e1 : 5a               		decb		;$F9D1 DECREMENT BYTE COUNT
+f9e2 : 26f5             		bne	ELOOP	;CONTINUE TIL 16 HEX BYTES PRINTED
+                        
+                        * PRINT 16 ASCII CHARACTERS
+                        * IF NOT PRINTABLE OR NOT VALID
+                        * ASCII PRINT A PERIOD (.)
+f9e4 : bdfd95           		lbsr	OUT2S	;2 SPACES
+f9e7 : aee1             		ldx	,s++	;GET LOW LIMIT FRM STACK - ADJ STACK
+f9e9 : c610             		ldb	#$10	;SET ASCII CHAR TO PRINT = 16
+f9eb : a680             EDPASC		lda	,x+	;GET CHARACTER FROM MEMORY
+f9ed : 8120             		cmpa	#$20	;IF LESS THAN $20, NON-PRINTABLE?
+f9ef : 2504             		bcs	PERIOD	;IF SO, PRINT PERIOD INSTEAD
+f9f1 : 817e             		cmpa	#$7E	;IS IT VALID ASCII?
+f9f3 : 2302             		bls	PRASC	;IF SO PRINT IT
+f9f5 : 862e             PERIOD		lda	#'.'	;LOAD A PERIOD (.)
+f9f7 : bdfd99           PRASC		lbsr	OUTCH	;PRINT ASCII CHARACTER
+f9fa : 5a               		decb		;DECREMENT COUNT
+f9fb : 26ee             		bne	EDPASC
+f9fd : 20bc             		bra	NXTLIN
+                        
+                        ***** "Q" MEMORY TEST *****
+                        
+                        ;		VERIFY	$f9f2
+f9ff : 6fe2             MEMTST		clr	,-s	;CLEAR BYTE ON STACK
+fa01 : 6fe2             		clr	,-s	;CLEAR ANOTHER BYTE
+fa03 : bdfccf           		lbsr	IN2ADR	;GET BEGIN(Y) & END(X) ADDR. LIMITS
+fa06 : 3430             		pshs	x,y	;SAVE ADDRESSES ON STACK
+fa08 : 297b             		bvs	ADJSK6	;EXIT IF NOT VALID HEX
+fa0a : ac62             		cmpx	2,s	;COMPARE BEGIN TO END ADDR.
+fa0c : 2577             		bcs	ADJSK6	;EXIT IF BEGIN > END ADDR.
+fa0e : bdfd97           		lbsr	OUT1S	;OUTPUT SPACE
+fa11 : 1f20             MEMSET		tfr	y,d	;PUT BEGIN ADDR. IN 'D'-ACCUM.
+fa13 : e364             		addd	4,s	;ADD PASS COUNT TO BEGIN ADDR
+fa15 : 3404             		pshs	b	;ADD LS BYTE TO MS BYTE OF BEGIN ADDR
+fa17 : abe0             		adda	,s+
+fa19 : a7a0             		sta	,y+	;SAVE THIS DATA BYTE AT BEGIN ADDR
+fa1b : 10ace4           		cmpy	,s	;COMPARE END TO BEGIN ADDR
+fa1e : 25f1             		bcs	MEMSET	;IF BEGIN LOWER, CONTINUE TO SET MEMORY
+fa20 : 10ae62           		ldy	2,s	;RELOAD BEGIN ADDRESS
+fa23 : 1f20             TEST1		tfr	y,d	;PUT BEGIN ADDR IN 'D'-ACC.
+fa25 : e364             		addd	4,s	;ADD PASS COUNT TO ADDRESS
+fa27 : 3402             		pshs	a	;ADD MS BYTE TO LS BYTE OF ADDRESS
+fa29 : ebe0             		addb	,s+
+fa2b : e8a0             		eorb	,y+	;EX-OR THIS DATA WITH DATA IN MEMORY LOC.
+fa2d : 273c             		beq	GUDPAS	;IF (Z) SET, MEMORY BYTE OK
+fa2f : 8efe37           		ldx	#MSG5	;POINT TO MSG " - "
+fa32 : bdfd58           		lbsr	PSTRNG	;PRINT MSG
+fa35 : 303f             		leax	-1,y	;GET ERROR ADDRESS IN X-REG
+fa37 : bdfd24           		lbsr	OUT4H	;OUTPUT IT
+fa3a : 3410             		pshs	x	;PUSH ERROR ADDR ON STACK
+fa3c : 8efe55           		ldx	#MSG8	;POINT TO MSG " =>"
+fa3f : bdfd68           		lbsr	PDATA	;PRINT MSG
+fa42 : 3510             		puls	x	;POP ERROR ADDR FROM STACK
+fa44 : bdfb81           		lbsr	LRA	;GET PHYSICAL ADDR FROM LRA
+fa47 : bdfd38           		lbsr	XASCII	;OUTPUT EXTENDED 4 BITS OF PHYSICAL ADDR
+fa4a : bdfd24           		lbsr	OUT4H	;OUTPUT LS 16 BITS OF PHYSICAL ADDR
+fa4d : 8efe3b           		ldx	#MSG6	;POINT TO MSG ", PASS "
+fa50 : bdfd68           		lbsr	PDATA	;PRINT MSG
+fa53 : ae64             		ldx	4,s	;LOAD PASS COUNT
+AS09 Assembler for M6809 [1.42].                                     Page   34
+---------------------------- SBUG18 MP-09 MONITOR ----------------------------
+
+fa55 : bdfd24           		lbsr	OUT4H	;OUTPUT IT
+fa58 : 8efe43           		ldx	#MSG7	;POINT TO MSG ", BITS IN ERROR
+fa5b : bdfd68           		lbsr	PDATA	;PRINT MSG
+fa5e : 1f98             		tfr	b,a	;GET ERROR BYTE INTO A-ACC
+fa60 : 8efe5a           		ldx	#MSG9	;POINT TO MSG "76543210"
+fa63 : bdfd42           		lbsr	BIASCI	;OUTPUT IN BINARY/ASCII FORMAT
+fa66 : bdfd8a           		lbsr	INCHEK	;CHECK FOR INPUT FROM KEYBOARD $FA56
+fa69 : 261a             		bne	ADJSK6	;IF SO, EXIT MEMORY TEST
+fa6b : 10ace4           GUDPAS		cmpy	,s	;COMPARE END ADDR TO BEGIN ADDR
+fa6e : 25b3             		bcs	TEST1
+fa70 : 862b             		lda	#'+'	;GET "PASS" SYMBOL IF MEMORY PASS OK
+fa72 : bdfd99           		lbsr	OUTCH	;OUTPUT SYMBOL TO TERMINAL
+fa75 : bdfd8a           		lbsr	INCHEK	;INPUT FROM KEYBOARD?
+fa78 : 260b             		bne	ADJSK6	;IF SO, EXIT MEMORY TEST
+fa7a : 10ae62           		ldy	2,s	;LOAD BEGIN ADDRESS
+fa7d : 6c65             		inc	5,s	;INCREMENT LS BYTE OF PASS COUNT
+fa7f : 2690             		bne	MEMSET	;IF NOT ZERO, SET NEXT MEMORY BYTE
+fa81 : 6c64             		inc	4,s	;INCREMENT MS BYTE OF PASS COUNT
+fa83 : 268c             		bne	MEMSET	;DONE WITH 65,535 PASSES OF MEMORY?
+fa85 : 3266             ADJSK6		leas	6,s	;ADJ STACK POINTER BY 6
+fa87 : 39               		rts
+                        
+                        ***** "B" SET BREAKPOINT *****
+                        
+fa88 : bdfcda           BRKPNT		lbsr	IN1ADR	;GET BREAKPOINT ADDRESS
+fa8b : 291e             		bvs	EXITBP	;EXIT IF INVALID HEX ADDR.
+fa8d : 8cdfc0           		cmpx	#STACK	;ADDRESS ILLEGAL IF >=$DFC0
+fa90 : 241a             		bcc	BPERR	;IF ERROR PRINT (?), EXIT
+fa92 : 3410             		pshs	x	;$FA82 PUSH BP ADDRESS ON STACK
+fa94 : 8effff           		ldx	#$FFFF	;LOAD DUMMY ADDR TO TEST BP TABLE
+fa97 : 8d55             		bsr	BPTEST	;TEST BP TABLE FOR FREE SPACE
+fa99 : 3510             		puls	x	;POP BP ADDRESS FROM STACK
+fa9b : 270f             		beq	BPERR	;(Z) SET, OUT OF BP TABLE SPACE
+fa9d : a684             		lda	,x	;GET DATA AT BREAKPOINT ADDRESS
+fa9f : 813f             		cmpa	#$3F	;IS IT A SWI?
+faa1 : 2709             		beq	BPERR	;IF SWI ALREADY, INDICATE ERROR
+faa3 : a7a0             		sta	,y+	;SAVE DATA BYTE IN BP TABLE
+faa5 : afa4             		stx	,y	;SAVE BP ADDRESS IN BP TABLE
+faa7 : 863f             		lda	#$3F	;LOAD A SWI ($3F)
+faa9 : a784             		sta	,x	;SAVE SWI AT BREAKPOINT ADDRESS
+faab : 39               EXITBP		rts
+                        
+                        *  INDICATE ERROR SETTING BREAKPOINT
+                        
+faac : bdfd97           BPERR		lbsr	OUT1S	;OUTPUT SPACE
+faaf : 863f             		lda	#'?'	;LOAD (?), INDICATE BREAKPOINT ERROR
+fab1 : 7efd99           		lbra	OUTCH	;PRINT "?"
+                        
+                        *** "X" CLEAR OUTSTANDING BREAKPOINTS ***
+                        
+fab4 : 108edfe3         XBKPNT		ldy	#BPTBL	;POINT TO BREAKPOINT TABLE
+fab8 : c608             		ldb	#8	;LOAD BREAKPOINT COUNTER
+faba : 8d18             XBPLP		bsr	RPLSWI	;REMOVE USED ENTRY IN BP TABLE
+fabc : 5a               		decb		;$FAAC DECREMENT BP COUNTER
+fabd : 26fb             		bne	XBPLP	;END OF BREAKPOINT TABLE?
+fabf : 39               		rts
+                        
+                        ***** SWI ENTRY POINT *****
+                        
+                        ;		VERIFY	$fab3
+fac0 : 1f43             SWIE		tfr	s,u	;TRANSFER STACK TO USER POINTER
+fac2 : ae4a             		ldx	10,u	;LOAD PC FROM STACK INTO X-REG
+AS09 Assembler for M6809 [1.42].                                     Page   35
+---------------------------- SBUG18 MP-09 MONITOR ----------------------------
+
+fac4 : 301f             		leax	-1,x	;ADJUST ADDR DOWN 1 BYTE.
+fac6 : 8d26             		bsr	BPTEST	;FIND BREAKPOINT IN BP TABLE
+fac8 : 2704             		beq	REGPR	;IF FOUND, REPLACE DATA AT BP ADDR
+faca : af4a             		stx	10,u	;SAVE BREAKPOINT ADDR IN STACK
+facc : 8d06             		bsr	RPLSWI	;GO REPLACE SWI WITH ORIGINAL DATA
+face : bdf8b2           REGPR		lbsr	REGSTR	;GO PRINT REGISTERS
+fad1 : 7ef86b           		lbra	NEXTCMD	;GET NEXT COMMAND
+fad4 : ae21             RPLSWI		ldx	1,y	;LOAD BP ADDRESS FROM BP TABLE
+fad6 : 8cdfc0           		cmpx	#STACK	;COMPARE TO TOP AVAILABLE USER MEMORY
+fad9 : 240a             		bcc	FFSTBL	;GO RESET TABLE ENTRY TO $FF'S
+fadb : a684             		lda	,x	;GET DATA FROM BP ADDRESS
+fadd : 813f             		cmpa	#$3F	;IS IT SWI?
+fadf : 2604             		bne	FFSTBL	;IF NOT, RESET TABLE ENTRY TO $FF'S
+fae1 : a6a4             		lda	,y	;GET ORIGINAL DATA FROM BP TABLE
+fae3 : a784             		sta	,x	;$FAD3 RESTORE DATA AT BP ADDRESS
+fae5 : 86ff             FFSTBL		lda	#$FF	;LOAD $FF IN A-ACC
+fae7 : a7a0             		sta	,y+	;RESET BREAKPOINT TABLE DATA TO $FF'S
+fae9 : a7a0             		sta	,y+	;RESET BREAKPOINT TABLE ADDR TO $FF'S
+faeb : a7a0             		sta	,y+
+faed : 39               		rts
+                        
+                        ** SEARCH BREAKPOINT TABLE FOR MATCH **
+                        
+faee : 108edfe3         BPTEST		ldy	#BPTBL	;POINT TO BREAKPOINT TABLE
+faf2 : c608             		ldb	#8	;LOAD BREAKPOINT COUNTER
+faf4 : a6a0             FNDBP		lda	,y+	;LOAD DATA BYTE
+faf6 : aca1             		cmpx	,y++	;COMPARE ADDRESS, IS IT SAME?
+faf8 : 2704             		beq	BPADJ	;IF SO, ADJUST POINTER FOR TABLE ENTRY
+fafa : 5a               		decb		;IF NOT, DECREMENT BREAKPOINT COUNTER
+fafb : 26f7             		bne	FNDBP	;AND LOOK FOR NEXT POSSIBLE MATCH
+fafd : 39               		rts
+                        
+                        
+fafe : 313d             BPADJ		leay	-3,y	;MOVE POINTER TO BEGIN OF BP ENTRY
+fb00 : 39               		rts
+                        
+                        *** "D" DISK BOOT FOR DMAF2 ***
+                        	if	DMAF2
+                        DBOOT		lda	#$DE
+                        		sta	DRVREG
+                        		lda	#$FF
+                        		sta	PRIREG	;$FAF8
+                        		sta	CCREG
+                        		sta	AAAREG
+                        		sta	BBBREG
+                        		tst	CCREG
+                        		lda	#$D8
+                        		sta	COMREG
+                        		lbsr	DLY
+                        DBOOT0		lda	COMREG
+                        		bmi	DBOOT0
+                        		lda	#$09
+                        		sta	COMREG
+                        		lbsr	DLY
+                        
+                        DISKWT		lda	COMREG	;FETCH DRIVE STATUS
+                        		bita	#1	;TEST BUSY BIT
+                        		bne	DISKWT	;LOOP UNTIL NOT BUSY
+                        
+                        		bita	#$10
+                        		bne	DBOOT
+                        
+AS09 Assembler for M6809 [1.42].                                     Page   36
+---------------------------- SBUG18 MP-09 MONITOR ----------------------------
+
+                        		ldx	#$C000	;LOGICAL ADDR. = $C000
+                        		bsr	LRA	;GET 20 BIT PHYSICAL ADDR. OF LOG. ADDR.
+                        		ora	#$10
+                        		sta	CCCREG
+                        		tfr	x,d
+                        		coma
+                        		comb
+                        		std	ADDREG
+                        		ldx	#$FEFF	;LOAD DMA BYTE COUNT = $100
+                        		stx	CNTREG	;STORE IN COUNT REGISTER
+                        		lda	#$FF	;LOAD THE CHANNEL REGISTER
+                        		sta	CCREG
+                        		lda	#$FE	;SET CHANNEL 0
+                        		sta	PRIREG
+                        		lda	#1	;SET SECTOR TO "1"
+                        		sta	SECREG	;ISSUE COMMAND
+                        		lda	#$8C	;SET SINGLE SECTOR READ
+                        		sta	COMREG	;ISSUE COMMAND
+                        		bsr	DLY
+                        
+                        * THE FOLLOWING CODE TESTS THE STATUS OF THE
+                        * CHANNEL CONTROL REGISTER. IF "D7" IS NOT
+                        * ZERO THEN IT WILL LOOP WAITING FOR "D7"
+                        * TO GO TO ZERO. IF AFTER 65,536 TRIES IT
+                        * IS STILL A ONE THE BOOT OPERATION WILL
+                        * BE STARTED OVER FROM THE BEGINING.
+                        
+                        		clrb
+                        DBOOT1		pshs	b	;$FB55
+                        		clrb
+                        DBOOT2		tst	CCREG
+                        		bpl	DBOOT3
+                        		decb
+                        		bne	DBOOT2
+                        		puls	b
+                        		decb
+                        		bne	DBOOT1
+                        		bra	DBOOT
+                        DBOOT3		puls	b
+                        		lda	COMREG
+                        		bita	#$1C
+                        		beq	DBOOT4
+                        		rts
+                        
+                        
+                        DBOOT4		ldb	#$DE
+                        		stb	DRVREG
+                        		ldx	#$C000
+                        		stx	10,u
+                        		tfr	u,s	;$FB7B
+                        		rti
+                        	endif
+                        
+                        	if	SD_SUPPORT
+                        ;
+                        ;=====================================================
+                        ; This boots the OS from the SD card.  No registers
+                        ; are set on entry, and this never returns.  If the
+                        ; boot fails, jump back into SBUG.
+                        ;
+fb01 : 8efb2f           SdBoot2 	ldx	#dbmsg		;print prompt
+fb04 : bdfd68           		jsr	PDATA
+AS09 Assembler for M6809 [1.42].                                     Page   37
+---------------------------- SBUG18 MP-09 MONITOR ----------------------------
+
+fb07 : bdf039           SdBoot		jsr	xParInit	;do initialization
+fb0a : 8efb3b           		ldx	#BootFCB
+fb0d : bdf13a           		jsr	DiskReadSector
+fb10 : 2503             		bcs	bootErr
+fb12 : 7ec100           		jmp	BOOT_ADDR
+                        ;
+fb15 : 8efb1e           bootErr		ldx	#berrmsg
+fb18 : bdfd58           		jsr	PSTRNG
+fb1b : 7ef81e           		jmp	MONITOR
+                        ;
+fb1e : 0d0a             berrmsg		db	CR,LF
+fb20 : 424f4f54204552.. 		db	"BOOT ERROR!"
+fb2b : 0d0a0004         		db	CR,LF,0,EOT
+fb2f : 0869736b20626f.. dbmsg		db	BS,"isk boot"
+fb38 : 0d0a04           		db	CR,LF,EOT
+                        ;
+                        ; FCB used to load the boot sector into memory
+                        ;
+fb3b : 00               BootFCB		db	0	;drive 0
+fb3c : 00               		db	0	;track 0
+fb3d : 00               		db	0	;sector 0
+fb3e : 00               		db	0	;sectors per track
+fb3f : c100             		dw	BOOT_ADDR	;buffer address
+                        	endif
+                        
+                        ***** LRA LOAD REAL ADDRESS *****
+                        
+                        * THE FOLLOWING CODE LOADS THE 20-BIT
+                        * PHYSICAL ADDRESS OF A MEMORY BYTE
+                        * INTO THE "A" AND "X" REGISTERS. THIS
+                        * ROUTINE IS ENTERED WITH THE LOGICAL
+                        * ADDRESS OF A MEMORY BYTE IN THE "IX"
+                        * REGISTER. EXIT IS MADE WITH THE HIGH-
+                        * ORDER FOUR BITS OF THE 20-BIT PHYSICAL
+                        * ADDRESS IN THE "A" REGISTER, AND THE
+                        * LOW-ORDER 16-BITS OF THE 20-BIT
+                        * PHYSICAL ADDRESS IN THE "IX" REGISTER.
+                        * ALL OTHER REGISTERS ARE PRESERVED.
+                        * THIS ROUTINE IS REQUIRED SINCE THE
+                        * DMAF1 AND DMAF2 DISK CONTROLLERS MUST
+                        * PRESENT PHYSICAL ADDRESSES ON THE
+                        * SYSTEM BUS.
+                        
+                        		FORCE	$fb81
+                        
+fb81 : 3436             LRA		pshs	a,b,x,y	;PUSH REGISTERS ON STACK
+fb83 : a662             		lda	2,s	;GET MSB LOGICAL ADDR FRM X REG ON STACK
+fb85 : 44               		lsra
+fb86 : 44               		lsra		;ADJ FOR INDEXED INTO
+fb87 : 44               		lsra		;CORRESPONDING LOCATION
+fb88 : 44               		lsra		;IN LRA TABLE
+fb89 : 108edfd0         		ldy	#LRARAM	;LOAD LRA TABLE BASE ADDRESS
+fb8d : e6a6             		ldb	a,y	;GET PHYSICAL ADDR. DATA FROM LRA TABLE
+fb8f : 54               		lsrb		;. REAL ADDR. TO REFLECT EXTENDED
+fb90 : 54               		lsrb		; ADDRESS.
+fb91 : 54               		lsrb		; MS 4-BITS ARE RETURNED
+fb92 : 54               		lsrb		; THE "A" ACCUMULATOR
+fb93 : e7e4             		stb	,s	;MS 4 BITS IN A ACCUM. STORED ON STACK
+fb95 : e6a6             		ldb	a,y	;LOAD REAL ADDRESS DATA FROM LRA TABLE
+fb97 : 53               		comb		;COMP TO ADJ FOR PHYSICAL ADDR. IN X REG
+fb98 : 58               		aslb		;ADJ DATA FOR RELOCATION IN X REG
+fb99 : 58               		aslb
+AS09 Assembler for M6809 [1.42].                                     Page   38
+---------------------------- SBUG18 MP-09 MONITOR ----------------------------
+
+fb9a : 58               		aslb		;$FB97
+fb9b : 58               		aslb
+fb9c : a662             		lda	2,s	;GET MS BYTE OF LOGICAL ADDR.
+fb9e : 840f             		anda	#$0F	;MASK MS NIBBLE OF LOGICAL ADDRESS
+fba0 : a762             		sta	2,s	;SAVE IT IN X REG ON STACK
+fba2 : ea62             		orb	2,s	;SET MS BYTE IN X REG TO ADJ PHY ADDR.
+                        
+                        * PLUS LS NIBBLE OF LOGICAL ADDRESS
+fba4 : e762             		stb	2,s	;SAVE AS LS 16 BITS OF PHY ADDR IN X REG
+                        * ON STACK
+fba6 : 3536             		puls	a,b,x,y	;POP REGS. FROM STACK
+fba8 : 39               		rts
+                        
+                        * DELAY LOOP
+                        
+fba9 : 3404             DLY		pshs	b	;SAVE CONTENTS OF "B"
+fbab : c620             		ldb	#$20	;GET LOOP DELAY VALUE
+fbad : 5a               SUB1		decb		;SUBTRACT ONE FROM VALUE
+fbae : 26fd             		bne	SUB1	;LOOP UNTIL ZERO
+fbb0 : 3504             		puls	b	;RESTORE CONTENTS OF "B"
+fbb2 : 39               		rts
+                        
+                        ***** "U" MINIDISK BOOT *****
+                        	if	DC_X
+                        MINBOOT		tst	Comreg
+                        		clr	Drvreg	;SELECT DRIVE 0
+                        
+                        * DELAY BEFORE ISSUING RESTORE COMMAND
+                        		ldb	#3
+                        		ldx	#0
+                        LOOP		leax	1,x	;$FBBB
+                        		cmpx	#0
+                        		bne	LOOP
+                        		decb		;$FBC2
+                        		bne	LOOP
+                        
+                        		lda	#$0F	;*LOAD HEAD, VERIFY, 20msec/step
+                        		sta	Comreg	;ISSUE RESTORE COMMAND
+                        		bsr	DELAY
+                        LOOP1		ldb	Comreg	;$FBCC
+                        		bitb	#1
+                        		bne	LOOP1	;LOOP UNTIL THRU
+                        		lda	#1
+                        		sta	Secreg	;SET SECTOR REGISTER TO ONE
+                        		bsr	DELAY
+                        		lda	#$8C	;LOAD HEAD, DELAY 10msec,
+                        		sta	Comreg	;AND READ SINGLE RECORD
+                        		bsr	DELAY
+                        		ldx	#$C000
+                        		bra	LOOP3
+                        
+                        LOOP2		bitb	#2	;$FBE6 DRQ?
+                        		beq	LOOP3
+                        		lda	Datreg
+                        		sta	,x+
+                        
+                        LOOP3		ldb	Comreg	;FETCH STATUS
+                        		bitb	#1	;BUSY?
+                        		bne	LOOP2
+                        		bitb	#$2C	;CRC ERROR OR LOST DATA?
+                        		beq	LOOP4
+                        		rts
+AS09 Assembler for M6809 [1.42].                                     Page   39
+---------------------------- SBUG18 MP-09 MONITOR ----------------------------
+
+                        LOOP4		ldx	#$C000	;$FBFB
+                        		stx	10,u
+                        		tfr	u,s
+                        		rti
+                        
+                        * DELAY
+                        
+                        DELAY		ldb	#$20
+                        LOOP5		decb
+                        		bne	LOOP5
+                        		rts
+                        	endif	;DC_X
+                        
+                        ***** "L" LOAD MIKBUG TAPE *****
+                        * Otherwise known as an S-record file
+                        
+fbb3 :                  LOAD
+                        	if	READER_CONTROL
+                        		lda	#$11	;LOAD 'DC1' CASS. READ ON CODE
+                        		lbsr	OUTCH	;OUTPUT IT TO TERMINAL PORT
+                        	endif
+fbb3 : 7fdfe2           		clr	ECHO	;TURN OFF ECHO FLAG
+fbb6 : bdfd6f           LOAD1		lbsr	ECHON	;INPUT 8 BIT BYTE WITH NO ECHO
+fbb9 : 8153             LOAD2		cmpa	#'S'	;IS IT AN "S", START CHARACTER ?
+fbbb : 26f9             		bne	LOAD1	;IF NOT, DISCARD AND GET NEXT CHAR.
+fbbd : bdfd6f           		lbsr	ECHON
+fbc0 : 8139             		cmpa	#'9'	;IS IT A "9" , END OF FILE CHAR ?
+fbc2 : 2741             		beq	LOAD21	;IF SO, EXIT LOAD
+                        	if	ALLOW_S5
+fbc4 : 8135             		cmpa	#'5'	;5 can also end some files
+fbc6 : 2741             		beq	LOAD22
+                        	endif	;ALLOW_S5
+fbc8 : 8131             		cmpa	#'1'	;IS IT A "1" , FILE LOAD CHAR ?
+fbca : 26ed             		bne	LOAD2	;IF NOT, LOOK FOR START CHAR.
+fbcc : bdfceb           		lbsr	BYTE	;INPUT BYTE COUNT
+fbcf : 3402             		pshs	a	;PUSH COUNT ON STACK
+fbd1 : 2926             		bvs	LODERR	;(V) C-CODE SET, ILLEGAL HEX
+fbd3 : bdfcda           		lbsr	IN1ADR	;INPUT LOAD ADDRESS
+fbd6 : 2921             		bvs	LODERR	;(V) C-CODE SET, ADDR NOT HEX
+fbd8 : 3410             		pshs	x	;PUSH ADDR ON STACK
+fbda : e6e0             		ldb	,s+	;LOAD MSB OF ADDR AS CHECKSUM BYTE
+fbdc : ebe0             		addb	,s+	;ADD LSB OF ADDR TO CHECKSUM
+fbde : ebe4             		addb	,s	;ADD BYTE COUNT BYTE TO CHECKSUM
+fbe0 : 6ae4             		dec	,s	;$FC37 DECREMENT BYTE COUNT 2 TO BYPASS
+fbe2 : 6ae4             		dec	,s	;ADDRESS BYTES.
+fbe4 : 3404             LOAD10		pshs	b	;PUSH CHECKSUM ON STACK
+fbe6 : bdfceb           		lbsr	BYTE	;INPUT DATA BYTE (2 HEX CHAR)
+fbe9 : 3504             		puls	b	;POP CHECKSUM FROM STACK
+fbeb : 290c             		bvs	LODERR	;(V) SET, DATA BYTE NOT HEX
+fbed : 3402             		pshs	a	;PUSH DATA BYTE ON STACK
+fbef : ebe0             		addb	,s+	;ADD DATA TO CHECKSUM, AUTO INC STACK
+fbf1 : 6ae4             		dec	,s	;DECREMENT BYTE COUNT 1
+fbf3 : 2705             		beq	LOAD16	;IF BYTE COUNT ZERO, TEST CHECKSUM
+fbf5 : a780             		sta	,x+	;SAVE DATA BYTE IN MEMORY
+fbf7 : 20eb             		bra	LOAD10	;GET NEXT DATA BYTE
+fbf9 : 5f               LODERR		clrb		;ERROR CONDITION, ZERO CHECKSUM
+fbfa : 3502             LOAD16		puls	a	;ADJUST STACK (REMOVE BYTE COUNT)
+fbfc : c1ff             		cmpb	#$FF	;CHECKSUM OK?
+fbfe : 27b3             		beq	LOAD	;IF SO, LOAD NEXT LINE
+fc00 : 863f             		lda	#'?'	;LOAD (?) ERROR INDICATOR
+fc02 : bdfd99           		lbsr	OUTCH	;OUTPUT IT TO TERMINAL
+fc05 : 73dfe2           LOAD21		com	ECHO	;TURN ECHO ON
+AS09 Assembler for M6809 [1.42].                                     Page   40
+---------------------------- SBUG18 MP-09 MONITOR ----------------------------
+
+                        	if	READER_CONTROL
+                        		lda	#$13  	;$FC5F LOAD 'DC3' CASS. READ OFF CODE
+                        		lbra	OUTCH	;OUTPUT IT
+                        	else
+fc08 : 39               		rts
+                        	endif
+                        ;
+                        ; Handle the rest of an S5 record; byte count is next
+                        ; followed by that many bytes.
+                        ;
+                        	if	ALLOW_S5
+fc09 : bdfceb           LOAD22		jsr	BYTE
+fc0c : 1f89             		tfr	a,b	;move byte count into B
+fc0e : c100             LOAD23		cmpb	#0
+fc10 : 27f3             		beq	LOAD21	;all done
+fc12 : 3404             		pshs	b	;save byte count
+fc14 : bdfceb           		jsr	BYTE	;get next byte
+fc17 : 3504             		puls	b
+fc19 : 5a               		decb
+fc1a : 20f2             		bra	LOAD23
+                        	endif	;ALLOW_S5
+                        ***** "P" PUNCH MIKBUG TAPE *****
+                        
+fc1c : 6fe2             PUNCH		clr	,-s	;CLEAR RESERVED BYTE ON STACK
+fc1e : bdfccf           		lbsr	IN2ADR	;GET BEGIN AND END ADDRESS
+fc21 : 3430             		pshs	x,y	;SAVE ADDRESSES ON STACK
+fc23 : 2945             		bvs	PUNEXT	;(V) C-CODE SET, EXIT PUNCH
+fc25 : ac62             		cmpx	2,s	;COMPARE BEGIN TO END ADDR
+fc27 : 2541             		bcs	PUNEXT	;IF BEGIN GREATER THAN END, EXIT PUNCH
+fc29 : 3001             		leax	1,x	;INCREMENT END ADDRESS
+fc2b : afe4             		stx	,s	;STORE END ADDR ON STACK
+                        	if	READER_CONTROL
+                        		lda	#$12	;LOAD 'DC2' PUNCH ON CODE
+                        		lbsr	OUTCH	;OUTPUT IT TO TERMINAL
+                        	endif
+fc2d : ece4             PUNCH2		ldd	,s	;LOAD END ADDR IN D-ACC
+fc2f : a362             		subd	2,s	;SUBTRACT BEGIN FROM END
+fc31 : 2706             		beq	PUNCH3	;SAME, PUNCH 32 BYTES DEFAULT
+fc33 : 10830020         		cmpd	#$20	;LESS THAN 32 BYTES?
+fc37 : 2302             		bls	PUNCH4	;PUNCH THAT MANY BYTES
+fc39 : c620             PUNCH3		ldb	#$20	;LOAD BYTE COUNT OF 32.
+fc3b : e764             PUNCH4		stb	4,s	;STORE ON STACK AS BYTE COUNT
+fc3d : 8efe9f           		ldx	#MSG20	;POINT TO MSG "S1"
+fc40 : bdfd58           		lbsr	PSTRNG	;PRINT MSG
+fc43 : cb03             		addb	#3	;ADD 3 BYTES TO BYTE COUNT
+fc45 : 1f98             		tfr	b,a	;GET BYTE COUNT IN A-ACC TO PUNCH
+fc47 : bdfd2c           		lbsr	OUT2H	;OUTPUT BYTE COUNT
+fc4a : ae62             		ldx	2,s	;LOAD BEGIN ADDRESS
+fc4c : bdfd24           		lbsr	OUT4H	;PUNCH ADDRESS
+fc4f : eb62             		addb	2,s	;ADD ADDR MSB TO CHECKSUM
+fc51 : eb63             		addb	3,s	;ADD ADDR LSB TO CHECKSUM
+fc53 : eb84             PUNCHL		addb	,x	;ADD DATA BYTE TO CHECKSUM
+fc55 : a680             		lda	,x+	;LOAD DATA BYTE TO PUNCH
+fc57 : bdfd2c           		lbsr	OUT2H	;OUTPUT DATA BYTE
+fc5a : 6a64             		dec	4,s	;DECREMENT BYTE COUNT
+fc5c : 26f5             		bne	PUNCHL	;NOT DONE, PUNCH NEXT BYTE
+fc5e : 53               		comb		;1's COMPLIMENT CHECKSUM BYTE
+fc5f : 1f98             		tfr	b,a	;GET IT IN A-ACC TO PUNCH
+fc61 : bdfd2c           		lbsr	OUT2H	;OUTPUT CHECKSUM BYTE
+fc64 : af62             		stx	2,s	;SAVE X-REG IN STACK AS NEW PUNCH ADDR
+fc66 : ace4             		cmpx	,s	;COMPARE IT TO END ADDR
+fc68 : 26c3             		bne	PUNCH2	;$FCB5 PUNCH NOT DONE, CONT.
+AS09 Assembler for M6809 [1.42].                                     Page   41
+---------------------------- SBUG18 MP-09 MONITOR ----------------------------
+
+fc6a :                  PUNEXT		
+                        	if	READER_CONTROL
+                        		lda	#$14	;LOAD 'DC4' PUNCH OFF CODE
+                        		lbsr	OUTCH	;OUTPUT IT
+                        	endif
+fc6a : 3265             		leas	5,s	;READJUST STACK POINTER
+fc6c : 39               		rts
+                        
+                        
+fc6d : 8efe62           PRTSP		ldx	#MSG10	;POINT TO MSG "SP="
+fc70 : bdfd68           		lbsr	PDATA	;PRINT MSG
+fc73 : 1f31             		tfr	u,x
+fc75 : 7efd24           		lbra	OUT4H
+fc78 : 8efe6e           PRTUS		ldx	#MSG12	;POINT TO MSG "US="
+fc7b : bdfd68           		lbsr	PDATA	;PRINT MSG
+fc7e : ae48             		ldx	8,u
+fc80 : 7efd24           		lbra	OUT4H
+fc83 : 8efe80           PRTDP		ldx	#MSG15	;POINT TO MSG "DP="
+fc86 : bdfd68           		lbsr	PDATA	;PRINT MSG
+fc89 : a643             		lda	3,u
+fc8b : 7efd2c           		lbra	OUT2H	;OUTPUT HEX BYTE AS ASCII
+fc8e : 8efe7a           PRTIX		ldx	#MSG14	;POINT TO MSG "IX="
+fc91 : bdfd68           		lbsr	PDATA	;PRINT MSG
+fc94 : ae44             		ldx	4,u	;$FCE6
+fc96 : 7efd24           		lbra	OUT4H
+fc99 : 8efe74           PRTIY		ldx	#MSG13	;POINT TO MSG "IY="
+fc9c : bdfd68           		lbsr	PDATA	;PRINT MSG
+fc9f : ae46             		ldx	6,u
+fca1 : 7efd24           		lbra	OUT4H
+fca4 : 8efe68           PRTPC		ldx	#MSG11	;POINT TO MSG "PC="
+fca7 : bdfd68           		lbsr	PDATA	;PRINT MSG
+fcaa : ae4a             		ldx	10,u
+fcac : 2076             		bra	OUT4H
+fcae : 8efe86           PRTA		ldx	#MSG16	;POINT TO MSG "A="
+fcb1 : bdfd68           		lbsr	PDATA	;PRINT MSG
+fcb4 : a641             		lda	1,u
+fcb6 : 2074             		bra	OUT2H	;OUTPUT HEX BYTE AS ASCII
+fcb8 : 8efe8b           PRTB		ldx	#MSG17	;POINT TO MSG "B="
+fcbb : bdfd68           		lbsr	PDATA	;PRINT MSG
+fcbe : a642             		lda	2,u
+fcc0 : 206a             		bra	OUT2H	;OUTPUT HEX BYTE AS ASCII
+fcc2 : 8efe90           PRTCC		ldx	#MSG18	;POINT TO MSG "CC:"
+fcc5 : bdfd68           		lbsr	PDATA	;PRINT MSG
+fcc8 : a6c4             		lda	,u
+fcca : 8efe97           		ldx	#MSG19	;POINT TO MSG "EFHINZVC"
+fccd : 2073             		bra	BIASCI	;OUTPUT IN BINARY/ASCII FORMAT
+                        
+                        * THE FOLLOWING ROUTINE LOOPS WAITING FOR THE
+                        * OPERATOR TO INPUT TWO VALID HEX ADDRESSES.
+                        * THE FIRST ADDRESS INPUT IS RETURNED IN "IY".
+                        * THE SECOND IS RETURNED IN "IX". THE "V" BIT
+                        * IN THE C-CODE REG. IS SET IF AN INVALID HEX
+                        * ADDRESS IS INPUT.
+                        
+                        ;		VERIFY	$fd24
+fccf : 8d09             IN2ADR		bsr	IN1ADR	;GET FIRST ADDRESS
+fcd1 : 294e             		bvs	NOTHEX	;EXIT IF NOT VALID HEX
+fcd3 : 1f12             		tfr	x,y	;SAVE FIRST ADDR. IN "IY"
+fcd5 : 862d             		lda	#'-'
+fcd7 : bdfd99           		lbsr	OUTCH	;PRINT " - "
+                        
+                        * THE FOLLOWING ROUTINE LOOPS WAITING FOR THE
+AS09 Assembler for M6809 [1.42].                                     Page   42
+---------------------------- SBUG18 MP-09 MONITOR ----------------------------
+
+                        * OPERATOR TO INPUT ONE VALID HEX ADDRESS. THE
+                        * ADDRESS IS RETURNED IN THE "X" REGISTER.
+                        
+fcda : 8d0f             IN1ADR		bsr	BYTE	;INPUT BYTE (2 HEX CHAR)
+fcdc : 2943             		bvs	NOTHEX	;EXIT IF NOT VALID HEX
+fcde : 1f01             		tfr	d,x
+fce0 : 8d09             		bsr	BYTE	;INPUT BYTE (2 HEX CHAR)
+fce2 : 293d             		bvs	NOTHEX
+fce4 : 3410             		pshs	x
+fce6 : a761             		sta	1,s
+fce8 : 3510             		puls	x
+fcea : 39               		rts
+                        
+                        ***** INPUT BYTE (2 HEX CHAR.) *****
+                        
+fceb : 8d11             BYTE		bsr	INHEX	;GET HEX LEFT
+fced : 2932             		bvs	NOTHEX	;EXIT IF NOT VALID HEX
+fcef : 48               		asla
+fcf0 : 48               		asla
+fcf1 : 48               		asla		;SHIFT INTO LEFT NIBBLE
+fcf2 : 48               		asla
+fcf3 : 1f89             		tfr	a,b	;PUT HEXL IN "B"
+fcf5 : 8d07             		bsr	INHEX	;GET HEX RIGHT
+fcf7 : 2928             		bvs	NOTHEX	;EXIT IF NOT VALID HEX
+fcf9 : 3404             		pshs	b	;PUSH HEXL ON STACK
+fcfb : abe0             		adda	,s+	;ADD HEXL TO HEXR AND ADJ. STK
+fcfd : 39               		rts		;RETURN WITH HEX L&R IN "A"
+                        
+                        
+fcfe : 8d6f             INHEX		bsr	ECHON	;INPUT ASCII CHAR.
+fd00 : 8130             		cmpa	#'0'	;IS IT > OR = "0" ?
+fd02 : 251d             		bcs	NOTHEX	;IF LESS IT AIN'T HEX
+fd04 : 8139             		cmpa	#'9'	;IS IT < OR = "9" ?
+fd06 : 2203             		bhi	INHEXA	;IF > MAYBE IT'S ALPHA
+fd08 : 8030             		suba	#$30	;ASCII ADJ. NUMERIC
+fd0a : 39               		rts
+                        
+                        
+fd0b : 8141             INHEXA		cmpa	#'A'	;IS IT > OR = "A"
+fd0d : 2512             		bcs	NOTHEX	;IF LESS IT AIN'T HEX
+fd0f : 8146             		cmpa	#'F'	;IS IT < OR = "F" ?
+fd11 : 2203             		bhi	INHEXL	;IF > IT AIN'T HEX
+fd13 : 8037             		suba	#$37	;ASCII ADJ. ALPHA
+fd15 : 39               		rts
+                        
+fd16 : 8161             INHEXL		cmpa	#'a'	;IS IT > OR = "a"
+fd18 : 2507             		bcs	NOTHEX	;IF LESS IT AIN'T HEX
+fd1a : 8166             		cmpa	#'f'	;IS IT < "f"
+fd1c : 2203             		bhi	NOTHEX	;IF > IT AIN'T HEX
+fd1e : 8057             		suba	#$57	;ADJUST TO LOWER CASE
+fd20 : 39               		rts
+                        
+                        
+fd21 : 1a02             NOTHEX		orcc	#2	;SET (V) FLAG IN C-CODES REGISTER
+fd23 : 39               		rts
+                        ;
+                        ; Output contents of X as four hex digits.
+                        ;
+fd24 : 3410             OUT4H		pshs	x	;PUSH X-REG. ON THE STACK
+fd26 : 3502             		puls	a	;POP MS BYTE OF X-REG INTO A-ACC.
+fd28 : 8d02             		bsr	OUTHL	;OUTPUT HEX LEFT
+fd2a : 3502             		puls	a	;POP LS BYTE OF X-REG INTO A-ACC.
+AS09 Assembler for M6809 [1.42].                                     Page   43
+---------------------------- SBUG18 MP-09 MONITOR ----------------------------
+
+                        ;
+                        ; Output A as two hex digits.
+                        ;
+fd2c =                  OUTHL		equ	*
+fd2c : 3402             OUT2H		pshs	a	;SAVE IT BACK ON STACK
+fd2e : 44               		lsra		;CONVERT UPPER HEX NIBBLE TO ASCII
+fd2f : 44               		lsra
+fd30 : 44               		lsra
+fd31 : 44               		lsra
+fd32 : 8d04             		bsr	XASCII	;PRINT HEX NIBBLE AS ASCII
+fd34 : 3502             OUTHR		puls	a	;CONVERT LOWER HEX NIBBLE TO ASCII
+fd36 : 840f             		anda	#$0F	;STRIP LEFT NIBBLE
+                        ;
+                        ; Output lower nibble of A as a hex digit.  Upper nibb
+                        ; must be 0!
+                        ;
+fd38 : 8b30             XASCII		adda	#'0'	;ASCII ADJ
+fd3a : 8139             		cmpa	#'9'	;IS IT < OR = "9" ?
+fd3c : 2f02             		ble	OUTC	;IF LESS, OUTPUT IT
+fd3e : 8b07             		adda	#7	;IF > MAKE ASCII LETTER
+fd40 : 2057             OUTC		bra	OUTCH	;OUTPUT CHAR
+                        
+                        * BINARY / ASCII --- THIS ROUTINE
+                        * OUTPUTS A BYTE IN ENHANCED
+                        * BINARY FORMAT. THE ENHANCEMENT
+                        * IS DONE BY SUBSTITUTING ASCII
+                        * LETTERS FOR THE ONES IN THE BYTE.
+                        * THE ASCII ENHANCEMENT LETTERS
+                        * ARE OBTAINED FROM THE STRING
+                        * POINTED TO BY THE INDEX REG. "X".
+                        
+fd42 : 3402             BIASCI		pshs	a	;SAVE "A" ON STACK
+fd44 : c608             		ldb	#8	;PRESET LOOP# TO BITS PER BYTE
+fd46 : a680             OUTBA		lda	,x+	;GET LETTER FROM STRING
+fd48 : 68e4             		asl	,s	;TEST BYTE FOR "1" IN B7
+fd4a : 2502             		bcs	PRTBA	;IF ONE PRINT LETTER
+fd4c : 862d             		lda	#'-'	;IF ZERO PRINT "-"
+fd4e : 8d49             PRTBA		bsr	OUTCH	;PRINT IT
+fd50 : 8d45             		bsr	OUT1S	;PRINT SPACE
+fd52 : 5a               		decb		;SUB 1 FROM #BITS YET TO PRINT
+fd53 : 26f1             		bne	OUTBA
+fd55 : 3502             		puls	a
+fd57 : 39               		rts
+                        
+                        * PRINT STRING PRECEEDED BY A CR & LF.
+                        
+fd58 : 8d02             PSTRNG		bsr	PCRLF	;PRINT CR/LF
+fd5a : 200c             		bra	PDATA	;PRINT STRING POINTED TO BY IX
+                        
+                        * PCRLF
+                        
+fd5c : 3410             PCRLF		pshs	x	;SAVE IX
+fd5e : 8efe2c           		ldx	#MSG2+1	;POINT TO MSG CR/LF + 3 NULS
+fd61 : 8d05             		bsr	PDATA	;PRINT MSG
+fd63 : 3510             		puls	x	;RESTORE IX
+fd65 : 39               		rts
+fd66 : 8d31             PRINT		bsr	OUTCH
+                        
+                        * PDATA
+                        
+fd68 : a680             PDATA		lda	,x+	;GET 1st CHAR. TO PRINT
+fd6a : 8104             		cmpa	#4	;IS IT EOT?
+AS09 Assembler for M6809 [1.42].                                     Page   44
+---------------------------- SBUG18 MP-09 MONITOR ----------------------------
+
+fd6c : 26f8             		bne	PRINT	;IF NOT EOT PRINT IT
+fd6e : 39               		rts
+                        
+                        
+fd6f : 7ddfe2           ECHON		tst	ECHO	;IS ECHO REQUIRED ?
+fd72 : 2706             		beq	INCH	;ECHO NOT REQ. IF CLEAR
+                        
+                        * INCHE
+                        
+                        * ---GETS CHARACTER FROM TERMINAL AND
+                        * ECHOS SAME. THE CHARACTER IS RETURNED
+                        * IN THE "A" ACCUMULATOR WITH THE PARITY
+                        * BIT MASKED OFF. ALL OTHER REGISTERS
+                        * ARE PRESERVED.
+                        
+fd74 : 8d04             INCHE		bsr	INCH	;GET CHAR FROM TERMINAL
+fd76 : 847f             		anda	#$7F	;STRIP PARITY FROM CHAR.
+fd78 : 201f             		bra	OUTCH	;ECHO CHAR TO TERMINAL
+                        
+                        * INCH
+                        
+                        * GET CHARACTER FROM TERMINAL. RETURN
+                        * CHARACTER IN "A" ACCUMULATOR AND PRESERVE
+                        * ALL OTHER REGISTERS. THE INPUT CHARACTER
+                        * IS 8 BITS AND IS NOT ECHOED.
+                        
+                        
+fd7a : 3410             INCH		pshs	x	;SAVE IX
+fd7c : bedfe0           		ldx	CPORT	;POINT TO TERMINAL PORT
+fd7f : a684             GETSTA		lda	,x	;FETCH PORT STATUS
+fd81 : 8501             		bita	#1	;TEST READY BIT, RDRF ?
+fd83 : 27fa             		beq	GETSTA	;IF NOT RDY, THEN TRY AGAIN
+fd85 : a601             		lda	1,x	;FETCH CHAR
+fd87 : 3510             		puls	x	;RESTORE IX
+fd89 : 39               		rts
+                        
+                        * INCHEK
+                        
+                        * CHECK FOR A CHARACTER AVAILABLE FROM
+                        * THE TERMINAL. THE SERIAL PORT IS CHECKED
+                        * FOR READ READY. ALL REGISTERS ARE
+                        * PRESERVED, AND THE "Z" BIT WILL BE
+                        * CLEAR IF A CHARACTER CAN BE READ.
+                        
+                        
+fd8a : 3402             INCHEK		pshs	a	;SAVE A ACCUM.
+fd8c : a69fdfe0         		lda	[CPORT]	;FETCH PORT STATUS
+fd90 : 8501             		bita	#1	;TEST READY BIT, RDRF ?
+fd92 : 3502             		puls	a	;RESTORE A ACCUM.
+fd94 : 39               		rts
+                        
+fd95 : 8d00             OUT2S		bsr	OUT1S	;OUTPUT 2 SPACES
+fd97 : 8620             OUT1S		lda	#$20	;OUTPUT 1 SPACE
+                        
+                        
+                        * OUTCH
+                        
+                        * OUTPUT CHARACTER TO TERMINAL.
+                        * THE CHAR. TO BE OUTPUT IS
+                        * PASSED IN THE A REGISTER.
+                        * ALL REGISTERS ARE PRESERVED.
+                        
+AS09 Assembler for M6809 [1.42].                                     Page   45
+---------------------------- SBUG18 MP-09 MONITOR ----------------------------
+
+fd99 : 3412             OUTCH		pshs	a,x	;SAVE A ACCUM AND IX
+fd9b : bedfe0           		ldx	CPORT	;GET ADDR. OF TERMINAL
+fd9e : a684             FETSTA		lda	,x	;FETCH PORT STATUS
+fda0 : 8502             		bita	#2	;TEST TDRE, OK TO XMIT ?
+fda2 : 27fa             		beq	FETSTA	;IF NOT LOOP UNTIL RDY
+fda4 : 3502             		puls	a	;GET CHAR. FOR XMIT
+fda6 : a701             		sta	1,x	;XMIT CHAR.
+fda8 : 3510             		puls	x	;RESTORE IX
+fdaa : 39               		rts
+                        
+                        
+fdab : bedfe0           ACINIZ		ldx	CPORT	;POINT TO CONTROL PORT ADDRESS
+fdae : 8603             		lda	#3	;RESET ACIA PORT CODE
+fdb0 : a784             		sta	,x	;STORE IN CONTROL REGISTER
+fdb2 : 8611             		lda	#$11	;SET 8 DATA, 2 STOP AN 0 PARITY
+fdb4 : a784             		sta	,x	;STORE IN CONTROL REGISTER
+fdb6 : 6d01             		tst	1,x	;ANYTHING IN DATA REGISTER?
+fdb8 : 86ff             		lda	#$FF	;TURN ON ECHO FLAG
+fdba : b7dfe2           		sta	ECHO
+fdbd : 39               		rts
+                        
+                        
+                        * MONITOR KEYBOARD COMMAND JUMP TABLE
+                        
+                        
+fdbe =                  JMPTAB		equ	*
+fdbe : 01               		db	1	;" ^A "
+fdbf : f92d             		dw	ALTRA
+fdc1 : 02               		db	2	;" ^B "
+fdc2 : f91f             		dw	ALTRB
+fdc4 : 03               		db	3	;" ^C "
+fdc5 : f93b             		dw	ALTRCC
+fdc7 : 04               		db	4	;" ^D "
+fdc8 : f911             		dw	ALTRDP
+fdca : 10               		db	$10	;" ^P "
+fdcb : f8d9             		dw	ALTRPC
+fdcd : 15               		db	$15	;" ^U "
+fdce : f8e7             		dw	ALTRU
+fdd0 : 18               		db	$18	;" ^X "
+fdd1 : f903             		dw	ALTRX
+fdd3 : 19               		db	$19	;" ^Y "
+fdd4 : f8f5             		dw	ALTRY
+                        
+fdd6 : 42               		db	'B'
+fdd7 : fa88             		dw	BRKPNT
+                        	if	DMAF2
+                        		db	'D'
+                        		dw	DBOOT
+                        	endif
+                        	if	SD_SUPPORT
+fdd9 : 44               		db	'D'	;boot from SD card
+fdda : fb01             		dw	SdBoot2
+                        	endif
+fddc : 45               		db	'E'
+fddd : f9a0             		dw	MEMDUMP
+fddf : 47               		db	'G'
+fde0 : f8af             		dw	GO
+fde2 : 4c               		db	'L'
+fde3 : fbb3             		dw	LOAD
+fde5 : 4d               		db	'M'
+fde6 : f94b             		dw	MEMCHG
+fde8 : 50               		db	'P'
+AS09 Assembler for M6809 [1.42].                                     Page   46
+---------------------------- SBUG18 MP-09 MONITOR ----------------------------
+
+fde9 : fc1c             		dw	PUNCH
+fdeb : 51               		db	'Q'
+fdec : f9ff             		dw	MEMTST
+fdee : 52               		db	'R'
+fdef : f8b2             		dw	REGSTR
+fdf1 : 53               		db	'S'
+fdf2 : f994             		dw	DISSTK
+                        	if	DC_X
+                        		db	'U'
+                        		dw	MINBOOT
+                        	endif
+fdf4 : 58               		db	'X'
+fdf5 : fab4             		dw	XBKPNT
+                        	if	ENABLE_BASIC
+                        		db	'!'
+                        		dw	BASIC
+                        		db	'@'
+                        		dw	WARMS
+                        	endif
+                        
+fdf7 =                  TABEND		equ	*
+                        
+                        * ** 6809 VECTOR ADDRESSES **
+                        
+                        * FOLLOWING ARE THE ADDRESSES OF THE VECTOR ROUTINES
+                        * FOR THE 6809 PROCESSOR. DURING INITIALIZATION THEY
+                        * ARE RELOCATED TO RAM FROM $DFC0 TO $DFCF. THEY ARE
+                        * RELOCATED TO RAM SO THAT THE USER MAY REVECTOR TO
+                        * HIS OWN ROUTINES IF HE SO DESIRES.
+                        
+                        
+fdf7 : fac0             RAMVEC		dw	SWIE	;USER-V
+fdf9 : f8b1             		dw	RTI	;SWI3-V
+fdfb : f8b1             		dw	RTI	;SWI2-V
+fdfd : f8b1             		dw	RTI	;FIRQ-V
+fdff : f8b1             		dw	RTI	;IRQ-V
+fe01 : fac0             		dw	SWIE	;SWI-V
+fe03 : ffff             		dw	$FFFF	;SVC-VO
+fe05 : ffff             		dw	$FFFF	;SVC-VL
+                        
+                        * PRINTABLE MESSAGE STRINGS
+                        
+fe07 : 00000d0a0d0a     MSG1		db	0,0,CR,LF,CR,LF
+fe0d : 532d4255472031.. 		db	'S-BUG 1.8.2 '
+                        	if	SD_SUPPORT
+fe19 : 77697468205344.. 		db	"with SD support"
+                        	endif
+                        	if	ENABLE_BASIC
+                        		db	"with Tiny BASIC"
+                        	endif
+fe28 : 2c20             		db	", "
+fe2a : 04               		db	EOT
+fe2b : 4b0d0a04         MSG2		db	'K',CR,LF,EOT	;K, * CR/LF + 3 NULS
+fe2f : 3e               MSG3		db	'>'
+fe30 : 04               		db	EOT
+fe31 : 574841543f       MSG4		db	'WHAT?'
+fe36 : 04               		db	EOT
+fe37 : 202d20           MSG5		db	' - '
+fe3a : 04               		db	EOT
+fe3b : 2c205041535320   MSG6		db	', PASS '
+fe42 : 04               		db	EOT
+fe43 : 2c204249545320.. MSG7		db	', BITS IN ERROR: '
+AS09 Assembler for M6809 [1.42].                                     Page   47
+---------------------------- SBUG18 MP-09 MONITOR ----------------------------
+
+fe54 : 04               		db	EOT
+fe55 : 203d3e20         MSG8		db	' => '
+fe59 : 04               		db	EOT
+fe5a : 3736353433323130 MSG9		db	'76543210'
+fe62 : 202053503d       MSG10		db	'  SP='
+fe67 : 04               		db	EOT
+fe68 : 202050433d       MSG11		db	'  PC='
+fe6d : 04               		db	EOT
+fe6e : 202055533d       MSG12		db	'  US='
+fe73 : 04               		db	EOT
+fe74 : 202049593d       MSG13		db	'  IY='
+fe79 : 04               		db	EOT
+fe7a : 202049583d       MSG14		db	'  IX='
+fe7f : 04               		db	EOT
+fe80 : 202044503d       MSG15		db	'  DP='
+fe85 : 04               		db	EOT
+fe86 : 2020413d         MSG16		db	'  A='
+fe8a : 04               		db	EOT
+fe8b : 2020423d         MSG17		db	'  B='
+fe8f : 04               		db	EOT
+fe90 : 202043433a20     MSG18		db	'  CC: '
+fe96 : 04               		db	EOT
+fe97 : 454648494e5a5643 MSG19		db	'EFHINZVC'
+fe9f : 5331             MSG20		db	'S1'
+fea1 : 04               		db	EOT
+                        
+                        * MESSAGE EXPANSION AREA
+                        
+                        
+                        
+                        * POWER UP/ RESET/ NMI ENTRY POINT
+                        ;
+                        ;=====================================================
+                        ; The CPU board has addresses FF00-FFFF hard-wired to
+                        ; always be the top of the monitor EPROM and also the
+                        ; DAT registers.  This code beginning at FF00 must set
+                        ; up the DAT so that logical addresses F900-FEFF are
+                        ; mapped to the EPROM as well.
+                        ;
+                        ; Any read from FF00 to FFFF reads from the EPROM
+                        ; while any write from FFF0 to FFFF will go to the
+                        ; DAT registers.
+                        ;
+                        ; So, it is imperative that the DAT tables get set up
+                        ; so that logical addresses F800-FFFF all point to
+                        ; the EPROM containing SBUG or else bad stuff will
+                        ; happen.
+                        ;
+                        		FORCE	$ff00
+                        
+ff00 : 8efff0           START		ldx	#DATREGS	;POINT TO DAT RAM
+ff03 : 860f             		lda	#$F	;GET COMPLIMENT OF ZERO
+                        
+                        
+                        * INITIALIZE DAT RAM --- LOADS $F-$0 IN LOCATIONS $0-$
+                        * OF DAT RAM, THUS STORING COMPLEMENT OF MSB OF ADDRES
+                        * IN THE DAT RAM. THE COMPLEMENT IS REQUIRED BECAUSE T
+                        * OUTPUT OF IC11, A 74S189, IS THE INVERSE OF THE DATA
+                        * STORED IN IT.
+                        ;
+                        ; Also note that the upper nibble contains the non-inv
+                        ; bank number for extended addressing.  This loop sets
+AS09 Assembler for M6809 [1.42].                                     Page   48
+---------------------------- SBUG18 MP-09 MONITOR ----------------------------
+
+                        ; translations to point to block 0, which is good.
+                        ;
+ff05 : a780             DATLP		sta	,x+	;STORE & POINT TO NEXT RAM LOCATION
+ff07 : 4a               		deca		;GET COMP. VALUE FOR NEXT LOCATION
+ff08 : 26fb             		bne	DATLP	;ALL 16 LOCATIONS INITIALIZED ?
+                        
+                        * NOTE: IX NOW CONTAINS $0000, DAT RAM IS NO LONGER
+                        *       ADDRESSED, AND LOGICAL ADDRESSES NOW EQUAL
+                        *       PHYSICAL ADDRESSES.
+                        
+ff0a : 86f0             		lda	#$F0
+ff0c : a784             		sta	,x	;STORE $F0 AT $FFFF
+ff0e : 8ed0a0           		ldx	#$D0A0	;ASSUME RAM TO BE AT $D000-$DFFF
+ff11 : 108e55aa         		ldy	#TSTPAT	;LOAD TEST DATA PATTERN INTO "Y"
+ff15 : ee84             TSTRAM		ldu	,x	;SAVE DATA FROM TEST LOCATION
+ff17 : 10af84           		sty	,x	;STORE TEST PATTERN AT $D0A0
+ff1a : 10ac84           		cmpy	,x	;IS THERE RAM AT THIS LOCATION ?
+ff1d : 270b             		beq	CNVADR	;IF MATCH THERE'S RAM, SO SKIP
+ff1f : 3089f000         		leax	-$1000,x	;ELSE POINT 4K LOWER
+ff23 : 8cf0a0           		cmpx	#$F0A0	;DECREMENTED PAST ZER0 YET ?
+ff26 : 26ed             		bne	TSTRAM	;IF NOT CONTINUE TESTING FOR RAM
+ff28 : 20d6             		bra	START	;ELSE START ALL OVER AGAIN
+                        
+                        
+                        * THE FOLLOWING CODE STORES THE COMPLEMENT OF
+                        * THE MS CHARACTER OF THE FOUR CHARACTER HEX
+                        * ADDRESS OF THE FIRST 4K BLOCK OF RAM LOCATED
+                        * BY THE ROUTINE "TSTRAM" INTO THE DAT RAM. IT
+                        * IS STORED IN RAM IN THE LOCATION THAT IS
+                        * ADDRESSED WHEN THE PROCESSOR ADDRESS IS $D---,
+                        * THUS IF THE FIRST 4K BLOCK OF RAM IS FOUND
+                        * WHEN TESTING LOCATION $70A0, MEANING THERE
+                        * IS NO RAM PHYSICALLY ADDRESSED IN THE RANGE
+                        * $8000-$DFFF, THEN THE COMPLEMENT OF THE
+                        * "7" IN THE $70A0 WILL BE STORED IN
+                        * THE DAT RAM. THUS WHEN THE PROCESSOR OUTPUTS
+                        * AN ADDRESS OF $D---, THE DAT RAM WILL RESPOND
+                        * BY RECOMPLEMENTING THE "7" AND OUTPUTTING THE
+                        * 7 ONTO THE A12-A15 ADDRESS LINES. THUS THE
+                        * RAM THAT IS PHYSICALLY ADDRESSED AT $7---
+                        * WILL RESPOND AND APPEAR TO THE 6809 THAT IT
+                        * IS AT $D--- SINCE THAT IS THE ADDRESS THE
+                        * 6809 WILL BE OUTPUTING WHEN THAT 4K BLOCK
+                        * OF RAM RESPONDS.
+                        
+                        
+ff2a : ef84             CNVADR		stu	,x	;RESTORE DATA AT TEST LOCATION
+ff2c : 1f10             		tfr	x,d	;PUT ADDR. OF PRESENT 4K BLOCK IN D
+ff2e : 43               		coma		;COMPLEMENT MSB OF THAT ADDRESS
+ff2f : 44               		lsra		;PUT MS 4 BITS OF ADDRESS IN
+ff30 : 44               		lsra		;LOCATION D0-D3 TO ALLOW STORING
+ff31 : 44               		lsra		;IT IN THE DYNAMIC ADDRESS
+ff32 : 44               		lsra		;TRANSLATION RAM.
+ff33 : b7fffd           		sta	$FFFD	;STORE XLATION FACTOR IN DAT "D"
+                        
+ff36 : 10cedfc0         		lds	#STACK	;INITIALIZE STACK POINTER
+                        
+                        
+                        * THE FOLLOWING CHECKS TO FIND THE REAL PHYSICAL ADDRE
+                        * OF ALL 4K BLKS OF RAM IN THE SYSTEM. WHEN EACH 4K BL
+                        * OF RAM IS LOCATED, THE COMPLEMENT OF IT'S REAL ADDRE
+                        * IS THEN STORED IN A "LOGICAL" TO "REAL" ADDRESS XLAT
+AS09 Assembler for M6809 [1.42].                                     Page   49
+---------------------------- SBUG18 MP-09 MONITOR ----------------------------
+
+                        * TABLE THAT IS BUILT FROM $DFD0 TO $DFDF. FOR EXAMPLE
+                        * THE SYSTEM HAS RAM THAT IS PHYSICALLY LOCATED (WIRED
+                        * RESPOND) AT THE HEX LOCATIONS $0--- THRU $F---....
+                        
+                        *  0  1  2  3  4  5  6  7  8  9  A  B  C  D  E  F
+                        * 4K 4K 4K 4K 4K 4K 4K 4K -- 4K 4K 4K 4K -- -- --
+                        
+                        * ....FOR A TOTAL OF 48K OF RAM, THEN THE TRANSLATION 
+                        * CREATED FROM $DFD0 TO $DFDF WILL CONSIST OF THE FOLL
+                        
+                        *  0  1  2  3  4  5  6  7  8  9  A  B  C  D  E  F
+                        * 0F 0E 0D 0C 0B 0A 09 08 06 05 00 00 04 03 F1 F0
+                        
+                        
+                        * HERE WE SEE THE LOGICAL ADDRESSES OF MEMORY FROM $00
+                        * HAVE NOT BEEN SELECTED FOR RELOCATION SO THAT THEIR 
+                        * ADDRESS WILL = THEIR LOGICAL ADDRESS; HOWEVER, THE 4
+                        * PHYSICALLY AT $9000 WILL HAVE ITS ADDRESS TRANSLATED
+                        * IT WILL LOGICALLY RESPOND AT $8000. LIKEWISE $A,$B, 
+                        * WILL BE TRANSLATED TO RESPOND TO $9000,$C000, AND $D
+                        * RESPECTIVELY. THE USER SYSTEM WILL LOGICALLY APPEAR 
+                        * MEMORY ADDRESSED AS FOLLOWS....
+                        
+                        *  0  1  2  3  4  5  6  7  8  9  A  B  C  D  E  F
+                        * 4K 4K 4K 4K 4K 4K 4K 4K 4K 4K -- -- 4K 4K -- --
+                        
+                        
+ff3a : 108edfd0         		ldy	#LRARAM	;POINT TO LOGICAL/REAL ADDR. TABLE
+ff3e : a72d             		sta	13,y	;STORE $D--- XLATION FACTOR AT $DFDD
+ff40 : 6f2e             		clr	14,y	;CLEAR $DFDE
+ff42 : 86f0             		lda	#$F0	;DESTINED FOR IC8 AN MEM EXPANSION ?
+ff44 : a72f             		sta	15,y	;STORE AT $DFDF
+ff46 : 860c             		lda	#$0C	;PRESET NUMBER OF BYTES TO CLEAR
+ff48 : 6fa6             CLRLRT		clr	a,y	;CLEAR $DFDC THRU $DFD0
+ff4a : 4a               		deca		;. 1 FROM BYTES LEFT TO CLEAR
+ff4b : 2afb             		bpl	CLRLRT	;CONTINUE IF NOT DONE CLEARING
+ff4d : 3089f000         FNDRAM		leax	-$1000,x	;POINT TO NEXT LOWER 4K OF RAM
+ff51 : 8cf0a0           		cmpx	#$F0A0	;TEST FOR DECREMENT PAST ZERO
+ff54 : 2722             		beq	FINTAB	;SKIP IF FINISHED
+ff56 : ee84             		ldu	,x	;SAVE DATA AT CURRENT TEST LOCATION
+ff58 : 108e55aa         		ldy	#TSTPAT	;LOAD TEST DATA PATTERN INTO Y REG.
+ff5c : 10af84           		sty	,x	;STORE TEST PATT. INTO RAM TEST LOC.
+ff5f : 10ac84           		cmpy	,x	;VERIFY RAM AT TEST LOCATION
+ff62 : 26e9             		bne	FNDRAM	;IF NO RAM GO LOOK 4K LOWER
+ff64 : ef84             		stu	,x	;ELSE RESTORE DATA TO TEST LOCATION
+ff66 : 108edfd0         		ldy	#LRARAM	;POINT TO LOGICAL/REAL ADDR. TABLE
+ff6a : 1f10             		tfr	x,d	;PUT ADDR. OF PRESENT 4K BLOCK IN D
+ff6c : 44               		lsra		;PUT MS 4 BITS OF ADDR. IN LOC. D0-D3
+ff6d : 44               		lsra		;TO ALLOW STORING IT IN THE DAT RAM.
+ff6e : 44               		lsra
+ff6f : 44               		lsra
+ff70 : 1f89             		tfr	a,b	;SAVE OFFSET INTO LRARAM TABLE
+ff72 : 880f             		eora	#$0F	;INVERT MSB OF ADDR. OF CURRENT 4K BLK
+ff74 : a7a5             		sta	b,y	;SAVE TRANSLATION FACTOR IN LRARAM TABLE
+ff76 : 20d5             		bra	FNDRAM	;GO TRANSLATE ADDR. OF NEXT 4K BLK
+ff78 : 86f1             FINTAB		lda	#$F1	;DESTINED FOR IC8 AND MEM EXPANSION ?
+ff7a : 108edfd0         		ldy	#LRARAM	;POINT TO LRARAM TABLE
+ff7e : a72e             		sta	14,y	;STORE $F1 AT $DFCE
+                        
+                        * THE FOLLOWING CHECKS TO SEE IF THERE IS A 4K BLK OF
+                        * RAM LOCATED AT $C000-$CFFF. IF NONE THERE IT LOCATES
+                        * THE NEXT LOWER 4K BLK AN XLATES ITS ADDR SO IT
+AS09 Assembler for M6809 [1.42].                                     Page   50
+---------------------------- SBUG18 MP-09 MONITOR ----------------------------
+
+                        * LOGICALLY RESPONDS TO THE ADDRESS $C---.
+                        
+                        
+ff80 : 860c             		lda	#$0C	;PRESET NUMBER HEX "C"
+ff82 : e6a6             FINDC		ldb	a,y	;GET ENTRY FROM LRARAM TABLE
+ff84 : 2605             		bne	FOUNDC	;BRANCH IF RAM THIS PHYSICAL ADDR.
+ff86 : 4a               		deca		;ELSE POINT 4K LOWER
+ff87 : 2af9             		bpl	FINDC	;GO TRY AGAIN
+ff89 : 2014             		bra	XFERTF
+ff8b : 6fa6             FOUNDC		clr	a,y	;CLR XLATION FACTOR OF 4K BLOCK FOUND
+ff8d : e72c             		stb	$C,y	;GIVE IT XLATION FACTOR MOVING IT TO $C---
+                        
+                        * THE FOLLOWING CODE ADJUSTS THE TRANSLATION
+                        * FACTORS SUCH THAT ALL REMAINING RAM WILL
+                        * RESPOND TO A CONTIGUOUS BLOCK OF LOGICAL
+                        * ADDRESSES FROM $0000 AND UP....
+                        
+ff8f : 4f               		clra		;START AT ZERO
+ff90 : 1f21             		tfr	y,x	;START POINTER "X" START OF "LRARAM" TABLE.
+ff92 : e6a6             COMPRS		ldb	a,y	;GET ENTRY FROM "LRARAM" TABLE
+ff94 : 2704             		beq	PNTNXT	;IF IT'S ZER0 SKIP
+ff96 : 6fa6             		clr	a,y	;ELSE ERASE FROM TABLE
+ff98 : e780             		stb	,x+	;AND ENTER ABOVE LAST ENTRY- BUMP
+ff9a : 4c               PNTNXT		inca		;GET OFFSET TO NEXT ENTRY
+ff9b : 810c             		cmpa	#$0C	;LAST ENTRY YET ?
+ff9d : 2df3             		blt	COMPRS
+                        
+                        * THE FOLLOWING CODE TRANSFER THE TRANSLATION
+                        * FACTORS FROM THE LRARAM TABLE TO IC11 ON
+                        * THE MP-09 CPU CARD.
+                        
+ff9f : 8efff0           XFERTF		ldx	#DATREGS	;POINT TO DAT RAM
+ffa2 : c610             		ldb	#$10	;GET NO. OF BYTES TO MOVE
+ffa4 : a6a0             FETCH		lda	,y+	;GET BYTE AND POINT TO NEXT
+ffa6 : a780             		sta	,x+	;POKE XLATION FACTOR IN IC11
+ffa8 : 5a               		decb		;SUB 1 FROM BYTES TO MOVE
+ffa9 : 26f9             		bne	FETCH	;CONTINUE UNTIL 16 MOVED
+ffab : 53               		comb 		;SET "B" NON-ZERO
+ffac : f7dfe2           		stb	ECHO	;TURN ON ECHO FLAG
+ffaf : 7ef81e           		lbra	MONITOR	;INITIALIZATION IS COMPLETE
+                        
+                        
+ffb2 : 6e9fdfc0         V1		jmp	[STACK]
+ffb6 : 6e9fdfc4         V2		jmp	[SWI2]
+ffba : 6e9fdfc6         V3		jmp	[FIRQ]
+ffbe : 6e9fdfc8         V4		jmp	[IRQ]
+ffc2 : 6e9fdfca         V5		jmp	[SWI]
+                        
+                        * SWI3 ENTRY POINT
+                        
+ffc6 : 1f43             SWI3E		tfr	s,u
+ffc8 : ae4a             		ldx	10,u	;*$FFC8
+ffca : e680             		ldb	,x+
+ffcc : af4a             		stx	10,u
+ffce : 4f               		clra
+ffcf : 58               		aslb
+ffd0 : 49               		rola
+ffd1 : bedfcc           		ldx	SVCVO
+ffd4 : 8cffff           		cmpx	#$FFFF
+ffd7 : 270f             		beq	SWI3Z
+ffd9 : 308b             		leax	d,x
+ffdb : bcdfce           		cmpx	SVCVL
+AS09 Assembler for M6809 [1.42].                                     Page   51
+---------------------------- SBUG18 MP-09 MONITOR ----------------------------
+
+ffde : 2208             		bhi	SWI3Z
+ffe0 : 3410             		pshs	x
+ffe2 : ecc4             		ldd	,u
+ffe4 : ae44             		ldx	4,u
+ffe6 : 6ef1             		jmp	[,s++]
+ffe8 : 371f             SWI3Z		pulu	a,b,x,cc,dp
+ffea : ee42             		ldu	2,u
+ffec : 6e9fdfc2         		jmp	[SWI3]
+                        ;
+                        ; 6809 VECTORS
+                        ; By definition, these must be at specific addresses.
+                        ;
+                        		VERIFY	$fff0
+                        
+fff0 : ffb2             		dw	V1	;USER-V
+fff2 : ffc6             		dw	SWI3E	;SWI3-V
+fff4 : ffb6             		dw	V2	;SWI2-V
+fff6 : ffba             		dw	V3	;FIRQ-V
+fff8 : ffbe             		dw	V4	;IRQ-V
+fffa : ffc2             		dw	V5	;SWI-V
+fffc : ffb2             		dw	V1	;NMI-V
+fffe : ff00             		dw	START	;RESTART-V
+                        ;
+                        		end 
+                        
+                        
+No errors in pass 2.
+Wrote binary from address $e000 through $ffff.
+Total size 8192 bytes.
+

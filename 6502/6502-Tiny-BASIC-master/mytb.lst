@@ -1,0 +1,3460 @@
+AS65 Assembler for R6502 [1.42].                                     Page    1
+---------------------------------- mytb.asm ----------------------------------
+
+3031 lines read, no errors in pass 1.
+                        ;=====================================================
+                        ; Bob's Tiny BASIC
+                        ;
+                        ; While working on the Corsham Technologies KIM Clone
+                        ; project, I wanted to include a TINY BASIC since that
+                        ; was a highly desirable feature of early computers.
+                        ;
+                        ; Rather than negotiating copyright issues for
+                        ; existing BASICs, I decided to just write one from
+                        ; scratch.
+                        ;
+                        ; 10/07/2017
+                        ;
+                        ; This implements a stripped down Tiny BASIC 
+                        ; interpreter using the Interpretive Language (IL)
+                        ; method as described in the first few issues of
+                        ; Dr Dobb's Journal.  The IL interpreter can be used
+                        ; to write various languages simply by changing the
+                        ; IL code rather than the interpreter itself.
+                        ;
+                        ; 10/15/2021 v0.4 - Bob Applegate
+                        ;		* Fxed major bug in findLine that
+                        ;		  caused corrupted lines, crashes, etc.
+                        ;		* If no parameter given to RND, assume
+                        ;		  32766.
+                        ;		* No more error 5 when a program
+                        ;		  reaches the end without an END.
+                        ;
+                        ; www.corshamtech.com
+                        ; bob@corshamtech.com
+                        ;
+                        ;=====================================================
+                        ;
+                        ; Create TRUE and FALSE values for conditionals.
+                        ;
+0000 =                  FALSE		equ	0
+ffff =                  TRUE		equ	~FALSE
+                        ;
+                        ;-----------------------------------------------------
+                        ; One of these must be set to indicate which environme
+                        ; Tiny BASIC will be running in.  Here are the current
+                        ; environments:
+                        ;
+                        ; KIM - This is a bare KIM-1.  You'll need to add a fe
+                        ; more K of RAM.
+                        ;
+                        ; XKIM - The Corsham Technologies xKIM extended monito
+                        ; which enhances, without replacing, the standard KIM
+                        ; monitor.  It gives access to routines to save/load f
+                        ; to a micro SD card.
+                        ;
+                        ; CTMON65 is a from-scratch monitor written for the
+                        ; Corsham Tech SS-50 6502 CPU board, but the monitor c
+                        ; easily be ported to other systems.  It has support f
+                        ; using a micro SD card for file storage/retrieval.
+                        ;
+0000 =                  KIM		equ	FALSE	;Basic KIM-1, no extensions
+ffff =                  XKIM		equ	TRUE	;Corsham Tech xKIM monitor
+0000 =                  CTMON65		equ	FALSE	;Corsham Tech CTMON65
+                        ;
+                        ; If set, include disk functions.
+AS65 Assembler for R6502 [1.42].                                     Page    2
+---------------------------------- mytb.asm ----------------------------------
+
+                        ;
+ffff =                  DISK_ACCESS	equ	TRUE
+                        ;
+                        ; If ILTRACE is set then dump out the address of every
+                        ; IL opcode before executing it.
+                        ;
+0000 =                  ILTRACE		equ	FALSE
+                        ;
+                        ; If FIXED is set, put the IL code and the user
+                        ; program space at fixed locations in memory.  This is
+                        ; meant only for debugging.
+                        ;
+0000 =                  FIXED		equ	FALSE
+                        ;
+                        ; Sets the arithmetic stack depth.  This is *TINY*
+                        ; BASIC, so keep this small!
+                        ;
+0008 =                  STACKSIZE	equ	8	;number of entries
+                        ;
+                        ; Common ASCII constants
+                        ;
+0007 =                  BEL		equ	$07
+0008 =                  BS		equ	$08
+0009 =                  TAB		equ	$09
+000a =                  LF		equ	$0A
+000d =                  CR		equ	$0D
+0022 =                  QUOTE		equ	$22
+0020 =                  SPACE		equ	' '
+002c =                  COMMA		equ	','
+003b =                  SEMICOLON	equ	';'
+                        ;
+                        ; These are error codes
+                        ;
+0000 =                  ERR_NONE	equ	0
+0001 =                  ERR_EXPR	equ	1	;expression error
+0002 =                  ERR_UNDER	equ	2	;stack underflow
+0003 =                  ERR_OVER	equ	3	;stack overflow
+0004 =                  ERR_EXTRA_STUFF	equ	4	;Stuff at end of line
+0005 =                  ERR_SYNTAX	equ	5	;various syntax errors
+0006 =                  ERR_DIVIDE_ZERO	equ	6	;divide by zero
+0007 =                  ERR_READ_FAIL	equ	7	;error loading file
+0008 =                  ERR_WRITE_FAIL	equ	8	;error saving file
+0009 =                  ERR_NO_FILENAME	equ	9
+                        ;
+                        ;=====================================================
+                        ; Zero page storage.
+                        ;
+                        		bss
+0040 =                  		org	$0040
+0040 =                  ILTrace		ds	1	;non-zero means tracing
+0041 =                  variables	ds	26*2	;2 bytes, A-Z
+0075 =                  variablesEnd	equ	*
+0075 =                  ILPC		ds	2	;IL program counter
+0077 =                  dpl		ds	2
+0079 =                  tempIL		ds	2
+007b =                  tempIlY		ds	1
+007c =                  offset		ds	1
+007d =                  lineLength	ds	1
+                        ;
+                        ; CURPTR is a pointer to curent BASIC line being
+                        ; executed.  Always points to start of line, CUROFF
+                        ; is the offset to the current character.
+AS65 Assembler for R6502 [1.42].                                     Page    3
+---------------------------------- mytb.asm ----------------------------------
+
+                        ;
+007e =                  CURPTR		ds	2
+0080 =                  CUROFF		ds	1
+                        ;
+                        ; R0 and R1 are used for arithmetic operations and
+                        ; general use.
+                        ;
+0081 =                  R0		ds	2	;arithmetic register 0
+0083 =                  R1		ds	2	;arithmetic register 1
+                        ;
+                        ; This is zero if in immediate mode, or non-zero
+                        ; if currently running a program.  Any input from
+                        ; the main loop clears this, and the XFER IL
+                        ; statement will set it.
+                        ;
+0085 =                  RunMode		ds	1
+                        ;
+                        ; Used for line insertion/removal.
+                        ;
+0086 =                  FROM		ds	2
+                        ;
+                        ;=====================================================
+                        ;
+                        		code
+0200 =                  		org	$0200
+                        ;
+                        ; Cold start is at $0200.  Warm start is at $0203.
+                        ;
+0200 : 4c1502           TBasicCold	jmp	cold2	;jump around vectors
+0203 : 4c8602           warm		jmp	warm2
+                        ;
+                        ; These are the user-supplied vectors to I/O routines.
+                        ; If you want, you can just patch these in the binary
+                        ; file, but it would be better to change the source
+                        ; code.
+                        ;
+                        	if	KIM
+                        OUTCH		jmp	$1ea0	;output char in A
+                        GETCH		jmp	$1e5a	;get char in A (blocks)
+                        CRLF		jmp	$1e2f	;print CR/LF
+                        OUTHEX		jmp	$1e3b	;print A as hex
+                        MONITOR		jmp	$1c4f	;return to monitor
+                        	endif
+                        	if 	XKIM
+                        		include	"xkim.inc"
+                        ;=====================================================
+                        ; This file contains vectors for Corsham Technologies'
+                        ; xKIM monitor.  Last update 12/12/2021 for v1.8.
+                        ;
+                        ; Note that some subroutine names have changed
+                        ; slightly to fix duplicate names in the KIM monitor.
+                        ;
+                        ; See the xKIM User Manual for documentation on the
+                        ; data in this file.
+                        ;
+                        ; www.corshamtech.com
+                        ; https://github.com/CorshamTech/xKIM
+                        ;
+e000 =                  xKIM_BASE	equ	$e000
+                        		bss
+0088 =                  origBss		equ	*	;SAVE BSS!!!
+e000 =                  		org	xKIM_BASE
+AS65 Assembler for R6502 [1.42].                                     Page    4
+---------------------------------- mytb.asm ----------------------------------
+
+                        ;
+                        ; Main functions
+                        ;
+e000 =                  extKIM		ds	3	;extended monitor
+e003 =                  xkOUTCH		ds	3	;output A to console
+e006 =                  xkGETCH		ds	3	;get a key and echo
+e009 =                  xkGETCHne	ds	3	;no echo - KIM can't do it
+e00c =                  xKIM_res_0	ds	3	;future - console stat
+e00f =                  putsil		ds	3	;print string after JSR
+e012 =                  getHex		ds	3	;get hex value in A
+e015 =                  xkPRTBYT	ds	3	;print A as hex
+e018 =                  getStartAddr	ds	3
+e01b =                  getEndAddr	ds	3
+e01e =                  getAddrRange	ds	3
+                        ;
+                        ; future use
+                        ;
+e021 =                  xkHexDump	ds	3	;perform a hex dump
+e024 =                  xkMemEdit	ds	3	;edit memory
+e027 =                  loadHexConsole	ds	3	;load hex via console
+e02a =                  loadHexFile	ds	3	;load hex from SD
+e02d =                  doDiskDir	ds	3	;do directory of SD card
+e030 =                  calcOffset	ds	3	;compute branch offset
+                        ;
+                        ; SD card functions
+                        ;
+                        ;		org	xKIM_BASE+$0033
+e033 =                  xParInit	ds	3
+e036 =                  xParSetWrite	ds	3
+e039 =                  xParSetRead	ds	3
+e03c =                  xParWriteByte	ds	3
+e03f =                  xParReadByte	ds	3
+e042 =                  DiskPing	ds	3
+e045 =                  DiskDir		ds	3
+e048 =                  DiskDirNext	ds	3
+e04b =                  DiskOpenRead	ds	3
+e04e =                  DiskRead	ds	3
+e051 =                  DiskClose	ds	3
+e054 =                  DiskOpenWrite	ds	3
+e057 =                  DiskWrite	ds	3
+                        ;
+dff8 =                  		org	$dff8
+dff8 =                  AutoRun		ds	2
+dffa =                  ColdFlag	ds	2
+dffc =                  ExtensionAddr	ds	2
+dffe =                  HighestAddress	ds	2
+                        ;
+                        ; New vectors will go here.
+                        ;
+                        ;
+                        ; Now restore BSS!
+                        ;
+0088 =                  		org	origBss
+                        
+                        
+                        		code
+0206 : 4ca01e           OUTCH		jmp	$1ea0
+0209 : 4c06e0           GETCH		jmp	xkGETCH
+020c : 4c2f1e           CRLF		jmp	$1e2f	;print CR/LF
+020f : 4c15e0           OUTHEX		jmp	xkPRTBYT
+0212 : 4c00e0           MONITOR		jmp	extKIM
+e00f =                  puts		equ	putsil
+AS65 Assembler for R6502 [1.42].                                     Page    5
+---------------------------------- mytb.asm ----------------------------------
+
+0084 =                  BUFFER_SIZE	equ	132
+                        	endif
+                        	if	CTMON65
+                        		include	"ctmon65.inc"
+                        		code
+                        OUTCH		jmp	cout
+                        GETCH		jmp	cin
+                        CRLF		jmp	crlf
+                        OUTHEX		jmp	HexA
+                        MONITOR		jmp	WARM
+                        puts		equ	putsil
+                        	endif
+                        ;
+0215 : 200fe0           cold2		jsr	puts
+0218 : 0d0a             		db	CR,LF
+021a : 426f6227732054.. 		db	"Bob's Tiny BASIC v0.3"
+022f : 0d0a             		db	CR,LF	
+0231 : 68747470733a2f.. 		db	"https://github.com/CorshamTech/6502-Tiny-BASIC"
+025f : 0d0a00           		db	CR,LF,0
+                        ;
+0262 : a98b             		lda	#IL&$ff
+0264 : 8575             		sta	ILPC
+0266 : a90c             		lda	#IL>>8
+0268 : 8576             		sta	ILPC+1
+                        ;
+026a : a984             		lda	#ProgramStart&$ff	;user prog
+026c : 8d7c0f           		sta	PROGRAMEND
+026f : a90f             		lda	#ProgramStart>>8
+0271 : 8d7d0f           		sta	PROGRAMEND+1
+                        ;
+                        ; Initialize the pseudo-random number sequence...
+                        ;
+0274 : a95a             		lda	#$5a
+0276 : 8df30e           		sta	rtemp1
+0279 : a99d             		lda	#%10011101
+027b : 8df40e           		sta	random
+027e : a95b             		lda	#%01011011
+0280 : 8df50e           		sta	random+1
+                        ;
+0283 : 4c9302           		jmp	coldtwo
+                        ;
+                        ; This is the warm start entry point
+                        ;	
+0286 : 200c02           warm2		jsr	CRLF
+0289 : adee0e           		lda	errGoto
+028c : 8575             		sta	ILPC
+028e : adef0e           		lda	errGoto+1
+0291 : 8576             		sta	ILPC+1
+                        ;
+                        ; And continue with both starts here
+                        ;
+0293 : 20ab0b           coldtwo		jsr	SetOutConsole
+                        ;
+                        ; The ILTrace flag is now run-time settable.
+                        ;
+0296 : a900             		lda	#ILTRACE&$ff
+0298 : 8540             		sta	ILTrace
+                        ;
+029a : a900             		lda	#0
+029c : 8585             		sta	RunMode
+029e : 8d9a0e           		sta	LINBUF
+02a1 : a99a             		lda	#LINBUF&$ff
+AS65 Assembler for R6502 [1.42].                                     Page    6
+---------------------------------- mytb.asm ----------------------------------
+
+02a3 : 857e             		sta	CURPTR
+02a5 : a90e             		lda	#LINBUF>>8
+02a7 : 857f             		sta	CURPTR+1	;fall through...
+                        ;
+                        ;=====================================================
+                        ; This is the top of the IL interpreter.  This fetches
+                        ; and executes the instruction currently pointed to
+                        ; by ILPC and adjusts ILPC to point to the next
+                        ; instruction to execute.
+                        ;
+02a9 : a540             NextIL		lda	ILTrace
+02ab : f003             		beq	NextIL2
+02ad : 20330b           		jsr	dbgLine
+02b0 : a480             NextIL2		ldy	CUROFF
+02b2 : 202a0b           		jsr	SkipSpaces
+02b5 : 8480             		sty	CUROFF
+                        ;
+02b7 : 205308           		jsr	getILByte
+                        ;
+                        ; When the handler is called, these are the conditions
+                        ; of several important items:
+                        ;
+                        ;    (ILPC) will point to the byte AFTER the IL
+                        ;    opcode being executed.
+                        ;
+                        ;    (CURPTR),CUROFF will point to the start of the
+                        ;    next word in the input buffer.  Ie, the next word
+                        ;    in the user program.
+                        ;
+02ba : 0a               		asl	a
+02bb : c95a             		cmp	#ILTBLend-ILTBL+2
+02bd : 9033             		bcc	ILgood
+                        ;
+                        ; This handles an illegal IL opcode.  This is serious
+                        ; and there's no way to recover.
+                        ;
+02bf : 200fe0           ILbad		jsr	puts
+02c2 : 0d0a             		db	CR,LF
+02c4 : 496c6c6567616c.. 		db	"Illegal IL "
+02cf : 00               		db	0
+                        ;
+                        ; Well this is awkward, we need to back up the IL
+                        ; by one since it no longer points to the current
+                        ; opcode.
+                        ;
+02d0 : 206008           		jsr	decIL
+                        ;
+02d3 : a000             		ldy	#0
+02d5 : b175             		lda	(ILPC),y
+02d7 : 200f02           		jsr	OUTHEX
+02da : 200fe0           		jsr	puts
+02dd : 2061742000       		db	" at ",0
+02e2 : a576             		lda	ILPC+1
+02e4 : 200f02           		jsr	OUTHEX
+02e7 : a575             		lda	ILPC
+02e9 : 200f02           		jsr	OUTHEX
+02ec : 200c02           		jsr	CRLF
+02ef : 4c1202           		jmp	MONITOR
+                        ;
+                        ; Just jump to the address (ILPC),y.  Have to do
+                        ; some goofy stuff.
+                        ;
+AS65 Assembler for R6502 [1.42].                                     Page    7
+---------------------------------- mytb.asm ----------------------------------
+
+02f2 : a8               ILgood		tay		;move index into Y
+02f3 : b90003           		lda	ILTBL,y
+02f6 : 8577             		sta	dpl
+02f8 : b90103           		lda	ILTBL+1,y
+02fb : 8578             		sta	dpl+1
+02fd : 6c7700           		jmp	(dpl)	;go to handler
+                        ;
+                        ;=====================================================
+                        ; This is the IL jump table.  The IL opcode is 
+                        ; mulitplied by two, then looked-up in this table.
+                        ; There is absolutely nothing special about the order
+                        ; of entries here... they all decode at exactly the
+                        ; same speed.  However the entry number must match the
+                        ; values in IL.inc.
+                        ;
+0300 : 6b03             ILTBL		dw	iXINIT	;0
+0302 : 7303             		dw	iDONE	;1
+0304 : 8603             		dw	iPRS	;2
+0306 : a903             		dw	iPRN	;3
+0308 : b203             		dw	iSPC	;4
+030a : cb06             		dw	iNLINE	;5
+030c : ba03             		dw	iNXT	;6
+030e : d203             		dw	iXFER	;7
+0310 : ff03             		dw	iSAV	;8
+0312 : 0204             		dw	iRSTR	;9
+0314 : 0504             		dw	iCMPR	;10
+0316 : 4704             		dw	iINNUM	;11
+0318 : 6704             		dw	iFIN	;12
+031a : 7804             		dw	iERR	;13
+031c : c404             		dw	iADD	;14
+031e : da04             		dw	iSUB	;15
+0320 : f004             		dw	iNEG	;16
+0322 : 0805             		dw	iMUL	;17
+0324 : 4205             		dw	iDIV	;18
+0326 : 8b05             		dw	iSTORE	;19
+0328 : 9e05             		dw	iIND	;20
+032a : ae05             		dw	iLST	;21
+032c : 5803             		dw	iINIT	;22
+032e : 0d06             		dw	iGETLINE
+0330 : 1906             		dw	iINSRT	;24
+0332 : c506             		dw	iRTN	;25
+0334 : 1202             		dw	MONITOR	;26
+0336 : de06             		dw	iLIT	;27
+0338 : d106             		dw	iCALL	;28
+033a : d406             		dw	iJMP	;29
+033c : eb06             		dw	iVINIT	;30
+033e : f906             		dw	iERRGOTO
+0340 : 0507             		dw	iTST	;32
+0342 : 2e07             		dw	iTSTV	;33
+0344 : 5407             		dw	iTSTL	;34
+0346 : 6e07             		dw	iTSTN	;35
+0348 : b107             		dw	iFREE	;36
+034a : ba07             		dw	iRANDOM	;37
+034c : 3208             		dw	iABS	;38
+                        ;
+                        ; Disk functions.  There must be pointers
+                        ; to functions even if no disk is supported.
+                        ; Makes things easier in IL.inc.
+                        ;
+                        	if	DISK_ACCESS
+034e : b90b             		dw	iOPENREAD
+0350 : e50b             		dw	iOPENWRITE
+AS65 Assembler for R6502 [1.42].                                     Page    8
+---------------------------------- mytb.asm ----------------------------------
+
+0352 : 440c             		dw	iDCLOSE	;41
+0354 : 040c             		dw	iDGETLINE	;Life, universe, everything
+0356 : 3e0c             		dw	iDLIST	;43
+                        	else
+                        		dw	NextIL	;39
+                        		dw	NextIL	;40
+                        		dw	NextIL	;41
+                        		dw	NextIL	;42
+                        		dw	NextIL	;43
+                        	endif
+                        ;
+0358 =                  ILTBLend	equ	*
+                        ;
+                        ;=====================================================
+                        ;=====================================================
+                        ;=====================================================
+                        ; This marks the start of the handlers for IL opcodes.
+                        ;=====================================================
+                        ;=====================================================
+                        ;=====================================================
+                        ; 
+                        ;
+0358 : a900             iINIT		lda	#0	;clear IL stack pointer
+035a : 8d880e           		sta	retStackPtr
+                        ;
+035d : a984             		lda	#ProgramStart&$ff	;user prog
+035f : 857e             		sta	CURPTR
+0361 : 8d7c0f           		sta	PROGRAMEND
+0364 : a90f             		lda	#ProgramStart>>8
+0366 : 857f             		sta	CURPTR+1
+0368 : 8d7d0f           		sta	PROGRAMEND+1
+                        ;
+                        ; fall into XINIT...
+                        ;
+                        ;=====================================================
+                        ; This initializes for the start of the next line of
+                        ; BASIC text. 
+                        ;
+036b : a900             iXINIT		lda	#0
+036d : 8d770e           		sta	mathStackPtr	;clear math stack
+0370 : 4ca902           goodExit	jmp	NextIL
+                        ;
+                        ;=====================================================
+                        ; Verify there is nothing else on this input line.
+                        ; If there is, generate an error.
+                        ;
+0373 : a480             iDONE		ldy	CUROFF
+0375 : 202a0b           		jsr	SkipSpaces
+0378 : b17e             		lda	(CURPTR),y
+037a : f007             		beq	doneadv
+037c : a204             		ldx	#ERR_EXTRA_STUFF
+037e : a900             		lda	#0
+0380 : 4c7b04           		jmp	iErr2
+                        ;
+                        ; Advance to the next line
+                        ;
+0383 :                  doneadv
+                        ;		jsr	FindNext2
+0383 : 4ca902           		jmp	NextIL
+                        ;
+                        ;=====================================================
+                        ; Print the string until a closing quote
+AS65 Assembler for R6502 [1.42].                                     Page    9
+---------------------------------- mytb.asm ----------------------------------
+
+                        ;
+0386 : a480             iPRS		ldy	CUROFF
+                        ;
+                        ; Odd logic here.  The main loop skipped any leading
+                        ; whitespace inside the quoted text, so move back to
+                        ; the quote, then move forward again.
+                        ;
+0388 : a922             		lda	#'"'	;pre-load with char to find
+038a : 88               iPRS3		dey		;move back one
+038b : d17e             		cmp	(CURPTR),y	;quote?
+038d : d0fb             		bne	iPRS3
+038f : c8               		iny
+0390 : 8480             		sty	CUROFF
+                        ;
+0392 : b17e             iPRS2		lda	(CURPTR),y
+0394 : f010             		beq	PRSend2	;end of line!
+0396 : c922             		cmp	#'"'
+0398 : f009             		beq	PRSend
+039a : 200602           		jsr	OUTCH
+039d : e680             		inc	CUROFF
+039f : a480             		ldy	CUROFF
+03a1 : d0ef             		bne	iPRS2
+03a3 : c8               PRSend		iny		;skip closing quote
+03a4 : 8480             		sty	CUROFF
+03a6 : 4ca902           PRSend2		jmp	NextIL
+                        ;
+                        ;=====================================================
+                        ; Pop the top off the stack and print it as a signed
+                        ; decimal number. 
+                        ;
+03a9 : 20850a           iPRN		jsr	popR0
+03ac : 20fd08           		jsr	PrintDecimal
+03af : 4ca902           		jmp	NextIL
+                        ;
+                        ;=====================================================
+                        ; Space to next zone.  Currently the code does not
+                        ; keep track of which column the output is on, so
+                        ; just print a tab.
+                        ;
+03b2 : a909             iSPC		lda	#TAB
+03b4 : 200602           		jsr	OUTCH
+03b7 : 4ca902           		jmp	NextIL
+                        ;
+                        ;=====================================================
+                        ; If in immediate mode, jump to the address following
+                        ; the NXT instruction.  Else move to the next line of
+                        ; user code and continue.
+                        ;
+03ba : a585             iNXT		lda	RunMode
+03bc : d003             		bne	iNxtRun	;in run mode
+                        ;
+                        ; Get address and jump to it.
+                        ;
+03be : 4cd406           		jmp	iJMP
+                        ;
+03c1 : 20d908           iNxtRun		jsr	FindNextLine
+03c4 : 20f008           		jsr	AtEnd
+03c7 : d003             		bne	iNxtRun2	;not at end
+                        ;
+                        ; At the end of the program.  Pretend an END statement
+                        ; was found.
+                        ;
+AS65 Assembler for R6502 [1.42].                                     Page   10
+---------------------------------- mytb.asm ----------------------------------
+
+03c9 : 4c6704           iFINv		jmp	iFIN
+                        ;
+03cc : 204f08           iNxtRun2	jsr	getILWord	;ignore next word
+03cf : 4ca902           		jmp	NextIL
+                        ;
+                        ;=====================================================
+                        ; XFER takes the number on top of the stack and looks
+                        ; for that line in the program, or the next line
+                        ; higher.  Ie, if it's 1 but there is no line 1, then
+                        ; find the next one after that.
+                        ;
+03d2 : 20850a           iXFER		jsr	popR0
+03d5 : 209608           		jsr	findLine
+03d8 : 20f008           iXFER2		jsr	AtEnd	;at end of user program?
+03db : f0ec             		beq	iFINv
+03dd : a002             		ldy	#2	;point to start of text
+03df : 8480             		sty	CUROFF
+03e1 : a9ff             		lda	#$ff
+03e3 : 8585             		sta	RunMode
+                        ;
+                        ; Transfer IL to STMT.  I don't like having this
+                        ; hard-coded; fix it.
+                        ;
+03e5 : a999             		lda	#STMT&$ff
+03e7 : 8575             		sta	ILPC
+03e9 : a90c             		lda	#STMT>>8
+03eb : 8576             		sta	ILPC+1
+03ed : 4ca902           		jmp	NextIL
+                        ;
+                        ; Run
+                        ;
+03f0 :                  iXferok
+03f0 : a9ff             		lda	#$ff
+03f2 : 8585             		sta	RunMode	;we're running
+                        ;
+                        ; Need a more elegant way to do this
+                        ;
+03f4 : a999             		lda	#STMT&$ff
+03f6 : 8575             		sta	ILPC
+03f8 : a90c             		lda	#STMT>>8
+03fa : 8576             		sta	ILPC+1
+03fc : 4ca902           		jmp	NextIL
+                        ;
+                        ;=====================================================
+                        ; Save the pointer to the next line to the call stack.
+                        ;
+03ff :                  iSAV
+03ff : 4cbf02           		jmp	ILbad
+                        ;
+                        ;=====================================================
+                        ; Pop the next line from the call stack.
+                        ;
+0402 :                  iRSTR
+0402 : 4cbf02           		jmp	ILbad
+                        ;
+                        ;=====================================================
+                        ; Compare items on stack.  Okay, so on input there are
+                        ; three things on the stack
+                        ;
+                        ;    EXPR2 <- Top of stack
+                        ;    OP    <- relational operator, next on stack
+                        ;    EXPR1 <- last item on stack
+AS65 Assembler for R6502 [1.42].                                     Page   11
+---------------------------------- mytb.asm ----------------------------------
+
+                        ;
+                        ; Comparison is: EXPR1 <operator> EXPR2
+                        ;
+                        ; Operator is one of...
+                        ;
+                        ;    2 is =
+                        ;    1 is <
+                        ;    3 is <=
+                        ;    5 is <>
+                        ;    4 is >
+                        ;    6 is >=
+                        ;
+                        ; Those are bit-mapped:
+                        ;
+                        ;    xxxxxGEL
+                        ;
+                        ;    G = Greater than
+                        ;    E = Equal
+                        ;    L = Less than
+                        ;
+                        ; If the comparison is false, do a NXT, ie, move to th
+                        ; next line and continue.  If true, continue executing
+                        ; on this line.
+                        ;
+0001 =                  REL_LT		equ	%001
+0002 =                  REL_EQUAL	equ	%010
+0004 =                  REL_GT		equ	%100
+                        ;
+0405 : 20980a           iCMPR		jsr	popR1
+0408 : 20ab0a           		jsr	popMQ	;operator in MQ
+040b : 20850a           		jsr	popR0
+                        ;
+                        ; See if they are equal or not
+                        ;
+040e : a581             		lda	R0
+0410 : c583             		cmp	R1
+0412 : d00a             		bne	iCMPRnoteq	;try not equal
+0414 : a582             		lda	R0+1
+0416 : c584             		cmp	R1+1
+0418 : d004             		bne	iCMPRnoteq
+                        ;
+                        ; Equal, set the flag in MQ+1
+                        ;
+041a : a902             		lda	#REL_EQUAL
+041c : d014             		bne	iCMPcom
+                        ;
+                        ; See if EXPR1 (R0) < EXPR2 (R1)
+                        ; See www.6502.org/tutorials/compare_beyond.html
+                        ;
+041e : a581             iCMPRnoteq	lda	R0
+0420 : c583             		cmp	R1
+0422 : a582             		lda	R0+1
+0424 : e584             		sbc	R1+1
+0426 : 5002             		bvc	iCMPR_2
+0428 : 4980             		eor	#$80
+042a : 3004             iCMPR_2		bmi	iCMPlt
+042c : a904             		lda	#REL_GT
+042e : d002             		bne	iCMPcom
+0430 : a901             iCMPlt		lda	#REL_LT	;R0 < R1
+0432 : 0df10e           iCMPcom		ora	MQ+1
+                        ;
+                        ; Now compare the end result with what the caller
+AS65 Assembler for R6502 [1.42].                                     Page   12
+---------------------------------- mytb.asm ----------------------------------
+
+                        ; was looking for.
+                        ;
+0435 : 2df00e           		and	MQ
+0438 : f007             		beq	iCMPno	;no match
+043a : 4ca902           		jmp	NextIL
+                        ;
+                        ; R0 > R1
+                        ;
+043d : a904             iCMPgt		lda	#REL_GT
+043f : d0f1             		bne	iCMPcom
+                        ;
+                        ; Not a match, so jump to the next line of code.
+                        ;
+0441 : 20d908           iCMPno		jsr	FindNextLine
+0444 : 4cd803           		jmp	iXFER2
+                        ;
+                        ;=====================================================
+                        ; Get a line of text from the user, convert to a 
+                        ; number, leave on top of stack.
+                        ;
+0447 : a580             iINNUM		lda	CUROFF	;save state before GetLine
+0449 : 48               		pha
+044a : a57f             		lda	CURPTR+1
+044c : 48               		pha
+044d : a57e             		lda	CURPTR
+044f : 48               		pha
+                        ;
+0450 : a93f             		lda	#'?'
+0452 : 20e009           		jsr	GetLine
+0455 : 206909           		jsr	getDecimal
+0458 : 205f0a           		jsr	pushR0	;put onto stack
+                        ;
+045b : 68               		pla
+045c : 857e             		sta	CURPTR
+045e : 68               		pla
+045f : 857f             		sta	CURPTR+1
+0461 : 68               		pla
+0462 : 8580             		sta	CUROFF
+                        ;
+0464 : 4ca902           		jmp	NextIL
+                        ;
+                        ;=====================================================
+                        ; Stop the currently running program.  Actually very
+                        ; simple to do... clear the RunMode flag, then set the
+                        ; ILPC to the standard handler and continue running.
+                        ;
+0467 : a900             iFIN		lda	#0
+0469 : 8585             		sta	RunMode
+                        ;
+046b : adee0e           		lda	errGoto
+046e : 8575             		sta	ILPC
+0470 : adef0e           		lda	errGoto+1
+0473 : 8576             		sta	ILPC+1
+0475 : 4ca902           		jmp	NextIL
+                        ;
+                        ;=====================================================
+                        ; Handle the ERR opcode.  Following the instruction is
+                        ; a 16 bit error number.  Print an error message, and
+                        ; if we're in run mode, print the line number.  Stop
+                        ; program execution and return to the initial state.
+                        ;
+0478 : 204f08           iERR		jsr	getILWord	;get err code
+AS65 Assembler for R6502 [1.42].                                     Page   13
+---------------------------------- mytb.asm ----------------------------------
+
+                        ;
+                        ; Enter here with the error code in X (LSB) and A (MSB
+                        ;
+047b : 8681             iErr2		stx	R0
+047d : 8582             		sta	R0+1
+                        ;
+047f : 200fe0           		jsr	puts
+0482 : 4572726f722000   		db	"Error ",0
+0489 : 20fd08           		jsr	PrintDecimal
+                        ;
+048c : a585             		lda	RunMode	;running?
+048e : f01b             		beq	iERR2	;nope
+0490 : 200fe0           		jsr	puts
+0493 : 206174206c696e.. 		db	" at line ",0
+049d : a000             		ldy	#0
+049f : b17e             		lda	(CURPTR),y
+04a1 : 8581             		sta	R0
+04a3 : c8               		iny
+04a4 : b17e             		lda	(CURPTR),y
+04a6 : 8582             		sta	R0+1
+04a8 : 20fd08           		jsr	PrintDecimal
+                        ;
+04ab : 200c02           iERR2		jsr	CRLF
+04ae : a900             		lda	#0
+04b0 : 8585             		sta	RunMode	;fall through...
+                        ;
+                        ;=====================================================
+                        ; Reset the IL to be back at the idle loop.  Does not
+                        ; clear variables so the user can see what state
+                        ; the program is in.
+                        ;
+04b2 : a900             ResetIL		lda	#0
+04b4 : 8d880e           		sta	retStackPtr
+04b7 : adee0e           		lda	errGoto
+04ba : 8575             		sta	ILPC
+04bc : adef0e           		lda	errGoto+1
+04bf : 8576             		sta	ILPC+1
+04c1 : 4ca902           		jmp	NextIL
+                        ;
+                        ;=====================================================
+                        ; Pop two items off stack, add them, then place the
+                        ; result back onto the stack.
+                        ;
+04c4 : 20850a           iADD		jsr	popR0
+04c7 : 20980a           		jsr	popR1
+04ca : 18               		clc
+04cb : a581             		lda	R0
+04cd : 6583             		adc	R1
+04cf : 8581             		sta	R0
+04d1 : a582             		lda	R0+1
+04d3 : 6584             		adc	R1+1
+04d5 : 8582             		sta	R0+1
+04d7 : 4c3c05           		jmp	pushR0nextIl
+                        ;
+                        ;=====================================================
+                        ; Pop two items off the stack.  Subtract the top of
+                        ; stack from the lower entry.
+                        ;
+04da : 20980a           iSUB		jsr	popR1
+04dd : 20850a           		jsr	popR0
+04e0 : 38               		sec
+04e1 : a581             		lda	R0
+AS65 Assembler for R6502 [1.42].                                     Page   14
+---------------------------------- mytb.asm ----------------------------------
+
+04e3 : e583             		sbc	R1
+04e5 : 8581             		sta	R0
+04e7 : a582             		lda	R0+1
+04e9 : e584             		sbc	R1+1
+04eb : 8582             		sta	R0+1
+04ed : 4c3c05           		jmp	pushR0nextIl
+                        ;
+                        ;=====================================================
+                        ; Negate the top of stack.
+                        ;
+04f0 : 20850a           iNEG		jsr	popR0
+04f3 : a581             		lda	R0
+04f5 : 49ff             		eor	#$ff
+04f7 : 8581             		sta	R0
+04f9 : a582             		lda	R0+1
+04fb : 49ff             		eor	#$ff
+04fd : 8582             		sta	R0+1
+04ff : e681             		inc	R0
+0501 : d002             		bne	iNEG2
+0503 : e682             		inc	R0+1
+0505 : 4c3c05           iNEG2		jmp	pushR0nextIl
+                        ;
+                        ;=====================================================
+                        ; Multiply top two items on the stack, put the results
+                        ; on top.  This uses the algorithm documented on page
+                        ; 115 of "Microprocessor Programming for Computer
+                        ; Hobbyists" by Neill Graham.
+                        ;
+0508 : 20850a           iMUL		jsr	popR0	;AC
+050b : 20980a           		jsr	popR1	;OP
+                        ;
+050e : a581             		lda	R0
+0510 : 8df00e           		sta	MQ
+0513 : a582             		lda	R0+1
+0515 : 8df10e           		sta	MQ+1
+0518 : a900             		lda	#0	;clear result
+051a : 8581             		sta	R0
+051c : 8582             		sta	R0+1
+                        ;
+051e : a210             		ldx	#16	;number of bits in value
+0520 : 0681             multloop	asl	R0
+0522 : 2682             		rol	R0+1
+0524 : 0ef00e           		asl	MQ
+0527 : 2ef10e           		rol	MQ+1
+052a : 900d             		bcc	multno	;skip add if no carry
+                        ;
+                        ; Add R1 back into R0
+                        ;
+052c : 18               		clc
+052d : a581             		lda	R0
+052f : 6583             		adc	R1
+0531 : 8581             		sta	R0
+0533 : a582             		lda	R0+1
+0535 : 6584             		adc	R1+1
+0537 : 8582             		sta	R0+1
+                        ;
+0539 : ca               multno		dex		;did all bits yet?
+053a : d0e4             		bne	multloop
+                        ;
+053c : 205f0a           pushR0nextIl	jsr	pushR0	;OP
+053f : 4ca902           		jmp	NextIL
+                        ;
+AS65 Assembler for R6502 [1.42].                                     Page   15
+---------------------------------- mytb.asm ----------------------------------
+
+                        ;=====================================================
+                        ; Divide the top of stack into the next to top item.
+                        ; Leave results on stack.  Taken from:
+                        ; http://codebase64.org/doku.php?id=base:16bit_divisio
+                        ;
+                        ; MQ = R0 / R1
+                        ; Remainder is in R0
+                        ;
+0542 : 20980a           iDIV		jsr	popR1
+0545 : 20850a           		jsr	popR0
+                        ;
+                        ; Check for divide by zero
+                        ;
+0548 : a583             		lda	R1
+054a : 0584             		ora	R1+1
+054c : f036             		beq	divby0
+                        ;
+054e : 20c00a           		jsr	SaveSigns
+0551 : a900             		lda	#0	;preset remainder to 0
+0553 : 8df00e           		sta	MQ
+0556 : 8df10e           		sta	MQ+1
+0559 : a210             		ldx	#16	;repeat for each bit: ...
+                        
+055b : 0681             divloop		asl	R0	;dividend lb & hb*2, msb -> Carry
+055d : 2682             		rol	R0+1	
+055f : 2ef00e           		rol 	MQ	;remainder lb & hb * 2 + msb from carry
+0562 : 2ef10e           		rol	MQ+1
+0565 : adf00e           		lda	MQ
+0568 : 38               		sec
+0569 : e583             		sbc	R1	;substract divisor to see if it fits in
+056b : a8               		tay	        ;lb result -> Y, for we may need it late
+056c : adf10e           		lda	MQ+1
+056f : e584             		sbc	R1+1
+0571 : 9008             		bcc	skip	;if carry=0 then divisor didn't fit in yet
+                        
+0573 : 8df10e           		sta	MQ+1	;else save substraction result as new remai
+0576 : 8cf00e           		sty	MQ	
+0579 : e681             		inc	R0	;and INCrement result cause divisor fit in 1 
+                        
+057b : ca               skip		dex
+057c : d0dd             		bne	divloop
+057e : 20fb0a           		jsr	RestoreSigns	
+0581 : 4c3c05           		jmp	pushR0nextIl
+                        ;
+                        ; Indicate divide-by-zero error
+                        ;
+0584 : a206             divby0		ldx	#ERR_DIVIDE_ZERO
+0586 : a900             		lda	#0
+0588 : 4c7b04           		jmp	iErr2
+                        ;
+                        ;=====================================================
+                        ; This pops the top two items off the stack.  The top
+                        ; item is a data value and the other is an index into
+                        ; the variable table.  Save the value into that entry.
+                        ;
+058b : 20850a           iSTORE		jsr	popR0	;data
+058e : 20980a           		jsr	popR1	;index
+0591 : a683             		ldx	R1	;get index
+0593 : a581             		lda	R0
+0595 : 9541             		sta	variables,x
+0597 : a582             		lda	R0+1
+0599 : 9542             		sta	variables+1,x
+AS65 Assembler for R6502 [1.42].                                     Page   16
+---------------------------------- mytb.asm ----------------------------------
+
+059b : 4ca902           		jmp	NextIL
+                        ;
+                        ;=====================================================
+                        ; Replaces the top of stack with the variable whose
+                        ; index it represents.
+                        ;
+059e : 20980a           iIND		jsr	popR1
+05a1 : a683             		ldx	R1	;get index
+05a3 : b541             		lda	variables,x
+05a5 : 8581             		sta	R0
+05a7 : b542             		lda	variables+1,x
+05a9 : 8582             		sta	R0+1
+05ab : 4c3c05           		jmp	pushR0nextIl
+                        ;
+                        ;=====================================================
+                        ; List the current BASIC program in memory.  Uses R0,
+                        ; tempIly, and dpl.
+                        ;
+05ae : 20ab0b           iLST		jsr	SetOutConsole
+05b1 : a984             iLST2		lda	#ProgramStart&$ff
+05b3 : 8577             		sta	dpl
+05b5 : a90f             		lda	#ProgramStart>>8
+05b7 : 8578             		sta	dpl+1
+                        ;
+                        ; dpl/dph point to the current line.  See if we're at
+                        ; the end of the program.
+                        ;
+05b9 : a577             iLSTloop	lda	dpl
+05bb : cd7c0f           		cmp	PROGRAMEND
+05be : d007             		bne	iLstNotEnd
+05c0 : a578             		lda	dpl+1
+05c2 : cd7d0f           		cmp	PROGRAMEND+1
+05c5 : f040             		beq	iLstdone
+                        ;
+05c7 : a000             iLstNotEnd	ldy	#0
+05c9 : b177             		lda	(dpl),y	;line number LSB
+05cb : 8581             		sta	R0
+05cd : c8               		iny
+05ce : b177             		lda	(dpl),y	;line number MSB
+05d0 : 8582             		sta	R0+1
+05d2 : c8               		iny
+05d3 : 847b             		sty	tempIlY
+05d5 : 20fd08           		jsr	PrintDecimal
+05d8 : a920             		lda	#SPACE
+05da : 20b60b           		jsr	VOUTCH
+05dd : a47b             		ldy	tempIlY
+05df : b177             iLSTl2		lda	(dpl),y
+05e1 : f00a             		beq	iLST3	;end of this line
+05e3 : 847b             		sty	tempIlY
+05e5 : 20b60b           		jsr	VOUTCH
+05e8 : a47b             		ldy	tempIlY
+05ea : c8               		iny
+05eb : d0f2             		bne	iLSTl2	;do next char
+                        ;
+                        ; End of this line.  Print CR/LF, then move to the
+                        ; next line.
+                        ;
+05ed : c8               iLST3		iny
+05ee : 18               		clc
+05ef : 98               		tya
+05f0 : 6577             		adc	dpl
+05f2 : 8577             		sta	dpl
+AS65 Assembler for R6502 [1.42].                                     Page   17
+---------------------------------- mytb.asm ----------------------------------
+
+05f4 : a578             		lda	dpl+1
+05f6 : 6900             		adc	#0
+05f8 : 8578             		sta	dpl+1
+                        ;
+                        ; Have to manually do CR/LF so it uses the vectored
+                        ; output function.
+                        ;
+05fa : a90d             		lda	#CR
+05fc : 20b60b           		jsr	VOUTCH
+05ff : a90a             		lda	#LF
+0601 : 20b60b           		jsr	VOUTCH
+0604 : 4cb905           		jmp	iLSTloop	;do next line
+                        ;
+0607 : 20ab0b           iLstdone	jsr	SetOutConsole
+060a : 4ca902           		jmp	NextIL
+                        ;
+                        ;=====================================================
+                        ; Get a line of text into LINBUF.  Terminate with a
+                        ; null byte.
+                        ;
+060d : a93e             iGETLINE	lda	#'>'	;prompt character
+060f : 20e009           		jsr	GetLine
+                        ;
+0612 : a900             		lda	#0
+0614 : 8585             		sta	RunMode
+0616 : 4ca902           		jmp	NextIL
+                        ;
+                        ;=====================================================
+                        ; This is called when the input buffer contains a line
+                        ; typed in by the user that starts with a line number.
+                        ; Insert the line into the program or delete the line
+                        ; if there is nothing after the line number,
+                        ;
+0619 : a000             iINSRT		ldy	#0
+061b : 206909           		jsr	getDecimal	;convert line #
+061e : 202a0b           		jsr	SkipSpaces
+0621 : 847c             		sty	offset		;save for now
+                        ;
+                        ; Now find the line OR the next higher line OR the
+                        ; end of the program.
+                        ;
+0623 : 209608           		jsr	findLine
+                        ;
+                        ; If the line exists, it needs to be removed.
+                        ;
+0626 : d03d             		bne	insert2		;jump if not found
+                        ;
+                        ; Get length of line to be removed
+                        ;
+0628 : 20420a           		jsr	getCURPTRLength	;results in Y
+062b : 847d             		sty	lineLength
+                        ;
+                        ; Compute the new end of the program first.
+                        ;
+062d : 38               		sec
+062e : ad7c0f           		lda	PROGRAMEND
+0631 : e57d             		sbc	lineLength
+0633 : 8d7c0f           		sta	PROGRAMEND
+0636 : ad7d0f           		lda	PROGRAMEND+1
+0639 : e900             		sbc	#0
+063b : 8d7d0f           		sta	PROGRAMEND+1
+                        ;
+AS65 Assembler for R6502 [1.42].                                     Page   18
+---------------------------------- mytb.asm ----------------------------------
+
+                        ; Copy CURPTR into R1 for working
+                        ;
+063e : a57e             		lda	CURPTR
+0640 : 8583             		sta	R1
+0642 : a57f             		lda	CURPTR+1
+0644 : 8584             		sta	R1+1
+                        ;
+                        ; See if we're at the end.
+                        ;
+0646 : a583             InsDelChk	lda	R1
+0648 : cd7c0f           		cmp	PROGRAMEND
+064b : d007             		bne	InsDelLoop
+064d : a584             		lda	R1+1
+064f : cd7d0f           		cmp	PROGRAMEND+1
+0652 : f011             		beq	insert2
+                        ;
+                        ; Move one byte, move to next location.
+                        ;
+0654 : a47d             InsDelLoop      ldy	lineLength
+0656 : b183             		lda	(R1),y
+0658 : a000             		ldy	#0
+065a : 9183             		sta	(R1),y
+065c : e683             		inc	R1
+065e : d0e6             		bne	InsDelChk
+0660 : e684             		inc	R1+1
+0662 : 4c4606           		jmp	InsDelChk
+                        ;
+                        ; Deletion is done.
+                        ; If the new line is empty we're done.
+                        ;
+0665 : a47c             insert2		ldy	offset		;get back ptr
+0667 : b99a0e           		lda	LINBUF,y	;next byte
+066a : f056             		beq	mvUpFini	;empty line
+                        ;
+                        ; CURPTR points to where the line will be inserted.
+                        ;
+066c : 20310a           		jsr	getLineLength	;get bytes needed
+                        ;
+066f : ad7c0f           		lda	PROGRAMEND
+0672 : 8586             		sta	FROM
+0674 : ad7d0f           		lda	PROGRAMEND+1
+0677 : 8587             		sta	FROM+1
+                        ;
+0679 : a000             mvup1		ldy	#0
+067b : b186             		lda	(FROM),y
+067d : a47d             		ldy	lineLength
+067f : 9186             		sta	(FROM),y
+                        ;
+0681 : a586             		lda	FROM
+0683 : c57e             		cmp	CURPTR
+0685 : d006             		bne	mvUpMore
+0687 : a587             		lda	FROM+1
+0689 : c57f             		cmp	CURPTR+1
+068b : f00b             		beq	mvUpDone
+                        ;
+                        ; Not done yet
+                        ;
+068d : a586             mvUpMore	lda	FROM	;decrement FROM
+068f : d002             		bne	mvUpMore2
+0691 : c687             		dec	FROM+1
+0693 : c686             mvUpMore2	dec	FROM
+0695 : 4c7906           		jmp	mvup1
+AS65 Assembler for R6502 [1.42].                                     Page   19
+---------------------------------- mytb.asm ----------------------------------
+
+                        ;
+                        ; All done with copy.
+                        ;
+0698 : 18               mvUpDone	clc
+0699 : a57d             		lda	lineLength
+069b : 6d7c0f           		adc	PROGRAMEND
+069e : 8d7c0f           		sta	PROGRAMEND
+06a1 : ad7d0f           		lda	PROGRAMEND+1
+06a4 : 6900             		adc	#0
+06a6 : 8d7d0f           		sta	PROGRAMEND+1
+                        ;
+06a9 : a000             		ldy	#0	;copy line number first
+06ab : a581             		lda	R0
+06ad : 917e             		sta	(CURPTR),y
+06af : c8               		iny
+06b0 : a582             		lda	R0+1
+06b2 : 917e             		sta	(CURPTR),y
+06b4 : c8               		iny
+                        ;
+06b5 : a67c             		ldx	offset
+06b7 : bd9a0e           mvUpLoop2	lda	LINBUF,x
+06ba : 917e             		sta	(CURPTR),y
+06bc : f004             		beq	mvUpFini
+06be : e8               		inx
+06bf : c8               		iny
+06c0 : d0f5             		bne	mvUpLoop2
+                        ;
+06c2 : 4ca902           mvUpFini	jmp	NextIL
+                        ;
+                        ;=====================================================
+                        ; Pops the top value of the ILPC stack and stores it
+                        ; in ILPC.  Ie, return from an IL subroutine. 
+                        ;
+06c5 : 208308           iRTN		jsr	popILPC
+06c8 : 4ca902           		jmp	NextIL
+                        ;
+                        ;=====================================================
+                        ; NLINE
+                        ;
+06cb : 200c02           iNLINE		jsr	CRLF	;user supplied sub
+06ce : 4ca902           		jmp	NextIL
+                        ;
+                        ;=====================================================
+                        ; This saves the current ILPC value on the stack, then
+                        ; jumps to the address specified by the next two bytes
+                        ;
+06d1 : 206908           iCALL		jsr	pushILPC	;save ILPC
+                        ;
+                        ; Jmp to a specific location in the IL code.  The new
+                        ; address immediately follows the opcode.
+                        ;
+06d4 : 204f08           iJMP		jsr	getILWord
+06d7 : 8675             		stx	ILPC
+06d9 : 8576             		sta	ILPC+1
+06db : 4ca902           		jmp	NextIL
+                        ;
+                        ;=====================================================
+                        ; Push the next two bytes onto the arithmetic stack.
+                        ;
+06de : 204f08           iLIT		jsr	getILWord
+06e1 : 8681             		stx	R0
+06e3 : 8582             		sta	R0+1
+AS65 Assembler for R6502 [1.42].                                     Page   20
+---------------------------------- mytb.asm ----------------------------------
+
+06e5 : 205f0a           		jsr	pushR0
+06e8 : 4ca902           		jmp	NextIL
+                        ;
+                        ;=====================================================
+                        ; Initialize all variables.  Ie, set to zero.
+                        ;
+06eb : a900             iVINIT		lda	#0
+06ed : a200             		ldx	#0
+06ef : 9541             Vinit2		sta	variables,x
+06f1 : e8               		inx
+06f2 : e034             		cpx	#variablesEnd-variables
+06f4 : d0f9             		bne	Vinit2
+06f6 : 4ca902           		jmp	NextIL
+                        ;
+                        ;=====================================================
+                        ; Set the address of the error handler.  After any
+                        ; error, set to the ILPC to the specified location. 
+                        ;
+06f9 : 204f08           iERRGOTO	jsr	getILWord
+06fc : 8eee0e           		stx	errGoto
+06ff : 8def0e           		sta	errGoto+1
+0702 : 4ca902           		jmp	NextIL
+                        ;
+                        ;=====================================================
+                        ; TST is followed by an 8 bit signed offset, then a
+                        ; null terminated string.  Compare the string against
+                        ; the string starting at (CURPTR),CUROFF.  If the
+                        ; strings match, continue executing the next IL
+                        ; opcode.  Else, add the offset to ILPC.
+                        ;
+0705 : 205308           iTST		jsr	getILByte
+0708 : 857c             		sta	offset
+                        ;
+070a : 204d0a           		jsr	saveIL	;in case of failure
+070d : a480             		ldy	CUROFF
+070f : 8477             		sty	dpl	;save for later
+                        ;
+0711 : 205308           iTSTloop	jsr	getILByte	;get next char
+0714 : f00b             		beq	iTSTm		;match!
+0716 : a477             		ldy	dpl
+0718 : d17e             		cmp	(CURPTR),y
+071a : d00c             		bne	iTSTfail	;mismatch
+071c : c8               		iny
+071d : 8477             		sty	dpl
+071f : d0f0             		bne	iTSTloop
+                        ;
+                        ; It's a match!  Clean up a bit.
+                        ;
+0721 : a477             iTSTm		ldy	dpl
+0723 : 8480             		sty	CUROFF
+0725 : 4ca902           		jmp	NextIL
+                        ;
+                        ; Not a match, reset ILPC and then move to the
+                        ; offset.
+                        ;
+0728 : 20560a           iTSTfail	jsr	restoreIL
+072b : 4c9107           		jmp	tstBranch
+                        ;
+                        ;=====================================================
+                        ; TSTV is followed by an 8 bit signed offset.  If the
+                        ; value at (CURPTR),CUROFF appears to be a variable
+                        ; name, move to the next IL statement.  Else, add the
+AS65 Assembler for R6502 [1.42].                                     Page   21
+---------------------------------- mytb.asm ----------------------------------
+
+                        ; offset to ILPC.
+                        ;
+072e : 205308           iTSTV		jsr	getILByte	;offset
+0731 : 857c             		sta	offset
+                        ;
+0733 : a480             		ldy	CUROFF
+0735 : 202a0b           		jsr	SkipSpaces
+0738 : b17e             		lda	(CURPTR),y
+                        ;
+073a : c941             		cmp	#'A'
+073c : 9053             		bcc	tstBranch
+073e : c95b             		cmp	#'Z'+1
+0740 : b04f             		bcs	tstBranch
+                        ;
+                        ; The condition is true, so convert to an index, push
+                        ; it onto the stack and continue running.
+                        ;
+0742 : 38               		sec
+0743 : e941             		sbc	#'A'	;index is zero based
+0745 : 0a               		asl	a	;multiply by two
+0746 : 8581             		sta	R0
+0748 : a900             		lda	#0
+074a : 8582             		sta	R0+1
+074c : 205f0a           		jsr	pushR0	;put index onto stack
+074f : e680             		inc	CUROFF	;move to next input char
+0751 : 4ca902           		jmp	NextIL
+                        ;
+                        ;=====================================================
+                        ; TSTL seems basically the same as TSTN, but leave the
+                        ; value in R0 instead of pushing onto stack.
+                        ;
+0754 : 205308           iTSTL		jsr	getILByte
+0757 : 857c             		sta	offset
+                        ;
+0759 : a480             		ldy	CUROFF
+075b : 202a0b           		jsr	SkipSpaces
+075e : b17e             		lda	(CURPTR),y
+                        ;
+0760 : c930             		cmp	#'0'
+0762 : 902d             		bcc	tstBranch
+0764 : c93a             		cmp	#'9'+1
+0766 : b029             		bcs	tstBranch
+                        ;
+                        ; It's a digit, so convert to a number.
+                        ;
+0768 : 206909           		jsr	getDecimal
+076b : 4ca902           		jmp	NextIL
+                        ;
+                        ;=====================================================
+                        ; TSTN checks for a number.  This is very simplistic;
+                        ; if the character is a digit, assume it's a number.
+                        ; Convert to a number and push it onto the stack.
+                        ;
+076e : 205308           iTSTN		jsr	getILByte
+0771 : 857c             		sta	offset
+                        ;
+0773 : a480             		ldy	CUROFF
+0775 : 202a0b           		jsr	SkipSpaces
+0778 : b17e             		lda	(CURPTR),y
+                        ;
+077a : c92d             		cmp	#'-'	;negative?
+077c : f008             		beq	iTSTN_1
+AS65 Assembler for R6502 [1.42].                                     Page   22
+---------------------------------- mytb.asm ----------------------------------
+
+077e : c930             		cmp	#'0'
+0780 : 900f             		bcc	tstBranch
+0782 : c93a             		cmp	#'9'+1
+0784 : b00b             		bcs	tstBranch
+                        ;
+                        ; It's a digit, so convert to a number.
+                        ;
+0786 : 206909           iTSTN_1		jsr	getDecimal
+0789 : 8480             		sty	CUROFF
+078b : 205f0a           		jsr	pushR0	;save onto stack
+078e : 4ca902           		jmp	NextIL
+                        ;
+                        ; Common jump point for all TSTx instructions that
+                        ; fail to meet the requirements.  This takes the
+                        ; offset and adds/subtracts to/from ILPC.
+                        ;
+0791 : a57c             tstBranch	lda	offset	;get signed offset
+0793 : 100e             		bpl	tstPositive
+                        ;
+                        ; Do negative branch.  Do sign extension.
+                        ;
+0795 : 18               		clc
+0796 : 6575             		adc	ILPC
+0798 : 8575             		sta	ILPC
+079a : a576             		lda	ILPC+1
+079c : 69ff             		adc	#$ff
+079e : 8576             		sta	ILPC+1
+07a0 : 4ca902           		jmp	NextIL		;keep going
+                        ;
+07a3 : 18               tstPositive	clc
+07a4 : 6575             		adc	ILPC
+07a6 : 8575             		sta	ILPC
+07a8 : a576             		lda	ILPC+1
+07aa : 6900             		adc	#0
+07ac : 8576             		sta	ILPC+1
+07ae : 4ca902           		jmp	NextIL
+                        ;
+                        ;=====================================================
+                        ; This places the number of free bytes on top of the
+                        ; stack.
+                        ;
+07b1 : 20780b           iFREE		jsr	GetSizes
+07b4 : 205f0a           		jsr	pushR0
+07b7 : 4ca902           		jmp	NextIL
+                        ;
+                        ;=====================================================
+                        ; Generate a random number from 0-FFFF and then MOD
+                        ; it with the value on top of stack.  Leaves number on
+                        ; stack
+                        ;
+07ba : 20980a           iRANDOM		jsr	popR1	;mod value
+                        ;
+                        ; If the value is zero, just return a one.
+                        ;
+07bd : a581             		lda	R0
+07bf : 0582             		ora	R0+1
+07c1 : f063             		beq	irandom1
+                        ;
+07c3 : adf50e           		lda	random+1
+07c6 : 8df30e           		sta	rtemp1
+07c9 : adf40e           		lda	random
+07cc : 0a               		asl	a
+AS65 Assembler for R6502 [1.42].                                     Page   23
+---------------------------------- mytb.asm ----------------------------------
+
+07cd : 2ef30e           		rol	rtemp1
+07d0 : 0a               		asl	a
+07d1 : 2ef30e           		rol	rtemp1
+07d4 : 18               		clc
+07d5 : 6df40e           		adc	random
+07d8 : 48               		pha
+07d9 : adf30e           		lda	rtemp1
+07dc : 6df50e           		adc	random+1
+07df : 8df50e           		sta	random+1
+07e2 : 68               		pla
+07e3 : 6911             		adc	#$11
+07e5 : 8df40e           		sta	random
+07e8 : adf50e           		lda	random+1
+07eb : 6936             		adc	#$36
+07ed : 8df50e           		sta	random+1
+                        
+07f0 : adf40e           		lda	random
+07f3 : 8581             		sta	R0
+07f5 : adf50e           		lda	random+1
+07f8 : 297f             		and	#$7f	;make positive
+07fa : 8582             		sta	R0+1
+                        ;
+                        ; R0 contains the number and R1 contains the max value
+                        ;
+07fc : a581             iRANDOM_2	lda	R0
+07fe : c583             		cmp	R1
+0800 : d016             		bne	iRANDOM_1
+0802 : a582             		lda	R0+1
+0804 : c584             		cmp	R1+1
+0806 : d010             		bne	iRANDOM_1	;need to subtract
+                        ;
+                        ; Subtract R1 from R0
+                        ;
+0808 : 38               iRANDOM_sub	sec
+0809 : a581             		lda	R0
+080b : e583             		sbc	R1
+080d : 8581             		sta	R0
+080f : a582             		lda	R0+1
+0811 : e584             		sbc	R1+1
+0813 : 8582             		sta	R0+1
+0815 : 4cfc07           		jmp	iRANDOM_2
+                        ;
+                        ; See if R1 > R0.  If so, branch to subtract.
+                        ;
+0818 : a581             iRANDOM_1	lda	R0
+081a : c583             		cmp	R1
+081c : a582             		lda	R0+1
+081e : e584             		sbc	R1+1
+0820 : 5002             		bvc	iRANDOM_4
+0822 : 4980             		eor	#$80
+0824 : 10e2             iRANDOM_4	bpl	iRANDOM_sub
+                        ;
+                        ; All done.  Almost.  Add one, then push the result.
+                        ;
+0826 : e681             irandom1	inc	R0
+0828 : d002             		bne	iRANDOM_3
+082a : e682             		inc	R0+1
+082c : 205f0a           iRANDOM_3	jsr	pushR0	;return value
+082f : 4ca902           		jmp	NextIL
+                        ;
+                        ;=====================================================
+                        ; Replace TOS with its absolute value.
+AS65 Assembler for R6502 [1.42].                                     Page   24
+---------------------------------- mytb.asm ----------------------------------
+
+                        ;
+0832 : 20850a           iABS		jsr	popR0
+0835 : a582             		lda	R0+1
+0837 : 1010             		bpl	iABS_1	;already positive
+0839 : 49ff             		eor	#$ff
+083b : 8582             		sta	R0+1
+083d : a581             		lda	R0
+083f : 49ff             		eor	#$ff
+0841 : 8581             		sta	R0
+0843 : e681             		inc	R0
+0845 : d002             		bne	iABS_1
+0847 : e682             		inc	R0+1
+0849 : 205f0a           iABS_1		jsr	pushR0
+084c : 4ca902           		jmp	NextIL
+                        ;
+                        		include	"support.asm"
+                        ;
+                        ;=====================================================
+                        ;=====================================================
+                        ;=====================================================
+                        ; This marks the start of support functions used by
+                        ; the IL opcodes.  These are support functions, NOT
+                        ; the IL code.
+                        ;=====================================================
+                        ;=====================================================
+                        ;=====================================================
+                        ; This gets the next two bytes pointed to by ILPC and
+                        ; returns them; X contains LSB, A contains MSB.  ILPC
+                        ; is advanced by two, and Y contains 0 on return.
+                        ;
+084f : 205308           getILWord	jsr	getILByte	;LSB
+0852 : aa               		tax
+                        ;
+                        ;=====================================================
+                        ; This gets the next byte pointed to by ILPC and
+                        ; returns it in A.  On return, X is unchanged but Y
+                        ; contains 0.
+                        ;
+0853 : a000             getILByte	ldy	#0
+0855 : b175             		lda	(ILPC),y	;get byte
+0857 : 08               		php		;save status
+0858 : e675             		inc	ILPC	;inc LSB
+085a : d002             		bne	getILb2	;branch if no overflow
+085c : e676             		inc	ILPC+1	;inc MSB
+085e : 28               getILb2		plp		;restore status
+085f : 60               		rts
+                        ;
+                        ;=====================================================
+                        ; Decrement ILPC by one.
+                        ;
+0860 : a575             decIL		lda	ILPC
+0862 : d002             		bne	decIL2
+0864 : c676             		dec	ILPC+1
+0866 : c675             decIL2		dec	ILPC
+0868 : 60               		rts
+                        ;
+                        ;=====================================================
+                        ; Push the ILPC onto the return stack.  Actually, this
+                        ; pushes the address of ILPC+2 since that's the next
+                        ; address to execute.
+                        ;
+0869 : ac880e           pushILPC	ldy	retStackPtr
+AS65 Assembler for R6502 [1.42].                                     Page   25
+---------------------------------- mytb.asm ----------------------------------
+
+086c : a575             		lda	ILPC
+086e : 18               		clc
+086f : 6902             		adc	#2
+0871 : 99780e           		sta	retStack,y
+0874 : 08               		php		;save C bit
+0875 : c8               		iny
+0876 : a576             		lda	ILPC+1
+0878 : 28               		plp		;restore C
+0879 : 6900             		adc	#0
+087b : 99780e           		sta	retStack,y
+087e : c8               		iny
+087f : 8c880e           		sty	retStackPtr
+0882 : 60               		rts
+                        ;
+                        ;=====================================================
+                        ; Pull the top entry from return stack and put into
+                        ; ILPC.
+                        ;
+0883 : ac880e           popILPC		ldy	retStackPtr
+0886 : 88               		dey
+0887 : b9780e           		lda	retStack,y
+088a : 8576             		sta	ILPC+1
+088c : 88               		dey
+088d : b9780e           		lda	retStack,y
+0890 : 8575             		sta	ILPC
+0892 : 8c880e           		sty	retStackPtr
+0895 : 60               		rts
+                        ;
+                        ;=====================================================
+                        ; This searches for a specific line number that is in
+                        ; R0.  There are three possible return conditions:
+                        ;
+                        ; Exact match was found:
+                        ;    * Z set
+                        ;    * CURPTR points to two-byte line number for that
+                        ;      line.
+                        ;
+                        ; Next highest line found:
+                        ;    * Z cleared
+                        ;    * C set
+                        ;    * CURPTR points to two-byte line number for that
+                        ;      line.
+                        ;
+                        ; End of program reached:
+                        ;    * Z cleared
+                        ;    * C cleared
+                        ;    * CURPTR points to first free byte at end of
+                        ;      program.  Ie, it has save value as PROGRAMEND.
+                        ;
+                        ; A, X, and Y are all undefined on return.
+                        ;
+0896 : a984             findLine	lda	#ProgramStart&$ff
+0898 : 857e             		sta	CURPTR
+089a : a90f             		lda	#ProgramStart>>8
+089c : 857f             		sta	CURPTR+1
+                        ;
+                        ; At end of code?
+                        ;
+089e : a57e             iXFER1		lda	CURPTR
+08a0 : cd7c0f           		cmp	PROGRAMEND
+08a3 : d00b             		bne	xfer2	;not end
+08a5 : a57f             		lda	CURPTR+1
+AS65 Assembler for R6502 [1.42].                                     Page   26
+---------------------------------- mytb.asm ----------------------------------
+
+08a7 : cd7d0f           		cmp	PROGRAMEND+1
+08aa : d004             		bne	xfer2
+                        ;
+                        ; Line not found and the end of the program was
+                        ; reached.  Return Z and C both clear.
+                        ;
+08ac : a901             		lda	#1	;clear Z
+08ae : 18               		clc		;clear C
+08af : 60               		rts
+                        ;
+                        ; Check for an exact match first
+                        ;
+08b0 : a581             xfer2		lda	R0
+08b2 : a000             		ldy	#0
+08b4 : d17e             		cmp	(CURPTR),y
+08b6 : d008             		bne	xfernotit
+08b8 : c8               		iny
+08b9 : a582             		lda	R0+1
+08bb : d17e             		cmp	(CURPTR),y
+08bd : d001             		bne	xfernotit
+                        ;
+                        ; This is exactly the line we want.
+                        ;
+08bf : 60               		rts
+                        ;
+                        ; See if this line is greater than the one we're
+                        ; searching for.
+                        ;
+08c0 : a001             xfernotit	ldy	#1
+08c2 : b17e             		lda	(CURPTR),y	;compare MSB first
+08c4 : c582             		cmp	R0+1
+08c6 : 900b             		bcc	xfer3
+08c8 : d007             		bne	xfer4
+08ca : 88               		dey
+08cb : b17e             		lda	(CURPTR),y	;compare LSB
+08cd : c581             		cmp	R0
+08cf : 9002             		bcc	xfer3
+                        ;
+                        ; This line is greater than the one we want, so
+                        ; return Z clear and C set.
+                        ;
+08d1 : 38               xfer4:		sec
+08d2 : 60               		rts		;both conditions set
+                        ;
+                        ; Not the line (or droid) we're looking for.  Move to
+                        ; the next line.
+                        ;
+08d3 : 20d908           xfer3		jsr	FindNextLine
+08d6 : 4c9e08           		jmp	iXFER1
+                        ;
+                        ;=====================================================
+                        ; This advances CURPTR to the next line.  If there
+                        ; are no more lines, this leaves CURPTR equal to
+                        ; ProgramEnd.  Returns CUROFF set to 2.  This assumes
+                        ; CURPTR is pointing to a valid line on entry.  This
+                        ; pointer points to the two-byte line number.
+                        ;
+08d9 : a002             FindNextLine	ldy	#2	;skip line number
+08db : 8480             		sty	CUROFF	;this is the new offset
+                        ;
+08dd : b17e             FindNext2	lda	(CURPTR),y
+08df : f003             		beq	FindNext3	;found end
+AS65 Assembler for R6502 [1.42].                                     Page   27
+---------------------------------- mytb.asm ----------------------------------
+
+08e1 : c8               		iny
+08e2 : d0f9             		bne	FindNext2
+08e4 : c8               FindNext3	iny		;skip null byte
+08e5 : 98               		tya
+08e6 : 18               		clc
+08e7 : 657e             		adc	CURPTR
+08e9 : 857e             		sta	CURPTR
+08eb : 9002             		bcc	FindNext4	;exit
+08ed : e67f             		inc	CURPTR+1
+08ef : 60               FindNext4	rts
+                        ;
+                        ;=====================================================
+                        ; This compares CURPTR to PROGRAMEND and returns Z set
+                        ; if they are equal, Z clear if not.
+                        ;
+08f0 : a57e             AtEnd		lda	CURPTR
+08f2 : cd7c0f           		cmp	PROGRAMEND
+08f5 : d005             		bne	atendexit
+08f7 : a57f             		lda	CURPTR+1
+08f9 : cd7d0f           		cmp	PROGRAMEND+1
+08fc : 60               atendexit	rts
+                        ;
+                        ;=====================================================
+                        ; Print the contents of R0 as a signed decimal number.
+                        ; Does leading zero suppression.
+                        ;
+08fd : a582             PrintDecimal	lda	R0+1	;MSB has sign
+08ff : 1017             		bpl	pplus		;it's a positive number
+                        ;
+                        ; Negative numbers need more work.  Invert all the bit
+                        ; then add one.
+                        ;
+0901 : a92d             		lda	#'-'
+0903 : 20b60b           		jsr	VOUTCH		;print the negative sign
+                        ;
+0906 : a581             		lda	R0		;invert bits
+0908 : 49ff             		eor	#$ff
+090a : 8581             		sta	R0
+090c : a582             		lda	R0+1
+090e : 49ff             		eor	#$ff
+0910 : 8582             		sta	R0+1
+0912 : e681             		inc	R0		;add one
+0914 : d002             		bne	pplus
+0916 : e682             		inc	R0+1
+                        ;
+                        ; Print the value in R0 as a positive number.
+                        ;
+0918 : a200             pplus		ldx	#0	;start of subtraction table
+091a : 8eec0e           		stx	diddigit	;no digits yet
+091d : a000             pploop		ldy	#0		;result of division
+091f : a581             pploop2		lda	R0		;LSB
+0921 : 38               		sec
+0922 : fd6109           		sbc	dectable,x
+0925 : 8581             		sta	R0
+0927 : a582             		lda	R0+1
+0929 : fd6209           		sbc	dectable+1,x
+092c : 102e             		bpl	pplusok	;no underflow
+                        ;
+                        ; Else, underflow.  Add back in the LSB of the
+                        ; table to R0.
+                        ;
+092e : 18               		clc
+AS65 Assembler for R6502 [1.42].                                     Page   28
+---------------------------------- mytb.asm ----------------------------------
+
+092f : a581             		lda	R0
+0931 : 7d6109           		adc	dectable,x
+0934 : 8581             		sta	R0
+                        ;
+                        ; Print the value in Y.  Actually, see if Y is zero an
+                        ; whether any digit has been printed yet.  If Y isn't
+                        ; zero or we've printed a digit, go ahead and print.
+                        ;
+0936 : 8eeb0e           		stx	printtx
+0939 : 98               		tya
+093a : 0900             		ora	#0		;set flags
+093c : d005             		bne	pprintit	;non-zero, print
+                        ;
+093e : adec0e           		lda	diddigit
+0941 : f009             		beq	pprintno	;don't print
+                        ;
+0943 : 98               pprintit	tya
+0944 : 0930             		ora	#'0'
+0946 : 8dec0e           		sta	diddigit
+0949 : 20b60b           		jsr	VOUTCH
+094c : aeeb0e           pprintno	ldx	printtx
+                        ;
+                        ; Move to the next table entry
+                        ;
+094f : e8               		inx
+0950 : e8               		inx
+0951 : e008             		cpx	#dectableend-dectable
+0953 : d0c8             		bne	pploop	;not at end
+                        ;
+                        ; At the end.  R0 contains the final value
+                        ; to print.
+                        ;
+0955 : a581             		lda	R0
+0957 : 0930             		ora	#'0'
+0959 : 4cb60b           		jmp	VOUTCH
+                        ;
+                        ; Finish doing the subtraction.
+                        ;
+095c : 8582             pplusok		sta	R0+1
+095e : c8               		iny
+095f : d0be             		bne	pploop2
+                        ;
+                        ; Table of powers-of-ten
+                        ;
+0961 : 1027             dectable	dw	10000
+0963 : e803             		dw	1000
+0965 : 6400             		dw	100
+0967 : 0a00             		dw	10
+0969 =                  dectableend	equ	*
+                        ;
+                        ;=====================================================
+                        ; Convert an ASCII string to a number.  On input,
+                        ; (CURPTR),Y points to the first digit.  This gets
+                        ; digit-by-digit until finding a non-number.  Returns
+                        ; Y pointing to the non-digit, and R0 contains the
+                        ; number.  This does NOT check for valid ranges, so
+                        ; a value like "123456789" will produce something,
+                        ; but not what you had expected.
+                        ;
+0969 : a900             getDecimal	lda	#0
+096b : 8581             		sta	R0
+096d : 8582             		sta	R0+1
+AS65 Assembler for R6502 [1.42].                                     Page   29
+---------------------------------- mytb.asm ----------------------------------
+
+096f : 8577             		sta	dpl	;temporary negative flag
+                        ;
+                        ; See if it's negative...
+                        ;
+0971 : 8413              sty $0013
+0973 : b17e             		lda	(CURPTR),y
+0975 : c92d             		cmp	#'-'
+0977 : d002             		bne	getDecLoop
+0979 : e677             		inc	dpl	;it's negative
+                        ;
+097b : b17e             getDecLoop	lda	(CURPTR),y
+097d : c930             		cmp	#'0'
+097f : 9036             		bcc	getDdone
+0981 : c93a             		cmp	#'9'+1
+0983 : b032             		bcs	getDdone
+0985 : 38               		sec
+0986 : e930             		sbc	#'0'	;convert to binary
+0988 : 48               		pha
+                        ;
+                        ; Now multiply R0 by 10.  Remember that
+                        ; 2*N + 8*N = 10*N.
+                        ;
+0989 : 0681             		asl	R0
+098b : 2682             		rol	R0+1	;*2
+098d : a581             		lda	R0
+098f : 8583             		sta	R1
+0991 : a582             		lda	R0+1
+0993 : 8584             		sta	R1+1
+0995 : 0681             		asl	R0
+0997 : 2682             		rol	R0+1	;*4
+0999 : 0681             		asl	R0
+099b : 2682             		rol	R0+1	;*8
+099d : 18               		clc		;now add the partial sums...
+099e : a581             		lda	R0	;...to get *10
+09a0 : 6583             		adc	R1
+09a2 : 8581             		sta	R0
+09a4 : a582             		lda	R0+1
+09a6 : 6584             		adc	R1+1
+09a8 : 8582             		sta	R0+1
+                        ;
+                        ; Add in the new digit
+                        ;
+09aa : 68               		pla
+09ab : 18               		clc
+09ac : 6581             		adc	R0
+09ae : 8581             		sta	R0
+09b0 : 9002             		bcc	getD2
+09b2 : e682             		inc	R0+1
+                        ;
+                        ; Move to next character
+                        ;
+09b4 : c8               getD2		iny
+09b5 : d0c4             		bne	getDecLoop
+                        ;
+                        ; All done with digits, so now deal with it being
+                        ; negative.  If zero, then don't check for negative
+                        ; flag.  Ie, -0 is stored as 0.
+                        ;
+09b7 : a581             getDdone	lda	R0
+09b9 : 0582             		ora	R0+1
+09bb : f016             		beq	getDone2	;zero
+09bd : a577             		lda	dpl
+AS65 Assembler for R6502 [1.42].                                     Page   30
+---------------------------------- mytb.asm ----------------------------------
+
+09bf : f012             		beq	getDone2	;positive
+                        ;
+                        ; Invert all the bits, then add one.
+                        ;
+09c1 : a581             		lda	R0
+09c3 : 49ff             		eor	#$ff
+09c5 : 8581             		sta	R0
+09c7 : a582             		lda	R0+1
+09c9 : 49ff             		eor	#$ff
+09cb : 8582             		sta	R0+1
+                        ;
+09cd : e681             		inc	R0
+09cf : d002             		bne	getDone2
+09d1 : e682             		inc	R0+1
+09d3 :                  getDone2	
+09d3 : a581             	lda R0
+09d5 : 8510             	sta $0010
+09d7 : a582             	lda R0+1
+09d9 : 8511             	sta $0011
+09db : a577             	lda dpl
+09dd : 8512             	sta $012
+                        
+09df : 60               		rts
+                        ;
+                        ;=====================================================
+                        ; Print the string that immediately follows the JSR to
+                        ; this function.  Stops when a null byte is found,
+                        ; then returns to the instruction immediately
+                        ; following the null.
+                        ;
+                        ; Thanks to Ross Archer for this code.
+                        ; http://www.6502.org/source/io/primm.htm
+                        ;
+                        	if KIM
+                        puts		sty	putsy
+                        		pla		;low part of "return" address
+                                   			;(data start address)
+                        		sta	dpl
+                        		pla
+                        		sta	dpl+1	;high part of "return" address
+                                     			;(data start address)
+                                     			;Note: we're pointing one short
+                        psinb	       	ldy	#1
+                        		lda	(dpl),y	;Get next string character
+                        		inc	dpl	;update the pointer
+                        		bne	psinc	;if not, we're pntng to next char
+                        		inc	dpl+1	;account for page crossing
+                        psinc		ora	#0	;Set flags according to contents of 
+                                     			;   Accumulator
+                        		beq	psix1	;don't print the final NULL 
+                        		jsr	OUTCH	;write it out
+                        		jmp	psinb	;back around
+                        psix1		inc	dpl
+                        		bne	psix2
+                        		inc	dpl+1	;account for page crossing
+                        psix2		ldy	putsy
+                        		jmp	(dpl)	;return to byte following NULL
+                        	endif
+                        ;
+                        ;=====================================================
+                        ; Gets a line of input into LINBUF.
+                        ;
+AS65 Assembler for R6502 [1.42].                                     Page   31
+---------------------------------- mytb.asm ----------------------------------
+
+                        ; On entry:
+                        ;    A contains the prompt character, or 0 if none.
+                        ;
+                        ; On exit:
+                        ;    CURPTR points to LINBUF
+                        ;    LINBUF contains the line with 0 at the end.
+                        ;    Y has offset to first non-space character
+                        ;    CURROFF has the same as Y.
+                        ;
+09e0 : a29a             GetLine		ldx	#LINBUF&$ff
+09e2 : 867e             		stx	CURPTR
+09e4 : a20e             		ldx	#LINBUF>>8
+09e6 : 867f             		stx	CURPTR+1
+                        ;
+                        ; Prompt
+                        ;
+09e8 : 48               		pha		;save for retries
+09e9 : 68               GetLinePr	pla		;restore
+09ea : 48               		pha		;save again
+09eb : 0900             		ora	#0	;any prompt?
+09ed : f008             		beq	getlinenp
+09ef : 200602           		jsr	OUTCH
+09f2 : a920             		lda	#' '
+09f4 : 200602           		jsr	OUTCH	;space after prompt
+                        ;
+09f7 : a200             getlinenp	ldx	#0	;offset into LINBUF
+09f9 : 8eea0e           getline1	stx	getlinx
+09fc : 200902           		jsr	GETCH
+                        	if	CTMON65
+                        		pha
+                        		jsr	cout
+                        		pla
+                        	endif
+09ff : c90d             		cmp	#CR
+0a01 : f00d             		beq	getlind	;end of line
+0a03 : c908             		cmp	#BS	;backspace?
+0a05 : f021             		beq	getlinebs
+0a07 : aeea0e           		ldx	getlinx
+0a0a : 9d9a0e           		sta	LINBUF,x
+0a0d : e8               		inx
+0a0e : d0e9             		bne	getline1
+                        ;
+                        ; CR was hit
+                        ;
+0a10 : a900             getlind		lda	#0
+0a12 : aeea0e           		ldx	getlinx
+0a15 : 9d9a0e           		sta	LINBUF,x
+0a18 : 8580             		sta	CUROFF
+                        ;
+                        ; Output a CR/LF
+                        ;
+0a1a : 200c02           		jsr	CRLF
+                        ;
+                        ; If a blank line, prompt again.
+                        ;
+0a1d : a000             		ldy	#0
+0a1f : 202a0b           		jsr	SkipSpaces
+0a22 : b17e             		lda	(CURPTR),y
+0a24 : f0c3             		beq	GetLinePr	;empty line
+0a26 : 68               		pla		;get rid of prompt char
+0a27 : 60               		rts
+                        ;
+AS65 Assembler for R6502 [1.42].                                     Page   32
+---------------------------------- mytb.asm ----------------------------------
+
+                        ; Backspace was hit
+                        ;
+0a28 : aeea0e           getlinebs	ldx	getlinx
+0a2b : f0cc             		beq	getline1	;at start of line
+0a2d : ca               		dex
+0a2e : 4cf909           		jmp	getline1
+                        ;
+                        ;=====================================================
+                        ; Count the length of the line currently in LINBUF
+                        ; starting at offset Y.  Returns the length in X.  The
+                        ; starting offset in Y should point past the ASCII
+                        ; line number.  Also counts the trailing NULL and two
+                        ; extra bytes for where the line number will be.
+                        ;
+0a31 : a200             getLineLength	ldx	#0	;size
+0a33 : b99a0e           getLineL2	lda	LINBUF,y
+0a36 : f004             		beq	getLineL3
+0a38 : c8               		iny
+0a39 : e8               		inx
+0a3a : d0f7             		bne	getLineL2
+0a3c : e8               getLineL3	inx		;count null at end
+0a3d : e8               		inx		;line number LSB
+0a3e : e8               		inx		;MSB
+0a3f : 867d             		stx	lineLength
+0a41 : 60               		rts
+                        ;
+                        ;=====================================================
+                        ; Count the length of the line pointed to by CURPTR.
+                        ; This also counts the line number and the terminating
+                        ; null.  Ie, this string returns 8:
+                        ;
+                        ; <lineLow><lineHi>Hello<null>
+                        ;
+                        ; Another way of looking at it: add the return value
+                        ; to the CURPTR and it'll point to the next line's
+                        ; line number.  Returns the value in Y.
+                        ;
+0a42 : a002             getCURPTRLength	ldy	#2	;skip line number
+0a44 : b17e             getCLineL2	lda	(CURPTR),y
+0a46 : f003             		beq	getCLineL3
+0a48 : c8               		iny
+0a49 : d0f9             		bne	getCLineL2
+0a4b : c8               getCLineL3	iny		;count null at end
+0a4c : 60               		rts
+                        ;
+                        ;=====================================================
+                        ; This saves ILPC.  This saves to a single save area,
+                        ; so it can't be called more than once.
+                        ;
+0a4d : a575             saveIL		lda	ILPC
+0a4f : 8579             		sta	tempIL
+0a51 : a576             		lda	ILPC+1
+0a53 : 857a             		sta	tempIL+1
+0a55 : 60               		rts
+                        ;
+                        ;=====================================================
+                        ; This restores ILPC.
+                        ;
+0a56 : a579             restoreIL	lda	tempIL
+0a58 : 8575             		sta	ILPC
+0a5a : a57a             		lda	tempIL+1
+0a5c : 8576             		sta	ILPC+1
+AS65 Assembler for R6502 [1.42].                                     Page   33
+---------------------------------- mytb.asm ----------------------------------
+
+0a5e : 60               		rts
+                        ;
+                        ;=====================================================
+                        ; This pushes R0 onto the stack.
+                        ;
+0a5f : ae770e           pushR0		ldx	mathStackPtr
+0a62 : a581             		lda	R0
+0a64 : 9d670e           		sta	mathStack,x
+0a67 : e8               		inx
+0a68 : a582             		lda	R0+1
+0a6a : 9d670e           		sta	mathStack,x
+0a6d : e8               		inx
+0a6e : 8e770e           		stx	mathStackPtr
+0a71 : 60               		rts
+                        ;
+                        ;=====================================================
+                        ; This pushes R1 onto the stack
+                        ;
+0a72 : ae770e           pushR1		ldx	mathStackPtr
+0a75 : a583             		lda	R1
+0a77 : 9d670e           		sta	mathStack,x
+0a7a : e8               		inx
+0a7b : a584             		lda	R1+1
+0a7d : 9d670e           		sta	mathStack,x
+0a80 : e8               		inx
+0a81 : 8e770e           		stx	mathStackPtr
+0a84 : 60               		rts
+                        ;
+                        ;=====================================================
+                        ; This pops TOS and places it in R0.
+                        ;
+0a85 : ae770e           popR0		ldx	mathStackPtr
+0a88 : ca               		dex
+0a89 : bd670e           		lda	mathStack,x
+0a8c : 8582             		sta	R0+1
+0a8e : ca               		dex
+0a8f : bd670e           		lda	mathStack,x
+0a92 : 8581             		sta	R0
+0a94 : 8e770e           		stx	mathStackPtr
+0a97 : 60               		rts
+                        ;
+                        ;=====================================================
+                        ; This pops TOS and places it in R1.
+                        ;
+0a98 : ae770e           popR1		ldx	mathStackPtr
+0a9b : ca               		dex
+0a9c : bd670e           		lda	mathStack,x
+0a9f : 8584             		sta	R1+1
+0aa1 : ca               		dex
+0aa2 : bd670e           		lda	mathStack,x
+0aa5 : 8583             		sta	R1
+0aa7 : 8e770e           		stx	mathStackPtr
+0aaa : 60               		rts
+                        ;
+                        ;=====================================================
+                        ; This pops TOS and places it in MQ.
+                        ;
+0aab : ae770e           popMQ		ldx	mathStackPtr
+0aae : ca               		dex
+0aaf : bd670e           		lda	mathStack,x
+0ab2 : 8df10e           		sta	MQ+1
+0ab5 : ca               		dex
+AS65 Assembler for R6502 [1.42].                                     Page   34
+---------------------------------- mytb.asm ----------------------------------
+
+0ab6 : bd670e           		lda	mathStack,x
+0ab9 : 8df00e           		sta	MQ
+0abc : 8e770e           		stx	mathStackPtr
+0abf : 60               		rts
+                        ;
+                        ;=====================================================
+                        ; This assists with multiplication and division by
+                        ; looking at R0 and R1 and saving a flag as to what
+                        ; sign the result will be.  Math is always done on
+                        ; positive numbers, so this converts negative numbers
+                        ; into positives.  On exit, R0 and R1 are both
+                        ; positive.  If the signs were different then 'signs'
+                        ; will be non-zero.
+                        ;
+0ac0 : a900             SaveSigns	lda	#0
+0ac2 : 8df20e           		sta	sign	;assume positive
+0ac5 : a582             		lda	R0+1	;MSB
+0ac7 : 1013             		bpl	SaveSigns1
+0ac9 : eef20e           		inc	sign	;it's negative
+0acc : 49ff             		eor	#$ff	;flip bits
+0ace : 8582             		sta	R0+1
+0ad0 : a581             		lda	R0
+0ad2 : 49ff             		eor	#$ff
+0ad4 : 8581             		sta	R0
+0ad6 : e681             		inc	R0
+0ad8 : d002             		bne	SaveSigns1
+0ada : e682             		inc	R0+1
+0adc : a584             SaveSigns1	lda	R1+1
+0ade : 101a             		bpl	SaveSigns2
+0ae0 : 48               		pha
+0ae1 : adf20e           		lda	sign
+0ae4 : 4901             		eor	#1
+0ae6 : 8df20e           		sta	sign
+0ae9 : 68               		pla
+0aea : 49ff             		eor	#$ff	;flip bits
+0aec : 8584             		sta	R1+1
+0aee : a583             		lda	R1
+0af0 : 49ff             		eor	#$ff
+0af2 : 8583             		sta	R1
+0af4 : e683             		inc	R1
+0af6 : d002             		bne	SaveSigns2
+0af8 : e684             		inc	R1+1
+0afa : 60               SaveSigns2	rts
+                        ;
+                        ;=====================================================
+                        ; This looks at the value of 'signs' and will convert
+                        ; both R0 and R1 to negative if set.
+                        ;
+0afb : adf20e           RestoreSigns	lda	sign
+0afe : f028             		beq	restoresigns2
+                        ;
+0b00 : a581             		lda	R0
+0b02 : d002             		bne	restoresigns3
+0b04 : c682             		dec	R0+1
+0b06 : c681             restoresigns3	dec	R0
+0b08 : a581             		lda	R0
+0b0a : 49ff             		eor	#$ff
+0b0c : 8581             		sta	R0
+0b0e : a582             		lda	R0+1
+0b10 : 49ff             		eor	#$ff
+0b12 : 8582             		sta	R0+1
+                        ;
+AS65 Assembler for R6502 [1.42].                                     Page   35
+---------------------------------- mytb.asm ----------------------------------
+
+0b14 : a583             		lda	R1
+0b16 : d002             		bne	restoresigns4
+0b18 : c684             		dec	R1+1
+0b1a : c683             restoresigns4	dec	R1
+0b1c : a583             		lda	R1
+0b1e : 49ff             		eor	#$ff
+0b20 : 8583             		sta	R1
+0b22 : a584             		lda	R1+1
+0b24 : 49ff             		eor	#$ff
+0b26 : 8584             		sta	R1+1
+                        ;
+0b28 : 60               restoresigns2	rts
+                        ;
+                        ;=====================================================
+                        ; Skip over spaces.  Returns Y with the offset to
+                        ; either the last character in the line, or the first
+                        ; non-space character.
+                        ;
+0b29 : c8               skipsp2		iny
+0b2a : b17e             SkipSpaces	lda	(CURPTR),y
+0b2c : f004             		beq	Skip3	;end of line
+0b2e : c920             		cmp	#SPACE
+0b30 : f0f7             		beq	skipsp2
+0b32 : 60               Skip3		rts
+                        ;
+                        ;=====================================================
+                        ; This is some debug logic which displays the current
+                        ; value of the ILPC and the line buffer.
+                        ;
+0b33 : 200fe0           dbgLine		jsr	puts
+0b36 : 494c50433a2000   		db	"ILPC: ",0
+0b3d : a576             		lda	ILPC+1
+0b3f : 200f02           		jsr	OUTHEX
+0b42 : a575             		lda	ILPC
+0b44 : 200f02           		jsr	OUTHEX
+0b47 : a920             		lda	#SPACE
+0b49 : 200602           		jsr	OUTCH
+0b4c : a000             		ldy	#0
+0b4e : b175             		lda	(ILPC),y
+0b50 : 200f02           		jsr	OUTHEX
+                        ;
+                        ; Display the CURPTR value and offset
+                        ;
+0b53 : 200fe0           		jsr	puts
+0b56 : 2c204355525054.. 		db	", CURPTR: ",0
+0b61 : a57f             		lda	CURPTR+1
+0b63 : 200f02           		jsr	OUTHEX
+0b66 : a57e             		lda	CURPTR
+0b68 : 200f02           		jsr	OUTHEX
+0b6b : a92b             		lda	#'+'
+0b6d : 200602           		jsr	OUTCH
+0b70 : a580             		lda	CUROFF
+0b72 : 200f02           		jsr	OUTHEX
+                        ;
+0b75 : 4c0c02           		jmp	CRLF
+                        ;
+                        ;=====================================================
+                        ; This function might go away eventually, but was
+                        ; added to provide data for other pieces of code.
+                        ; It has some ties to the operating environment that
+                        ; will need to be customized for the target system.
+                        ;
+AS65 Assembler for R6502 [1.42].                                     Page   36
+---------------------------------- mytb.asm ----------------------------------
+
+0b78 :                  GetSizes
+                        ;
+                        ; Here is machine specific code to get the highest
+                        ; memory location that can be used by BASIC.
+                        ;
+                        	if ProgramStart < $2000
+0b78 : a9ff             		lda	#$ff
+0b7a : 8d7e0f           		sta	HighMem	;$13ff for KIM-1
+0b7d : a913             		lda	#$13
+0b7f : 8d7f0f           		sta	HighMem+1
+                        	else
+                        		lda	#$ff
+                        		sta	HighMem	;$CFFF otherwise
+                        		lda	#$cf
+                        		sta	HighMem+1
+                        	endif
+                        ;
+                        ; This computes the available memory remaining.
+                        ;
+0b82 : 38               		sec
+0b83 : ad7e0f           		lda	HighMem
+0b86 : ed7c0f           		sbc	PROGRAMEND
+0b89 : 8d820f           		sta	FreeMem
+0b8c : 8581             		sta	R0
+0b8e : ad7f0f           		lda	HighMem+1
+0b91 : ed7d0f           		sbc	PROGRAMEND+1
+0b94 : 8d830f           		sta	FreeMem+1
+0b97 : 8582             		sta	R0+1
+                        ;
+                        ; This computes the size of the current user program.
+                        ;
+0b99 : 38               		sec
+0b9a : ad7c0f           		lda	PROGRAMEND
+0b9d : e984             		sbc	#ProgramStart&$ff
+0b9f : 8d800f           		sta	UsedMem
+0ba2 : ad7d0f           		lda	PROGRAMEND+1
+0ba5 : e90f             		sbc	#ProgramStart>>8
+0ba7 : 8d810f           		sta	UsedMem+1
+                        ;
+0baa : 60               		rts
+                        ;
+                        ;=====================================================
+                        ; Set output vector to the console output function
+                        ;
+0bab : a906             SetOutConsole	lda	#OUTCH&$ff
+0bad : 8df60e           		sta	BOutVec
+0bb0 : a902             		lda	#OUTCH/256
+0bb2 : 8df70e           		sta	BOutVec+1
+0bb5 : 60               		rts
+                        ;
+                        ;=====================================================
+                        ; Jump to the output function in BOutVec
+                        ;
+0bb6 : 6cf60e           VOUTCH		jmp	(BOutVec)
+                        
+                        
+                        	if	DISK_ACCESS
+                        		include	"storage.asm"
+                        ;
+                        ;=====================================================
+                        ;=====================================================
+                        ;=====================================================
+AS65 Assembler for R6502 [1.42].                                     Page   37
+---------------------------------- mytb.asm ----------------------------------
+
+                        ; This file contains the functions for saving and
+                        ; restoring programs from some sort of mass storage
+                        ; device.  This particular version is for using the
+                        ; Corsham Tech SD Card System.
+                        ;=====================================================
+                        ;=====================================================
+                        ;=====================================================
+                        
+                        		bss
+0088 =                  diskBufLength	ds	1
+0089 =                  diskBufOffset	ds	1
+                        		code
+                        
+                        ;
+                        ;=====================================================
+                        ; Open a file for reading as a program.  The next
+                        ; thing on the line should be the filename.
+                        ;
+0bb9 :                  iOPENREAD
+                        	if	XKIM || CTMON65
+0bb9 : a480             		ldy	CUROFF
+0bbb : b17e             		lda	(CURPTR),y
+0bbd : d007             		bne	iOPENfn		;might be filename
+                        ;
+                        ; No filename supplied.
+                        ;
+0bbf : a900             iOPENnofn	lda	#0
+0bc1 : a209             		ldx	#ERR_NO_FILENAME
+0bc3 : 4c7b04           		jmp	iErr2
+                        ;
+                        ; Add the offset into the buffer start
+                        ;
+0bc6 : 18               iOPENfn		clc
+0bc7 : 98               		tya
+0bc8 : 657e             		adc	CURPTR
+0bca : a8               		tay			;LSB
+0bcb : a57f             		lda	CURPTR+1
+0bcd : 6900             		adc	#0
+0bcf : aa               		tax
+0bd0 : 204be0           		jsr	DiskOpenRead	;attempt to open file
+0bd3 : 9007             		bcc	Ropenok		;branch if opened ok
+                        ;
+                        ; Open failed
+                        ;
+0bd5 : a207             Rdfail		ldx	#ERR_READ_FAIL
+0bd7 : a900             Rdfail2		lda	#0
+0bd9 : 4c7b04           		jmp	iErr2
+                        ;
+                        ; Clear counts and offsets so the next read will
+                        ; cause the file to be read.
+                        ;
+0bdc : a900             Ropenok		lda	#0
+0bde : 8589             		sta	diskBufOffset
+0be0 : 8588             		sta	diskBufLength
+0be2 : 4ca902           		jmp	NextIL
+                        	endif
+                        ;
+                        ;=====================================================
+0be5 :                  iOPENWRITE
+                        	if	XKIM || CTMON65
+0be5 : a480             		ldy	CUROFF
+0be7 : b17e             		lda	(CURPTR),y
+AS65 Assembler for R6502 [1.42].                                     Page   38
+---------------------------------- mytb.asm ----------------------------------
+
+0be9 : f0d4             		beq	iOPENnofn
+                        ;
+0beb : 18               		clc
+0bec : 98               		tya
+0bed : 657e             		adc	CURPTR
+0bef : a8               		tay			;LSB
+0bf0 : a57f             		lda	CURPTR+1
+0bf2 : 6900             		adc	#0
+0bf4 : aa               		tax
+0bf5 : 2054e0           		jsr	DiskOpenWrite	;attempt to open file
+0bf8 : 9007             		bcc	Wopenok		;branch if opened ok
+                        ;
+                        ; Open failed
+                        ;
+0bfa : a900             Wdfail		lda	#0
+0bfc : a208             		ldx	#ERR_WRITE_FAIL
+0bfe : 4c7b04           		jmp	iErr2
+                        ;
+0c01 : 4ca902           Wopenok		jmp	NextIL
+                        	endif
+                        ;
+                        ;=====================================================
+                        ; Gets a line of input from the disk file and puts it
+                        ; into LINBUF.
+                        ;
+                        ; On exit:
+                        ;    CURPTR points to LINBUF
+                        ;    LINBUF contains the line with 0 at the end.
+                        ;    Y has offset to first non-space character
+                        ;    CURROFF has the same as Y.
+                        ;
+0c04 :                  iDGETLINE
+                        	if	XKIM || CTMON65
+0c04 : a29a             		ldx	#LINBUF&$ff
+0c06 : 867e             		stx	CURPTR
+0c08 : a20e             		ldx	#LINBUF>>8
+0c0a : 867f             		stx	CURPTR+1
+                        ;
+0c0c : a200             		ldx	#0	;offset
+0c0e : 8eea0e           iDgetLoop	stx	getlinx
+0c11 : 204a0c           		jsr	getNextFileByte
+0c14 : b016             		bcs	iGetEOF
+0c16 : c90d             		cmp	#CR
+0c18 : f00d             		beq	iGetEOL
+0c1a : c90a             		cmp	#LF
+0c1c : f009             		beq	iGetEOL
+0c1e : aeea0e           		ldx	getlinx
+0c21 : 9d9a0e           		sta	LINBUF,x
+0c24 : e8               		inx
+0c25 : d0e7             		bne	iDgetLoop
+                        ;
+                        ; Handle end of line.  If the line has nothing, loop
+                        ; back and get another line.
+                        ;
+0c27 : aeea0e           iGetEOL		ldx	getlinx		;blank line?
+0c2a : f0e2             		beq	iDgetLoop	;yes, ignore it
+                        ;
+                        ; This can fall through when there is a line, or
+                        ; called directly when EOF is encountered.
+                        ;
+0c2c : aeea0e           iGetEOF		ldx	getlinx
+0c2f : a900             		lda	#0
+AS65 Assembler for R6502 [1.42].                                     Page   39
+---------------------------------- mytb.asm ----------------------------------
+
+0c31 : 9d9a0e           		sta	LINBUF,x
+0c34 : 8580             		sta	CUROFF
+0c36 : a000             		ldy	#0
+0c38 : 202a0b           		jsr	SkipSpaces
+0c3b : 4ca902           		jmp	NextIL
+                        	endif
+                        ;
+                        ;=====================================================
+                        ; Does a LIST to a file file.
+                        ;
+0c3e :                  iDLIST
+                        	if	XKIM || CTMON65
+0c3e : 20730c           		jsr	SetOutDisk
+0c41 : 4cb105           		jmp	iLST2
+                        	endif
+                        ;
+                        ;=====================================================
+                        ; Closes any pending disk file.  Okay to call if there
+                        ; is no open file.
+                        ;
+0c44 :                  iDCLOSE
+                        	if	XKIM || CTMON65
+0c44 : 2051e0           		jsr	DiskClose
+0c47 : 4ca902           		jmp	NextIL
+                        	endif
+                        ;
+                        ;=====================================================
+                        ; This gets the next byte from an open disk file.  If
+                        ; there are no more bytes left, this returns C set.
+                        ; Else, C is clear and A contains the character.
+                        ;
+0c4a :                  getNextFileByte
+                        	if	XKIM || CTMON65
+0c4a : a689             		ldx 	diskBufOffset
+0c4c : e488             		cpx	diskBufLength
+0c4e : d013             		bne	hasdata		;branch if still data
+                        ;
+                        ; There is no data left in the buffer, so read a
+                        ; block from the SD system.
+                        ;
+0c50 : a984             		lda	#BUFFER_SIZE
+0c52 : a20e             		ldx	#buffer>>8
+0c54 : a0f8             		ldy	#buffer&$ff
+0c56 : 204ee0           		jsr	DiskRead
+0c59 : b010             		bcs	getNextEof
+                        ;
+                        ; A contains the number of bytes actually read.
+                        ;
+0c5b : 8588             		sta	diskBufLength	;save length
+0c5d : c900             		cmp	#0		;shouldn't happen
+0c5f : f00a             		beq	getNextEof
+                        ;
+0c61 : a200             		ldx	#0
+0c63 : bdf80e           hasdata		lda	buffer,x
+0c66 : e8               		inx
+0c67 : 8689             		stx	diskBufOffset
+0c69 : 18               		clc
+0c6a : 60               		rts
+                        ;
+0c6b : a900             getNextEof	lda	#0
+0c6d : 8589             		sta	diskBufOffset
+0c6f : 8588             		sta	diskBufLength
+AS65 Assembler for R6502 [1.42].                                     Page   40
+---------------------------------- mytb.asm ----------------------------------
+
+0c71 : 38               		sec
+0c72 : 60               		rts
+                        ;
+                        ;=====================================================
+                        ; Set output vector to the disk output function
+                        ;
+0c73 : a97e             SetOutDisk	lda	#DOUT&$ff
+0c75 : 8df60e           		sta	BOutVec
+0c78 : a90c             		lda	#DOUT/256
+0c7a : 8df70e           		sta	BOutVec+1
+0c7d : 60               		rts
+                        ;
+                        ;=====================================================
+                        
+0c7e : 8df80e           DOUT		sta	buffer
+0c81 : a901             		lda	#1
+0c83 : a0f8             		ldy	#buffer&$ff
+0c85 : a20e             		ldx	#buffer/256
+0c87 : 2057e0           		jsr	DiskWrite
+                        ;
+                        ; need error checking here
+                        ;
+0c8a : 60               		rts
+                        	endif
+                        
+                        
+                        
+                        	endif
+                        		include	"IL.inc"
+                        		nolist
+                        
+                        ;
+                        	if FIXED
+                        		org	$1000
+                        	endif
+                        		include	"basic.il"
+0c8b :                  LET;
+                        ;=====================================================
+                        ;=====================================================
+                        ;=====================================================
+                        ; This is the IL of the BASIC (or whatever) language.
+                        ; Because of the way macros are implemented by as65,
+                        ; labels can't be on the same line as a macro
+                        ; invocation, so that's why labels are on separate
+                        ; lines.
+                        ;
+0c8b =                  IL		equ	*
+                        
+                        ;THE IL CONTROL SECTION
+                        
+0c8b :                  START:
+                        	INIT		;INITIALIZE
+0c8b : 16              >		db	22
+                        
+                        	NLINE		;WRITE CRLF
+0c8c : 05              >		db	5
+                        
+                        	ERRGOTO CO	;where to go after an error
+0c8d : 1f              >		db	31
+0c8e : 910c            >		dw	CO	
+                        
+                        	VINIT		;clear all variables
+AS65 Assembler for R6502 [1.42].                                     Page   41
+---------------------------------- mytb.asm ----------------------------------
+
+0c90 : 1e              >		db	30
+                        
+                        ;
+                        ; This is where we jump to get a line of commands or
+                        ; a program from the user.
+                        ;
+0c91 :                  CO:
+                        	GETLINE		;WRITE PROMPT AND GET LINE
+0c91 : 17              >		db	23
+                        
+                        	TSTL	XEC	;TEST FOR LINE NUMBER
+0c92 : 22              >		db	34
+0c93 : 04              >		db	(XEC	-*)-1
+                        
+                        	INSERT		;INSERT IT (MAY BE DELETE)
+0c94 : 18              >		db	24
+                        
+                        	IJMP	CO
+0c95 : 1d              >		db	29
+0c96 : 910c            >		dw	CO
+                        
+0c98 :                  XEC:
+                        	XINIT		;INITIALIZE
+0c98 : 00              >		db	0
+                        
+                        
+                        ;STATEMENT EXECUTOR
+                        
+0c99 :                  STMT:
+                        	TST	S1,"LET"	;IS STATEMENT A LET
+0c99 : 20              >		db	32
+0c9a : 15              >		db	(S1-*)-1
+0c9b : 4c455400        >		db	"LET"	,0
+                        
+                        	TSTV	ERRVEC	;YES, PLACE VAR ADDRESS ON AESTK
+0c9f : 21              >		db	33
+0ca0 : 4e              >		db	(ERRVEC	-*)-1
+                        
+                        	TST	ERRVEC,"="	;(This line originally omitted)
+0ca1 : 20              >		db	32
+0ca2 : 4c              >		db	(ERRVEC-*)-1
+0ca3 : 3d00            >		db	"="	,0
+                        
+                        	CALL	EXPR	;PLACE EXPR VALUE ON AESTK
+0ca5 : 1c              >		db	28
+0ca6 : a00d            >		dw	EXPR	
+                        
+                        	DONE		;REPORT ERROR IF NOT NEXT
+0ca8 : 01              >		db	1
+                        
+                        	STORE		;STORE RESULT
+0ca9 : 13              >		db	19
+                        
+                        	NXT	CO	;AND SEQUENCE TO NEXT
+0caa : 06              >		db	6
+0cab : 910c            >		dw	CO	
+                        
+                        	IJMP	STMT
+0cad : 1d              >		db	29
+0cae : 990c            >		dw	STMT
+                        
+0cb0 :                  S1:
+AS65 Assembler for R6502 [1.42].                                     Page   42
+---------------------------------- mytb.asm ----------------------------------
+
+                        	TST	S3,"GO"	;GOTO OT GOSUB?
+0cb0 : 20              >		db	32
+0cb1 : 19              >		db	(S3-*)-1
+0cb2 : 474f00          >		db	"GO"	,0
+                        
+                        	TST	S2,"TO"	;YES...TO, OR...SUB
+0cb5 : 20              >		db	32
+0cb6 : 08              >		db	(S2-*)-1
+0cb7 : 544f00          >		db	"TO"	,0
+                        
+                        	CALL	EXPR	;GET LABEL
+0cba : 1c              >		db	28
+0cbb : a00d            >		dw	EXPR	
+                        
+                        	DONE		;ERROR IF CR NOT NEXT
+0cbd : 01              >		db	1
+                        
+                        	XFER		;SET UP AND JUMP
+0cbe : 07              >		db	7
+                        
+0cbf :                  S2:
+                        	TST	ERRVEC,"SUB"	;ERROR IF NO MATCH
+0cbf : 20              >		db	32
+0cc0 : 2e              >		db	(ERRVEC-*)-1
+0cc1 : 53554200        >		db	"SUB"	,0
+                        
+                        	CALL	EXPR	;GET DESTINATION
+0cc5 : 1c              >		db	28
+0cc6 : a00d            >		dw	EXPR	
+                        
+                        	DONE		;ERROR IF CR NOT NEXT
+0cc8 : 01              >		db	1
+                        
+                        	SAV		;SAVE RETURN LINE
+0cc9 : 08              >		db	8
+                        
+                        	XFER		;AND JUMP
+0cca : 07              >		db	7
+                        
+0ccb :                  S3:
+                        	TST	S8,"PRINT"	;PRINT
+0ccb : 20              >		db	32
+0ccc : 2c              >		db	(S8-*)-1
+0ccd : 5052494e5400    >		db	"PRINT"	,0
+                        
+0cd3 :                  S4:
+                        	TST	S7,QUOTE	;TEST FOR QUOTE
+0cd3 : 20              >		db	32
+0cd4 : 1d              >		db	(S7-*)-1
+0cd5 : 2200            >		db	QUOTE	,0
+                        
+                        	PRS		;PRINT STRING
+0cd7 : 02              >		db	2
+                        
+0cd8 :                  S5:
+                        	TST	S6A,COMMA	;IS THERE MORE?
+0cd8 : 20              >		db	32
+0cd9 : 06              >		db	(S6A-*)-1
+0cda : 2c00            >		db	COMMA	,0
+                        
+                        	SPC		;SPACE TO NEXT ZONE
+0cdc : 04              >		db	4
+AS65 Assembler for R6502 [1.42].                                     Page   43
+---------------------------------- mytb.asm ----------------------------------
+
+                        
+                        	IJMP	S4	;YES JUMP BACK
+0cdd : 1d              >		db	29
+0cde : d30c            >		dw	S4	
+                        
+                        ;
+                        ; If a semicolon, don't do anything.
+                        ;
+0ce0 :                  S6A:
+                        	TST	S6,SEMICOLON
+0ce0 : 20              >		db	32
+0ce1 : 05              >		db	(S6-*)-1
+0ce2 : 3b00            >		db	SEMICOLON,0
+                        
+                        	IJMP	S4
+0ce4 : 1d              >		db	29
+0ce5 : d30c            >		dw	S4
+                        
+0ce7 :                  S6:
+                        	DONE		;ERROR IF CR NOT NEXT
+0ce7 : 01              >		db	1
+                        
+                        	NLINE
+0ce8 : 05              >		db	5
+                        
+                        	NXT	CO
+0ce9 : 06              >		db	6
+0cea : 910c            >		dw	CO
+                        
+                        	IJMP	STMT
+0cec : 1d              >		db	29
+0ced : 990c            >		dw	STMT
+                        
+                        ;
+                        ; A jump for code too far away for relative branch
+                        ;
+0cef :                  ERRVEC:
+                        	IJMP	UNKNOWN
+0cef : 1d              >		db	29
+0cf0 : 9d0d            >		dw	UNKNOWN
+                        
+                        ;
+0cf2 :                  S7:
+                        	CALL	EXPR
+0cf2 : 1c              >		db	28
+0cf3 : a00d            >		dw	EXPR
+                        
+                        	PRN		;PRINT IT
+0cf5 : 03              >		db	3
+                        
+                        	IJMP	S5	;IS THERE MORE?
+0cf6 : 1d              >		db	29
+0cf7 : d80c            >		dw	S5	
+                        
+0cf9 :                  S8:
+                        	TST	S9,"IF"	;IF STATEMENT
+0cf9 : 20              >		db	32
+0cfa : 17              >		db	(S9-*)-1
+0cfb : 494600          >		db	"IF"	,0
+                        
+                        	CALL	EXPR	;GET EXPRESSION
+0cfe : 1c              >		db	28
+AS65 Assembler for R6502 [1.42].                                     Page   44
+---------------------------------- mytb.asm ----------------------------------
+
+0cff : a00d            >		dw	EXPR	
+                        
+                        	CALL	RELOP	;DETERMINE OPR AND PUT ON STK
+0d01 : 1c              >		db	28
+0d02 : 2f0e            >		dw	RELOP	
+                        
+                        	CALL	EXPR	;GET EXPRESSION
+0d04 : 1c              >		db	28
+0d05 : a00d            >		dw	EXPR	
+                        
+                        	TST	UNKNOWN,"THEN"	;(This line originally omitted)
+0d07 : 20              >		db	32
+0d08 : 94              >		db	(UNKNOWN-*)-1
+0d09 : 5448454e00      >		db	"THEN"	,0
+                        
+                        	CMPR		;PERFORM COMPARISON -- PERFORMS NXT IF FALSE
+0d0e : 0a              >		db	10
+                        
+                        	IJMP	STMT
+0d0f : 1d              >		db	29
+0d10 : 990c            >		dw	STMT
+                        
+0d12 :                  S9:
+                        	TST	S12,"INPUT"	;INPUT STATEMENT
+0d12 : 20              >		db	32
+0d13 : 18              >		db	(S12-*)-1
+0d14 : 494e50555400    >		db	"INPUT"	,0
+                        
+0d1a :                  S10:
+                        	TSTV	UNKNOWN	;GET VAR ADDRESS (Originally CALL VAR = 
+0d1a : 21              >		db	33
+0d1b : 81              >		db	(UNKNOWN	-*)-1
+                        
+                        	INNUM		;MOVE NUMBER FROM TTY TO AESTK
+0d1c : 0b              >		db	11
+                        
+                        	STORE		;STORE IT
+0d1d : 13              >		db	19
+                        
+                        	TST	S11,COMMA	;IS THERE MORE?
+0d1e : 20              >		db	32
+0d1f : 05              >		db	(S11-*)-1
+0d20 : 2c00            >		db	COMMA	,0
+                        
+                        	IJMP	S10	;YES
+0d22 : 1d              >		db	29
+0d23 : 1a0d            >		dw	S10	
+                        
+                        
+0d25 :                  S11:
+                        	DONE		;MUST BE CR
+0d25 : 01              >		db	1
+                        
+                        	NXT	CO	;SEQUENCE TO NEXT
+0d26 : 06              >		db	6
+0d27 : 910c            >		dw	CO	
+                        
+                        	IJMP	STMT
+0d29 : 1d              >		db	29
+0d2a : 990c            >		dw	STMT
+                        
+0d2c :                  S12:
+AS65 Assembler for R6502 [1.42].                                     Page   45
+---------------------------------- mytb.asm ----------------------------------
+
+                        	TST	S13,"RETURN"	;RETURN STATEMENT
+0d2c : 20              >		db	32
+0d2d : 0f              >		db	(S13-*)-1
+0d2e : 52455455524e00  >		db	"RETURN"	,0
+                        
+                        	DONE		;MUST BE CR
+0d35 : 01              >		db	1
+                        
+                        	RSTR		;RESTORE LINE NUMBER OF CALL
+0d36 : 09              >		db	9
+                        
+                        	NXT	CO	;SEQUENCE TO NEXT STATEMENT
+0d37 : 06              >		db	6
+0d38 : 910c            >		dw	CO	
+                        
+                        	IJMP	STMT
+0d3a : 1d              >		db	29
+0d3b : 990c            >		dw	STMT
+                        
+0d3d :                  S13:
+                        	TST	S14,"END"
+0d3d : 20              >		db	32
+0d3e : 05              >		db	(S14-*)-1
+0d3f : 454e4400        >		db	"END",0
+                        
+                        	FIN
+0d43 : 0c              >		db	12
+                        
+0d44 :                  S14:
+                        	TST	S15,"LIST"	;LIST COMMAND
+0d44 : 20              >		db	32
+0d45 : 0a              >		db	(S15-*)-1
+0d46 : 4c49535400      >		db	"LIST"	,0
+                        
+                        	DONE
+0d4b : 01              >		db	1
+                        
+                        	LST
+0d4c : 15              >		db	21
+                        
+                        	IJMP	CO
+0d4d : 1d              >		db	29
+0d4e : 910c            >		dw	CO
+                        
+0d50 :                  S15:
+                        	TST	S16,"RUN"	;RUN COMMAND
+0d50 : 20              >		db	32
+0d51 : 0d              >		db	(S16-*)-1
+0d52 : 52554e00        >		db	"RUN"	,0
+                        
+                        	DONE
+0d56 : 01              >		db	1
+                        
+                        	VINIT		;clear variables
+0d57 : 1e              >		db	30
+                        
+                        	LIT	1	;GOTO line 1
+0d58 : 1b              >		db	27
+0d59 : 0100            >		dw	1	
+                        
+                        	XFER		;Bob's addition
+0d5b : 07              >		db	7
+AS65 Assembler for R6502 [1.42].                                     Page   46
+---------------------------------- mytb.asm ----------------------------------
+
+                        
+                        ; EXIT
+                        	IJMP	STMT	;and run!
+0d5c : 1d              >		db	29
+0d5d : 990c            >		dw	STMT	
+                        
+0d5f :                  S16:
+                        	TST	S17A,"NEW"	;clear program
+0d5f : 20              >		db	32
+0d60 : 08              >		db	(S17A-*)-1
+0d61 : 4e455700        >		db	"NEW"	,0
+                        
+                        	DONE
+0d65 : 01              >		db	1
+                        
+                        	IJMP	START
+0d66 : 1d              >		db	29
+0d67 : 8b0c            >		dw	START
+                        
+                        
+0d69 :                  S17A:
+                        	TST	S17,"EXIT"	;allow them to exit BASIC
+0d69 : 20              >		db	32
+0d6a : 06              >		db	(S17-*)-1
+0d6b : 4558495400      >		db	"EXIT"	,0
+                        
+                        	EXIT
+0d70 : 1a              >		db	26
+                        
+                        
+0d71 :                  S17:
+                        	TST	S17B,"REM"	;REMark.  Skip rest of line
+0d71 : 20              >		db	32
+0d72 : 0a              >		db	(S17B-*)-1
+0d73 : 52454d00        >		db	"REM"	,0
+                        
+                        	NXT	CO
+0d77 : 06              >		db	6
+0d78 : 910c            >		dw	CO
+                        
+                        	IJMP	STMT
+0d7a : 1d              >		db	29
+0d7b : 990c            >		dw	STMT
+                        
+                        ;
+                        ; Commands related to saving/restoring programs
+                        ; to/from mass storage.
+                        ;
+0d7d :                  S17B:
+                        	if	(XKIM || CTMON65) && DISK_ACCESS
+                        	TST	S17C,"SAVE"
+0d7d : 20              >		db	32
+0d7e : 0b              >		db	(S17C-*)-1
+0d7f : 5341564500      >		db	"SAVE",0
+                        
+                        	OPENWRITE
+0d84 : 28              >		db	40
+                        
+                        	DLIST
+0d85 : 2b              >		db	43
+                        
+                        	DCLOSE
+AS65 Assembler for R6502 [1.42].                                     Page   47
+---------------------------------- mytb.asm ----------------------------------
+
+0d86 : 29              >		db	41
+                        
+                        	IJMP	CO
+0d87 : 1d              >		db	29
+0d88 : 910c            >		dw	CO
+                        
+                        
+0d8a :                  S17C:
+                        	TST	UNKNOWN,"LOAD"
+0d8a : 20              >		db	32
+0d8b : 11              >		db	(UNKNOWN-*)-1
+0d8c : 4c4f414400      >		db	"LOAD",0
+                        
+                        	OPENREAD
+0d91 : 27              >		db	39
+                        
+0d92 :                  S17CLP:
+                        	DGETLINE	;get line from file
+0d92 : 2a              >		db	42
+                        
+                        	TSTL	S17EOL	;no line num means EOL
+0d93 : 22              >		db	34
+0d94 : 04              >		db	(S17EOL	-*)-1
+                        
+                        	INSERT		;put it into the program
+0d95 : 18              >		db	24
+                        
+                        	IJMP	S17CLP	;keep going
+0d96 : 1d              >		db	29
+0d97 : 920d            >		dw	S17CLP	
+                        
+0d99 :                  S17EOL
+                        	DCLOSE		;close disk file
+0d99 : 29              >		db	41
+                        
+                        	IJMP	CO	;back to start
+0d9a : 1d              >		db	29
+0d9b : 910c            >		dw	CO	
+                        
+                        	endif
+                        ;
+                        ; Else, unknown command.
+                        ;
+0d9d :                  UNKNOWN:
+                        	ERR	ERR_SYNTAX	;SYNTAX ERROR
+0d9d : 0d              >		db	13
+0d9e : 0500            >		dw	ERR_SYNTAX	
+                        
+                        
+                        ;-----------------------------------------------------
+0da0 :                  EXPR:
+                        	TST	E0,"-"
+0da0 : 20              >		db	32
+0da1 : 09              >		db	(E0-*)-1
+0da2 : 2d00            >		db	"-",0
+                        
+                        	CALL	TERM	;TEST FOR UNARY -.
+0da4 : 1c              >		db	28
+0da5 : c90d            >		dw	TERM	
+                        
+                        	NEG		;GET VALUE
+0da7 : 10              >		db	16
+AS65 Assembler for R6502 [1.42].                                     Page   48
+---------------------------------- mytb.asm ----------------------------------
+
+                        
+                        	IJMP	E1	;NEGATE IT
+0da8 : 1d              >		db	29
+0da9 : b20d            >		dw	E1	
+                        
+0dab :                  E0:
+                        	TST	E1A,"+"	;LOOK FOR MORE
+0dab : 20              >		db	32
+0dac : 02              >		db	(E1A-*)-1
+0dad : 2b00            >		db	"+"	,0
+                        
+0daf :                  E1A:
+                        	CALL	TERM	;TEST FOR UNARY +
+0daf : 1c              >		db	28
+0db0 : c90d            >		dw	TERM	
+                        
+0db2 :                  E1:
+                        	TST	E2,"+"	;LEADING TERM
+0db2 : 20              >		db	32
+0db3 : 09              >		db	(E2-*)-1
+0db4 : 2b00            >		db	"+"	,0
+                        
+                        	CALL	TERM
+0db6 : 1c              >		db	28
+0db7 : c90d            >		dw	TERM
+                        
+                        	ADD
+0db9 : 0e              >		db	14
+                        
+                        	IJMP	E1
+0dba : 1d              >		db	29
+0dbb : b20d            >		dw	E1
+                        
+0dbd :                  E2:
+                        	TST	E3,"-"	;ANY MORE?
+0dbd : 20              >		db	32
+0dbe : 09              >		db	(E3-*)-1
+0dbf : 2d00            >		db	"-"	,0
+                        
+                        	CALL	TERM	;DIFFERENCE TERM
+0dc1 : 1c              >		db	28
+0dc2 : c90d            >		dw	TERM	
+                        
+                        	SUB
+0dc4 : 0f              >		db	15
+                        
+                        	IJMP	E1
+0dc5 : 1d              >		db	29
+0dc6 : b20d            >		dw	E1
+                        
+0dc8 :                  E3:
+0dc8 :                  T2:
+                        	RTN		;ANY MORE?
+0dc8 : 19              >		db	25
+                        
+0dc9 :                  TERM:
+                        	CALL	FACT
+0dc9 : 1c              >		db	28
+0dca : e50d            >		dw	FACT
+                        
+0dcc :                  T0:
+                        	TST	T1,"*"
+AS65 Assembler for R6502 [1.42].                                     Page   49
+---------------------------------- mytb.asm ----------------------------------
+
+0dcc : 20              >		db	32
+0dcd : 09              >		db	(T1-*)-1
+0dce : 2a00            >		db	"*",0
+                        
+                        	CALL	FACT	;PRODUCT FACTOR.
+0dd0 : 1c              >		db	28
+0dd1 : e50d            >		dw	FACT	
+                        
+                        	MUL
+0dd3 : 11              >		db	17
+                        
+                        	IJMP	T0
+0dd4 : 1d              >		db	29
+0dd5 : cc0d            >		dw	T0
+                        
+0dd7 :                  T1:
+                        	TST	T2,"/"
+0dd7 : 20              >		db	32
+0dd8 : ef              >		db	(T2-*)-1
+0dd9 : 2f00            >		db	"/",0
+                        
+                        	CALL	FACT	;QUOTIENT FACTOR.
+0ddb : 1c              >		db	28
+0ddc : e50d            >		dw	FACT	
+                        
+                        	DIV
+0dde : 12              >		db	18
+                        
+                        	IJMP	T0
+0ddf : 1d              >		db	29
+0de0 : cc0d            >		dw	T0
+                        
+                        
+0de2 :                  UNKNOWNVEC:
+                        	IJMP	UNKNOWN
+0de2 : 1d              >		db	29
+0de3 : 9d0d            >		dw	UNKNOWN
+                        
+                        
+                        ;
+                        ; Factor an expression.  Always test for functions
+                        ; first or else they'll be confused for variables.
+                        ;
+0de5 :                  FACT:
+                        	TST	F2A,"FREE()"
+0de5 : 20              >		db	32
+0de6 : 09              >		db	(F2A-*)-1
+0de7 : 46524545282900  >		db	"FREE()",0
+                        
+                        	FREE
+0dee : 24              >		db	36
+                        
+                        	RTN
+0def : 19              >		db	25
+                        
+                        ;
+                        ; RND() is supposed to have an argument but if none
+                        ; was provided, just assume a large value.
+                        ;
+0df0 :                  F2A:
+                        	TST	F2B,"RND("
+0df0 : 20              >		db	32
+AS65 Assembler for R6502 [1.42].                                     Page   50
+---------------------------------- mytb.asm ----------------------------------
+
+0df1 : 17              >		db	(F2B-*)-1
+0df2 : 524e442800      >		db	"RND(",0
+                        
+                        	TST	F2A1,")"
+0df7 : 20              >		db	32
+0df8 : 07              >		db	(F2A1-*)-1
+0df9 : 2900            >		db	")",0
+                        
+                        	LIT	32766
+0dfb : 1b              >		db	27
+0dfc : fe7f            >		dw	32766
+                        
+                        	RANDOM
+0dfe : 25              >		db	37
+                        
+                        	RTN
+0dff : 19              >		db	25
+                        
+0e00 :                  F2A1:
+                        	CALL	FACT	;GET RANGE
+0e00 : 1c              >		db	28
+0e01 : e50d            >		dw	FACT	
+                        
+                        	TST	UNKNOWN,")"
+0e03 : 20              >		db	32
+0e04 : 98              >		db	(UNKNOWN-*)-1
+0e05 : 2900            >		db	")",0
+                        
+                        	RANDOM
+0e07 : 25              >		db	37
+                        
+                        	RTN
+0e08 : 19              >		db	25
+                        
+                        
+0e09 :                  F2B:
+                        	TST	F2C,"ABS("
+0e09 : 20              >		db	32
+0e0a : 0e              >		db	(F2C-*)-1
+0e0b : 4142532800      >		db	"ABS(",0
+                        
+                        	CALL	FACT	;get value
+0e10 : 1c              >		db	28
+0e11 : e50d            >		dw	FACT	
+                        
+                        	TST	UNKNOWN,")"
+0e13 : 20              >		db	32
+0e14 : 88              >		db	(UNKNOWN-*)-1
+0e15 : 2900            >		db	")",0
+                        
+                        	ABS
+0e17 : 26              >		db	38
+                        
+                        	RTN
+0e18 : 19              >		db	25
+                        
+                        
+0e19 :                  F2C:
+                        	TSTV	F0
+0e19 : 21              >		db	33
+0e1a : 02              >		db	(F0-*)-1
+                        
+AS65 Assembler for R6502 [1.42].                                     Page   51
+---------------------------------- mytb.asm ----------------------------------
+
+                        	IND		;YES, GET THE VALUE.
+0e1b : 14              >		db	20
+                        
+                        	RTN
+0e1c : 19              >		db	25
+                        
+0e1d :                  F0:
+                        	TSTN	F1	;NUMBER, GET ITS VALUE.
+0e1d : 23              >		db	35
+0e1e : 01              >		db	(F1	-*)-1
+                        
+                        	RTN
+0e1f : 19              >		db	25
+                        
+0e20 :                  F1:
+                        	TST	F2A,"("	;PARENTHESIZED EXPR.
+0e20 : 20              >		db	32
+0e21 : ce              >		db	(F2A-*)-1
+0e22 : 2800            >		db	"("	,0
+                        
+                        	CALL	EXPR
+0e24 : 1c              >		db	28
+0e25 : a00d            >		dw	EXPR
+                        
+                        	TST	F2,")"
+0e27 : 20              >		db	32
+0e28 : 03              >		db	(F2-*)-1
+0e29 : 2900            >		db	")",0
+                        
+                        	RTN
+0e2b : 19              >		db	25
+                        
+                        
+0e2c :                  F2:
+                        	ERR	ERR_SYNTAX	;ERROR.
+0e2c : 0d              >		db	13
+0e2d : 0500            >		dw	ERR_SYNTAX	
+                        
+                        
+0e2f :                  RELOP:
+                        	TST	iR0,"="
+0e2f : 20              >		db	32
+0e30 : 06              >		db	(iR0-*)-1
+0e31 : 3d00            >		db	"=",0
+                        
+                        	LIT	2	;=
+0e33 : 1b              >		db	27
+0e34 : 0200            >		dw	2	
+                        
+                        	RTN
+0e36 : 19              >		db	25
+                        
+0e37 :                  iR0:
+                        	TST	R4,"<"
+0e37 : 20              >		db	32
+0e38 : 16              >		db	(R4-*)-1
+0e39 : 3c00            >		db	"<",0
+                        
+                        	TST	iR1,"="
+0e3b : 20              >		db	32
+0e3c : 06              >		db	(iR1-*)-1
+0e3d : 3d00            >		db	"=",0
+AS65 Assembler for R6502 [1.42].                                     Page   52
+---------------------------------- mytb.asm ----------------------------------
+
+                        
+                        	LIT	3	;<=
+0e3f : 1b              >		db	27
+0e40 : 0300            >		dw	3	
+                        
+                        	RTN
+0e42 : 19              >		db	25
+                        
+0e43 :                  iR1:
+                        	TST	R3,">"
+0e43 : 20              >		db	32
+0e44 : 06              >		db	(R3-*)-1
+0e45 : 3e00            >		db	">",0
+                        
+                        	LIT	5	;<>
+0e47 : 1b              >		db	27
+0e48 : 0500            >		dw	5	
+                        
+                        	RTN
+0e4a : 19              >		db	25
+                        
+0e4b :                  R3:
+                        	LIT	1	;<
+0e4b : 1b              >		db	27
+0e4c : 0100            >		dw	1	
+                        
+                        	RTN
+0e4e : 19              >		db	25
+                        
+0e4f :                  R4:
+                        	TST	UNKNOWNVEC,">"
+0e4f : 20              >		db	32
+0e50 : 91              >		db	(UNKNOWNVEC-*)-1
+0e51 : 3e00            >		db	">",0
+                        
+                        	TST	R5,"="
+0e53 : 20              >		db	32
+0e54 : 06              >		db	(R5-*)-1
+0e55 : 3d00            >		db	"=",0
+                        
+                        	LIT	6	;>=
+0e57 : 1b              >		db	27
+0e58 : 0600            >		dw	6	
+                        
+                        	RTN
+0e5a : 19              >		db	25
+                        
+0e5b :                  R5:
+                        	TST	R6,"<"
+0e5b : 20              >		db	32
+0e5c : 06              >		db	(R6-*)-1
+0e5d : 3c00            >		db	"<",0
+                        
+                        	LIT	1
+0e5f : 1b              >		db	27
+0e60 : 0100            >		dw	1
+                        
+                        	RTN		;(This line originally omitted)
+0e62 : 19              >		db	25
+                        
+0e63 :                  R6:
+                        	LIT	4	;>???
+AS65 Assembler for R6502 [1.42].                                     Page   53
+---------------------------------- mytb.asm ----------------------------------
+
+0e63 : 1b              >		db	27
+0e64 : 0400            >		dw	4	
+                        
+                        	RTN
+0e66 : 19              >		db	25
+                        
+                        
+0e67 =                  ILEND		equ	*
+                        
+0e67 =                  PROGEND		equ	*
+                        
+                        ;=====================================================
+                        ;=====================================================
+                        ;=====================================================
+                        ; These are storage items not in page zero.
+                        ;
+                        		bss
+0e67 =                  		org	PROGEND
+0e67 =                  mathStack	ds	STACKSIZE*2
+0e77 =                  mathStackPtr	ds	1
+0e78 =                  retStack	ds	STACKSIZE*2
+0e88 =                  retStackPtr	ds	1
+0e89 =                  callStack	ds	STACKSIZE*2
+0e99 =                  callStackPtr	ds	1
+0e9a =                  LINBUF		ds	80
+0eea =                  getlinx		ds	1
+0eeb =                  printtx		ds	1	;temp X for print funcs
+0eec =                  diddigit	ds	1	;for leading zero suppression
+0eed =                  putsy		ds	1
+0eee =                  errGoto		ds	2	;where to set ILPC on err
+0ef0 =                  MQ		ds	2	;used for some math
+0ef2 =                  sign		ds	1	;0 = positive, else negative
+0ef3 =                  rtemp1		ds	1
+0ef4 =                  random		ds	2
+0ef6 =                  BOutVec		ds	2
+                        	if XKIM
+0ef8 =                  buffer		ds	BUFFER_SIZE
+                        	endif
+                        ;
+                        ; PROGRAMEND is the end of the user's BASIC program.
+                        ; More precisely, it is one byte past the end.  Or,
+                        ; it's where the next line added to the end will be
+                        ; placed.
+                        ;
+0f7c =                  PROGRAMEND	ds	2
+0f7e =                  HighMem		ds	2	;highest location
+0f80 =                  UsedMem		ds	2	;size of user program
+0f82 =                  FreeMem		ds	2	;amount of free memory
+                        ;
+                        ;=====================================================
+                        ; This is the start of the user's BASIC program space.
+                        ;
+                        ; PERSONAL GOAL: This should be no larger than $0DFF.
+                        ;                0200-05FF = 1K
+                        ;                0200-09FF = 2K
+                        ;                0200-0DFF = 3K
+                        ;                0200-11FF = 4K
+                        ;                0200-13FF = 4.5K
+                        ;
+                        	if FIXED
+                        		org	$2000
+                        	endif
+AS65 Assembler for R6502 [1.42].                                     Page   54
+---------------------------------- mytb.asm ----------------------------------
+
+0f84 =                  ProgramStart	equ	*
+                        ;
+                        	if	CTMON65 || XKIM
+                        		code
+dff8 =                  		org	AutoRun
+dff8 : 0002             		dw	TBasicCold
+                        	endif
+                        ;
+                        		end
+                        
+                        
+No errors in pass 2.
