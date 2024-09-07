@@ -1,3 +1,8 @@
+; blink.asm
+; Assembled with asm6809
+; Land Boards, LLC
+; Blinks an LED attached to PLD U2-17 on LB-6809-01 card
+
 		ORG $C000
 ; SET LED = LOW
 RESVEC	CLRA

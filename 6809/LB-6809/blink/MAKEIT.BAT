@@ -1,0 +1,1 @@
+..\..\M6809_Assembler\asm6809-2.13-w64\asm6809 blink.asm -H -l blink.lst -o blink.hex
