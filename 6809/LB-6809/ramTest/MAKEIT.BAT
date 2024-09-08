@@ -1,1 +1,1 @@
-..\..\M6809_Assembler\asm6809-2.13-w64\asm6809 ramTest1.asm -H -l ramTest1.lst -o ramTest1.hex
+..\..\M6809_Assembler\asm6809-2.13-w64\asm6809 ramTest.asm -H -l ramTest.lst -o ramTest.hex
