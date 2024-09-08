@@ -2,6 +2,8 @@
 ; Assembled with asm6809
 ; Land Boards, LLC
 ; Loops on SRAM write/read on LB-6809-01 card
+; Turn on LED if the test passes
+; Turn off LED if the test fails
 
 		ORG $C000
 ; SET LED = LOW
@@ -19,3 +21,6 @@ FAIL
 		CLRA
 		STA	$F000
 		BRA	RESVEC
+		
+		ORG	$FFFE
+LBFFE	FDB	RESVEC	; RESET 
