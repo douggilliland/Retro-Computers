@@ -7,6 +7,7 @@
 RAMSTART	EQU $0000
 RAMEND		EQU $0007
 RAMENDPL1	EQU $8000
+ACIABASE	EQU $8000
 
 		ORG $C000
 ; SET LED = LOW
@@ -18,14 +19,14 @@ RESVEC	NOP
 		NOP
 		LDB	RAMSTART
 		CMPB #$55
-		BNE	FASTBLINK
+		LBNE	FASTBLINK
 ; TEST WITH WRTE/READ OF ADDRESS $0000 AND VALUE OF $AA
 		LDA	#$AA
 		STA	RAMSTART
 		NOP
 		LDB	RAMSTART
 		CMPB #$AA
-		BNE	FASTBLINK
+		LBNE	FASTBLINK
 ; BOUNCE A BIT ACROSS THE DATA LINES OF ADDR $0000
 		LDA #$01
 LOOP1ADR
@@ -79,9 +80,57 @@ LOOPBITRD
 		CMPA	#80
 		BNE		LOOPBITRD
 		
+;
+; Test ACIA - Code written bu Microsoft Pilot with Human interaction
+;
+		BSR INITACIA
+		LDA #'*'
+LOOPWR
+		BSR WRITE_SERIAL
+		BRA	LOOPWR
 		
 ; DEFAULT = PASS
 		BRA	SLOWBLINK
+
+        ; Initialize the ACIA
+INITACIA
+		PSHS    A,X            ; Push registers A and X onto the stack
+		LDX     #ACIABASE      ; Base address of the 6850 ACIA
+        LDA     #$11           ; Control register value: 8N1, 115200 baud
+        STA     $00,X          ; Write to control register
+        LDA     #$03           ; Enable transmitter and receiver
+        STA     $00,X          ; Write to control register
+		PULS    A,X            ; Pull registers A and B from the stack
+		RTS
+
+; Subroutine to read serial data
+; Uses A, X registers
+; Returns data in register A
+READ_SERIAL
+		PSHS    X               ; Push register X onto the stack
+		LDX     #ACIABASE       ; Base address of the 6850 ACIA
+RDSERLP
+		LDA     $01,X           ; Read status register
+        ANDA    #$01            ; Check if data is available
+        BEQ     RDSERLP		    ; If not, loop until data is available
+        LDA     $01,X           ; Read received data
+		PULS    X               ; Pull registers A and B from the stack
+        RTS                     ; Return from subroutine
+
+; Subroutine to write serial data
+; Uses A, B, X registers
+; Writes data from register A
+WRITE_SERIAL
+		PSHS    B,X             ; Push registers B and X onto the stack
+		LDX     #ACIABASE       ; Base address of the 6850 ACIA
+WRSERLP
+        LDB     $01,X           ; Read status register
+        ANDB    #$02            ; Check if transmitter is ready
+        BEQ     WRSERLP         ; If not, loop until transmitter is ready
+        STA     $02,X           ; Write data to transmit register
+		PULS    B,X             ; Pull registers B and X from the stack
+        RTS                     ; Return from subroutine
+
 
 ;
 ; Slowly blink LED

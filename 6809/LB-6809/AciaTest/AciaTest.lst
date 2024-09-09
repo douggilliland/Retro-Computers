@@ -1,0 +1,201 @@
+                      ; ramTest.asm
+                      ; Assembled with asm6809
+                      ; Land Boards, LLC
+                      ; Test RAM using LB-6809-01 on LB-MEM-02 card
+                      ; Takes about 2 secs
+                      
+0000                  RAMSTART        EQU $0000
+0007                  RAMEND          EQU $0007
+8000                  RAMENDPL1       EQU $8000
+8000                  ACIABASE        EQU $8000
+                      
+C000                                  ORG $C000
+                      ; SET LED = LOW
+C000  12              RESVEC  NOP
+C001  CE7FFE                          LDU     #$7FFE  ; SET USER STACK POINTER
+                      ; TEST WITH WRTE/READ OF ADDRESS $0000 AND VALUE OF $55
+C004  8655                            LDA     #$55
+C006  B70000                          STA     RAMSTART
+C009  12                              NOP
+C00A  F60000                          LDB     RAMSTART
+C00D  C155                            CMPB #$55
+C00F  10260099                        LBNE    FASTBLINK
+                      ; TEST WITH WRTE/READ OF ADDRESS $0000 AND VALUE OF $AA
+C013  86AA                            LDA     #$AA
+C015  B70000                          STA     RAMSTART
+C018  12                              NOP
+C019  F60000                          LDB     RAMSTART
+C01C  C1AA                            CMPB #$AA
+C01E  1026008A                        LBNE    FASTBLINK
+                      ; BOUNCE A BIT ACROSS THE DATA LINES OF ADDR $0000
+C022  8601                            LDA #$01
+C024                  LOOP1ADR
+C024  B70000                          STA RAMSTART
+C027  12                              NOP
+C028  B10000                          CMPA RAMSTART
+C02B  267F                            BNE     FASTBLINK
+C02D  48                              ASLA
+C02E  8100                            CMPA #$00
+C030  26F2                            BNE     LOOP1ADR
+                      ; Fill memory with a ramp value
+C032  8E0000                          LDX #RAMSTART
+C035  8600                            LDA #0
+C037  C601                            LDB #1
+C039                  LPSTORE
+C039  A784                            STA 0,X
+C03B  3A                              ABX
+C03C  4C                              INCA
+C03D  8C8000                          CMPX    #RAMENDPL1
+C040  26F7                            BNE     LPSTORE
+                      ; CHECK RAMP VALUES
+C042  8E0000                          LDX #RAMSTART
+C045  8600                            LDA #0
+C047  C601                            LDB #1
+C049                  LPCHECK
+C049  A184                            CMPA    0,X
+C04B  265F                            BNE     FASTBLINK
+C04D  3A                              ABX
+C04E  4C                              INCA
+C04F  8C8000                          CMPX    #RAMENDPL1
+C052  26F5                            BNE     LPCHECK
+                      ;
+                      ; CHECK UPPER ADDRESS LINES
+                      ;
+C054  8601                            LDA     #1                      ; UPPER BYTE OF D
+C056  C600                            LDB     #0                      ; LOWER BYTE OF D
+C058                  LOOPBITWR
+C058  1F01                            TFR     D,X
+C05A  A784                            STA     0,X
+C05C  8B01                            ADDA    #1
+C05E  8150                            CMPA    #80
+C060  26F6                            BNE             LOOPBITWR
+                      ; 
+C062  8601                            LDA     #1                      ; UPPER BYTE OF D
+C064  C600                            LDB     #0                      ; LOWER BYTE OF D
+C066                  LOOPBITRD
+C066  1F01                            TFR     D,X
+C068  A184                            CMPA    0,X
+C06A  2640                            BNE     FASTBLINK
+C06C  8B01                            ADDA    #1
+C06E  8150                            CMPA    #80
+C070  26F4                            BNE             LOOPBITRD
+                                      
+                      ;
+                      ; Test ACIA - Code written bu Microsoft Pilot with Human interaction
+                      ;
+C072  8D08                            BSR INITACIA
+C074  862A                            LDA #'*'
+C076                  LOOPWR
+C076  8D24                            BSR WRITE_SERIAL
+C078  20FC                            BRA     LOOPWR
+                                      
+                      ; DEFAULT = PASS
+C07A  2051                            BRA     SLOWBLINK
+                      
+                              ; Initialize the ACIA
+C07C                  INITACIA
+C07C  3412                            PSHS    A,X            ; Push registers A and X onto the stack
+C07E  8E8000                          LDX     #ACIABASE      ; Base address of the 6850 ACIA
+C081  8611                    LDA     #$11           ; Control register value: 8N1, 115200 baud
+C083  A784                    STA     $00,X          ; Write to control register
+C085  8603                    LDA     #$03           ; Enable transmitter and receiver
+C087  A784                    STA     $00,X          ; Write to control register
+C089  3512                            PULS    A,X            ; Pull registers A and B from the stack
+C08B  39                              RTS
+                      
+                      ; Subroutine to read serial data
+                      ; Uses A, X registers
+                      ; Returns data in register A
+C08C                  READ_SERIAL
+C08C  3410                            PSHS    X               ; Push register X onto the stack
+C08E  8E8000                          LDX     #ACIABASE       ; Base address of the 6850 ACIA
+C091                  RDSERLP
+C091  A601                            LDA     $01,X           ; Read status register
+C093  8401                    ANDA    #$01            ; Check if data is available
+C095  27FA                    BEQ     RDSERLP             ; If not, loop until data is available
+C097  A601                    LDA     $01,X           ; Read received data
+C099  3510                            PULS    X               ; Pull registers A and B from the stack
+C09B  39                      RTS                     ; Return from subroutine
+                      
+                      ; Subroutine to write serial data
+                      ; Uses A, B, X registers
+                      ; Writes data from register A
+C09C                  WRITE_SERIAL
+C09C  3414                            PSHS    B,X             ; Push registers B and X onto the stack
+C09E  8E8000                          LDX     #ACIABASE       ; Base address of the 6850 ACIA
+C0A1                  WRSERLP
+C0A1  E601                    LDB     $01,X           ; Read status register
+C0A3  C402                    ANDB    #$02            ; Check if transmitter is ready
+C0A5  27FA                    BEQ     WRSERLP         ; If not, loop until transmitter is ready
+C0A7  A702                    STA     $02,X           ; Write data to transmit register
+C0A9  3514                            PULS    B,X             ; Pull registers B and X from the stack
+C0AB  39                      RTS                     ; Return from subroutine
+                      
+                      
+                      ;
+                      ; Slowly blink LED
+                      ;
+C0AC                  FASTBLINK
+C0AC  4F                              CLRA
+C0AD  B7F000                          STA     $F000
+                      ; WAIT LOOP
+C0B0  8640                            LDA     #$40
+C0B2                  LOOPX1
+C0B2  C6FF                            LDB     #$FF
+C0B4                  LOOPX1B
+C0B4  12                              NOP
+C0B5  5A                              DECB
+C0B6  26FC                            BNE LOOPX1B
+C0B8  4A                              DECA
+C0B9  26F7                            BNE     LOOPX1
+                      ; SET LED = HIGH
+C0BB  8601                            LDA     #$1
+C0BD  B7F000                          STA     $F000
+                      ; WAIT LOOP
+C0C0  86FF                            LDA     #$FF
+C0C2                  LOOPX2
+C0C2  C640                            LDB     #$40
+C0C4                  LOOPX2B
+C0C4  12                              NOP
+C0C5  5A                              DECB
+C0C6  26FC                            BNE LOOPX2B
+C0C8  4A                              DECA
+C0C9  26F7                            BNE     LOOPX2
+                      ; LOOP FOREVER
+C0CB  20DF                            BRA     FASTBLINK
+                      
+                      ;
+                      ; Slowly blink LED
+                      ;
+C0CD                  SLOWBLINK
+C0CD  4F                              CLRA
+C0CE  B7F000                          STA     $F000
+                      ; WAIT LOOP
+C0D1  86FF                            LDA     #$FF
+C0D3                  LOOP1
+C0D3  C6FF                            LDB     #$FF
+C0D5                  LOOP1B
+C0D5  12                              NOP
+C0D6  5A                              DECB
+C0D7  26FC                            BNE LOOP1B
+C0D9  4A                              DECA
+C0DA  26F7                            BNE     LOOP1
+                      ; SET LED = HIGH
+C0DC  8601                            LDA     #$1
+C0DE  B7F000                          STA     $F000
+                      ; WAIT LOOP
+C0E1  86FF                            LDA     #$FF
+C0E3                  LOOP2
+C0E3  C6FF                            LDB     #$FF
+C0E5                  LOOP2B
+C0E5  12                              NOP
+C0E6  5A                              DECB
+C0E7  26FC                            BNE LOOP2B
+C0E9  4A                              DECA
+C0EA  26F7                            BNE     LOOP2
+                      ; LOOP FOREVER
+C0EC  20DF                            BRA     SLOWBLINK
+                      
+                      ; Reset vector
+FFFE                                  ORG     $FFFE
+FFFE  C000            LBFFE   FDB     RESVEC  ; RESET 
