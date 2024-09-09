@@ -7,12 +7,15 @@
 RAMSTART	EQU $0000
 RAMEND		EQU $0007
 RAMENDPL1	EQU $8000
-ACIABASE	EQU $8000
+ACIABASE	EQU $A000
+ACIA_ST_CMD	EQU $00
+ACIA_DAT	EQU $01
 
 		ORG $C000
 ; SET LED = LOW
 RESVEC	NOP
-		LDU	#$7FFE	; SET USER STACK POINTER
+		LDU	#$7F00	; SET USER STACK POINTER
+		LDS	#$7E00	; SET HARDWARE STACK POINTER
 ; TEST WITH WRTE/READ OF ADDRESS $0000 AND VALUE OF $55
 		LDA	#$55
 		STA	RAMSTART
@@ -20,7 +23,7 @@ RESVEC	NOP
 		LDB	RAMSTART
 		CMPB #$55
 		LBNE	FASTBLINK
-; TEST WITH WRTE/READ OF ADDRESS $0000 AND VALUE OF $AA
+; TEST WITH WRITE/READ OF ADDRESS $0000 AND VALUE OF $AA
 		LDA	#$AA
 		STA	RAMSTART
 		NOP
@@ -32,8 +35,8 @@ RESVEC	NOP
 LOOP1ADR
 		STA RAMSTART
 		NOP
-		CMPA RAMSTART
-		BNE	FASTBLINK
+		CMPA	RAMSTART
+		LBNE	FASTBLINK
 		ASLA
 		CMPA #$00
 		BNE	LOOP1ADR
@@ -84,8 +87,10 @@ LOOPBITRD
 ; Test ACIA - Code written bu Microsoft Pilot with Human interaction
 ;
 		BSR INITACIA
-		LDA #'*'
+		LDA #'>'
+		BSR WRITE_SERIAL
 LOOPWR
+		BSR	READ_SERIAL
 		BSR WRITE_SERIAL
 		BRA	LOOPWR
 		
@@ -94,41 +99,42 @@ LOOPWR
 
         ; Initialize the ACIA
 INITACIA
-		PSHS    A,X            ; Push registers A and X onto the stack
+		PSHU    A,X            ; Push registers A and X onto the stack
 		LDX     #ACIABASE      ; Base address of the 6850 ACIA
-        LDA     #$11           ; Control register value: 8N1, 115200 baud
-        STA     $00,X          ; Write to control register
-        LDA     #$03           ; Enable transmitter and receiver
-        STA     $00,X          ; Write to control register
-		PULS    A,X            ; Pull registers A and B from the stack
+        LDA     #$03           ; Reset transmitter and receiver
+        STA     ACIA_ST_CMD,X  ; Write to control register
+        LDA     #$15           ; Control register value: 8N1, 115200 baud
+        STA     ACIA_ST_CMD,X  ; Write to control register
+		LDA		ACIA_DAT,X	   ; READ RECEIVER TO FLUSH ERRORS
+		PULU    A,X            ; Pull registers A and B from the stack
 		RTS
 
 ; Subroutine to read serial data
 ; Uses A, X registers
 ; Returns data in register A
 READ_SERIAL
-		PSHS    X               ; Push register X onto the stack
+		PSHU    X               ; Push register X onto the stack
 		LDX     #ACIABASE       ; Base address of the 6850 ACIA
 RDSERLP
-		LDA     $01,X           ; Read status register
+		LDA     ACIA_ST_CMD,X   ; Read status register
         ANDA    #$01            ; Check if data is available
         BEQ     RDSERLP		    ; If not, loop until data is available
-        LDA     $01,X           ; Read received data
-		PULS    X               ; Pull registers A and B from the stack
+        LDA     ACIA_DAT,X      ; Read received data
+		PULU    X               ; Pull registers A and B from the stack
         RTS                     ; Return from subroutine
 
 ; Subroutine to write serial data
 ; Uses A, B, X registers
 ; Writes data from register A
 WRITE_SERIAL
-		PSHS    B,X             ; Push registers B and X onto the stack
+		PSHU    B,X             ; Push registers B and X onto the stack
 		LDX     #ACIABASE       ; Base address of the 6850 ACIA
 WRSERLP
-        LDB     $01,X           ; Read status register
+        LDB     ACIA_ST_CMD,X   ; Read status register
         ANDB    #$02            ; Check if transmitter is ready
         BEQ     WRSERLP         ; If not, loop until transmitter is ready
-        STA     $02,X           ; Write data to transmit register
-		PULS    B,X             ; Pull registers B and X from the stack
+        STA     ACIA_DAT,X      ; Write data to transmit register
+		PULU    B,X             ; Pull registers B and X from the stack
         RTS                     ; Return from subroutine
 
 
