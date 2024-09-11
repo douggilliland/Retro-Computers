@@ -1,0 +1,1 @@
+..\..\M6809_Assembler\asm6809-2.13-w64\asm6809 assist09-6850.asm -H -l assist09-6850.lst -o assist09-6850.hex
