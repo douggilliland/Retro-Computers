@@ -1,4 +1,4 @@
-                               
+
 UART      EQU  $A000           
 RECEV     EQU  UART+1          
 TRANS     EQU  UART+1          
