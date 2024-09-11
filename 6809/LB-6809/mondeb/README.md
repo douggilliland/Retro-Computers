@@ -1,3 +1,5 @@
+From Jeff Tranter's page
+
 This is a port of the MONDEB monitor debugger, written by Don Peters
 and described in the book "MONDEB, An Advanced M6800 Monitor
 Debugger", to the 6809 processor.
