@@ -1,4 +1,4 @@
-From Jeff Tranter's page
+From Jeff Tranter's page: https://jefftranter.blogspot.com/2019/02/a-6809-single-board-computer-cross.html
 
 This is a port of the MONDEB monitor debugger, written by Don Peters
 and described in the book "MONDEB, An Advanced M6800 Monitor
