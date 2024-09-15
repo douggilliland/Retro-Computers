@@ -3,6 +3,18 @@ Main file   : SimpleMon6502.s
 Current file: SimpleMon6502.s
 
 000000r 1               ; SimpleMon6502 - Simple Monitor for the 6502
+000000r 1               ; COMMAND LINE DRIVEN
+000000r 1               ; 	I = TEST INPUT STRING
+000000r 1               ; 	D = DUMP HEX
+000000r 1               ; SOME OF THE CODE WAS WRITTEN BY AI - COPILOT
+000000r 1               ; BUILD PROCESS USES CC65 TOOLCHAIN UNDER WINDOWS
+000000r 1               ;	https://cc65.github.io/doc/
+000000r 1               ; ca65 WAS USED TO ASSEMBLE THE PROGRAM
+000000r 1               ;	ca65 SimpleMon6502.s -o SimpleMon6502.o -l
+000000r 1               ; LD65 WAS USED TO LINK THE PROGRAM
+000000r 1               ;	ld65 -C LB65022.cfg SimpleMon6502.o -o SimpleMon6502.bin
+000000r 1               ; SREC_CAT WAS USED TO CREATE A .HEX FILE
+000000r 1               ;	srec_cat.exe SimpleMon6502.bin -binary -o SimpleMon6502.hex -Intel
 000000r 1               
 000000r 1               .debuginfo +
 000000r 1               
@@ -10,212 +22,312 @@ Current file: SimpleMon6502.s
 000000r 1               .macpack longbranch
 000000r 1               
 000000r 1               STACK_TOP		:= $FC
+000000r 1               
+000000r 1               ; HARDWARE LOCATIONS
 000000r 1               ACIA := $A000
 000000r 1               ACIAControl := ACIA+0
 000000r 1               ACIAStatus := ACIA+0
 000000r 1               ACIAData := ACIA+1
+000000r 1               
 000000r 1               ; PAGE ZERO LOCATIONS USED
 000000r 1               PRSTRL := $10	; POINTER TO PRINT STRING
 000000r 1               PRSTRH := $11
 000000r 1               INSTRL := $12	; POINTER TO INPUT STRING
 000000r 1               INSTRH := $13
+000000r 1               SCR16L := $14	; 16-BIT SCRATCH LOCATION OFTEN USED TO PASS ADDRESSES
+000000r 1               SCR16H := $15
 000000r 1               
-000000r 1               ;
-000000r 1               INSTR := $400	; RESERVE 64 BYTES FOR INPUT STRING
+000000r 1               ; RAM LOCATIONS
+000000r 1               INSTRPTR	:= $400	; RESERVE 64 BYTES FOR INPUT STRING $400-$43F
+000000r 1               VAL16L		:= $440	; 16-BIT VALUE
+000000r 1               VAL16H		:= $441
+000000r 1               VAL8		:= $442	; 8-BIT VALUE
 000000r 1               
-000000r 1               CR := $0D
+000000r 1               ; VARIOUS DEFINES
+000000r 1               CR := $0D ; COMMAND TERMINATION
 000000r 1               LF := $0A
 000000r 1               
 000000r 1               .segment "CODE"
 000000r 1               .org $C000
 00C000  1               
-00C000  1               .macro printString addr
-00C000  1               	LDA	#addr/256		; A IS THE UPPER 8-BITS OF THE ADDRESS
-00C000  1               	LDY	#addr&255		; Y IS THE LOWER 8-BITS OF THE ADDRESS
-00C000  1               	JSR PRINTSTR
+00C000  1               .macro SETUPSCRADDR VAL32
+00C000  1               	PHA
+00C000  1               	LDA	VAL32/256
+00C000  1               	STA SCR16H
+00C000  1               	LDA	VAL32&255
+00C000  1               	STA SCR16L
+00C000  1               	PLA
+00C000  1               .endmacro
+00C000  1               
+00C000  1               
+00C000  1               ; MACRO TO PASS A 16-BIT ADDRESS TO A FUNCTION AND CALL THE FUNCTION
+00C000  1               ;	A REGISTER IS THE UPPER 8-BITS OF THE ADDRESS
+00C000  1               ;	Y REGISTER IS THE LOWER 8-BITS OF THE ADDRESS
+00C000  1               ;	FNC_NAME IS THE FUNCTION THAT IS CALLED
+00C000  1               .macro CALLPASS16 ADDR32, FNC_NAME
+00C000  1               	LDA	#ADDR32/256		; A IS THE UPPER 8-BITS OF THE ADDRESS
+00C000  1               	LDY	#ADDR32&255		; Y IS THE LOWER 8-BITS OF THE ADDRESS
+00C000  1               	JSR FNC_NAME
 00C000  1               .endmacro
 00C000  1               
 00C000  1               Reset:
 00C000  1  A2 7F        	LDX     #$7F
 00C002  1  9A           	TXS
 00C003  1               ; Setup ACIA
-00C003  1  20 DD C0     	JSR INITACIA
-00C006  1  A9 C1 A0 60  	printString CRLF
-00C00A  1  20 5B C0     
+00C003  1  20 40 C1     	JSR INITACIA
+00C006  1  A9 C1 A0 C3  	CALLPASS16 CRLFMsg, PRINTSTR
+00C00A  1  20 BE C0     
 00C00D  1               ; SETUP INPUT BUFFER POINTER
-00C00D  1  A9 04        	LDA	#INSTR/256		; A IS THE UPPER 8-BITS OF THE ADDRESS
+00C00D  1  A9 04        	LDA	#INSTRPTR/256		; A IS THE UPPER 8-BITS OF THE ADDRESS
 00C00F  1  85 13        	STA INSTRH
-00C011  1  A9 00        	LDA	#INSTR&255		; Y IS THE LOWER 8-BITS OF THE ADDRESS
+00C011  1  A9 00        	LDA	#INSTRPTR&255		; Y IS THE LOWER 8-BITS OF THE ADDRESS
 00C013  1               ; Display startup message
-00C013  1  A9 C1 A0 04  	printString StartupMessage
-00C017  1  20 5B C0     
+00C013  1  A9 C1 A0 67  	CALLPASS16 StartupMsg, PRINTSTR
+00C017  1  20 BE C0     
 00C01A  1               ; INTERPRETER LOOP
 00C01A  1               LOOP1:
 00C01A  1  AD 01 A0     	LDA	ACIAData
-00C01D  1  20 E8 C0     	JSR GETCHAR
+00C01D  1  20 4B C1     	JSR GETCHAR
 00C020  1               CHKA:
 00C020  1  C9 49        	CMP	#'I'
 00C022  1  D0 06        	BNE	SKIPA
-00C024  1  20 71 C0     	JSR ARTN
-00C027  1  4C 3E C0     	JMP	ENDLOOP
+00C024  1  20 D4 C0     	JSR ARTN
+00C027  1  4C 69 C0     	JMP	ENDLOOP
 00C02A  1               SKIPA:
 00C02A  1  C9 44        	CMP #'D'
 00C02C  1  D0 06        	BNE SKIPB
-00C02E  1  20 91 C0     	JSR BRTN
-00C031  1  4C 3E C0     	JMP ENDLOOP
+00C02E  1  20 F4 C0     	JSR BRTN
+00C031  1  4C 69 C0     	JMP ENDLOOP
 00C034  1               SKIPB:
-00C034  1               ; UNKNOWN COMMAND
-00C034  1  A9 C1 A0 1C  	printString HelpMessage
-00C038  1  20 5B C0     
-00C03B  1  4C 3E C0     	JMP ENDLOOP
-00C03E  1               ENDLOOP:
-00C03E  1  4C 1A C0         JMP	LOOP1
-00C041  1               
-00C041  1               ; READ STRING INTO BUFFER
-00C041  1               ;
-00C041  1               INPUTSTR:
-00C041  1  A0 00        	LDY #0
-00C043  1               LOOPISTR:
-00C043  1  20 E8 C0     	JSR GETCHAR			; READ THE CHARACTER
-00C046  1  20 F5 C0     	JSR	PUTCHAR			; ECHO OUT THE CHARACTER
-00C049  1  C9 0D        	CMP	#CR
-00C04B  1  F0 09        	BEQ DONEIS
-00C04D  1  C9 0A        	CMP	#LF
-00C04F  1  F0 05        	BEQ DONEIS
-00C051  1  91 12        	STA	(INSTRL),Y
-00C053  1  C8           	INY
-00C054  1  D0 ED        	BNE	LOOPISTR
-00C056  1               DONEIS:
-00C056  1  A9 00        	LDA	#0				; NULL TERMINATE STRING
-00C058  1  91 12        	STA	(INSTRL),Y
-00C05A  1  60           	RTS
-00C05B  1               
-00C05B  1               ; PRINTSTR - PRINT STRING
-00C05B  1               ; INPUT POINTER TO STRING IN PAGE ZERO
-00C05B  1               ;	A IS UPPER 8-BITS OF ADDRESS
-00C05B  1               ;	Y IS LOWER 8-BITS OF ADDRESS
-00C05B  1               PRINTSTR:
-00C05B  1  48           	PHA
-00C05C  1  85 11        	STA PRSTRH
-00C05E  1  98           	TYA
-00C05F  1  85 10        	STA PRSTRL
-00C061  1  A0 00        	LDY	#0
-00C063  1               LPPRSTR:
-00C063  1  B1 10        	LDA (PRSTRL),Y
-00C065  1  C9 00        	CMP #0
-00C067  1  F0 06        	BEQ DONESTR		; If the character is null (end of string), exit
-00C069  1  20 F5 C0     	JSR	PUTCHAR		; Call subroutine to print the character
-00C06C  1  C8           	INY				; Increment X to point to the next character
-00C06D  1  D0 F4        	BNE	LPPRSTR		; Repeat the loop (always true since X is 8-bit)
-00C06F  1               DONESTR:
-00C06F  1  68           	PLA
-00C070  1  60           	RTS
-00C071  1               
-00C071  1               ARTN:
-00C071  1  A9 C1 A0 3E  	printString InputStr
-00C075  1  20 5B C0     
-00C078  1  20 41 C0     	JSR INPUTSTR	; READ IN THE STRING
-00C07B  1  A9 C1 A0 4C  	printString InputStrWas
-00C07F  1  20 5B C0     
-00C082  1  A9 04 A0 00  	printString INSTR
-00C086  1  20 5B C0     
-00C089  1  A9 C1 A0 60  	printString CRLF
-00C08D  1  20 5B C0     
-00C090  1  60           	RTS
-00C091  1               
-00C091  1               BRTN:
-00C091  1  AD 00 C0     	LDA $C000
-00C094  1  20 C0 C0     	JSR PRHEXSTR
-00C097  1  A9 20        	LDA #' '
-00C099  1  20 F5 C0     	JSR PUTCHAR
-00C09C  1  AD 01 C0     	LDA $C001
-00C09F  1  20 C0 C0     	JSR PRHEXSTR
-00C0A2  1  A9 20        	LDA #' '
-00C0A4  1  20 F5 C0     	JSR PUTCHAR
-00C0A7  1  AD 02 C0     	LDA $C002
-00C0AA  1  20 C0 C0     	JSR PRHEXSTR
-00C0AD  1  A9 20        	LDA #' '
-00C0AF  1  20 F5 C0     	JSR PUTCHAR
-00C0B2  1  AD 03 C0     	LDA $C003
-00C0B5  1  20 C0 C0     	JSR PRHEXSTR
-00C0B8  1  A9 C1 A0 60  	printString CRLF
-00C0BC  1  20 5B C0     
-00C0BF  1  60           	RTS
-00C0C0  1               
-00C0C0  1               PRHEXSTR:
-00C0C0  1  48                   PHA                    ; Push A onto the stack to save its value
-00C0C1  1  4A                   LSR                    ; Shift right to get the high nibble
-00C0C2  1  4A                   LSR
-00C0C3  1  4A                   LSR
-00C0C4  1  4A                   LSR
-00C0C5  1  20 CF C0             JSR     PRINT_NIBBLE   ; Print the high nibble
-00C0C8  1  68                   PLA                    ; Pull A from the stack to restore its value
-00C0C9  1  29 0F                AND     #$0F           ; Mask out the high nibble
-00C0CB  1  20 CF C0             JSR     PRINT_NIBBLE   ; Print the low nibble
-00C0CE  1  60                   RTS                    ; Return from subroutine
-00C0CF  1               
-00C0CF  1               PRINT_NIBBLE:
-00C0CF  1  48                   PHA                    ; Push A onto the stack to save its value
-00C0D0  1  C9 0A                CMP     #$0A           ; Compare with 10
-00C0D2  1  90 02                BCC     PRINT_DIGIT    ; If less than 10, it's a digit
-00C0D4  1  69 06                ADC     #$06           ; If 10 or more, convert to ASCII letter (A-F)
-00C0D6  1               PRINT_DIGIT:
-00C0D6  1  69 30                ADC     #$30           ; Convert to ASCII digit
-00C0D8  1  20 F5 C0             JSR     PUTCHAR	       ; Print the character
-00C0DB  1  68                   PLA                    ; Pull A from the stack to restore its value
-00C0DC  1  60                   RTS                    ; Return from subroutine
-00C0DD  1               
-00C0DD  1               ; INITIALIZE THE ACIA
-00C0DD  1               INITACIA:
-00C0DD  1  A9 03        	LDA 	#$03		; Master Reset ACIA
-00C0DF  1  8D 00 A0     	STA	ACIAControl
-00C0E2  1  A9 15        	LDA 	#$15		; Set ACIA baud rate, word size and Rx interrupt (to control RTS)
-00C0E4  1  8D 00 A0     	STA	ACIAControl
-00C0E7  1  60           	RTS
-00C0E8  1               
-00C0E8  1               ; GET A CHARACTER FROM THE ACIA
-00C0E8  1               ; RETURN CHAR IN A REGISTER
-00C0E8  1               GETCHAR:
-00C0E8  1  AD 00 A0     	LDA	ACIAStatus
-00C0EB  1  29 01        	AND #1
-00C0ED  1  C9 01        	CMP #1
-00C0EF  1  D0 F7        	BNE GETCHAR
-00C0F1  1  AD 01 A0     	LDA	ACIAData
-00C0F4  1  60           	RTS
-00C0F5  1               
-00C0F5  1               ; PUT A CHARACTER FROM THE A REGISTER OUT THE ACIA
-00C0F5  1               PUTCHAR:
-00C0F5  1  48           	PHA
-00C0F6  1               LPUTC:
-00C0F6  1  AD 00 A0     	LDA	ACIAStatus
-00C0F9  1  29 02        	AND #2
-00C0FB  1  C9 02        	CMP #2
-00C0FD  1  D0 F7        	BNE LPUTC
-00C0FF  1  68           	PLA
-00C100  1  8D 01 A0     	STA ACIAData
-00C103  1  60           	RTS
-00C104  1               
-00C104  1               StartupMessage:
-00C104  1  0D 0A 53 69  	.byte	$0D,$0A,"Simple Monitor 6502",$0D,$0A,$00
-00C108  1  6D 70 6C 65  
-00C10C  1  20 4D 6F 6E  
-00C11C  1               HelpMessage:
-00C11C  1  49 2D 54 45  	.byte	"I-TEST INPUT STRING, D-DUMP HEX",$0D,$0A,$00
-00C120  1  53 54 20 49  
-00C124  1  4E 50 55 54  
-00C13E  1               InputStr:
-00C13E  1  49 6E 70 75  	.byte	"Input string:",$00
-00C142  1  74 20 73 74  
-00C146  1  72 69 6E 67  
-00C14C  1               InputStrWas:
-00C14C  1  0D 0A 49 6E  	.byte	$0D,$0A,"Input string was:",$00
-00C150  1  70 75 74 20  
-00C154  1  73 74 72 69  
-00C160  1               CRLF:
-00C160  1  0D 0A 00     	.byte	$0D,$0A,$00
-00C163  1               
-00C163  1               .segment "VECTS"
-00C163  1               .org $FFFA
+00C034  1  C9 48        	CMP #'H'
+00C036  1  D0 27        	BNE SKIPC
+00C038  1  48 AD C1 00  	SETUPSCRADDR TestValu8			; POINTS TO THE STRING
+00C03C  1  85 15 AD C6  
+00C040  1  00 85 14 68  
+00C044  1  20 6C C0     	JSR CONVERT_HEX_STRING_TO_BYTE
+00C047  1  C9 5A        	CMP	#$5A
+00C049  1  D0 0A        	BNE HCONVERR
+00C04B  1  A9 C1 A0 C9  	CALLPASS16 FailMsg, PRINTSTR
+00C04F  1  20 BE C0     
+00C052  1  4C 69 C0     	JMP ENDLOOP
+00C055  1               HCONVERR:
+00C055  1  A9 C1 A0 D2  	CALLPASS16 PassMsg, PRINTSTR
+00C059  1  20 BE C0     
+00C05C  1  4C 69 C0     	JMP ENDLOOP
+00C05F  1               SKIPC:
+00C05F  1               ; UNKNOWN COMMAND
+00C05F  1  A9 C1 A0 C6  	CALLPASS16 TestValu8, PRINTSTR
+00C063  1  20 BE C0     
+00C066  1  4C 69 C0     	JMP ENDLOOP
+00C069  1               ENDLOOP:
+00C069  1  4C 1A C0         JMP	LOOP1
+00C06C  1               
+00C06C  1               ; CONVERT_HEX_STRING_TO_BYTE subroutine converts a null-terminated string of
+00C06C  1               ;	hexadecimal digits to an 8-bit value.
+00C06C  1               ; The address of the string is in SCR16L/SCR16H.
+00C06C  1               ; The subroutine processes each character, converts it from ASCII hex to binary,
+00C06C  1               ;	shifts the current result left by 4 bits (to make room for the next nibble),
+00C06C  1               ;	and combines it with the new digit.
+00C06C  1               ; If a non-hex character is encountered, the subroutine returns an error value ($FF).
+00C06C  1               CONVERT_HEX_STRING_TO_BYTE:
+00C06C  1  A9 00                LDA     #$00           ; Clear A to start with 0
+00C06E  1  8D 42 04             STA     VAL8           ; Clear the result variable
+00C071  1  A0 00                LDY     #$00           ; Initialize Y to 0 for indexing
+00C073  1               
+00C073  1               CONVERT_LOOP:
+00C073  1  B1 14                LDA     (SCR16L),Y     ; Load the next character from the string
+00C075  1  F0 10                BEQ     CONVERT_DONE   ; If null terminator, we're done
+00C077  1  20 8B C0             JSR     HEX_TO_BIN     ; Convert ASCII hex digit to binary
+00C07A  1  0A                   ASL                    ; Shift left to make room for the next nibble
+00C07B  1  0A                   ASL
+00C07C  1  0A                   ASL
+00C07D  1  0A                   ASL
+00C07E  1  0D 42 04             ORA     VAL8           ; Combine with the current result
+00C081  1  8D 42 04             STA     VAL8           ; Store the new result
+00C084  1  C8                   INY                    ; Increment Y to point to the next character
+00C085  1  D0 EC                BNE     CONVERT_LOOP   ; Repeat the loop
+00C087  1               
+00C087  1               CONVERT_DONE:
+00C087  1  AD 42 04             LDA     VAL8           ; Load the final result into A
+00C08A  1  60                   RTS                    ; Return from subroutine
+00C08B  1               
+00C08B  1               HEX_TO_BIN:
+00C08B  1  C9 30                CMP     #'0'           ; Compare with '0'
+00C08D  1  90 12                BCC     HEX_ERROR      ; If less than '0', it's an error
+00C08F  1  C9 3A                CMP     #'9'+1         ; Compare with '9'+1
+00C091  1  B0 03                BCS     HEX_LETTER     ; If greater than '9', check for letters
+00C093  1  E9 30                SBC     #'0'           ; Convert '0'-'9' to 0-9
+00C095  1  60                   RTS
+00C096  1               
+00C096  1               HEX_LETTER:
+00C096  1  C9 41                CMP     #'A'           ; Compare with 'A'
+00C098  1  90 07                BCC     HEX_ERROR      ; If less than 'A', it's an error
+00C09A  1  C9 47                CMP     #'F'+1         ; Compare with 'F'+1
+00C09C  1  B0 03                BCS     HEX_ERROR      ; If greater than 'F', it's an error
+00C09E  1  E9 37                SBC     #'A'-10        ; Convert 'A'-'F' to 10-15
+00C0A0  1  60                   RTS
+00C0A1  1               
+00C0A1  1               HEX_ERROR:
+00C0A1  1  A9 FF                LDA     #$FF           ; Load error value into A
+00C0A3  1  60                   RTS                    ; Return from subroutine
+00C0A4  1               
+00C0A4  1               ; READ STRING INTO BUFFER
+00C0A4  1               ;
+00C0A4  1               INPUTSTR:
+00C0A4  1  A0 00        	LDY #0
+00C0A6  1               LOOPISTR:
+00C0A6  1  20 4B C1     	JSR GETCHAR			; READ THE CHARACTER
+00C0A9  1  20 58 C1     	JSR	PUTCHAR			; ECHO OUT THE CHARACTER
+00C0AC  1  C9 0D        	CMP	#CR
+00C0AE  1  F0 09        	BEQ DONEIS
+00C0B0  1  C9 0A        	CMP	#LF
+00C0B2  1  F0 05        	BEQ DONEIS
+00C0B4  1  91 12        	STA	(INSTRL),Y
+00C0B6  1  C8           	INY
+00C0B7  1  D0 ED        	BNE	LOOPISTR
+00C0B9  1               DONEIS:
+00C0B9  1  A9 00        	LDA	#0				; NULL TERMINATE STRING
+00C0BB  1  91 12        	STA	(INSTRL),Y
+00C0BD  1  60           	RTS
+00C0BE  1               
+00C0BE  1               ; PRINTSTR - PRINT STRING
+00C0BE  1               ; INPUT POINTER TO STRING IN PAGE ZERO
+00C0BE  1               ;	A IS UPPER 8-BITS OF ADDRESS
+00C0BE  1               ;	Y IS LOWER 8-BITS OF ADDRESS
+00C0BE  1               PRINTSTR:
+00C0BE  1  48           	PHA
+00C0BF  1  85 11        	STA PRSTRH
+00C0C1  1  98           	TYA
+00C0C2  1  85 10        	STA PRSTRL
+00C0C4  1  A0 00        	LDY	#0
+00C0C6  1               LPPRSTR:
+00C0C6  1  B1 10        	LDA (PRSTRL),Y
+00C0C8  1  C9 00        	CMP #0
+00C0CA  1  F0 06        	BEQ DONESTR		; If the character is null (end of string), exit
+00C0CC  1  20 58 C1     	JSR	PUTCHAR		; Call subroutine to print the character
+00C0CF  1  C8           	INY				; Increment X to point to the next character
+00C0D0  1  D0 F4        	BNE	LPPRSTR		; Repeat the loop (always true since X is 8-bit)
+00C0D2  1               DONESTR:
+00C0D2  1  68           	PLA
+00C0D3  1  60           	RTS
+00C0D4  1               
+00C0D4  1               ARTN:
+00C0D4  1  A9 C1 A0 A1  	CALLPASS16 InputStrMsg, PRINTSTR
+00C0D8  1  20 BE C0     
+00C0DB  1  20 A4 C0     	JSR INPUTSTR	; READ IN THE STRING
+00C0DE  1  A9 C1 A0 AF  	CALLPASS16 InputStrWasMsg, PRINTSTR
+00C0E2  1  20 BE C0     
+00C0E5  1  A9 04 A0 00  	CALLPASS16 INSTRPTR, PRINTSTR
+00C0E9  1  20 BE C0     
+00C0EC  1  A9 C1 A0 C3  	CALLPASS16 CRLFMsg, PRINTSTR
+00C0F0  1  20 BE C0     
+00C0F3  1  60           	RTS
+00C0F4  1               
+00C0F4  1               BRTN:
+00C0F4  1  AD 00 C0     	LDA $C000
+00C0F7  1  20 23 C1     	JSR PRHEXSTR
+00C0FA  1  A9 20        	LDA #' '
+00C0FC  1  20 58 C1     	JSR PUTCHAR
+00C0FF  1  AD 01 C0     	LDA $C001
+00C102  1  20 23 C1     	JSR PRHEXSTR
+00C105  1  A9 20        	LDA #' '
+00C107  1  20 58 C1     	JSR PUTCHAR
+00C10A  1  AD 02 C0     	LDA $C002
+00C10D  1  20 23 C1     	JSR PRHEXSTR
+00C110  1  A9 20        	LDA #' '
+00C112  1  20 58 C1     	JSR PUTCHAR
+00C115  1  AD 03 C0     	LDA $C003
+00C118  1  20 23 C1     	JSR PRHEXSTR
+00C11B  1  A9 C1 A0 C3  	CALLPASS16 CRLFMsg, PRINTSTR
+00C11F  1  20 BE C0     
+00C122  1  60           	RTS
+00C123  1               
+00C123  1               PRHEXSTR:
+00C123  1  48                   PHA                    ; Push A onto the stack to save its value
+00C124  1  4A                   LSR                    ; Shift right to get the high nibble
+00C125  1  4A                   LSR
+00C126  1  4A                   LSR
+00C127  1  4A                   LSR
+00C128  1  20 32 C1             JSR     PRINT_NIBBLE   ; Print the high nibble
+00C12B  1  68                   PLA                    ; Pull A from the stack to restore its value
+00C12C  1  29 0F                AND     #$0F           ; Mask out the high nibble
+00C12E  1  20 32 C1             JSR     PRINT_NIBBLE   ; Print the low nibble
+00C131  1  60                   RTS                    ; Return from subroutine
+00C132  1               
+00C132  1               PRINT_NIBBLE:
+00C132  1  48                   PHA                    ; Push A onto the stack to save its value
+00C133  1  C9 0A                CMP     #$0A           ; Compare with 10
+00C135  1  90 02                BCC     PRINT_DIGIT    ; If less than 10, it's a digit
+00C137  1  69 06                ADC     #$06           ; If 10 or more, convert to ASCII letter (A-F)
+00C139  1               PRINT_DIGIT:
+00C139  1  69 30                ADC     #$30           ; Convert to ASCII digit
+00C13B  1  20 58 C1             JSR     PUTCHAR	       ; Print the character
+00C13E  1  68                   PLA                    ; Pull A from the stack to restore its value
+00C13F  1  60                   RTS                    ; Return from subroutine
+00C140  1               
+00C140  1               ; INITIALIZE THE ACIA
+00C140  1               INITACIA:
+00C140  1  A9 03        	LDA 	#$03		; Master Reset ACIA
+00C142  1  8D 00 A0     	STA	ACIAControl
+00C145  1  A9 15        	LDA 	#$15		; Set ACIA baud rate, word size and Rx interrupt (to control RTS)
+00C147  1  8D 00 A0     	STA	ACIAControl
+00C14A  1  60           	RTS
+00C14B  1               
+00C14B  1               ; GET A CHARACTER FROM THE ACIA
+00C14B  1               ; RETURN CHAR IN A REGISTER
+00C14B  1               GETCHAR:
+00C14B  1  AD 00 A0     	LDA	ACIAStatus
+00C14E  1  29 01        	AND #1
+00C150  1  C9 01        	CMP #1
+00C152  1  D0 F7        	BNE GETCHAR
+00C154  1  AD 01 A0     	LDA	ACIAData
+00C157  1  60           	RTS
+00C158  1               
+00C158  1               ; PUT A CHARACTER FROM THE A REGISTER OUT THE ACIA
+00C158  1               PUTCHAR:
+00C158  1  48           	PHA
+00C159  1               LPUTC:
+00C159  1  AD 00 A0     	LDA	ACIAStatus
+00C15C  1  29 02        	AND #2
+00C15E  1  C9 02        	CMP #2
+00C160  1  D0 F7        	BNE LPUTC
+00C162  1  68           	PLA
+00C163  1  8D 01 A0     	STA ACIAData
+00C166  1  60           	RTS
+00C167  1               
+00C167  1               ; Strings kept in ROM (constant values)
+00C167  1               StartupMsg:
+00C167  1  0D 0A 53 69  	.byte	$0D,$0A,"Simple Monitor 6502",$0D,$0A,$00
+00C16B  1  6D 70 6C 65  
+00C16F  1  20 4D 6F 6E  
+00C17F  1               HelpMsg:
+00C17F  1  49 2D 54 45  	.byte	"I-TEST INPUT STRING, D-DUMP HEX",$0D,$0A,$00
+00C183  1  53 54 20 49  
+00C187  1  4E 50 55 54  
+00C1A1  1               InputStrMsg:
+00C1A1  1  49 6E 70 75  	.byte	"Input string:",$00
+00C1A5  1  74 20 73 74  
+00C1A9  1  72 69 6E 67  
+00C1AF  1               InputStrWasMsg:
+00C1AF  1  0D 0A 49 6E  	.byte	$0D,$0A,"Input string was:",$00
+00C1B3  1  70 75 74 20  
+00C1B7  1  73 74 72 69  
+00C1C3  1               CRLFMsg:
+00C1C3  1  0D 0A 00     	.byte	$0D,$0A,$00
+00C1C6  1               TestValu8:
+00C1C6  1  35 41 00     	.byte	"5A",$00
+00C1C9  1               FailMsg:
+00C1C9  1  0D 0A 46 41  	.byte	$0D,$0A,"FAIL",$0D,$0A,$00
+00C1CD  1  49 4C 0D 0A  
+00C1D1  1  00           
+00C1D2  1               PassMsg:
+00C1D2  1  0D 0A 50 41  	.byte	$0D,$0A,"PASS",$0D,$0A,$00
+00C1D6  1  53 53 0D 0A  
+00C1DA  1  00           
+00C1DB  1               
+00C1DB  1               
+00C1DB  1               .segment "VECTS"
+00C1DB  1               .org $FFFA
 00FFFA  1  00 C0        	.word	Reset		; NMI
 00FFFC  1  00 C0        	.word	Reset		; RESET
 00FFFE  1  00 C0        	.word	Reset		; IRQ
