@@ -46,25 +46,39 @@ LF := $0A
 .segment "CODE"
 .org $C000
 
-
-
 ; MACRO TO PASS A 16-BIT ADDRESS TO A FUNCTION AND CALL THE FUNCTION
 ;	A REGISTER IS THE UPPER 8-BITS OF THE ADDRESS
 ;	Y REGISTER IS THE LOWER 8-BITS OF THE ADDRESS
 ;	FNC_NAME IS THE FUNCTION THAT IS CALLED
-.macro CALLPASS16 FNC_NAME, ADDR32
-	LDA	#ADDR32/256		; A IS THE UPPER 8-BITS OF THE ADDRESS
-	LDY	#ADDR32&255		; Y IS THE LOWER 8-BITS OF THE ADDRESS
+.macro CALLPASS16 FNC_NAME, ADDR16
+	PHA					; SAVE A ON STACK
+	TYA					; SAVE Y ON STACK
+	PHA
+	LDA	#ADDR16/256		; A IS THE UPPER 8-BITS OF THE ADDRESS
+	LDY	#ADDR16&255		; Y IS THE LOWER 8-BITS OF THE ADDRESS
 	JSR FNC_NAME	
+	PLA					; RESTORE Y
+	TAY
+	PLA					; RESTORE A
 .endmacro
 
 .macro SETUPSCRADDR VAL32
 	PHA
-	LDA	VAL32&255
+	LDA	#VAL32&255
 	STA SCR16L
-	LDA	VAL32/256
+	LDA	#VAL32/256
 	STA SCR16H
 	PLA
+.endmacro
+
+.macro PUSHY
+	TYA
+	PHA
+.endmacro
+
+.macro PULLY
+	PLA
+	TAY
 .endmacro
 
 Reset:
@@ -80,9 +94,10 @@ Reset:
 ; Display startup message
 	CALLPASS16 PRINTSTR, StartupMsg
 ; INTERPRETER LOOP
+	LDA	ACIAData			; flush input
 LOOP1:
-	LDA	ACIAData
-	JSR GETCHAR
+	JSR INPUTSTR
+	LDA	INSTRPTR
 CHKA:
 	CMP	#'I'
 	BNE	SKIPA
@@ -112,53 +127,117 @@ SKIPC:
 ENDLOOP:
     JMP	LOOP1
 
+; DUMPRTN - DUMP A PAGE OF MEMORY TO THE SCREEN
+; EXAMPLE: D C0XX - DUMP BLOCK $C000-$C0FF
+; CONVERT_HEX_STRING_TO_BYTE
+;	The address of the string is in SCR16L/SCR16H.
+DUMPRTN:
+	LDA	#$02		; Start of address part of input string
+	STA	SCR16L
+	LDA	#$04
+	STA	SCR16H
+	JSR	CONVERT_HEX_STRING_TO_BYTE
+	LDA	VAL8
+	STA	SCR16H
+	LDA #0
+	STA	SCR16L
+	CALLPASS16 PRINTSTR, HeaderDumpMsg
+	LDY #0			; Y COUNTS THE BUFFER OFFSET
+LOOPB2:				; WRITE OUT THE ADDRESS
+	TYA
+	PHA
+	LDA	SCR16H
+	JSR PRHEXSTR
+	PLA
+	TAY
+	JSR PRHEXSTR
+	LDA #' '
+	JSR	PUTCHAR
+	LDX #0			; X IS CHARS PER LINE COUNTER
+LPBRTN:
+	LDA	(SCR16L),Y
+	INY
+	CPY #00
+	BEQ	ENDRTNB
+	JSR PRHEXSTR
+	LDA #' '
+	JSR	PUTCHAR
+	INX
+	CPX	#16
+	BNE	LPBRTN
+	CALLPASS16 PRINTSTR, CRLFMsg
+	LDA	#0
+	BEQ	LOOPB2
+	BNE LPBRTN
+ENDRTNB:
+	LDA	#$FF
+	TAY
+	LDA	(SCR16L),Y
+	JSR PRHEXSTR
+	CALLPASS16 PRINTSTR, CRLFMsg
+	RTS
+
 ; CONVERT_HEX_STRING_TO_BYTE subroutine converts a null-terminated string of 
 ;	hexadecimal digits to an 8-bit value.
 ; The address of the string is in SCR16L/SCR16H.
 ; The subroutine processes each character, converts it from ASCII hex to binary,
 ;	shifts the current result left by 4 bits (to make room for the next nibble), 
 ;	and combines it with the new digit.
-; If a non-hex character is encountered, the subroutine returns an error value ($FF).
+; If a non-hex character is encountered, the subroutine returns an error value ($99).
 CONVERT_HEX_STRING_TO_BYTE:
-        LDA     #$00           ; Clear A to start with 0
+		LDA     #$00           ; Clear A to start with 0
         STA     VAL8           ; Clear the result variable
-        LDY     #$00           ; Initialize Y to 0 for indexing
-
-CONVERT_LOOP:
-        LDA     (SCR16L),Y     ; Load the next character from the string
-        BEQ     CONVERT_DONE   ; If null terminator, we're done
+        LDA		INSTRPTR+2
+;		JSR		PUTCHAR
         JSR     HEX_TO_BIN     ; Convert ASCII hex digit to binary
         ASL                    ; Shift left to make room for the next nibble
         ASL
         ASL
         ASL
-        ORA     VAL8           ; Combine with the current result
         STA     VAL8           ; Store the new result
-        INY                    ; Increment Y to point to the next character
-        BNE     CONVERT_LOOP   ; Repeat the loop
+        LDA		INSTRPTR+3
+;		JSR		PUTCHAR
+        JSR     HEX_TO_BIN     ; Convert ASCII hex digit to binary
+		ORA		VAL8
+		STA		VAL8
+;		JSR		PRHEXSTR
+		RTS
+
+HEX_TO_BIN:
+        CMP     #'0'           ; Compare with '0'
+        BCC     HEX_ERROR1     ; If less than '0', it's an error
+        CMP     #'9'+1         ; Compare with '9'+1
+        BCC     HEX_NUM		   ; If equal to or less then '9', it's a number
+        CMP     #'A'           ; Compare with 'A'
+        BCC     HEX_ERROR2     ; If less than 'A', it's an error
+        CMP     #'F'+1         ; Compare with 'F'+1
+        BCS     HEX_ERROR3     ; If greater than 'F', it's an error
+		SEC
+        SBC     #'A'-10        ; Convert 'A'-'F' to 10-15
+        RTS
+
+HEX_NUM:
+        SEC
+		SBC     #'0'           ; Convert '0'-'9' to 0-9
+        RTS
 
 CONVERT_DONE:
         LDA     VAL8           ; Load the final result into A
         RTS                    ; Return from subroutine
 
-HEX_TO_BIN:
-        CMP     #'0'           ; Compare with '0'
-        BCC     HEX_ERROR      ; If less than '0', it's an error
-        CMP     #'9'+1         ; Compare with '9'+1
-        BCS     HEX_LETTER     ; If greater than '9', check for letters
-        SBC     #'0'           ; Convert '0'-'9' to 0-9
-        RTS
+HEX_ERROR1:
+		CALLPASS16 PRINTSTR, HexErr1Msg
+        LDA     #$99           ; Load error value into A
+        RTS                    ; Return from subroutine
 
-HEX_LETTER:
-        CMP     #'A'           ; Compare with 'A'
-        BCC     HEX_ERROR      ; If less than 'A', it's an error
-        CMP     #'F'+1         ; Compare with 'F'+1
-        BCS     HEX_ERROR      ; If greater than 'F', it's an error
-        SBC     #'A'-10        ; Convert 'A'-'F' to 10-15
-        RTS
+HEX_ERROR2:
+		CALLPASS16 PRINTSTR, HexErr2Msg
+        LDA     #$99           ; Load error value into A
+        RTS                    ; Return from subroutine
 
-HEX_ERROR:
-        LDA     #$FF           ; Load error value into A
+HEX_ERROR3:
+		CALLPASS16 PRINTSTR, HexErr3Msg
+        LDA     #$99           ; Load error value into A
         RTS                    ; Return from subroutine
 
 ; READ STRING INTO BUFFER
@@ -191,7 +270,7 @@ PRINTSTR:
 	STA PRSTRL
 	LDY	#0
 LPPRSTR:
-	LDA (PRSTRL),Y
+	LDA	(PRSTRL),Y
 	CMP #0
 	BEQ DONESTR		; If the character is null (end of string), exit
 	JSR	PUTCHAR		; Call subroutine to print the character
@@ -209,29 +288,8 @@ INSTRTST:
 	CALLPASS16 PRINTSTR, CRLFMsg
 	RTS
 
-;.macro SETUPSCRADDR VAL32
-;	PHA
-;	LDA	VAL32/256
-;	STA SCR16H
-;	LDA	VAL32&255
-;	STA SCR16L
-;	PLA
-;.endmacro
-
-DUMPRTN:
-	SETUPSCRADDR $C000
-	LDY #0
-LPBRTN:
-	LDA	(SCR16L),Y
-	JSR PRHEXSTR
-	LDA #' '
-	JSR	PUTCHAR
-	INY
-	CPY #16
-	BNE LPBRTN
-	RTS
-
 PRHEXSTR:
+        PHA                    ; Push A onto the stack to save its value
         PHA                    ; Push A onto the stack to save its value
         LSR                    ; Shift right to get the high nibble
         LSR
@@ -241,6 +299,7 @@ PRHEXSTR:
         PLA                    ; Pull A from the stack to restore its value
         AND     #$0F           ; Mask out the high nibble
         JSR     PRINT_NIBBLE   ; Print the low nibble
+        PLA                    ; Pull A from the stack to restore its value
         RTS                    ; Return from subroutine
 
 PRINT_NIBBLE:
@@ -288,7 +347,7 @@ LPUTC:
 StartupMsg:
 	.byte	$0D,$0A,"Simple Monitor 6502",$0D,$0A,$00
 HelpMsg:
-	.byte	"I-TEST INPUT STRING, D-DUMP HEX, H-TEST HEX STR",$0D,$0A,$00
+	.byte	"I-TEST INPUT STRING, D-DUMP HEX, H-TEST HEX STR, ?-DETAILED HELP",$0D,$0A,$00
 InputStrMsg:
 	.byte	"Input string:",$00
 InputStrWasMsg:
@@ -301,7 +360,14 @@ FailMsg:
 	.byte	$0D,$0A,"FAIL",$0D,$0A,$00
 PassMsg:
 	.byte	$0D,$0A,"PASS",$0D,$0A,$00
-
+HeaderDumpMsg:
+	.byte	$0D,$0A,"ADDR 0  1  2  3  4  5  6  7  8  9  A  B  C  D  E  F",$0D,$0A,$00
+HexErr1Msg:
+	.byte	$0D,$0A,"Hex Error (1)",$0D,$0A,$00
+HexErr2Msg:
+	.byte	$0D,$0A,"Hex Error (2)",$0D,$0A,$00
+HexErr3Msg:
+	.byte	$0D,$0A,"Hex Error (3)",$0D,$0A,$00
 
 .segment "VECTS"
 .org $FFFA
