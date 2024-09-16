@@ -184,22 +184,18 @@ CHKA:
 	JMP	ENDLOOP
 SKIPA:
 	CMP #'D'
-	BNE SKIPB
+	BNE SKIPC
 	JSR DUMPRTN
 	JMP ENDLOOP
-SKIPB:
-	CMP #'H'
-	BNE SKIPC
-	SETUPSCRADDR TestValu8			; POINTS TO THE STRING
-	JSR CONVERT_HEX_STRING_TO_BYTE
-	CMP	#$5A
-	BNE HCONVERR
-	CALLPASS16 PRINTSTR, FailMsg
-	JMP ENDLOOP
-HCONVERR:
-	CALLPASS16 PRINTSTR, PassMsg
-	JMP ENDLOOP
 SKIPC:
+	CMP #'?'
+	BNE SKIPD
+	CALLPASS16 PRINTSTR, StartupMsg
+	CALLPASS16 PRINTSTR, TestInStrMsg
+	CALLPASS16 PRINTSTR, TestDumpStrMsg
+	JMP ENDLOOP
+SKIPD:
+
 ; UNKNOWN COMMAND
 	CALLPASS16 PRINTSTR, HelpMsg
 	JMP ENDLOOP
@@ -424,7 +420,7 @@ LPUTC:
 
 ; Strings kept in ROM (constant values)
 StartupMsg:
-	.byte	$0D,$0A,"Simple Monitor 6502",$0D,$0A,$00
+	.byte	$0D,$0A,"Simple Monitor 6502 v1.0",$0D,$0A,$00
 HelpMsg:
 	.byte	"I-TEST INPUT STRING, D-DUMP HEX, H-TEST HEX STR, ?-DETAILED HELP",$0D,$0A,$00
 InputStrMsg:
@@ -447,7 +443,10 @@ HexErr2Msg:
 	.byte	$0D,$0A,"Hex Error (2)",$0D,$0A,$00
 HexErr3Msg:
 	.byte	$0D,$0A,"Hex Error (3)",$0D,$0A,$00
-
+TestInStrMsg:
+	.byte " I-Test Input String (type and show string)",$0D,$0A,$00
+TestDumpStrMsg:
+	.byte " D-Dump Memory Block (Ex: DA0 dumps block $DA-$DAFF",$0D,$0A,$00
 .segment "VECTS"
 .org $FFFA
 	.word	Reset		; NMI 
