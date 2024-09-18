@@ -1,4 +1,8 @@
-# Loomcom 6502 ROM Monitor
+# Enhanced BASIC
+
+## Loomcom 6502 ROM Monitor plus Enhanced BASIC
+
+monitor.asm includes basic.asm.
 
 **Version:** 1.0
 
@@ -12,8 +16,8 @@ associated hardware.
 
 ## 2.0 Assembly
 
-Assembled with [CA65](http://www.cc65.org/doc/ca65.html). Just
-type `make`!
+Assembled with [CA65](http://www.cc65.org/doc/ca65.html) under Windows. Run MAKEMON.BAT
+to make to ROM file moncode.hex.
 
 ## 3.0 To Do
 
