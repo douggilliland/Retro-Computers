@@ -1,0 +1,2401 @@
+O  0000   01 01 01              NAM   MONDEB
+                                CPU   6800
+                        ;THIS SOURCE CODE WAS SENT TO WALTER BANKS AT
+                        ;THE UNIVERSITY OF WATERLOO BY DON PETERS ON PAPER TAPE
+                        ;CROSS ASSEMBLY WAS DONE ON THE U OF W HONEYWELL 66/60
+                        ;THE BARCODE AND LISTING WERE SET ON A PHOTON PHOTO-
+                        ;TYPESETTER DRIVEN BY THE HONEYWELL.
+                        ;
+                        ;       M O N D E B  - A MONITOR/DEBUGGER FOR THE M6800 MICROPROCESSOR
+                        
+                        ; AUTHOR: DON PETERS
+                        ; DATE: APRIL 1977
+                        ; MEMORY REQ'D: 3K BYTES AT HIGH END OF ADDRESS SPACE
+                        
+                        ; SEE USER MANUAL FOR CAPABILITIES & INSTRUCTIONS ON USE
+                        
+                        ;      * =     $400    ;DEBUG ORG AT 1K
+                        ;       * =    $F400    ;NORMAL ORIGIN AT 61K
+   f400                 	ORG $f400
+                        
+                        
+                        ;I/O DEVICE ADDRESSES
+   7f43                 ACIA1  EQU    $7F43    ;ACIA #1 - MAIN TERMINAL ACIA
+   7f45                 ACIA2  EQU    $7F45    ;ACIA #2 - AUXILIARY TERMINAL ACIA
+                        
+                        ;OTHER CONSTANTS
+   000d                 CR     EQU    13       ;CARRIAGE RETURN
+   000a                 LF     EQU    10       ;LINE FEED
+                        
+                        
+                        
+   f400                 START  EQU    *        ;PROGRAM ENTRY POINT
+   f400   8e 00 66             LDS    #STACK   ;INITIALIZE THE STACK POINTER
+   f403   bf 00 09             STS    SP       ;SAVE THE POINTER
+   f406   bd fe 4d             JSR    INITAL   ;INITIALIZE VARIABLES
+                        
+                        
+                        ;TYPE OUT MONITOR NAME & VERSION
+   f409   bd ff 0c             JSR    DOCRLF   ;ADVANCE TO A CLEAN LINE
+   f40c   ce ff 37             LDX    #MSGHED  ;GET ADDRESS OF HEADER
+   f40f   bd fe 90             JSR    OUTSTR   ;TYPE IT
+                        
+                        ;SET UP DESTINATION OF INPUT LINE
+                        ;DEFINE BEGINNING OF INPUT BUFFER
+   f412   ce 00 5c             LDX    #TTYBUF-1   ;GET ADDRESS OF TERMINAL INPUT BUFFER
+   f415   ff 00 57             STX    BUFBEG   ;SAVE IT
+                        
+                        ;DEFINE END OF INPUT BUFFER - 72 CHAR CAPACITY, INCL CR
+   f418   ce 00 60             LDX    #TTYEND
+   f41b   ff 00 5a             STX    BUFEND
+                        
+                        ;DELIMITER CLASS DEFINITION - SPACE OR COMMA (CODE 3)
+   f41e   86 03                LDAA   #3
+   f420   b7 00 18             STAA   DELIM
+   f423   20 0f                BRA    PROMP1
+                        
+                        ;PREPARE TO GET A NEW COMMAND
+   f425   bd ff 0c      PROMPT JSR    DOCRLF   ;TYPE CR-LF
+   f428   7c 00 15             INC    BOLFLG   ;SET "BEGINNING OF LINE" FLAG
+   f42b   fe 00 0f             LDX    SYNPTR   ;POINT TO CURRENT CHARACTER
+   f42e   a6 00                LDAA   ,X       ;GET IT
+   f430   81 3b                CMPA   #';'     ;SEMICOLON?
+   f432   27 1a                BEQ    GETCMD   ;CONTINUE SCAN IF IT IS, SKIPPING THE PROMPT
+                        
+                        ;TYPE PROMPT
+   f434   ce ff 3d      PROMP1 LDX    #MSGPRM
+   f437   bd fe 90             JSR    OUTSTR
+                        
+   f43a   bd fd d1             JSR    GETLIN  ;GET LINE OF INPUT
+                        
+                        ;ABORT LINE ON A CONTROL-C
+   f43d   c1 03                CMPB   #3
+   f43f   27 e4                BEQ    PROMPT
+                        
+                        ;SET SYNTAX SCANNING POINTER TO BEGINNING OF BUFFER/LINE
+   f441   fe 00 57             LDX    BUFBEG
+   f444   ff 00 0f             STX    SYNPTR
+                        
+                        ;REPROMPT ON AN EMPTY LINE (FIRST CHAR = CR, LF, OR ;)
+   f447   a6 01                LDAA   1,X      ;GET FIRST CHAR
+   f449   bd fa 91             JSR    TSTEOL   ;TEST IT
+   f44c   27 d7                BEQ    PROMPT   ;IF IT IS, PROMPT AGAIN
+                        
+                        ;USE LIST 1 WHEN MATCHING
+   f44e   86 01         GETCMD LDAA   #1
+                        
+                        ;NOW GO FOR A MATCH
+   f450   bd f9 cf             JSR    COMAND
+                        
+                        ;-AND TEST THE RESULT OF THE SCAN
+   f453   27 d0                BEQ    PROMPT   ;REPROMPT IF JUST A CR WAS TYPED
+   f455   2e 1f                BGT    JMPCMD   ;GOOD COMMAND IF POSITIVE
+                        
+                        ;*****
+                        ;UNRECOGNIZABLE SYNTAX - POINT TO ERROR
+   f457   fe 00 57      BADSYN LDX    BUFBEG   ;GET START OF LINE
+                        ;SPACE OVER TO ERROR IN SYNTAX
+   f45a   bc 00 12      BADS1  CPX    LINPTR   ;AT ERROR?
+                        
+   f45d   27 06                BEQ    BADS2
+   f45f   bd fb f9             JSR    OUTSP    ;OUTPUT A SPACE
+   f462   08                   INX             ;NO, MOVE ON
+   f463   20 f5                BRA    BADS1
+                        
+                        ;THE "EXTRA" CHAR "1" IS COMPENSATED FOR BY THE PROMPT CHAR ON THE PRECEDING LINE
+   f465   86 5e         BADS2  LDAA   #'^'     ;AT ERROR - GET AN UP-ARROW
+   f467   bd fe bb             JSR    OUTCHR   ;PRINT IT
+   f46a   bd ff 0c             JSR    DOCRLF
+   f46d   20 c5                BRA    PROMP1   ;IGNORE ANY SUCCEEDING PACKED
+                        ;                        COMMANDS
+                        
+                        ;*****
+                        ;THERE SHOULD BE NO MORE CHARACTERS ON THE INPUT LINE
+                        ;                       (EXCEPT DELIMITERS)
+   f46f   bd fa 71      NOMORE JSR    SKPDLM
+   f472   25 b1                BCS    PROMPT   ;IF CARRY BIT SET, END OF LINE (NORMAL)
+                        ;THERE IS SOMETHING THERE BUT SHOULDN'T BE
+   f474   20 e1                BRA    BADSYN
+                        
+                        ;*****
+                        ;EXECUTE A COMPUTED "GOTO" TO THE PROPER COMMAND
+   f476   16            JMPCMD TAB             ;SAVE COMMAND # IN ACCB
+   f477   48                   ASLA            ;MULTIPLY COMMAND BY 2
+   f478   1b                   ABA             ;ACCA NOW HOLDS COMMAND # MULTIPLIED BY 3
+                        ;ADD IT TO BASE OF JUMP TABLE
+   f479   c6 f4                LDAB   #JMPHI   ;GET HI BYTE OF START OF JUMP TABLE IN ACCB
+   f47b   8b 85                ADDA   #JMPLO   ;ADD LO BYTE OF START OF JUMP TABLE TO ACCA
+   f47d   c9 00                ADCB   #0       ;ADD CARRY IF THERE WAS ONE
+                        ;MOVE ACCA & ACCB TO IX (CODE IS WEIRD, BUT BRIEF)
+   f47f   36                   PSHA
+   f480   37                   PSHB
+   f481   30                   TSX             ;PUT ADDRESS OF "GOTO" INTO X
+   f482   ee 00                LDX    ,X       ;GET THE ADDRESS ITSELF
+   f484   33                   PULB            ;RESTORE THE STACK
+   f485   32                   PULA
+                        
+   f486   6e 00                JMP    ,X       ;JUMP TO RIGHT COMMAND
+                        
+   f485                 JMPTBL EQU    *-3
+                        
+   00f4                 JMPHI  EQU    JMPTBL/256
+   f400                 JMP256 EQU    JMPHI*256
+   0085                 JMPLO  EQU    JMPTBL-JMP256
+                        
+   f488   7e f4 c7             JMP    REG
+   f48b   7e f5 14             JMP    GOTO
+   f48e   7e f5 26             JMP    LSEI
+   f491   7e f5 29             JMP    LCLI
+   f494   7e f5 2c             JMP    COPY
+   f497   7e f5 58             JMP    BREAK
+   f49a   7e f5 b8             JMP    IBASE
+   f49d   7e f5 ce             JMP    DBASE
+   f4a0   7e f6 0c             JMP    CONTIN
+   f4a3   7e f6 10             JMP    DISPLA
+   f4a6   7e f6 7b             JMP    SET
+   f4a9   7e f7 28             JMP    VERIFY
+   f4ac   7e f7 6e             JMP    SEARCH
+   f4af   7e f7 f5             JMP    TEST
+   f4b2   7e f8 4c             JMP    INT
+   f4b5   7e f8 54             JMP    NMI
+   f4b8   7e f8 5c             JMP    LSWI
+   f4bb   7e f8 64             JMP    COMPAR
+   f4be   7e f8 8d             JMP    DUMP
+   f4c1   7e f9 2c             JMP    LOAD
+   f4c4   7e f9 bd             JMP    DELAY
+                        ;*****
+                        ;REG - DISPLAY REGISTERS
+   f4c7                 REG    EQU    *
+                        ;PRINT STACK STORED SWI DATA
+   f4c7   fe 00 09      DISREG LDX    SP       ;GET SAVED STACK POINTER
+   f4ca   08                   INX
+                        ;REGISTER NAME TYPEOUT INITIALIZATION
+   f4cb   7f 00 99             CLR    COMNUM   ;START AT BEGINNING OF THE REGISTER NAME LIST
+                        
+   f4ce   8d 13                BSR    OUT2     ;TYPE CONDITION CODES
+   f4d0   8d 11                BSR    OUT2     ;TYPE ACCB
+   f4d2   8d 0f                BSR    OUT2     ;TYPE ACCA
+                        
+   f4d4   8d 14                BSR    OUT4     ;TYPE INDEX REG
+   f4d6   8d 12                BSR    OUT4     ;TYPE PROGRAM COUNTER
+                        
+                        ;TYPE THE STACK POINTER LOCATION
+   f4d8   8d 18                BSR    OUT2A4   ;TYPE STACK POINTER ID
+   f4da   ce 00 09             LDX    #SP
+   f4dd   bd fc 0c             JSR    OUT2BY   ;TYPE THE VALUE
+                        
+   f4e0   7e f4 6f             JMP    NOMORE
+                        
+                        ;OUTPUT CONTENT OF A 1 BYTE REGISTER
+   f4e3   8d 0d         OUT2   BSR    OUT2A4
+   f4e5   bd fc 05             JSR    OUT1BY
+   f4e8   08                   INX
+   f4e9   39                   RTS
+                        
+                        ;OUTPUT CONTENT OF A 2 BYTE RESISTER
+   f4ea   8d 06         OUT4   BSR    OUT2A4
+   f4ec   bd fc 0c             JSR    OUT2BY
+   f4ef   08                   INX             ;SKIP TO NEXT BYTE IN STACK
+   f4f0   08                   INX             ;SKIP TO NEXT BYTE IN STACK
+   f4f1   39                   RTS
+                        
+                        ;MISC SETUP FOR REGISTER DISPLAY
+   f4f2   bd fb f9      OUT2A4 JSR    OUTSP    ;OUTPUT A SPACE
+   f4f5   7c 00 99             INC    COMNUM   ;SKIP TO NEXT REGISTER NAME
+   f4f8   86 05                LDAA   #5       ;REGISTER NAME IS IN LIST 5
+   f4fa   bd fa 36             JSR    TYPCMD   ;TYPE IT
+   f4fd   bd fb ff             JSR    OUTEQ    ;TYPE AN "="
+   f500   39                   RTS
+                        
+                        ;ENTER HERE FROM SOFTWARE INTERRUPT
+   f501   ce ff 40      TYPSWI LDX    #MSGSWI
+   f504   bd fe 90             JSR    OUTSTR
+                        ;DECREMENT PC SO IT POINTS TO "SWI" INSTRUCTION
+   f507   fe 00 09             LDX    SP
+   f50a   6d 07                TST    7,X      ;TEST LO BYTE OF PC FOR PENDING BORROW
+   f50c   26 02                BNE    TYPSW1
+   f50e   6a 06                DEC    6,X      ;NEED TO BORROW, DEC HI BYTE OF PC
+   f510   6a 07         TYPSW1 DEC    7,X      ;DECR LO BYTE OF PC
+   f512   20 b3                BRA    DISREG   ;GO DISPLAY REGISTERS
+                        ;*****
+                        ;GOTO - GO TO MEMORY ADDRESS
+   f514   bd fb 4f      GOTO   JSR    NUMBER   ;GET DESTINATION
+   f517   27 08                BEQ    GOTO1    ;IF NONE, USE DEFAULT
+   f519   fe 00 24             LDX    NBRHI
+   f51c   ff 00 30             STX    LASTGO   ;SAVE IT
+   f51f   6e 00                JMP    ,X       ;GO TO DESTINATION
+                        
+   f521   fe 00 30      GOTO1  LDX   LASTGO    ;GET LAST GOTO ADDRESS
+   f524   6e 00                JMP   ,X        ;GO TO IT
+                        ;*****
+                        ;SEI - SET INTERRUPT MASK
+   f526   0f            LSEI   SEI
+   f527   20 2c                BRA    COPY3
+                        
+                        ;*****
+                        ;CLI - CLEAR INTERRUPT MASK
+   f529   0e            LCLI   CLI
+   f52a   20 29                BRA    COPY3
+                        
+                        ;*****
+                        ;COPY - COPY FROM ONE LOCATION TO ANOTHER
+   f52c   bd fb 04      COPY   JSR    GTRANG   ;GET SOURCE RANGE INTO RANGLO & RANGHI
+   f52f   2f 21                BLE    COPY2    ;ERROR IF NO SOURCE
+   f531   bd fb 4f             JSR    NUMBER   ;GET DESTINATION
+   f534   2f 1c                BLE    COPY2    ;ERROR IF NO DESTINATION
+                        
+   f536   fe 00 2a             LDX    RANGLO   ;GET SOURCE ADDRESS POINTER
+   f539   a6 00         COPY1  LDAA   ,X       ;GET BYTE FROM SOURCE
+   f53b   fe 00 24             LDX    NBRHI    ;GET DESTINATION ADDRESS POINTER
+   f53e   a7 00                STAA   ,X       ;SAVE BYTE IN DESTINATION
+   f540   08                   INX             ;INC DESTINATION POINTER
+   f541   ff 00 24             STX    NBRHI    ;SAVE IT
+   f544   fe 00 2a             LDX    RANGLO   ;GET SOURCE ADDRESS POINTER
+   f547   bc 00 2d             CPX    RANGHI   ;COMPARE TO END OF INPUT RANGE
+   f54a   27 09                BEQ    COPY3    ;DONE IF EQUAL
+   f54c   08                   INX             ;NOT EQUAL, INC SOURCE POINTER
+   f54d   ff 00 2a             STX    RANGLO   ;SAVE IT
+   f550   20 e7                BRA    COPY1    ;LOOP FOR NEXT BYTE
+                        
+   f552   7e f4 57      COPY2  JMP    BADSYN   ;BAD SYNTAX
+   f555   7e f4 6f      COPY3  JMP    NOMORE   ;SHOULD BE NO MORE ON THE INPUT LINE
+                        
+                        ;*****
+                        ;BREAK - SET BREAKPOINT AT SPECIFIED ADDRESS & REMOVE OLD ONE
+   f558   bd fb 4f      BREAK  JSR    NUMBER   ;GET BREAKPOINT LOCATION
+   f55b   2b 31                BMI    BREAK3   ;IF NOT NUMERIC, LOOK FOR "?"
+   f55d   27 1f                BEQ    BREAK2   ;IF NO MODIFIER, REMOVE OLD BREAKPOINT
+                        
+                        ;*****
+                        ;CHECK IF A "SWI" IS STORED AT THE BREAK ADDRESS
+   f55f   fe 00 3c             LDX    BRKADR   ;GET CURRENT BREAK ADDRESS
+   f562   a6 00                LDAA   ,X       ;AND THE CHAR THERE
+   f564   81 3f                CMPA   #$3F     ;COMPARE TO "SWI"
+   f566   26 05                BNE    BREAK1   ;EQUAL?
+                        ;YES, RESTORE THE OLD INSTRUCTION
+   f568   b6 00 3f             LDAA   BRKINS   ;GET IT
+   f56b   a7 00                STAA   ,X       ;RESTORE IT
+                        
+                        ;PUT BREAK AT NEWLY SPECIFIED LOCATION
+   f56d   fe 00 24      BREAK1 LDX    NBRHI    ;GET NEW BREAKPOINT (BREAK ADDRESS)
+   f570   ff 00 3c             STX    BRKADR   ;SAVE IT
+   f573   a6 00                LDAA   ,X       ;GET INSTRUCTION STORED THERE
+   f575   b7 00 3f             STAA   BRKINS   ;SAVE IT
+   f578   86 3f                LDAA   #$3F     ;GET CODE FOR SOFTWARE INTERRUPT
+   f57a   a7 00                STAA   ,X       ;PUT IT AT BREAKPOINT
+   f57c   20 34                BRA    BREAK5   ;ALL DONE
+                        
+                        ;REMOVE BREAKPOINT
+   f57e   fe 00 3c      BREAK2 LDX    BRKADR   ;GET ADDRESS OF BREAK
+   f581   a6 00                LDAA   ,X       ;GET INST. THERE
+   f583   81 3f                CMPA   #$3F     ;SWI?
+   f585   26 2b                BNE    BREAK5   ;IF NOT,, RETURN & PROMPT
+   f587   b6 00 3f             LDAA   BRKINS   ;WAS A SWI - GET PREVIOUS INST.
+   f58a   a7 00                STAA   ,X       ;& RESTORE IT
+   f58c   20 24                BRA    BREAK5
+                        
+                        ;LOOK FOR A QUESTION MARK IN LIST 4
+   f58e   86 04         BREAK3 LDAA   #4
+   f590   bd f9 cf             JSR    COMAND   ;SCAN FOR IT
+   f593   2f 20                BLE    BREAK6   ;BAD SYNTAX IF NOT "?"
+   f595   fe 00 3c             LDX    BRKADR   ;IT IS, GET BREAK ADDRESS
+   f598   a6 00                LDAA   ,X       ;GET INSTRUCTION THERE
+   f59a   81 3f                CMPA   #$3F     ;IS IT A "SWI"?
+   f59c   27 08                BEQ    BREAK4   ;IF YES, SAY SO
+                        ;NO BREAKPOINT SET
+   f59e   ce ff 4f             LDX    #MSGNBR  ;GET THAT MESSAGE
+   f5a1   bd fe 90             JSR    OUTSTR   ;SAY IT
+   f5a4   20 0c                BRA    BREAK5
+                        ;BREAKPOINT SET
+   f5a6   ce ff 55      BREAK4 LDX    #MSGBAT  ;GET THAT MESSAGE
+   f5a9   bd fe 90             JSR    OUTSTR   ;SAY IT
+   f5ac   ce 00 3c             LDX    #BRKADR  ;GET BREAK ADDRESS
+   f5af   bd fc 0c             JSR    OUT2BY   ;TYPE IT
+                        
+   f5b2   7e f4 6f      BREAK5 JMP    NOMORE
+   f5b5   7e f4 57      BREAK6 JMP    BADSYN
+                        
+                        ;*****
+                        ;IBASE - SET INPUT BASE
+                        ;LOOK FOR HEX, DEC, OR OCT IN LIST #3
+   f5b8   86 03         IBASE  LDAA   #3
+   f5ba   bd f9 cf             JSR    COMAND
+   f5bd   2b 09                BMI    IBASE2   ;UNRECOGNIZABLE BASE, TRY "?"
+   f5bf   2e 02                BGT    IBASE1
+   f5c1   86 01                LDAA   #1       ;NO BASE GIVEN - DEFAULT TO HEX
+   f5c3   b7 00 1b      IBASE1 STAA   IBCODE   ;SAVE BASE CODE
+   f5c6   20 ea                BRA    BREAK5
+                        
+                        ;LOOK FOR "?" IN LIST #4
+   f5c8   b6 00 1b      IBASE2 LDAA   IBCODE   ;GET IB CODE IN CASE ITS NEEDED
+   f5cb   36                   PSHA            ;SAVE IT ON STACK TEMPORARILY
+   f5cc   20 2c                BRA    DBASE4
+                        
+                        ;*****
+                        ;DBASE - SET DISPLAY BASE
+                        ;LOOK FOR HEX,DEC,OCT OR BIN IN LIST #3
+   f5ce   86 03         DBASE  LDAA   #3
+   f5d0   bd f9 cf             JSR    COMAND
+   f5d3   2b 21                BMI    DBASE3   ;UNRECOGNIZABLE BASE, TRY "?"
+   f5d5   2e 02                BGT    DBASE1
+   f5d7   86 01                LDAA   #1       ;NO BASE GIVEN - DEFAULT TO HEX
+   f5d9   b7 00 1e      DBASE1 STAA   DBCODE
+                        
+                        ;COMPUTE THE NUMERIC DISPLAY BASE (FOR THE "DISPLAY" COMMAND)
+   f5dc   ce f5 e9             LDX    #DBTBL-1 ;POINT TO HEAD OF DISPLAY BASE TABLE
+   f5df   08            DBASE2 INX             ;INC TABLE POINTER
+   f5e0   4a                   DECA            ;DECR DISPLAY BASE CODE
+   f5e1   26 fc                BNE    DBASE2   ;LOOP IF NOT EQUAL
+   f5e3   a6 00                LDAA   ,X       ;EQUAL - GET NUMERIC BASE FROM TABLE
+   f5e5   b7 00 21             STAA   DBNBR    ;SAVE IT
+   f5e8   20 c8                BRA    BREAK5   ;DONE
+                        
+                        ;DISPLAY BASE TABLE
+O  f5ea   01 01 01      DBTBL  DB     16
+O  f5ed   01 01 01             DB     10
+O  f5f0   01 01 01             DB     8
+O  f5f3   01 01 01             DB     2
+                        
+                        ;LOOK FOR "?" IN LIST #4
+   f5f6   b6 00 1e      DBASE3 LDAA   DBCODE   ;GET DB CODE IN CASE ITS NEEDED
+   f5f9   36                   PSHA            ;SAVE IT ON STACK TEMPORARILY
+   f5fa   86 04         DBASE4 LDAA   #4
+   f5fc   bd f9 cf             JSR    COMAND
+   f5ff   33                   PULB            ;RETRIEVE INPUT BASE/DISPLAY BASE CODE
+   f600   2f b3                BLE    BREAK6   ;ERROR IF THE "SOMETHING" WAS NOT AN "?"
+                        ;SET UP FOR TYPEOUT OF BASE CODE
+   f602   86 03                LDAA   #3       ;ITS IN LIST
+   f604   f7 00 99             STAB   COMNUM   ;STORE BASE CODE
+   f607   bd fa 36             JSR    TYPCMD   ;TYPE OUT BASE
+   f60a   20 a6                BRA    BREAK5
+                        ;*****
+                        ;CONTINUE - CONTINUE FROM A "SWI"
+                        ;RETURN TO LOCATION WHERE SWI WAS
+   f60c   be 00 09      CONTIN LDS    SP       ;IN CASE SP WAS MODIFIED VIA SET COMMAND
+   f60f   3b                   RTI
+                        
+                        ;*****
+                        ;DISPLAY - DISPLAY MEMORY DATA
+   f610   bd fb 04      DISPLA JSR    GTRANG   ;GET MEMORY DISPLAY RANGE
+   f613   2f 60                BLE    DISPL9   ;ADDRESS IS REQUIRED
+                        
+                        ;INITIALIZE ADDRESS POINTER TO START OF MEMORY
+   f615   fe 00 2a             LDX    RANGLO
+   f618   ff 00 69             STX    MEMADR
+                        
+                        ;SEARCH LIST 6 FOR DISPLAY MODIFIERS "DATA" OR "USED"
+   f61b   86 06                LDAA   #6
+   f61d   bd f9 cf             JSR    COMAND
+   f620   2b 53                BMI    DISPL9   ;ANY OTHER MODIFIER IS ILLEGAL
+                        ;ADJ DISPLAY MODIFIER CODE SO THAT: -1=ADDR & DATA, 0=DATA, I=USED
+   f622   4a                   DECA
+   f623   b7 00 99             STAA   COMNUM   ;SAVE FOR LATER TESTS
+                        ;INIT "DATA VALUES PER LINE" COUNTER
+   f626   5f                   CLRB
+   f627   5c                   INCB
+   f628   ce 00 69      DISPL1 LDX    #MEMADR
+   f62b   7d 00 99             TST    COMNUM   ;WHICH DISPLAY OPTION?
+   f62e   2b 2c                BMI    DISPL6   ;IF "ADDRESS & DATA", GO THERE
+                        
+                        ;OUTPUT DATA WITH ADDRESS ONLY AT LINE BEGINNING
+   f630   5a                   DECB            ;COUNT DATA VALUES PER LINE
+   f631   26 0c                BNE    DISPL2   ;IF COUNT NOT UP, SKIP ADDRESS OUTPUT
+                        
+   f633   bd ff 0c             JSR    DOCRLF   ;GET TO LINE BEGINNING
+   f636   bd fc 0c             JSR    OUT2BY   ;OUTPUT ADDRESS
+   f639   bd fb f9             JSR    OUTSP    ;AND A SPACE
+   f63c   f6 00 21             LDAB   DBNBR    ;RESET LINE COUNTER
+                        
+   f63f   fe 00 69      DISPL2 LDX    MEMADR   ;POINT TO DATA AT THAT ADDRESS
+   f642   7d 00 99             TST    COMNUM   ;WANT "DATA" OPTION?
+   f645   2e 05                BGT    DISPL3   ;IF NOT, GO TO "USES" CODE
+                        
+                        ;"DATA" OPTION
+   f647   bd fb f9             JSR    OUTSP    ;OUTPUT PRECEDING SPACE
+   f64a   20 1b                BRA    DISPL7
+                        ;"USED" OPTION
+   f64c   a6 00         DISPL3 LDAA   ,X       ;GET THE DATA
+   f64e   4d                   TSTA            ;EXAMINE IT FOR ZERO
+   f64f   26 04                BNE    DISPL4
+   f651   86 2e                LDAA   #'.'     ;ITS ZERO, GET A "."
+   f653   20 02                BRA    DISPL5
+   f655   86 2b         DISPL4 LDAA   #'+'     ;ITS NON-ZERO. GET A "+"
+   f657   bd fe bb      DISPL5 JSR    OUTCHR   ;OUTPUT THE "." OR "+"
+   f65a   20 0e                BRA    DISPL8
+                        
+   f65c   bd fb f9      DISPL6 JSR    OUTSP    ;OUTPUT A PRECEDING SPACE
+   f65f   bd fc 0c             JSR    OUT2BY   ;TYPE ADDRESS
+   f662   bd fb ff             JSR    OUTEQ    ;TYPE "="
+   f665   ee 00                LDX    ,X       ;GET CONTENT
+   f667   bd fc 05      DISPL7 JSR    OUT1BY   ;TYPE IT
+                        
+   f66a   bc 00 2d      DISPL8 CPX    RANGHI   ;ARE WE DONE?
+   f66d   27 09                BEQ    DISP10   ;IF YES, BACK TO PROMPT
+   f66f   08                   INX             ;NO, INC MEMORY ADDRESS
+   f670   ff 00 69             STX    MEMADR   ;SAVE IT
+   f673   20 b3                BRA    DISPL1
+                        
+   f675   7e f4 57      DISPL9 JMP    BADSYN
+   f678   7e f4 6f      DISP10 JMP    NOMORE
+                        
+                        ;*****
+                        ;SET - SET MEMORY LOCATIONS
+   f67b   bd fb 04      SET    JSR    GTRANG   ;GET MEMORY LOCATION/RANGE
+   f67e   2b 4e                BMI    SET5     ;IF NOT AN ADDRESS, LOOK FOR A REGISTER NAME
+   f680   27 f3                BEQ    DISPL9   ;AN ADDRESS MODIFIER IS REQUIRED
+                        
+                        ;RANGE OF ADDRESSES SPECIFIED?
+   f682   fe 00 2a             LDX    RANGLO
+   f685   bc 00 2d             CPX    RANGHI
+   f688   27 12                BEQ    SET2     ;IF SINGLE ADDRESS, SET UP ADDRESSES INDIVIDUALLY
+                        ;SET A RANGE OF ADDRESSES TO A SINGLE VALUE
+   f68a   bd fb 4f             JSR    NUMBER   ;GET THAT VALUE
+   f68d   2f e6                BLE    DISPL9   ;ITS REQUIRED
+   f68f   b6 00 27             LDAA   NBRLO    ;PUT IT IN ACCA
+   f692   a7 00         SET1   STAA   ,X       ;STORE IT IN DESTINATION
+   f694   bc 00 2d             CPX    RANGHI   ;END OF RANGE HIT?
+   f697   27 df                BEQ    DISP10   ;IF YES,ALL DONE
+   f699   08                   INX             ;NO, ON TO NEXT ADDRESS IN RANGE
+   f69a   20 f6                BRA    SET1     ;LOOP TO SET IT
+                        ;SET ADDRESSES UP INDIVIDUALLY
+   f69c   ff 00 69      SET2   STX    MEMADR   ;SAVE MEMORY LOC
+   f69f   bd fb 4f      SET3   JSR    NUMBER   ;GET DATA TO PUT THERE
+   f6a2   27 0d                BEQ    SET4     ;END OF LINE?
+   f6a4   2d cf                BLT    DISPL9   ;ABORT IF BAD SYNTAX
+   f6a6   b6 00 27             LDAA   NBRLO    ;LOAD DATA BYTE
+   f6a9   fe 00 69             LDX    MEMADR   ;LOAD ADDRESS
+   f6ac   a7 00                STAA   ,X       ;STORE DATA
+                        
+                        ;INCREMENT ADDRESS IN CASE USER WANTS TO INDIVIDUALLY SET SEVERAL
+                        ;SUCCESSIVE LOCATIONS
+   f6ae   08                   INX
+   f6af   20 eb                BRA    SET2
+                        
+                        ;END OF LINE - WAS IT TERMINATED WITH A LINE FEED?
+   f6b1   fe 00 0f      SET4   LDX    SYNPTR   ;POINT TO END OF LINE
+   f6b4   a6 00                LDAA   ,X       ;GET CHAR THERE
+   f6b6   81 0a                CMPA   #LF      ;LINE FEED?
+   f6b8   26 6b                BNE    SET12    ;IF NOT, BACK TO PROMPT
+   f6ba   ce 00 69             LDX    #MEMADR  ;YES, GET NEXT ADDRESS TO BE SET
+   f6bd   bd fc 0c             JSR    OUT2BY   ;TYPE IT
+   f6c0   bd fb f9             JSR    OUTSP    ;AND A SPACE
+   f6c3   bd fd d1             JSR    GETLIN   ;GET A NEW LINE
+   f6c6   fe 00 57             LDX    BUFBEG   ;GET BUFFER BEGINNING
+   f6c9   ff 00 0f             STX    SYNPTR   ;EQUATE IT TO SYNTAX SCAN POINTER
+   f6cc   20 d1                BRA    SET3     ;GO PICK UP DATA
+                        
+                        
+                        ;LOOK FOR (REGISTER NAME, REGISTER VALUE) PAIRS
+   f6ce   86 05         SET5   LDAA   #5
+   f6d0   bd f9 cf             JSR    COMAND   ;PICK UP A REGISTER NAME
+   f6d3   2b 4d                BMI    SET11    ;ERROR IF UNRECOGNIZABLE
+   f6d5   27 4e                BEQ    SET12    ;DONE IF END OF LINE
+   f6d7   36                   PSHA            ;SAVE REGISTER NAME(NUMBER)
+   f6d8   bd fb 4f             JSR    NUMBER   ;GET NEW REGISTER VALUE
+   f6db   32                   PULA            ;RESTORE REGISTER NAME(NUMBER)
+   f6dc   2f 44                BLE    SET11    ;GOT GOOD REGISTER VALUE?
+   f6de   fe 00 09             LDX    SP       ;YES, POINT TO TOP OF STACK
+   f6e1   f6 00 27             LDAB   NBRLO    ;GET REGISTER VALUE
+                        
+                        ;CONDITION CODES
+   f6e4   81 01                CMPA   #1
+   f6e6   26 04                BNE    SET6
+   f6e8   e7 01                STAB   1,X
+   f6ea   20 e2                BRA    SET5
+                        ;ACCB
+   f6ec   81 02         SET6   CMPA   #2
+   f6ee   26 04                BNE    SET7
+   f6f0   e7 02                STAB   2,X
+   f6f2   20 da                BRA    SET5
+                        
+                        ;ACCA
+   f6f4   81 03         SET7   CMPA   #3
+   f6f6   26 04                BNE    SET8
+   f6f8   e7 03                STAB   3,X
+   f6fa   20 d2                BRA    SET5
+                        
+                        ;IX
+   f6fc   81 04         SET8   CMPA   #4
+   f6fe   26 09                BNE    SET9
+   f700   b6 00 24             LDAA   NBRHI
+   f703   a7 04                STAA   4,X      ;UPDATE HI BYTE
+   f705   e7 05                STAB   5,X      ;UPDATE LO BYTE
+   f707   20 c5                BRA    SET5
+                        
+                        ;PC
+   f709   81 05         SET9   CMPA   #5
+   f70b   26 09                BNE    SET10
+   f70d   b6 00 24             LDAA   NBRHI
+   f710   a7 06                STAA   6,X      ;UPDATE HI BYTE
+   f712   e7 07                STAB   7,X      ;UPDATE LO BYTE
+   f714   20 b8                BRA    SET5
+                        
+                        ;SP
+   f716   81 06         SET10  CMPA   #6
+   f718   26 08                BNE    SET11
+   f71a   fe 00 24             LDX    NBRHI    ;DON'T NEED IX TO SET SP
+   f71d   ff 00 09             STX    SP
+   f720   20 ac                BRA    SET5
+                        
+   f722   7e f4 57      SET11  JMP    BADSYN
+   f725   7e f4 6f      SET12  JMP    NOMORE
+                        ;*****
+                        ;VERIFY - CHECKSUM VERIFY A BLOCK OF MEMORY
+   f728   bd fb 04      VERIFY JSR    GTRANG   ;GET A NUMBER RANGE
+   f72b   27 1b                BEQ    VERIF1   ;NO MODIFIER MEANS CHECK WHAT WE HAVE
+   f72d   2b f3                BMI    SET11    ;ANYTHING ELSE IS ILLEGAL
+                        ;GOOD RANGE GIVEN, TRANSFER IT TO CHECKSUM ADDRESSES
+   f72f   fe 00 2a             LDX    RANGLO
+   f732   ff 00 33             STX    VERFRM
+   f735   fe 00 2d             LDX    RANGHI
+   f738   ff 00 36             STX    VERTO
+                        
+   f73b   8d 22                BSR    CKSUM    ;COMPUTE CHECKSUM
+   f73d   b7 00 39             STAA   CHKSUM   ;SAVE IT
+   f740   ce 00 39             LDX    #CHKSUM  ;TYPE THE CHECKSUM
+   f743   bd fc 05             JSR    OUT1BY
+   f746   20 dd                BRA    SET12
+                        
+                        ;NO MODIFIER GIVEN - JUST VERIFY CHECKSUM
+   f748   8d 15         VERIF1 BSR    CKSUM    ;COMPUTE CHECKSUM
+   f74a   b1 00 39             CMPA   CHKSUM   ;SAME AS STORED CHECKSUM?
+   f74d   26 08                BNE    VERIF2
+                        
+                        ;THEY VERIFY - SAY SO
+   f74f   ce ff 5b             LDX    #MSGVER
+   f752   bd fe 90             JSR    OUTSTR
+   f755   20 ce                BRA    SET12
+                        
+                        ;THEY DON'T - SAY SO
+   f757   ce ff 61      VERIF2 LDX    #MSGNVE
+   f75a   bd fe 90             JSR    OUTSTR
+   f75d   20 c6                BRA    SET12
+                        
+                        ;COMPUTE THE CHECKSUM FROM ADDRESSES VERFRM TO VERTO
+                        ;RETURN THE CHECKSUM IN ACCA
+   f75f   4f            CKSUM  CLRA            ;INIT CHECKSUM TO ZERO
+   f760   fe 00 33             LDX    VERFRM   ;GET FIRST ADDRESS
+   f763   09                   DEX             ;INIT TO ONE LESS
+   f764   08            CKSUM1 INX             ;START OF CHECKSUM LOOP
+   f765   ab 00                ADDA   ,X       ;UPDATE CHECKSUM IN ACCA WITH BYTE POINTED TO
+   f767   bc 00 36             CPX    VERTO    ;HIT END OF RANGE?
+   f76a   26 f8                BNE    CKSUM1   ;IF NOT, LOOP BACK
+   f76c   43                   COMA            ;COMPLEMENT THE SUM
+   f76d   39                   RTS             ;RETURN WITH IT
+                        ;*****
+                        ;SEARCH - SEARCH MEMORY FOR A BYTE STRING
+                        
+                        ;GLOBAL VARIABLES USED
+                        ;LINPTR - INPUT LINE CHARACTER POINTER
+                        ;LISPTR - COMMAND LIST CHARACTER POINTER
+                        ;RANGLO - "SEARCH FROM" ADDRESS
+                        ;RANGHI - "SEARCH TO" ADDRESS
+                        
+                        ;LOCAL VARIABLES USE
+                        ;MEMADR - STARTING MEMORY ADDRESS WHERE A MATCH OCCURRED
+                        ;BYTPTR - ADDRESS POINTER USED TO FILL BYTSTR AND SUBSTR BUFFERS
+                        ;NBYTES - NUMBER OF BYTES IN BYTE STRING
+                        ;NBRMAT - NUMBER OF CHARS THAT MATCH SO FAR IN THE MATCHING PROCESS
+                        ;BYTSTR - STARTING ADDRESS OF 6 CHARACTER BYTE STRING BUFFER
+                        
+                        ;THE SEARCH STRING OCCUPIES TEMP4, TEMP5, & TEMP6 (6 BYTES MAX)
+                        
+                        ;GET SEARCH RANGE BEGINNING (RANGLO) & END (RANGHI)
+   f76e   bd fb 04      SEARCH JSR    GTRANG
+   f771   2f 7c                BLE    SEARC9   ;ABORT IF NO PAIR
+                        
+                        ;INITIALIZED BYTE STRING POINTER
+   f773   ce 00 72             LDX    #BYTSTR  ;GET START OF BYTE STRING TO SEARCH FOR
+   f776   ff 00 6c             STX    BYTPTR   ;SET POINTER TO IT
+                        
+   f779   7f 00 6f             CLR    NBYTES   ;ZERO # OF BYES IN BYTE STRING
+                        
+                        ;GET BYTE STRING
+   f77c   bd fb 4f      SEARC1 JSR    NUMBER   ;GET A BYTE
+   f77f   27 1a                BEQ    SEARC2   ;BEGIN SEARCH IF EOL
+   f781   2d 6c                BLT    SEARC9
+                        
+                        ;GOOD BYTE, ADD IT TO STRING
+   f783   7c 00 6f             INC    NBYTES   ;COUNT THIS BYTE
+                        ;DON'T ACCEPT OVER 6 BYTES
+   f786   b6 00 6f             LDAA   NBYTES
+   f789   81 06                CMPA   #6
+   f78b   2e 62                BGT    SEARC9
+                        
+   f78d   b6 00 27             LDAA   NBRLO    ;GET (LOW ORDER) BYTE
+   f790   fe 00 6c             LDX    BYTPTR   ;GET BYTE POINTER
+   f793   a7 00                STAA   ,X       ;SAVE BYTE
+   f795   08                   INX             ;MOVE BYTE POINTER TO NEXT LOCATION IN STRING
+   f796   ff 00 6c             STX    BYTPTR   ;SAVE IT
+   f799   20 e1                BRA    SEARC1
+                        
+                        ;BEGIN SEARCH FOR BYTE STRING
+                        ;IS # OF BYTES TO LOOK FOR >0
+   f79b   7d 00 6f      SEARC2 TST    NBYTES
+   f79e   27 4f                BEQ    SEARC9   ;IF NOT, BAD SYNTAX
+                        
+                        ;MAKE USE OF INPUT LINE CHARACTER FETCH & COMMAND LIST CHAR FETCH ROUTINES
+                        
+                        ;INITIALIZE MEMORY POINTER TO START OF SEARCH RANGE
+   f7a0   fe 00 2a             LDX    RANGLO
+   f7a3   09                   DEX
+   f7a4   ff 00 12             STX    LINPTR
+                        
+                        ;INITIALIZE BYTE POINTER TO START OF BYTE STRING
+   f7a7   ce 00 71      SEARC3 LDX    #BYTSTR-1
+   f7aa   ff 00 9c             STX    LISPTR
+                        
+   f7ad   7f 00 70             CLR    NBRMAT   ;SET "NUMBER OF BYTES THAT MATCHED" TO ZERO
+                        ;GET BYTE FROM BYTE STRING & RETURN IT IN ACCA
+   f7b0   bd fc da             JSR    GETLST
+                        ;GET BYTE FROM MEMORY RANGE & RETURN IT IN ACCB
+   f7b3   bd fc cd      SEARC4 JSR    GETCHR
+                        
+   f7b6   11                   CBA             ;COMPARE MEMORY & BYTE STRING CHARACTERS
+   f7b7   27 07                BEQ    SEARC5   ;IF NO MATCH, TEST FOR RANGE END
+   f7b9   bc 00 2d             CPX    RANGHI   ;HAVE WE REACHED THE RANGE SEARCH UPPER LIMIT?
+   f7bc   27 34                BEQ    SEAR10   ;YES, GO PROMPT FOR NEXT COMMAND
+   f7be   20 f3                BRA    SEARC4
+                        
+                        ;MATCH ACHIEVED - SAVE ADDRESS OF MATCH
+   f7c0   ff 00 69      SEARC5 STX    MEMADR
+   f7c3   7c 00 70      SEARC6 INC    NBRMAT   ;BUMP NUMBER MATCHED
+   f7c6   b6 00 70             LDAA   NBRMAT
+   f7c9   b1 00 6f             CMPA   NBYTES   ;HAVE ALL CHARACTERS MATCHED?
+   f7cc   27 16                BEQ    SEARC8   ;IF SO, MATCH ACHIEVED
+                        ;HAVEN'T MATCHED ALL YET, GO GET NEXT PAIR EVEN IF PAST "SEARCH TO" ADDRESS
+   f7ce   bd fc da             JSR    GETLST
+   f7d1   bd fc cd             JSR    GETCHR
+   f7d4   11                   CBA
+   f7d5   27 ec                BEQ    SEARC6
+                        ;MISMATCH ON SOME BYTE PAST THE FIRST ONE
+                        ;RESET THE MEMORY POINTER TO GET NEXT UNTESTED MEMORY LOCATION
+   f7d7   fe 00 69      SEARC7 LDX    MEMADR
+                        ;THIS TEST HANDLES SPECIAL CASE OF A MATCH ON RANGE END
+   f7da   bc 00 2d             CPX    RANGHI
+   f7dd   27 13                BEQ    SEAR10
+   f7df   ff 00 12             STX    LINPTR
+                        ;GO RESET THE BYTE STRING POINTER
+   f7e2   20 c3                BRA    SEARC3
+                        
+                        ;MATCH ON BYTE STRING ACHIEVED, TYPE OUT MEMORY ADDRESS
+   f7e4   ce 00 69      SEARC8 LDX    #MEMADR
+   f7e7   bd fc 0c             JSR    OUT2BY
+   f7ea   bd fb f9             JSR    OUTSP    ;AND A SPACE
+                        ;ASSUME A MISMATCH (I.E., RESET MEMORY & BYTE STRING POINTERS & CONTINUE
+   f7ed   20 e8                BRA    SEARC7
+                        
+   f7ef   7e f4 57      SEARC9 JMP    BADSYN
+   f7f2   7e f4 6f      SEAR10 JMP    NOMORE
+                        
+                        ;*****
+                        ;TEST - TEST RAM FOR BAD BYTES
+                        ;GET AN ADDRESS RANGE
+   f7f5   bd fb 04      TEST   JSR    GTRANG
+   f7f8   2f f5                BLE    SEARC9   ;ABORT IF NO PAIR
+                        ;RANGLO HOLS STARTING ADDRESS OF RANGE
+                        ;RANGHI HOLDS ENDING ADDRESS OF RANGE
+   f7fa   fe 00 2a             LDX    RANGLO
+   f7fd   ff 00 69             STX    MEMADR
+                        ;GET BYTE STORED AT TEST LOCATION & SAVE IT
+   f800   a6 00         TEST1  LDAA   ,X
+   f802   36                   PSHA
+                        
+   f803   6f 00                CLR    ,X       ;ZERO THE LOCATION
+   f805   6d 00                TST    ,X       ;TEST IT
+   f807   27 05                BEQ    TEST2    ;OK IF = ZERO
+                        
+                        ;CAN'T CLEAR LOCATION
+   f809   ce ff 67             LDX    #MSGCCL
+   f80c   20 1e                BRA    TEST4
+                        
+   f80e   6a 00         TEST2  DEC    ,X       ;SET LOCATION TO FF
+   f810   86 ff                LDAA   #$FF
+   f812   a1 00                CMPA   ,X       ;DID IT GET SET TO FF?
+   f814   27 05                BEQ    TEST3
+                        
+                        ;CAN'T SET LOCATION TO ONE'S
+   f816   ce ff 6d             LDX    #MSGCSO
+   f819   20 11                BRA    TEST4
+                        
+   f81b   fe 00 69      TEST3  LDX    MEMADR   ;GET LOCATION BEING TESTED
+   f81e   32                   PULA
+   f81f   a7 00                STAA   ,X       ;RESTORE PREVIOUS CONTENT
+                        
+                        ;HIT END OF TEST RANGE?
+   f821   bc 00 2d             CPX    RANGHI
+   f824   27 cc                BEQ    SEAR10   ;YES, ALL DONE
+                        
+                        ;NO, MOVE TO TEST NEXT LOCATION
+   f826   08                   INX
+   f827   ff 00 69             STX    MEMADR
+   f82a   20 d4                BRA    TEST1
+                        
+                        ;*LOCATION IS BAD
+   f82c   ff 00 6f      TEST4  STX    TEMP3    ;SAVE ERROR MESSAGE TEMPORARILY
+                        
+   f82f   ce 00 69             LDX    #MEMADR
+   f832   bd fc 0c             JSR    OUT2BY   ;TYPE OUT BAD ADDRESS.
+   f835   bd fb ff             JSR    OUTEQ    ;AN EQUAL SIGN
+                        
+   f838   fe 00 69             LDX    MEMADR
+   f83b   bd fc 05             JSR    OUT1BY   ;ITS CONTENT.
+   f83e   bd fb f9             JSR    OUTSP    ;A SPACE.
+   f841   fe 00 6f             LDX    TEMP3
+   f844   bd fe 90             JSR    OUTSTR   ;AND THE TYPE OF ERROR
+                        
+   f847   bd ff 0c             JSR    DOCRLF   ;SEND CR-LF
+   f84a   20 cf                BRA    TEST3
+                        ;*****
+                        ;INT - SET UP INTERRUPT POINTER
+   f84c   bd fb 44      INT    JSR    NUMINX   ;GET POINTER IN IX
+   f84f   ff 00 00             STX    INTVEC   ;SAVE IT
+   f852   20 2c                BRA    COMPA1
+                        
+                        ;*****
+                        ;NMI - SET UP NON-MASKABLE INTERRUPT POINTER
+   f854   bd fb 44      NMI    JSR    NUMINX   ;GET POINTER IN IX
+   f857   ff 00 03             STX    NMIVEC   ;SAVE IT
+   f85a   20 24                BRA    COMPA1
+                        
+                        ;*****
+                        ;SWI - SET UP SWI POINTER
+   f85c   bd fb 44      LSWI   JSR    NUMINX   ;GET POINTER TO IX
+   f85f   ff 00 06             STX    SWIVEC   ;SAVE IT
+   f862   20 1c                BRA    COMPA1
+                        
+                        ;*****
+                        ;COMPARE - OUTPUT SUM & DIFFERENCE OF TWO INPUT NUMBERS
+   f864   bd fb 44      COMPAR JSR    NUMINX   ;GET FIRST NUMBER
+   f867   ff 00 2a             STX    RANGLO   ;PUT IT IN RANGLO
+                        
+   f86a   bd fb 44             JSR    NUMINX   ;GET SECOND NUMBER
+   f86d   ff 00 24             STX    NBRHI    ;SAVE IT IN NBRHI
+                        
+                        ;COMPUTE AND OUTPUT THE SUM
+   f870   bd fa de             JSR    SUMNUM   ;COMPUTE SUM
+   f873   ce ff 73             LDX    #MSGSIS  ;GETS ITS TITLE
+   f876   8d 0b                BSR    OUTSD    ;OUTPUT TITLE & SUM
+                        
+   f878   bd fa f1             JSR    DIFNUM   ;COMPUTE DIFFERENCE
+   f87b   ce ff 79             LDX    #MSGDIS  ;GET ITS TITLE
+   f87e   8d 03                BSR    OUTSD    ;OUTPUT TITLE & DIFFERENCE
+                        
+   f880   7e f4 6f      COMPA1 JMP    NOMORE
+                        
+                        ;COMPUTE AND OUTPUT THE RESULT
+   f883   bd fe 90      OUTSD  JSR    OUTSTR   ;OUTPUT IT
+   f886   ce 00 2d             LDX    #RANGHI  ;GET RESULT
+   f889   bd fc 0c             JSR    OUT2BY   ;DISPLAY RESULT
+   f88c   39                   RTS
+                        ;*****
+                        ;DUMP - DUMP A PORTION OF MEMORY, IN MIKBUG FORMAT, TO A SPECIFIED ACIA ADDRESS
+                        
+                        ;GET ADDRESS RANGE: START IN RANGLO (2 BYTES), END IN RANGHI (2 BYTES)
+                        ;IF NO ADDRESS RANGE IS GIVEN, USE WHATEVER IS IN RANGLO & RANGHI
+   f88d   bd fb 04      DUMP   JSR    GTRANG
+                        
+   f890   7f 00 75             CLR    TEMP5    ;INITIALIZE TO DUMP TO TERMINAL
+                        
+                        ;LOOK FOR A "TO" MODIFIER
+   f893   86 02         DUMP1  LDAA   #2
+   f895   bd f9 cf             JSR    COMAND
+   f898   27 13                BEQ    DUMP4
+   f89a   2f 7c         DUMP2  BLE    DUMP10   ;ERROR IF BAD SYNTAX
+   f89c   81 01                CMPA   #1       ;TO?
+   f89e   27 02                BEQ    DUMP3
+   f8a0   20 f1                BRA    DUMP1    ;GO LOOK FOR ANOTHER MODIFIER
+                        
+   f8a2   bd fb 44      DUMP3  JSR    NUMINX   ;GET "TO" ADDRESS
+   f8a5   ff 00 4b             STX    OUTADR   ;SAVE IT
+   f8a8   7c 00 75             INC    TEMP5    ;REMEMBER THIS
+   f8ab   20 e6                BRA    DUMP1    ;GO LOOK FOR ANOTHER MODIFIER
+                        
+   f8ad   7d 00 75      DUMP4  TST    TEMP5
+   f8b0   27 03                BEQ    DUMP5
+   f8b2   7c 00 48             INC    OUTFLG   ;SET FLAG FOR PROPER OUTPUT DEVICE
+   f8b5   8d 64         DUMP5  BSR    NULLS    ;SEND SOME NULLS
+                        
+                        ;MIKBUG MODE
+                        ;OUTPUT AN "S0" TYPE RECORD
+   f8b7   ce ff 7f             LDX    #MSGS0
+   f8ba   bd fe 90             JSR    OUTSTR
+                        
+                        ;COMPUTER # OF BYTES TO OUTPUT (RANGE END - RANGE START + 1)
+                        ;SUBTRACT LO BYTES
+   f8bd   b6 00 2e      DUMP6  LDAA   RANGHI+1
+   f8c0   b0 00 2b             SUBA   RANGLO+1
+                        ;SUBTRACT HI BYTES
+   f8c3   f6 00 2d             LDAB   RANGHI
+   f8c6   f2 00 2a             SBCB   RANGLO
+                        ;NON-ZERO HI BYTE IMPLIES LOTS TO OUTPUT
+   f8c9   26 04                BNE    DUMP7
+                        ;HI BYTE DIFF IS ZERO
+   f8cb   81 10                CMPA   #16      ;LO BYTE OF DIFF 0 TO 15
+   f8cd   25 02                BCS    DUMP8    ;IF YES, TO DUMP8
+   f8cf   86 0f         DUMP7  LDAA   #15      ;NO, LO BYTE IS 16-255; SET BYTES TO 15
+                        ;TO GET FRAME COUNT, ADD 1 (DIFF OF 0 IMPLIES 1 OUTPUT) + # OF DATA BYTES,
+                        ; + 2 ADDR BYTES + 1 CHECKSUM BYTE
+   f8d1   8b 04         DUMP8  ADDA   #4
+   f8d3   b7 00 6f             STAA   TEMP3    ;TEMP3 IS THE FRAME COUNT
+   f8d6   80 03                SUBA   #3
+   f8d8   b7 00 72             STAA   TEMP4    ;TEMP4 IS THE RECORD BYTE COUNT
+                        ;OUTPUT A MIKBUG "S1" HEADER DATA RECORD
+   f8db   ce ff 88             LDX    #MSGS1
+   f8de   bd fe 90             JSR    OUTSTR
+   f8e1   5f                   CLRB            ;ZERO CHECKSUM
+                        ;PUNCH FRAME COUNT
+   f8e2   ce 00 6f             LDX    #TEMP3
+   f8e5   8d 3e                BSR    OUTP2
+                        
+                        ;PUNCH ADDRESS
+   f8e7   ce 00 2a             LDX    #RANGLO
+   f8ea   8d 39                BSR    OUTP2
+   f8ec   8d 37                BSR    OUTP2
+                        
+                        ;OUTPUT DATA
+   f8ee   fe 00 2a             LDX    RANGLO
+   f8f1   8d 32         DUMP9  BSR    OUTP2    ;OUTPUT DATA BYTE
+   f8f3   7a 00 72             DEC    TEMP4    ;DEC BYTE COUNT
+   f8f6   26 f9                BNE    DUMP9
+                        
+                        ;COMPLEMENT AND PUNCH THE CHECKSUM
+   f8f8   ff 00 2a             STX    RANGLO   ;SAVE MEMORY POINTER
+   f8fb   53                   COMB            ;COMPLEMENT CHECKSUM
+   f8fc   37                   PSHB            ;PUT IT ON STACK
+   f8fd   30                   TSX             ;LET IX POINT TO IT
+   f8fe   8d 25                BSR    OUTP2    ;OUTPUT CHECKSUM
+   f900   33                   PULB            ;PULL IT OFF STACK
+   f901   fe 00 2a             LDX    RANGLO   ;RESTORE MEMORY POINTER
+   f904   09                   DEX
+   f905   bc 00 2d             CPX    RANGHI   ;HIT END OF RANGE?
+   f908   26 b3                BNE    DUMP6
+                        
+                        ;YES, OUTPUT AN "S9" RECORD
+   f90a   ce ff 8b             LDX    #MSGS9
+   f90d   bd fe 90             JSR    OUTSTR
+   f910   8d 09                BSR    NULLS    ;GENERATE BLANK TAPE
+   f912   7f 00 48             CLR    OUTFLG   ;SET TO TERMINAL OUTPUT
+   f915   7e f4 6f             JMP    NOMORE   ;ALL DONE
+   f918   7e f4 57      DUMP10 JMP    BADSYN   ;BAD SYNTAX
+                        
+                        ;SEND A STRING OF NULLS
+   f91b   c6 1e         NULLS  LDAB   #30
+   f91d   4f                   CLRA
+   f91e   bd fe bb      NULLS1 JSR    OUTCHR
+   f921   5a                   DECB
+   f922   26 fa                BNE    NULLS1
+   f924   39                   RTS
+                        
+                        ;OUTPUT A BYTE POINTED TO BY IX AS 2 HEX CHARACTERS
+   f925   eb 00         OUTP2  ADDB   ,X       ;UPDATE CHECKSUM
+   f927   bd fc 05             JSR    OUT1BY
+   f92a   08                   INX
+   f92b   39                   RTS
+                        ;*****
+                        ;LOAD - LOAD A MIKBUG TAPE
+                        ;LOOK FOR A "FROM" MODIFIER
+   f92c   86 07         LOAD   LDAA   #7       ;IN LIST 7
+   f92e   bd f9 cf             JSR    COMAND
+   f931   2b e5                BMI    DUMP10   ;ERROR, UNRECOGNIZABLE MODIFIER
+   f933   27 09                BEQ    LOAD1
+                        
+   f935   bd fb 44             JSR    NUMINX   ;GET "FROM" ADDRESS
+   f938   ff 00 45             STX    INPADR   ;SAVE IT
+   f93b   7c 00 42             INC    INPFLG   ;SET FLAG FOR NON-TERMINAL ACIA
+                        
+                        ;KEEP READING CHARACTERS UNTIL AN "S" IS READ
+   f93e   bd fe 9e      LOAD1  JSR    INPCHR   ;GET A CHAR
+   f941   81 53                CMPA   #'S'     ;IS IT AN S?
+   f943   26 f9                BNE    LOAD1
+                        
+                        ;GOT AN "S", EXAMINE NEXT CHARACTER
+   f945   bd fe 9e             JSR   INPCHR
+   f948   81 39                CMPA   #'9'     ;DONE IF ITS A "9"
+   f94a   27 2e                BEQ    LOAD4
+                        
+   f94c   81 31                CMPA   #'1'     ;IS IT A "1"?
+   f94e   26 ee                BNE    LOAD1    ;IF NOT, LOOK FOR NEXT "S"
+                        ;VALID S1 RECORD
+   f950   7f 00 b1             CLR    CKSM     ;CLEAR CHECKSUM
+                        ;READ RECORD BYTE COUNT
+   f953   bd f9 8e             JSR    RDBYTE
+   f956   80 02                SUBA   #2
+   f958   b7 00 ae             STAA   BYTECT   ;SAVE COUNT MINUS 2 ADDRESS BYTES
+                        
+   f95b   8d 23                BSR    BLDADR   ;BUILD ADDRESS
+                        
+   f95d   8d 2f         LOAD2  BSR    RDBYTE   ;READ A DATA BYTE INTO ACCA
+   f95f   7a 00 ae             DEC    BYTECT   ;COUNT IT
+   f962   27 05                BEQ    LOAD3    ;IF DONE WITH RECORD, CHECK CHECKSUM
+   f964   a7 00                STAA   ,X       ;NOT DONE, STORE BYTE IN MEMORY
+   f966   08                   INX             ;ON TO NEXT MEMORY ADDRESS
+   f967   20 f4                BRA    LOAD2
+                        
+                        ;RECORD READ IN COMPLETE
+   f969   7c 00 b1      LOAD3  INC    CKSM     ;TEST CHECKSUM BY ADDING 1
+   f96c   27 d0                BEQ    LOAD1    ;IF OK, RESULT SHOULD BE ZERO
+                        
+                        ;RECORD CHECKSUM ERROR
+   f96e   ce ff 61             LDX    #MSGNVE  ;SAY SO
+   f971   bd fe 90             JSR    OUTSTR
+   f974   ce 00 69             LDX    #TEMP1   ;GET RECORD ADDRESS OF IT
+   f977   bd fc 0c             JSR    OUT2BY   ;TYPE IT TOO
+   f97a   7f 00 42      LOAD4  CLR    INPFLG   ;RESET FLAG TO NORMAL TERMINAL INPUT
+   f97d   7e f4 6f             JMP    NOMORE
+                        
+                        ;BUILD ADDRESS
+   f980   8d 0c         BLDADR BSR    RDBYTE
+   f982   b7 00 69             STAA   TEMP1
+   f985   8d 07                BSR    RDBYTE
+   f987   b7 00 6a             STAA   TEMP1+1
+   f98a   fe 00 69             LDX    TEMP1
+   f98d   39                   RTS
+   f98e   8d 10         RDBYTE BSR    INHEX    ;GET LEFT HEX DIGIT
+                        ;MOVE TO HI 4 BITS
+   f990   48                   ASLA
+   f991   48                   ASLA
+   f992   48                   ASLA
+   f993   48                   ASLA
+   f994   16                   TAB             ;SAVE IT IN ACCA
+   f995   8d 09                BSR    INHEX    ;GET RIGHT HEX DIGIT
+   f997   1b                   ABA             ;COMBINE THEM IN ACCA
+                        ;UPDATE THE CHECKSUM
+   f998   16                   TAB
+   f999   fb 00 b1             ADDB   CKSM
+   f99c   f7 00 b1             STAB   CKSM
+   f99f   39                   RTS
+                        
+                        ;INPUT A HEX CHAR & CONVERT TO INTERNAL FORM
+   f9a0   bd fe 9e      INHEX  JSR    INPCHR   ;INPUT A CHAR
+   f9a3   80 30                SUBA   #$30
+   f9a5   2b 0f                BMI    INHEX2   ;NOT HEX IF BELOW ASCII "1"
+   f9a7   81 09                CMPA   #$09
+   f9a9   2f 0a                BLE    INHEX1   ;OK IF ASCII "9" OR LESS
+   f9ab   81 11                CMPA   #$11     ;BELOW ASCII "A"?
+   f9ad   2b 07                BMI    INHEX2   ;ERROR IF IT IS
+   f9af   81 16                CMPA   #$16     ;OVER ASCII "F"?
+   f9b1   2e 03                BGT    INHEX2   ;ERROR IF IT IS
+   f9b3   80 07                SUBA   #7       ;CONVERT ASCII A-F TO HEX A-F
+   f9b5   39            INHEX1 RTS
+                        ;ERROR - CHAR NOT HEX, SAY SO
+   f9b6   ce ff 94      INHEX2 LDX    #MSGCNH
+   f9b9   bd fe 90             JSR    OUTSTR
+   f9bc   39                   RTS
+                        
+                        ;*****
+                        ;DELAY - DELAY SPECIFIED # OF MILLISECONDS
+   f9bd   bd fb 44      DELAY  JSR    NUMINX   ;GET DELAY TIME
+   f9c0   8d 03                BSR    TIMDEL
+   f9c2   7e f4 6f             JMP    NOMORE
+                        
+                        ;**
+                        ;TIME DELAY SUBROUTINE
+                        ;IX IS INPUT AS THE # OF MILLISECONDS TO DELAY
+                        ;ACCA IS ALTERED
+                        ;ACCB IS PRESERVED
+                        ;ADJ TIMCON SO (6*TIMCON*CYCLE TIME=1 MS)
+   f9c5   b6 00 ab      TIMDEL LDAA   TIMCON
+                        ;ENTER A 6 CYCLE LOOP
+   f9c8   4a            TIMDE1 DECA
+   f9c9   26 fd                BNE    TIMDE1
+                        
+   f9cb   09                   DEX             ;DECREMENT MILLISECOND COUNTER
+   f9cc   26 f7                BNE    TIMDEL
+   f9ce   39                   RTS
+                        
+                        ;====================================================
+                        
+                        ;  C O M M A N D     L I S T     S C A N N I N G    R O U T I N E
+                        
+                        ;THIS ROUTINE SEEKS A MATCH OF THE CHARACTERS POINTED AT
+                        ;BY THE INPUT LINE SCANNING POINTER TO ONE OF THE COMMANDS
+                        ;IN A LIST SPECIFIED BY ACCA.
+                        ;
+                        ; AS FOLLOWS:
+                        ;
+                        ;      ACCA=-1: THE MATCH WAS UNSUCCESSFUL.  THE SYNTAX
+                        ;               POINTER (SYNPTR) WAS NOT UPDATED (ADVANCED).
+                        ;
+                        ;      ACCA= 0: THE MATCH WAS UNSUCCESSFUL SINCE THERE WERE
+                        ;               NO MORE CHARACTERS, I.E., THE END OF THE
+                        ;               LINE WAS REACHED.
+                        ;
+                        ;      ACCA=+N: SUCCESSFUL MATCH.  THE SYNTAX POINTER WAS UPDATED
+                        ;               TO THE FIRST CHARACTER FOLLOWING THE COMMAND
+                        ;               DELIMITER.  ACCA HOLDS THE NUMBER OF THE
+                        ;               COMMAND MATCHED.
+                        ;GLOBAL VARIABLES FOR EXTERNAL COMMUNICATION
+                        ;SYNPTR - GOOD SYNTAX INPUT CHAR LINE POINTER
+                        ;LINPTR - INPUT LINE CHARACTER POINTER
+                        ;DELIM - CLASS OF PERMISSIBLE COMMAND DELIMITERS
+                        
+                        ;TEMPORARY 2 BYTE INTERNAL VARIABLES
+                        ;LISPTR - COMMAND LIST CHARACTER POINTER
+                        
+                        ;TEMPORARY 1 BYTE INTERNAL VARIABLES
+                        ;NUMMAT - NUMBER OF CHARACTERS THAT SUCCESSFULLY MATCH
+                        ;LISNUM - # OF LIST WITHIN WHICH A MATCH WILL BE SOUGHT
+                        ;COMNUM - COMMAND NUMBER MATCHED
+                        
+                        ;CONSTANTS USED
+                        ;CR - CARRIAGE RETURN
+                        ;LF - LINE FEED
+                        
+                        ;ACCB & IX ARE NOT PRESERVED.
+                        
+   f9cf   b7 00 96      COMAND STAA   LISNUM   ;SAVE LIST # TO MATCH WITHIN
+                        ;TEST IF WE ARE AT THE END OF THE LINE
+   f9d2   bd fa 71             JSR    SKPDLM
+   f9d5   24 02                BCC    INILST
+   f9d7   4f                   CLRA
+   f9d8   39                   RTS
+                        
+                        
+                        ;INITIALIZE THE COMMAND LIST POINTER TO ONE LESS THAN
+                        ;                       THE BEGINNING OF THE COMMAND LISTS
+   f9d9   fe 00 0c      INILST LDX    COMADR   ;ENTRY POINT
+                        
+                        ;MOVE TO THE BEGINNING OF THE DESIRED COMMAND LIST
+   f9dc   b6 00 96             LDAA   LISNUM   ;SEARCH FOR "STRING" # LISNUM
+   f9df   c6 0a                LDAB   #LF      ;USE LF AS A "STRING" TERMINATOR
+   f9e1   8d 76                BSR    FNDSTR
+   f9e3   ff 00 9c             STX    LISPTR
+                        
+                        ;THE LIST POINTER, LISPTR, NOW POINTS TO ONE LESS THAN THE FIRST CHARACTER
+                        ;OF THE FIRST COMMAND IN THE DESIRED LIST INITIALIZE THE COMMAND # TO 1
+   f9e6   86 01                LDAA   #1
+   f9e8   b7 00 99             STAA   COMNUM
+                        
+                        ;RESET INPUT LINE POINTER TO: 1) BEGINNING OF LINE, OR TO
+                        ;  2) POINT WHERE LAST SUCCESSFUL SCAN TERMINATED
+   f9eb   fe 00 0f      CMD3   LDX    SYNPTR
+   f9ee   ff 00 12             STX    LINPTR
+                        
+   f9f1   7f 00 93             CLR    NUMMAT   ;CLEAR NUMBER OF CHARACTERS MATCHED
+   f9f4   bd fc cd      CMD4   JSR    GETCHR   ;GET INPUT LINE CHAR IN ACCB
+   f9f7   bd fa 9c             JSR    TSTDLM   ;TEST FOR A DELIMITER
+   f9fa   26 13                BNE    MATCH    ;SUCCESS (FOUND DELIMITER) IF NOT = ZERO
+                        
+   f9fc   bd fc da             JSR    GETLST   ;GET COMMAND LIST CHAR IN ACCA
+   f9ff   81 0a                CMPA   #LF      ;HAS END OF COMMAND LIST BEEN REACHED?
+   fa01   27 16                BEQ    NMATCH   ;IF SO, POTENTIAL MATCH FAILURE
+   fa03   81 0d                CMPA   #CR      ;HAS END OF COMMAND BEEN REACHED?
+   fa05   27 12                BEQ    NMATCH   ;IF SO, POTENTIAL MATCH FAILURE
+                        
+   fa07   11                   CBA             ;COMPARE THE TWO CHARACTERS
+   fa08   26 19                BNE    NEXCOM   ;MATCH NOT POSSIBLE ON THIS COMMAND
+                        
+                        ;THEY MATCH, COMPARE THE SUCCEEDING CHARACTERS
+   fa0a   7c 00 93             INC    NUMMAT   ;INC NUMBER OF CHARACTERS MATCHED
+   fa0d   20 e5                BRA    CMD4
+                        
+                        ;;;
+                        ;SUCCESSFUL MATCH - RETURN COMMAND NUMBER MATCHED IN ACCA
+   fa0f   b6 00 99      MATCH  LDAA   COMNUM
+   fa12   fe 00 12             LDX     LINPTR
+   fa15   ff 00 0f             STX     SYNPTR  ;UPDATE GOOD SYNTAX POINTER
+   fa18   39                   RTS
+                        
+                        ;***
+                        ;NO MATCH
+                        ;DID AT LEAST ONE MATCH?
+   fa19   7d 00 93      NMATCH TST    NUMMAT
+   fa1c   27 05                BEQ    NEXCOM   ;TO NEXT COMMAND IF NONE MATCHED
+                        
+                        ;AT LEAST ONE MATCHED - TEST FOR DELIMITER (NON-MATCHING CHAR)
+   fa1e   bd fa 9c             JSR    TSTDLM
+   fa21   26 ec                BNE    MATCH    ;IF A DELIMITER, MATCH HAS BEEN ACHIEVED
+                        ;
+                        ;ILLEGAL DELIMITER
+                        
+                        ;MOVE TO NEXT COMMAND WITHIN LIST
+   fa23   bd fc da      NEXCOM JSR    GETLST   ;GET NEXT COMMAND LIST CHARACTER
+   fa26   81 0a                CMPA   #LF      ;END OF THIS LIST?
+   fa28   27 09                BEQ    MFAIL    ;IF SO, NOTHING ON LIST MATCHED
+   fa2a   81 0d                CMPA   #CR      ;IS IT A CR?
+   fa2c   26 f5                BNE    NEXCOM   ;IF NOT, MOVE TO NEXT CHARACTER
+   fa2e   7c 00 99             INC    COMNUM   ;YES, INC COMMAND NUMBER
+   fa31   20 b8                BRA    CMD3
+                        
+                        ;***
+                        ;MATCH FAILURE - NO MATCH POSSIBLE WITHIN THIS LIST
+   fa33   4f            MFAIL  CLRA
+   fa34   4a                   DECA
+   fa35   39                   RTS
+                        
+                        ;======================================================
+                        ;THIS ROUTINE TYPES OUT COMMAND NUMBER "COMNUM"
+                        ;THE LIST IS SPECIFIED IN ACCA
+                        ;ACCB & IX ARE PRESERVED
+   fa36   ff 00 8a      TYPCMD STX    XTEMP
+   fa39   37                   PSHB
+   fa3a   ce fc e3             LDX    #COMLST-1 ;MOVE TO HEAD OF COMMAND LISTS
+   fa3d   c6 0a                LDAB   #LF      ;AND LIST TERMINATOR
+   fa3f   8d 18                BSR    FNDSTR   ;GO TO HEAD OF DESIRED LIST
+   fa41   b6 00 99             LDAA   COMNUM   ;GET COMMAND NUMBER
+   fa44   c6 0d                LDAB   #CR      ;GET COMMAND TERMINATOR
+   fa46   8d 11                BSR    FNDSTR   ;GO TO HEAD OF DESIRED COMMAND
+                        
+   fa48   08            TYPCM1 INX             ;MOVE TO NEXT CHARACTER
+   fa49   a6 00                LDAA   ,X       ;GET A COMMAND CHARACTER
+   fa4b   81 0d                CMPA   #CR      ;IS IT A COMMAND TERMINATOR?
+   fa4d   27 05                BEQ    TYPCM2   ;IF SO, RETURN
+   fa4f   bd fe bb             JSR    OUTCHR   ;NO, TYPE IT
+   fa52   20 f4                BRA    TYPCM1
+                        
+   fa54   fe 00 8a      TYPCM2 LDX    XTEMP
+   fa57   33                   PULB
+   fa58   39                   RTS
+                        
+                        ;======================================================
+                        ;MOVE TO BEGINNING OF DESIRED STRING NUMBER (IN ACCA)
+                        ;EACH STRING IS TERMINATED BY AN END OF STRING CHARACTER (IN ACCB)
+                        ;THE INDEX REGISTER IS ASSUMED INITIALIZED POINTING TO
+                        ;ONE LESS THAT THE FIRST CHARACTER OF THE FIRST STRING
+                        ;ACCA, ACCB & IX ARE NOT PRESERVED
+                        ;LOCAL VARIABLES
+                        ;STRNUM - STRING # TO FIND
+                        ;EOSCHR - "END OF STRING" CHARACTER
+                        
+   fa59   b7 00 6c      FNDSTR STAA   STRNUM   ;SAVE STRING NUMBER
+   fa5c   f7 00 6d             STAB   EOSCHR   ;SAVE TERMINATOR
+   fa5f   5f                   CLRB
+   fa60   5c            FNDST1 INCB            ;STRING 1 IS THE FIRST STRING
+   fa61   f1 00 6c             CMPB   STRNUM   ;IS THIS THE RIGHT STRING?
+   fa64   27 0a                BEQ    FNDST3   ;IF SO, DONE
+                        
+                        ;NO, SWALLOW UP CHARACTERS UNTIL AND END OF STRING CHAR IS HIT
+   fa66   08            FNDST2 INX             ;BUMP POINTER TO NEXT ONE
+   fa67   a6 00                LDAA   ,X       ;GET CHAR POINTED AT
+   fa69   b1 00 6d             CMPA   EOSCHR   ;END OF STRING HIT?
+   fa6c   27 f2                BEQ    FNDST1   ;IF IT IS, BUMP THE STRING COUNTER
+   fa6e   20 f6                BRA    FNDST2   ;NO, MOVE ON TO NEXT CHAR
+   fa70   39            FNDST3 RTS             ;IX SET PROPERLY, RETURN
+                        
+                        ;======================================================
+                        ;SKIP LEADING DELIMITERS
+                        ;THIS ROUTINE SHOULD BE CALLED PRIOR TO SCANNING FOR ANY INFORMATION
+                        ;ON THE INPUT LINE
+                        ;THE CURRENT CHARACTER IS IGNORED IF THE SCANNING POINTER IS AT THE
+                        ;BEGINNING OF A LINE.  IF NOT, THE SCANNING POINTER SKIPS OVER SPACES
+                        ;AND COMMAS UNTIL AN END OF LINE OR NON-DELIMITER IS FOUND.
+                        ;THE CARRY BIT IS SET IF AN END OF LINE IS ENCOUNTERED.
+                        
+                        ;ACCA, ACCB & IX ARE NOT PRESERVED
+                        
+   fa71   0c            SKPDLM CLC
+   fa72   7d 00 15             TST    BOLFLG   ;AT BEGINNING OF LINE?
+   fa75   2e 0b                BGT    SKPDL2
+                        
+                        ;LOOK AT CURRENT INPUT CHARACTER
+   fa77   fe 00 0f      SKPDL1 LDX    SYNPTR   ;GET POINTER TO IT
+   fa7a   a6 00                LDAA   ,X       ;GET CHAR
+   fa7c   8d 13                BSR    TSTEOL   ;TEST FOR END OF LINE
+   fa7e   26 02                BNE    SKPDL2
+   fa80   0d                   SEC             ;YES, END HIT, SET CARRY
+   fa81   39                   RTS
+                        ;"PEEK" AT NEXT CHAR IN LINE
+   fa82   e6 01         SKPDL2 LDAB   1,X     ;GET IT
+   fa84   8d 16                BSR    TSTDLM  ;SEE IF ITS A DELIMITER
+   fa86   26 01                BNE    SKPDL3
+   fa88   39                   RTS            ;ITS NOT, RETURN
+                        
+                        ;NEXT CHAR IS A DELIMITER
+   fa89   bd fc cd      SKPDL3 JSR    GETCHR   ;MOVE TO NEXT CHAR IN INPUT LINE
+   fa8c   ff 00 0f             STX    SYNPTR   ;UPDATE SYNTAX POINTER
+   fa8f   20 e6                BRA    SKPDL1   ;GO TEST FOR END OF LINE
+                        
+                        ;======================================================
+                        ;TEST FOR END-OF-LINE CHARACTER
+                        ;Z BIT OF CC REG SET IF CHAR IN ACCA IS A TERMINATOR
+                        ;ACCA, ACCB, & IX ARE PRESERVED
+   fa91   81 0d         TSTEOL CMPA   #CR      ;CARRIAGE RETURN?
+   fa93   27 06                BEQ    TSTEO1
+   fa95   81 0a                CMPA   #LF      ;LINE FEED? (CONTINUED LINES)
+   fa97   27 02                BEQ     TSTEO1
+   fa99   81 3b                CMPA    #';'    ;FOR SEVERAL COMMANDS ON ONE LINE
+   fa9b   39            TSTEO1 RTS
+                        
+                        ;======================================================
+                        ;CHECK THE CHARACTER IN ACCB
+                        ;AGAINST THE DELIMITER(S) SPECIFIED BY VARIABLE DELIM
+                        ;ACCB & IX ARE PRESERVED
+                        ;ACCA IS SET TO 0 IF ACCB IS NOT A DELIMITER, TO 1 IF IT IS
+                        ;  IF DELIM=1, SPACE IS DELIMITER
+                        ;  IF DELIM-2, COMMA IS DELIMITER
+                        ;  IF DELIM=3, SPACE OR COMMAND IS DELIMITER
+                        ;  IF DELIM=4, ANY NON-ALPHANUMERIC IS A DELIMITER
+                        ;TEST FOR END-OF-LINE (LOGICAL OR PHYSICAL)
+   fa9c   37            TSTDLM PSHB
+   fa9d   17                   TBA
+   fa9e   8d f1                BSR    TSTEOL
+   faa0   33                   PULB
+   faa1   27 35                BEQ    DLMYES
+                        
+   faa3   b6 00 18             LDAA   DELIM
+   faa6   81 01                CMPA   #1
+   faa8   26 06                BNE    ISDLM2
+   faaa   c1 20                CMPB   #32      ;WANT A SPACE - IS IT?
+   faac   26 2d                BNE    DLMNO
+   faae   20 28                BRA    DLMYES
+                        
+   fab0   81 02         ISDLM2 CMPA   #2
+   fab2   26 06                BNE    ISDLM3
+   fab4   c1 2c         TSTCMA CMPB   #','     ;WANT A COMMA - IS IT?
+   fab6   26 23                BNE    DLMNO
+   fab8   20 1e                BRA    DLMYES
+   faba   81 03         ISDLM3 CMPA   #3
+   fabc   26 06                BNE    ISDLM4
+   fabe   c1 20                CMPB   #32      ;WANT EITHER, IS IT A SPACE?
+   fac0   27 16                BEQ    DLMYES
+   fac2   20 f0                BRA    TSTCMA   ;OR A COMMA?
+                        
+   fac4   81 04         ISDLM4 CMPA   #4
+   fac6   26 15                BNE    ERROR    ;ERROR IF DELIM NOT 1-4
+                        ;TEST IF CHAR IS 0 TO 9 INCLUSIVE
+   fac8   c1 30                CMPB   #'0'
+   faca   2d 0c                BLT    DLMYES
+   facc   c1 39                CMPB   #'9'
+   face   2f 0b                BLE    DLMNO
+                        
+                        ;TEST IF CHAR IS A TO 9 INCLUSIVE
+   fad0   c1 41                CMPB   #'A'
+   fad2   2d 04                BLT    DLMYES
+   fad4   c1 5a                CMPB   #'Z'
+   fad6   2f 03                BLE    DLMNO
+                        ;OVER Z - ITS A DELIMITER
+                        
+                        ;CHAR IN ACCB IS A DELIMITER
+   fad8   86 01         DLMYES LDAA   #1
+   fada   39                   RTS
+                        
+                        ;CHAR IN ACCB IS NOT A DELIMITER
+   fadb   4f            DLMNO  CLRA
+   fadc   39                   RTS
+                        
+                        ;ERROR IN SPECIFYING DELIMITER CLASS
+   fadd   3f            ERROR  SWI             ;HAVE MONITOR TYPE OUT PERTINENT STATISTICS
+                        
+                        ;=====================================================
+                        ;ADD THE 2 BYE NUMBER STORED IN (RANGLO,RANGLO+1) TO THE NUMBER
+                        ;STORED IN (NBRHI,NBRLO) AND PUT THE RESULT IN (RANGHI,RANGHI+1)
+                        ;ACCB & IX ARE PRESERVED
+                        ;ACCA IS ALTERED
+                        
+                        ;ADD LO ORDER BYTES
+   fade   b6 00 2b      SUMNUM LDAA   RANGLO+1
+   fae1   bb 00 27             ADDA   NBRLO
+   fae4   b7 00 2e             STAA   RANGHI+1
+                        
+                        ;ADD HI ORDER BYTES
+   fae7   b6 00 2a             LDAA   RANGLO
+   faea   b9 00 24             ADCA   NBRHI
+   faed   b7 00 2d             STAA   RANGHI
+                        
+   faf0   39                   RTS
+                        
+                        ;========================================================
+                        ;SUBTRACT THE TWO BYTE NUMBER STORED IN (NBRHI,NBRLO) FROM THE
+                        ;TWO BYTE NUMBER STORED IN (RANGLO,RANGLO+1) AND PUT THE
+                        ;RESULT IN (RANGHI,RANGHI+1)
+                        ;ACCB & IX ARE PRESERVED
+                        ;ACCA IS ALTERED
+                        
+                        ;SUBTRACT LO ORDER BYTES
+   faf1   b6 00 2b      DIFNUM LDAA   RANGLO+1
+   faf4   b0 00 27             SUBA   NBRLO
+   faf7   b7 00 2e             STAA   RANGHI+1
+                        
+                        ;SUBTRACT HI ORDER BYES
+   fafa   b6 00 2a             LDAA   RANGLO
+   fafd   b2 00 24             SBCA   NBRHI
+   fb00   b7 00 2d             STAA   RANGHI
+                        
+   fb03   39                   RTS
+                        
+                        ;======================================================
+                        ;THIS ROUTINE SCANS THE INPUT LINE FOR A PAIR OF NUMBERS
+                        ;REPRESENTING AN ADDRESS RANGE.  A COLON SEPARATING THE
+                        ;PAIR IMPLIES "THRU", WHILE AN "!" IMPLIED "THRU THE FOLLOWING"
+                        ;E.G., 100:105 IS EQUIVALENT TO 100!5
+                        ;A SINGLE NUMBER IMPLIES A RANGE OF 1
+                        ;
+                        ;ON RETURN (RANGLO,RANGLO+1) HOLDS THE RANGE START, AND
+                        ;          (RANGHI,RANGHI+1) HOLDS THE RANGE END.
+                        ;ACCA, ACCB, & IX ARE NOT PRESERVED
+                        
+   fb04   8d 49         GTRANG BSR    NUMBER   ;PICK UP FIRST NUMBER
+   fb06   2e 03                BGT    GTRAN1
+   fb08   2d 09                BLT    GTRAN2
+   fb0a   39                   RTS             ;NOTHING MORE ON INPUT LINE
+                        
+                        ;GOOD SINGLE NUMBER - TRANSFER IT TO RANGLO
+   fb0b   fe 00 24      GTRAN1 LDX    NBRHI
+   fb0e   ff 00 2a             STX    RANGLO
+   fb11   20 0d                BRA    GTRAN3   ;AND TO RANGHI
+                        
+                        ;BAD NUMBER, BUT IS IT BAD DUE TO A ":" OR "!" DELIMITER?
+   fb13   fe 00 12      GTRAN2 LDX    LINPTR
+   fb16   a6 00                LDAA   ,X
+   fb18   81 3a                CMPA   #':'     ;WAS IT A COLON
+   fb1a   26 0c                BNE    GTRAN4   ;IF NOT, GO TEST FOR "!"
+                        
+   fb1c   8d 1a                BSR    GTRAN8   ;WAS ":", PROCESS NUMBER & GET NEXT ONE
+   fb1e   2f 0e                BLE    GTRAN5   ;ILLEGAL IF END OF LINE OR NON-NUMERIC
+                        
+                        ;TRANSFER SECOND NUMBER TO RANGHI
+   fb20   fe 00 24      GTRAN3 LDX    NBRHI
+   fb23   ff 00 2d             STX    RANGHI
+   fb26   20 0d                BRA    GTRAN7
+                        
+   fb28   81 21         GTRAN4 CMPA   #'!'     ;WAS DELIMITER A "!"?
+   fb2a   27 03                BEQ    GTRAN6   ;IF YES, GET 2ND NUMBER
+                        
+                        ;ILLEGAL DELIMITER, RETURN
+   fb2c   4f                   CLRA
+   fb2d   4a                   DECA
+   fb2e   39            GTRAN5 RTS
+                        
+   fb2f   8d 07         GTRAN6 BSR    GTRAN8   ;WAS "!", PROCESS FIRST NUMBER & GET NEXT ONE
+   fb31   2f fb                BLE    GTRAN5
+   fb33   8d a9                BSR    SUMNUM   ;COMPUTE RANGE END, PUT INTO RANGHI
+                        
+                        ;SUCCESSFUL EXIT
+   fb35   86 01         GTRAN7 LDAA   #1
+   fb37   39                   RTS
+                        
+                        ;UPDATE SYNTAX POINTER, MOVE FIRST NUMBER TO RANGLO, & GET 2ND NUMBER
+   fb38   ff 00 0f      GTRAN8 STX    SYNPTR   ;UPDATE SYNTAX POINTER
+   fb3b   fe 00 24             LDX    NBRHI    ;GET FIRST NUMBER OF THE PAIR
+   fb3e   ff 00 2a             STX    RANGLO   ;SAVE IT IN "LOW RANGE" VALUE
+   fb41   8d 0c                BSR    NUMBER   ;PICK UP THE SECOND NUMBER OF THE PAIR
+   fb43   39                   RTS
+                        
+                        ;======================================================
+                        ;GET A 2 BYTE NUMBER & RETURN IT IN THE INDEX REGISTER
+   fb44   8d 09         NUMINX BSR    NUMBER
+   fb46   2e 03                BGT    NUMIN1
+   fb48   7e f4 57             JMP    BADSYN
+   fb4b   fe 00 24      NUMIN1 LDX    NBRHI
+   fb4e   39                   RTS
+                        
+                        ;======================================================
+                        ;SCAN FOR A NUMBER
+                        ;RETURN THE MOST SIGNIFICANT BYTE IN NBRHI
+                        ;  AND THE LEAST SIGNIFICANT BYTE IN NBRLO
+                        ;THE RESULT OF THE SCAN FOR A NUMBER IF RETURNED IN
+                        ;ACCA AS FOLLOWS:
+                        ;
+                        ;      ACCA=-1: THE MATCH WAS UNSUCCESSFUL.  THE SYNTAX
+                        ;               POINTER (SYNPTR) WAS NOT UPDATED.
+                        ;
+                        ;      ACCA= 0: THE MATCH WAS UNSUCCESSFUL SINCE THERE WERE NO
+                        ;               MORE CHARACTERS. (I.E., THE END OF THE
+                        ;               LINE WAS ENCOUNTERED.)
+                        ;
+                        ;      ACCA=+1: THE SCAN WAS SUCCESSFUL.  THE SYNTAX POINTER
+                        ;               WAS UPDATED TO THE FIRST CHARACTER FOLLOWING
+                        ;               THE COMMAND.
+                        
+                        ;IX IS PRESERVED
+                        ;GLOBAL VARIABLES FOR EXTERNAL COMMUNICATION
+                        ;NBRHI - NUMBER HI BYTE
+                        ;NBRLO - NUMBER LO BYTE
+                        ;IBCODE - INPUT BASE CODE
+                        ;DBCODE - DISPLAY BASE CODE
+                        
+                        ;LOCAL VARIABLES
+                        ;NBR2X - USED IN DECIMAL CONVERSION
+                        ;XTEMP2 - SAVES IX
+                        
+                        ;INITIALIZE BOTH BYTES TO ZERO
+   fb4f   ff 00 90      NUMBER STX    XTEMP2   ;SAVE IX
+   fb52   7f 00 24             CLR    NBRHI
+   fb55   7f 00 27             CLR    NBRLO
+                        
+                        ;INITIALIZE THE LINE SCANNING POINTER
+   fb58   fe 00 0f             LDX    SYNPTR
+   fb5b   ff 00 12             STX    LINPTR
+                        
+                        ;ARE WE AT END OF LINE?
+   fb5e   bd fa 71             JSR    SKPDLM
+   fb61   24 05                BCC    NUMLUP
+   fb63   fe 00 90             LDX    XTEMP2
+   fb66   4f                   CLRA            ;YES, ZERO ACCA
+   fb67   39                   RTS
+                        
+   fb68   bd fc cd      NUMLUP JSR    GETCHR   ;GET A CHARACTER FROM THE INPUT LINE INTO ACCB
+                        
+                        ;TEST FOR A DELIMITER
+   fb6b   bd fa 9c             JSR    TSTDLM
+   fb6e   26 65                BNE    GUDNUM   ;GOOD DELIMITER IF ACCA NON-ZERO
+                        
+                        ;NOT A DELIMITER, TEST IF CHARACTER IS < ASCII 0
+   fb70   c0 30                SUBB   #'0'     ;SUBTRACT ASCII 0
+   fb72   2b 6d                BMI    CONERR   ;ERROR IF LESS
+                        
+                        ;DETERMINE INPUT BASE & GO TO RIGHT ROUTINE
+   fb74   b6 00 1b             LDAA   IBCODE
+   fb77   81 01                CMPA   #1
+   fb79   27 08                BEQ    HEXNUM
+                        
+   fb7b   81 02                CMPA   #2
+   fb7d   27 1e                BEQ    DECNUM
+                        
+   fb7f   81 03                CMPA   #3
+   fb81   27 41                BEQ    OCTNUM
+                        
+                        ;DEFAULT AN ILLEGAL INPUT BASE TO HEX
+                        ;*****
+                        ;INPUT A HEX NUMBER
+                        ;TEST FOR A LEGAL DIGIT
+   fb83   c1 09         HEXNUM CMPB   #$09
+   fb85   2f 0a                BLE    HEXN1    ;OR IF 9 OR LESS
+   fb87   c1 11                CMPB   #$11
+   fb89   2b 56                BMI    CONERR    ;NOT HEX IF < A
+   fb8b   c1 16                CMPB   #$16
+   fb8d   2e 52                BGT    CONERR    ;NOT HEX IF > F
+   fb8f   c0 07                SUBB   #7        ;MOVE A-F ABOVE 0-9
+                        
+                        ;SHIFT LO & HI BYTES LEFT 4 BITS
+   fb91   8d 54         HEXN1  BSR    SHIFT2
+   fb93   8d 52                BSR    SHIFT2
+                        
+   fb95   fa 00 27             ORAB   NBRLO
+   fb98   f7 00 27             STAB   NBRLO
+                        
+   fb9b   20 cb                BRA    NUMLUP
+                        
+                        ;*****
+                        ;INPUT A DECIMAL NUMBER
+                        ;TEST FOR A LEGAL DIGIT
+   fb9d   c1 09         DECNUM CMPB   #$09
+   fb9f   2e 40                BGT    CONERR   ;NOT DECIMAL IF > 9
+                        
+                        ;MULTIPLE SAVED VALUE BY 10 & ADD IN NEW DIGIT
+                        ;NOTE THAT 10X=2X+8x
+                        ;MULTIPLY CURRENT NUMBER BY 2 TO GET 2X VALUE
+   fba1   8d 49                BSR    SHIFT
+                        ;SAVE THIS *2 NUMBER TEMPORARILY
+   fba3   fe 00 24             LDX    NBRHI
+   fba6   ff 00 a8             STX    NBR2X
+                        ;MULTIPLY THIS # BY 4 TO GET 8X VALUE
+   fba9   8d 3c                BSR    SHIFT2
+                        ;(NBRHI,NBRLO) NOW HOLDS *8
+                        ;GENERATE DIGIT+8x+2x
+   fbab   4f                   CLRA            ;ACCA WILL HOLD MS BYTE
+   fbac   fb 00 a9             ADDB   NBR2X+1  ;ADD 2X LS BYTE TO DIGIT
+   fbaf   b9 00 a8             ADCA   NBR2X    ;ADD 2X MS BYTE
+   fbb2   25 2d                BCS    CONERR   ;CARRY OUT OF MS BYTE IS AN ERROR
+   fbb4   fb 00 27             ADDB   NBRLO    ;ADD 8X LS BYTE
+   fbb7   b9 00 24             ADCA   NBRHI    ;ADD 8X MS BYTE
+   fbba   25 25                BCS    CONERR   ;CARRY OUT OF MS BYTE IS AN ERROR
+   fbbc   f7 00 27             STAB   NBRLO    ;SAVE FINAL LS BYTE
+   fbbf   b7 00 24             STAA   NBRHI    ;SAVE FINAL MS BYTE
+                        
+   fbc2   20 a4                BRA    NUMLUP
+                        ;*****
+                        ;INPUT AN OCTAL NUMBER
+   fbc4   c1 07         OCTNUM CMPB   #$07
+   fbc6   2e 19                BGT    CONERR   ;NOT OCTAL IF > 7
+                        
+                        ;SHIFT HI & LO BYTES 2 PLACES LEFT - CARRY OUT OF HI BYTE IS ILLEGAL
+   fbc8   8d 1d                BSR    SHIFT2
+   fbca   8d 20                BSR    SHIFT
+                        
+   fbcc   fa 00 27             ORAB   NBRLO    ;ADD IN NEW DIGIT
+   fbcf   f7 00 27             STAB   NBRLO
+                        
+   fbd2   7e fb 68             JMP    NUMLUP
+                        
+                        ;*****
+                        ;GOT NUMBER - SCAN WAS SUCCESSFUL
+                        ;UPDATE GOOD SYNTAX LINE POINTER
+   fbd5   fe 00 12      GUDNUM LDX    LINPTR
+   fbd8   ff 00 0f             STX    SYNPTR
+   fbdb   fe 00 90             LDX    XTEMP2
+   fbde   86 01                LDAA   #1       ;SET "GOOD SCAN" FLAG
+   fbe0   39                   RTS
+                        
+                        ;*****
+                        ;CONVERSION ERROR - SCAN WAS UNSUCCESSFUL
+   fbe1   fe 00 90      CONERR LDX    XTEMP2
+   fbe4   4f                   CLRA
+   fbe5   4a                   DECA
+   fbe6   39                   RTS
+                        ;----------------------------------
+                        ;SHIFT LEFT 2 POSITIONS
+   fbe7   8d 03         SHIFT2 BSR    SHIFT
+   fbe9   8d 01                BSR    SHIFT
+   fbeb   39                   RTS
+                        ;----------------------------------
+                        ;SHIFT A TWO BYTE NUMBER LEFT ONE POSITION
+   fbec   78 00 27      SHIFT  ASL    NBRLO
+   fbef   79 00 24             ROL    NBRHI
+   fbf2   25 01                BCS    SHFTER
+   fbf4   39                   RTS
+                        ;ERROR - HI ORDER BYTE OVERFLOW
+                        ;ABORT NUMBER ROUTINE DIRECTLY THRU STACK ADJ. & A JUMP
+   fbf5   31            SHFTER INS
+   fbf6   31                   INS
+   fbf7   20 e8                BRA    CONERR
+                        
+                        ;======================================================
+                        ;OUTPUT A SPACE
+   fbf9   86 20         OUTSP  LDAA   #$20
+   fbfb   bd fe bb             JSR    OUTCHR
+   fbfe   39                   RTS
+                        
+                        ;======================================================
+                        ;OUTPUT AN "=" SIGN
+   fbff   86 3d         OUTEQ  LDAA   #'='
+   fc01   bd fe bb             JSR    OUTCHR
+   fc04   39                   RTS
+                        
+                        ;======================================================
+                        ;OUTPUT A 1 BYTE NUMBER
+                        ;ACCA, ACCB, & IX ARE PRESERVED
+   fc05   37            OUT1BY PSHB
+   fc06   c6 01                LDAB   #1
+   fc08   8d 09                BSR    OUTNUM
+   fc0a   33                   PULB
+   fc0b   39                   RTS
+                        
+                        ;======================================================
+                        ;OUTPUT A 2 BYTE NUMBER
+                        ;ACCA, ACCB, & IX ARE PRESERVED
+   fc0c   37            OUT2BY PSHB
+   fc0d   c6 02                LDAB   #2
+   fc0f   8d 02                BSR    OUTNUM
+   fc11   33                   PULB
+   fc12   39                   RTS
+                        
+                        ;======================================================
+                        ;DISPLAY THE NUMBER POINTED AT BY THE ADDRESS IN THE INDEX REGISTER
+                        ;AND OUTPUT IT ACCORDING TO THE BASE SPECIFIED IN "DBCODE"
+                        ;LEADING ZEROES ARE INCLUDED
+                        ;ACCA & IX ARE PRESERVED
+                        ;ACCB IS INPUT AS THE NUMBER OF BYTES COMPRISING THE NUMBER
+                        ;GLOBAL VARIABLES FOR EXTERNAL COMMUNICATION
+                        ;IBCODE - INPUT BASE CODE
+                        ;DBCODE - DISPLAY BASE CODE
+                        
+                        ;LOCAL VARIABLES
+                        ;DECDIG - DECIMAL DIGIT BEING BUILT
+                        ;NUMBHI - HI BYTE OF NUMBER BEING OUTPUT
+                        ;NUMBLO - LO BYTE OF NUMBER BEING OUTPUT
+                        
+   fc13   ff 00 8d      OUTNUM STX    XTEMP1
+   fc16   36                   PSHA
+   fc17   ee 00                LDX    ,X       ;GET THE TO BYTES AT THAT ADDRESS
+   fc19   ff 00 a2             STX    NUMBHI   ;PUT THEM IN A SCRATCH AREA FOR PROCESSING
+   fc1c   b6 00 1e             LDAA   DBCODE   ;GET DISPLAY BASE
+                        
+   fc1f   81 01                CMPA   #1
+   fc21   27 0c                BEQ    OUTHEX
+   fc23   81 02                CMPA   #2
+   fc25   27 1e                BEQ    OUTDEC
+   fc27   81 03                CMPA   #3
+   fc29   27 63                BEQ    OUTOCT
+   fc2b   81 04                CMPA   #4
+   fc2d   27 7d                BEQ    OUTBIN
+                        
+                        ;*****
+                        ;OUTPUT A HEX NUMBER
+   fc2f   58            OUTHEX ASLB            ;1 BYTE=2 CHARS, 2 BYTES=4 CHARS
+                        ;GET NEXT 4 BITS
+   fc30   bd fc c0      DISNU1 JSR    LSH2
+   fc33   bd fc c0             JSR    LSH2
+                        
+   fc36   84 0f                ANDA   #$F      ;EXTRACT 4 BITS
+   fc38   81 09                CMPA   #9
+   fc3a   2f 02                BLE    DISNU2
+   fc3c   8b 07                ADDA   #7       ;CONVERT 10:15 TO A:F
+                        
+   fc3e   8d 7a         DISNU2 BSR    OUTIT
+   fc40   5a                   DECB
+   fc41   26 ed                BNE    DISNU1
+   fc43   20 35                BRA    OUTDE5
+                        
+                        ;*****
+                        ;OUTPUT A DECIMAL NUMBER
+   fc45   5a            OUTDEC DECB            ;TEST # OF BYTES TO OUTPUT
+   fc46   27 0b                BEQ    OUTDE1
+                        ;INITIALIZE FOR OUTPUT OF A 2 BYTE NUMBER
+   fc48   ce fc 7f             LDX    #C10K
+   fc4b   b6 00 a2             LDAA   NUMBHI
+   fc4e   f6 00 a5             LDAB   NUMBLO
+   fc51   20 07                BRA    OUTDE2
+                        
+                        ;INITIALIZE FOR OUTPUT OF A 1 BYTE NUMBER
+   fc53   ce fc 85      OUTDE1 LDX    #C100
+   fc56   4f                   CLRA
+   fc57   f6 00 a2             LDAB   NUMBHI
+                        
+   fc5a   7f 00 9f      OUTDE2 CLR    DECDIG   ;CLEAR THE DIGIT TO OUTPUT
+                        
+                        ;SUBTRACT THE POWER OF 10 CONVERSION CONSTANT
+   fc5d   e0 01         OUTDE3 SUBB   1,X
+   fc5f   a2 00                SBCA   0,X
+   fc61   25 05                BCS    OUTDE4   ;TEST FOR BORROW (CARRY)
+                        
+   fc63   7c 00 9f             INC    DECDIG   ;NO BORROW YET - INC DIGIT BEING BUILT
+   fc66   20 f5                BRA    OUTDE3   ;REPEAT LOOP
+                        ;BORROW GENERATED - CANCEL LAST SUBTRACTION
+   fc68   eb 01         OUTDE4 ADDB   1,X
+   fc6a   a9 00                ADCA   0,X
+                        
+                        ;BUILDING OF DIGIT TO OUTPUT COMPLETE - PRINT IT
+   fc6c   36                   PSHA            ;SAVE LO BYTE OF NUMBER BEING OUTPUT
+   fc6d   b6 00 9f             LDAA   DECDIG   ;GET DIGIT
+   fc70   8d 48                BSR    OUTIT    ;PRINT IT
+   fc72   32                   PULA            ;RESTORE LO BYTE
+                        ;GET NEXT LOWER POWER OF 10
+   fc73   08                   INX
+   fc74   08                   INX
+   fc75   8c fc 89             CPX    #C10K+10 ;ARE WE THRU WITH UNITS CONVERSION?
+   fc78   26 e0                BNE    OUTDE2   ;IF NOT, BACK TO GET NEXT DIGIT
+   fc7a   32            OUTDE5 PULA            ;IF YES, RESTORE REGISTERS & RETURN
+   fc7b   fe 00 8d             LDX    XTEMP1
+   fc7e   39                   RTS
+                        
+                        ;DECIMAL OUTPUT CONVERSION CONSTANTS
+O  fc7f   01 01 01      C10K   DW     10000
+O  fc82   01 01 01             DW     1000
+O  fc85   01 01 01      C100   DW     100
+O  fc88   01 01 01             DW     10
+O  fc8b   01 01 01             DW     1
+                        
+                        ;*****
+                        ;OUTPUT AN OCTAL NUMBER
+                        ;FIRST DIGIT IS A ONE OR A ZERO
+   fc8e   58            OUTOCT ASLB            ;FIRST APPROXIMATION OF # OF DIGITS TO OUTPUT
+   fc8f   4f                   CLRA
+   fc90   c1 02                CMPB   #2
+   fc92   2e 06                BGT    OUTOC1
+   fc94   8d 2a                BSR    LSH2     ;1 BYTE - GET FIRST 2 BITS
+   fc96   8d 22                BSR    OUTIT
+   fc98   20 05                BRA    DISNU3   ;GO OUTPUT LAST 2 DIGITS
+                        ;TWO BYTE # - OUTPUT HI ORDER BIT/DIGIT
+   fc9a   8d 29         OUTOC1 BSR    LEFSHF
+   fc9c   8d 1c                BSR    OUTIT
+   fc9e   5c                   INCB           ;5 MORE DIGITS TO GO
+                        ;GET NEXT 3 BITS
+   fc9f   8d 1f         DISNU3 BSR    LSH2
+   fca1   8d 22                BSR    LEFSHF
+                        
+   fca3   84 07                ANDA   #7      ;EXTRACT 3 BITS
+   fca5   8d 13                BSR    OUTIT
+   fca7   5a                   DECB           ;COUNT THIS DIGIT
+   fca8   26 f5                BNE    DISNU3  ;ARE WE DONE?
+   fcaa   20 ce                BRA    OUTDE5  ;YES
+                        ;*****
+                        ;OUTPUT A BINARY NUMBER
+   fcac   58            OUTBIN ASLB
+   fcad   58                   ASLB
+   fcae   58                   ASLB
+                        ;GET NEXT BIT
+   fcaf   8d 14         DISNU4 BSR    LEFSHF
+   fcb1   84 01                ANDA   #1       ;EXTRACT THE BIT
+                        
+   fcb3   8d 05                BSR    OUTIT    ;OUTPUT IT
+   fcb5   5a                   DECB            ;COUNT IT
+   fcb6   26 f7                BNE    DISNU4   ;ARE WE DONE?
+   fcb8   20 c0                BRA    OUTDE5   ;YES
+                        
+                        ;**
+                        ;CONVERT TO A NUMERIC ASCII DIGIT & OUTPUT IT
+   fcba   8b 30         OUTIT  ADDA   #$30
+   fcbc   bd fe bb             JSR    OUTCHR
+   fcbf   39                   RTS
+                        ;**
+                        ;LEFT SHIFT 2 BITS
+   fcc0   8d 03         LSH2   BSR    LEFSHF
+   fcc2   8d 01                BSR    LEFSHF
+   fcc4   39                   RTS
+                        
+                        ;**
+                        ;LEFT SHIFT THE 3 BYTE NUMBER 1 BIT
+   fcc5   78 00 a5      LEFSHF ASL    NUMBLO
+   fcc8   79 00 a2             ROL    NUMBHI
+   fccb   49                   ROLA
+   fccc   39                   RTS
+                        
+                        ;======================================================
+                        ;THIS ROUTINE GETS THE NEXT CHARACTER FROM THE INPUT LINE BUFFER
+                        ;ACCA IS PRESERVED
+                        ;ACCB IS LOADED WITH THE CHARACTER
+                        ;IX IS INCREMENTED & LEFT POINTING TO THE CHARACTER RETURNED
+   fccd   fe 00 12      GETCHR LDX    LINPTR
+   fcd0   08                   INX
+   fcd1   e6 00                LDAB   ,X
+   fcd3   ff 00 12             STX    LINPTR
+   fcd6   7f 00 15             CLR    BOLFLG   ;SET FLAG TO NOT AT "BEGINNING OF LINE"
+   fcd9   39                   RTS
+                        
+                        ;======================================================
+                        ;THIS ROUTINE GETS THE NEXT CHARACTER IN THE COMMAND LISTS
+                        ;ACCA IS THE CHARACTER RETRIEVED
+                        ;ACCB IS PRESERVED
+                        ;IX IS INCREMENTED & LEFT POINTING TO THE CHARACTER RETURNED
+   fcda   fe 00 9c      GETLST LDX    LISPTR   ;GET CURRENT LIST POINTER
+   fcdd   08                   INX             ;MOVE POINTER TO NEXT CHAR
+   fcde   a6 00                LDAA   ,X       ;GET CHARACTER POINTED AT
+   fce0   ff 00 9c             STX    LISPTR   ;SAVE POINTER
+   fce3   39                   RTS             ;AND RETURN
+                        
+                        ;======================================================
+                        ; COMMAND LISTS
+                        ;  A CARRIAGE RETURN SIGNIFIES END-OF-COMMAND
+                        ;  A LINE FEED SIGNIFIES END-OF-COMMAND-LST
+                        ;LIST 1 - MAJOR COMMANDS
+   fce4                 COMLST EQU    *
+O  fce4   01 01 01             ASC    "REG"    ; DISPLAY REGISTERS
+O  fce7   01 01 01             DB     CR
+O  fcea   01 01 01             ASC    "GOTO"   ;GO TO MEMORY ADDRESS
+O  fced   01 01 01             DB     CR
+O  fcf0   01 01 01             ASC    "SEI"    ;SET INTERRUPT MASK
+O  fcf3   01 01 01             DB     CR
+O  fcf6   01 01 01             ASC    "CLI"    ; CLEAR INTERRUPT MAST
+O  fcf9   01 01 01             DB     CR
+O  fcfc   01 01 01             ASC    "COPY"   ;COPY FROM ONE LOCATION TO ANOTHER
+O  fcff   01 01 01             DB     CR
+O  fd02   01 01 01             ASC    "BREAK"  ;SET BREAKPOINT (SWI CODE)
+O  fd05   01 01 01             DB     CR
+O  fd08   01 01 01             ASC    "IBASE"  ;SET INPUT BASE
+O  fd0b   01 01 01             DB     CR
+O  fd0e   01 01 01             ASC    "DBASE"  ;SET DISPLAY BASE
+O  fd11   01 01 01             DB     CR
+O  fd14   01 01 01             ASC    "CONTINUE" ;CONTINUE FROM "SWI"
+O  fd17   01 01 01             DB     CR
+O  fd1a   01 01 01             ASC    "DISPLAY" ;DISPLAY MEMORY DATA
+O  fd1d   01 01 01             DB     CR
+O  fd20   01 01 01             ASC    "SET"    ;SET MEMORY DATA
+O  fd23   01 01 01             DB     CR
+O  fd26   01 01 01             ASC    "VERIFY" ;VERIFY THAT MEMORY CONTENT IS UNCHANGED
+O  fd29   01 01 01             DB     CR
+O  fd2c   01 01 01             ASC    "SEARCH" ;SEARCH MEMORY FOR A BYTE STRING
+O  fd2f   01 01 01             DB     CR
+O  fd32   01 01 01             ASC    "TEST"   ;TEST A RANGE OF MEMORY
+O  fd35   01 01 01             DB     CR
+O  fd38   01 01 01             ASC    "INT"    ;SET INTERRUPT POINTER
+O  fd3b   01 01 01             DB     CR
+O  fd3e   01 01 01             ASC    "NMI"    ;SET NON-MASKABLE INTERRUPT POINTER
+O  fd41   01 01 01             DB     CR
+O  fd44   01 01 01             ASC    "SWI"    ;SET SOFTWARE INTERRUPT POINTER
+O  fd47   01 01 01             DB     CR
+O  fd4a   01 01 01             ASC    "COMPARE" ;PRINT SUM & DIFFERENCE OF 2 NUMBERS
+O  fd4d   01 01 01             DB     CR
+O  fd50   01 01 01             ASC    "DUMP"   ;DUMP MEMORY IN MIKBUG OR IMAGE FORMAT
+O  fd53   01 01 01             DB     CR
+O  fd56   01 01 01             ASC    "LOAD"   ;LOAD MIKBUG TAPE
+O  fd59   01 01 01             DB     CR
+O  fd5c   01 01 01             ASC    "DELAY"  ;DELAY SPECIFIED # OF MSECS
+O  fd5f   01 01 01             DB     CR
+O  fd62   01 01 01             DB     LF       ;END OF LIST 1
+                        
+                        ;LIST 2 - MODIFIER TO DUMP
+O  fd65   01 01 01             ASC    "TO"     ;DESTINATION ACIA
+O  fd68   01 01 01             DB     CR
+O  fd6b   01 01 01             DB     LF       ;END OF LIST 2
+                        
+                        ;LIST 3 - NUMBER BASE SPECIFIERS
+O  fd6e   01 01 01             ASC    "HEX"    ;BASE 16
+O  fd71   01 01 01             DB     CR
+O  fd74   01 01 01             ASC    "DEC"    ;BASE 10
+O  fd77   01 01 01             DB     CR
+O  fd7a   01 01 01             ASC    "OCT"    ;BASE 8
+O  fd7d   01 01 01             DB     CR
+O  fd80   01 01 01             ASC    "BIN"    ;BASE 2
+O  fd83   01 01 01             DB     CR
+O  fd86   01 01 01             DB     LF       ;END OF LIST 3
+                        
+                        ;LIST 4 - INFORMATION REQUEST
+O  fd89   01 01 01             ASC    "?"
+O  fd8c   01 01 01             DB     CR
+O  fd8f   01 01 01             DB     LF       ; END OF LIST 4
+                        
+                        ;LIST 5 - REGISTER NAMES
+O  fd92   01 01 01             ASC    ".CC"
+O  fd95   01 01 01             DB     CR
+O  fd98   01 01 01             ASC    ".B"
+O  fd9b   01 01 01             DB     CR
+O  fd9e   01 01 01             ASC    ".A"
+O  fda1   01 01 01             DB     CR
+O  fda4   01 01 01             ASC    ".IX"
+O  fda7   01 01 01             DB     CR
+O  fdaa   01 01 01             ASC    ".PC"
+O  fdad   01 01 01             DB     CR
+O  fdb0   01 01 01             ASC    ".SP"
+O  fdb3   01 01 01             DB     CR
+O  fdb6   01 01 01             DB     LF       ;END OF LIST 5
+                        
+                        ;LIST 6 - MODIFIERS TO "DISPLAY"
+O  fdb9   01 01 01             ASC    "DATA"
+O  fdbc   01 01 01             DB     CR
+O  fdbf   01 01 01             ASC    "USED"
+O  fdc2   01 01 01             DB     CR
+O  fdc5   01 01 01             DB     LF       ;END OF LIST 6
+                        
+                        ;LIST 7 - MODIFIER TO "LOAD"
+O  fdc8   01 01 01             ASC    "FROM"   ;SOURCE ACIA
+O  fdcb   01 01 01             DB     CR
+O  fdce   01 01 01             DB     LF       ;END OF LIST 7
+                        ;======================================================
+                        
+                        ; THIS ROUTINE CONSTRUCTS A LINE OF INPUT BY GETTING ALL INPUT
+                        ; CHARACTERS UP TO AND INCLUDING A CARRIAGE RETURN (WHICH THEN
+                        ; DESIGNATES "END OF LINE").
+                        ; TYPING RUBOUT WILL DELETE THE PREVIOUS CHARACTER
+                        ; TYPING CONTROL-C WILL ABORT THE LINE
+                        ; TYPING CONTROL-Z WILL USE THE PREVIOUS LINE
+                        ; THE INPUT LINE IS STORED BEGINNING AT THE ADDRESS STORED IN BUFBEG
+                        ; AND ENDING AT THE ADDRESS STORED IN BUFEND
+                        ;ACCA, ACCB, & IX ARE NOT PRESERVED
+                        ;
+                        ;GLOBAL VARIABLES
+                        ;BUFBEG - INPUT LINE START OF BUFFER
+                        ;BUFEND - INPUT LINE END OF BUFFER
+                        
+                        ;LOCAL CONSTANTS
+   005c                 BAKSLA EQU    92       ;A BACKSLASH
+   007f                 DELETE EQU    127      ;CODE TO DELETE THE PREVIOUS CHARACTER
+                        ;
+                        ;
+                        ;*** ROUTINE ENTRY POINT
+                        
+   fdd1   fe 00 57      GETLIN LDX    BUFBEG   ;SET POINTER TO ONE LESS THAN THE BEGINNING OF THE LINE BUFFER
+   fdd4   5f                   CLRB            ;ACCB HOLS THE LAST INPUT CHAR
+                        
+   fdd5   bc 00 5a      NXTCHR CPX    BUFEND   ;CHECK CURRENT LINE END AGAINST BUFFER END
+   fdd8   26 09                BNE    GETIT
+                        
+                        ;LINE TOO LONG - ABORT IT AS IF A CONTROL-C HAD BEEN TYPED
+   fdda   ce ff 49             LDX    #MSGLTL  ;GET MESSAGE
+   fddd   bd fe 90             JSR    OUTSTR   ;OUTPUT IT
+   fde0   c6 03                LDAB   #3       ;PUT CTL-C IN ACCB
+   fde2   39                   RTS
+                        
+   fde3   bd fe 9e      GETIT  JSR    INPCHR   ;GET A CHARACTER (RETURNED IN ACCA)
+   fde6   84 7f                ANDA   #127     ;DROP PARITY BIT
+                        
+                        ;CONTROL-Z COPIES FROM PRESENT POSITION TO PREVIOUS END OF LINE
+   fde8   81 1a                CMPA   #26      ;IS CHAR A CONTROL-A?
+   fdea   26 04                BNE    TSTCR
+   fdec   bd ff 0c             JSR    DOCRLF   ;YES, TYPE CR-LF
+   fdef   39                   RTS
+   fdf0   81 0d         TSTCR  CMPA   #13      ;IS CHAR A CR?
+   fdf2   27 04                BEQ    TSTCR1
+   fdf4   81 0a                CMPA   #10      ;OR A LF?
+   fdf6   26 0c                BNE    NOTEOL
+   fdf8   08            TSTCR1 INX
+   fdf9   a7 00                STAA   ,X       ;YES, STORE THE TERMINATOR
+   fdfb   7d 00 4e             TST    HDXFLG   ;TEST FOR HALF-DUPLEX TERMINAL
+   fdfe   26 03                BNE    TSTCR2
+   fe00   bd ff 0c             JSR    DOCRLF   ;TYPE CR-LF
+   fe03   39            TSTCR2 RTS             ;NOW RETURN
+                        
+   fe04   81 03         NOTEOL CMPA   #3       ;IS CHAR A CONTROL-C?
+   fe06   26 07                BNE    NOTCTC
+                        ;ECHO AN UP-ARROW
+   fe08   16                   TAB             ;RETURN CONTROL-C IN ACCB
+   fe09   86 5e                LDAA   #'^'
+   fe0b   bd fe bb             JSR    OUTCHR
+   fe0e   39                   RTS
+                        
+   fe0f   81 7f         NOTCTC CMPA   #DELETE  ;NO, IS IT DELETE
+   fe11   27 25                BEQ    RUBNOW   ;IF YES, GO TO RUBNOW
+                        
+                        ;CONVERT LOWER CASE TO UPPER CASE
+   fe13   81 60                CMPA   #$60     ;BELOW L.C. A?
+   fe15   23 06                BLS    STORIT
+   fe17   81 7a                CMPA   #$7A     ;ABOVE L.C. Z?
+   fe19   22 02                BHI    STORIT
+   fe1b   80 20                SUBA   #32      ;CONVERT L.C. ALPHABETIC TO U.C.
+                        
+   fe1d   08            STORIT INX             ;NOT A DELETE, SO ADVANCE TO NEXT CHARACTER
+   fe1e   a7 00                STAA   ,X       ;STORE IT IN INPLIN
+                        
+   fe20   c1 7f                CMPB   #DELETE  ;IS LAST CHAR A DELETE?
+   fe22   27 03                BEQ    OUTBAK   ;IF SO. GO TO OUTBAK
+   fe24   16                   TAB             ;ITS NOT, UPDATE LAST CHAR
+   fe25   20 07                BRA    ECHO     ;GO ECHO IT
+                        
+                        ;LAST CHAR WAS A DELETE, BUT THIS ONE ISN'T
+   fe27   16            OUTBAK TAB             ;UPDATE LAST CHAR
+   fe28   86 5c                LDAA   #BAKSLA  ;PRINT A -
+   fe2a   bd fe bb             JSR    OUTCHR   ;BACKSLASH
+   fe2d   17                   TBA             ;RESTORE CURRENT CHAR FOR ECHO
+   fe2e   7d 00 4e      ECHO   TST    HDXFLG   ;TEST FOR HALF DUPLEX TERMINAL
+   fe31   26 03                BNE    ECHO1
+   fe33   bd fe bb             JSR    OUTCHR   ;NOW ECHO IT
+   fe36   20 9d         ECHO1  BRA    NXTCHR   ;GET ANOTHER
+                        ;
+                        ; CURRENT CHARACTER IS A DELETE
+                        ; TEST LINE LENGTH - IT ITS ZERO, IGNORE THIS DELETE SINCE
+                        ; WE CAN'T DELETE PRIOR TO FIRST CHARACTER IN INPUT LINE
+   fe38   bc 00 57      RUBNOW CPX    BUFBEG
+   fe3b   27 98                BEQ    NXTCHR
+   fe3d   c1 7f                CMPB   #DELETE  ;WAS LAST CHAR A DELETE?
+   fe3f   27 06                BEQ    LASWAS
+                        
+                        ;LAST CHAR WASN'T A DELETE
+   fe41   16                  TAB              ;UPDATE LAST CHAR (WITH A DELETE)
+   fe42   86 5c               LDAA    #BAKSLA  ;PRINT A -
+   fe44   bd fe bb            JSR     OUTCHR   ;BACKSLASH
+                        ;LAST CHAR WAS A DELETE
+   fe47   a6 00         LASWAS LDAA   ,X       ;GET THE CHAR TO BE DELETED
+   fe49   09                   DEX             ;DECREMENT LINE POINTER
+   fe4a   20 e2                BRA    ECHO     ;ECHO DELETED CHARACTER
+                        
+                        ;======================================================
+                        ;INITIALIZATION ROUTINE
+                        ;DISABLE INTERRUPTS
+   fe4c   0f                   SEI
+   fe4d   86 01         INITAL LDAA   #1
+   fe4f   b7 00 1b             STAA   IBCODE   ;SET INPUT BASE TO HEX
+   fe52   b7 00 1e             STAA   DBCODE   ;SET DISPLAY BASE TO HEX
+                        ;SET UP DISPLAY BASE NUMBER
+   fe55   86 10                LDAA   #16
+   fe57   b7 00 21             STAA   DBNBR
+                        ;MAX # OF CHARACTERS PER LINE
+   fe5a   86 48                LDAA   #72
+   fe5c   b7 00 54             STAA   CPLMAX
+   fe5f   7f 00 42             CLR    INPFLG   ;DEFAULT INPUT FROM THE TERMINAL
+   fe62   7f 00 48             CLR    OUTFLG   ;DEFAULT OUTPUT TO THE TERMINAL
+   fe65   7f 00 4e             CLR    HDXFLG   ;CLEAR HALF-DUPLEX FLAG
+                        ;INITIALIZE ACIA1 & ACIA2 TO 7 BITS AND EVEN PARITY
+                        ;RESET BOTH
+   fe68   86 03                LDAA   #3
+   fe6a   b7 7f 42             STAA   ACIA1-1
+   fe6d   b7 7f 44             STAA   ACIA2-1
+                        ;SET EM UP
+   fe70   86 02                LDAA   #2
+   fe72   b7 7f 42             STAA   ACIA1-1
+   fe75   b7 7f 44             STAA   ACIA2-1
+                        ;SET UP SWI INTERRUPT ADDRESS POINTER
+   fe78   ce f5 01             LDX    #TYPSWI  ;TYPE "SWI" & DO "REG" COMMAND
+   fe7b   ff 00 06             STX    SWIVEC
+                        ;INITIALIZE TO MONDEB'S COMMAND LISTS
+   fe7e   ce fc e3             LDX    #COMLST-1
+   fe81   ff 00 0c             STX    COMADR
+                        ;TIME CONSTANT FOR A 2 MICROSECOND CLOCK
+   fe84   86 53                LDAA   #83
+   fe86   b7 00 ab             STAA   TIMCON
+                        ;ALLOW TIME FOR TTY MOTOR TO COME UP TO SPEED
+   fe89   ce 01 f4             LDX    #500
+   fe8c   bd f9 c5             JSR    TIMDEL
+   fe8f   39                   RTS
+                        
+                        ;======================================================
+                        ;OUTPUT A CHARACTER STRING WHICH BEGINS AT THE ADDRESS IN THE INDEX REGISTER
+                        ;ACCA & ACCB ARE PRESERVED
+                        ;IX IS LEFT POINTING TO THE STRING TERMINATOR
+   fe90   36            OUTSTR PSHA
+   fe91   a6 00         OUTST1 LDAA   ,X       ;GET CHAR POINTED TO
+   fe93   81 04                CMPA   #4       ;IS IT A STRING TERMINATOR?
+   fe95   27 05                BEQ    OUTEND   ;DONE IF IT IS
+   fe97   8d 22                BSR    OUTCHR   ;ISN'T, OUTPUT IT
+   fe99   08                   INX             ;ON TO NEXT CHARACTER
+   fe9a   20 f5                BRA    OUTST1
+   fe9c   32            OUTEND PULA
+   fe9d   39                   RTS             ;RETURN
+                        
+                        ;======================================================
+                        ;INPUT A CHARACTER FROM AN ACIA TO ACCA
+                        ;IF INPFLG = 0, INPUT IS FROM TERMINAL ACIA
+                        ;IF INPFLG = 0, INPUT IS FROM ANY ACIA
+                        ;ACCB & IX ARE PRESERVED
+                        
+   fe9e   ff 00 8a      INPCHR STX    XTEMP    ;SAVE IX
+   fea1   7d 00 42             TST    INPFLG   ;TEST INPUT SOURCE FLAG
+   fea4   26 05                BNE    INPCH1
+                        ;INPFLG=0: INPUT FROM TERMINAL ACIA
+   fea6   ce 7f 43             LDX    #ACIA1
+   fea9   20 03                BRA    INPCH2
+                        ;INPFLG=1: INPUT FROM ANY ACIA
+   feab   fe 00 45      INPCH1 LDX    INPADR   ;GET ITS ADDRESS
+   feae   09            INPCH2 DEX             ;POINT TO CONTROL REG
+   feaf   a6 00         INPCH3 LDAA   ,X       ;GET ACIA STATUS BYTE
+   feb1   85 01                BITA   #1       ;CHAR WAITING?
+   feb3   27 fa                BEQ    INPCH3   ;IF NOT, TRY AGAIN
+   feb5   a6 01                LDAA   1,X      ;YES, GET IT
+   feb7   fe 00 8a             LDX    XTEMP    ;RESTORE IX
+   feba   39                   RTS
+                        
+                        ;======================================================
+                        ;OUTPUT THE CHARACTER IN ACCA TO THE DESIRED OUTPUT DEVICE/LOCATION
+                        ; IF OUTFLG = 0, OUTPUT IS TO TERMINAL
+                        ; IF OUTFLG = 1, OUTPUT IS TO ACIA ADDRESS STORED IN OUTADR
+                        ; IF OUTFLG = 2, OUTPUT IS TO ADDRESS IN OUTADR & THIS ADDR IS THEN INCREMENTED
+                        ;ACCA, ACCB, & IX ARE PRESERVED
+   febb   37            OUTCHR PSHB            ;SAVE ACCB
+   febc   7d 00 48             TST    OUTFLG   ;TEST OUTPUT DESTINATION FLAG
+   febf   27 21                BEQ    OUTCH4   ;SKIP THIS CODE IF TERMINAL OUTPUT
+                        
+                        ;OUTPUT TO SOMETHING OTHER THAN THE TERMINAL
+   fec1   ff 00 8a            STX     XTEMP    ;SAVE IX
+   fec4   fe 00 4b            LDX     OUTADR   ;GET OUTPUT CHAR DESTINATION ADDRESS
+   fec7   c6 02               LDAB    #2
+   fec9   f1 00 48            CMPB    OUTFLG
+   fecc   27 09               BEQ     OUTCH2
+                        
+                        ;OUTFLG = 1: ANY ACIA OUTPUT
+   fece   09                   DEX             ;POINT TO ACIA STATUS REG
+   fecf   e5 00         OUTCH1 BITB   ,X       ;TEST TDRE BIT
+   fed1   27 fc                BEQ    OUTCH1   ;LOOP IF NOT READY TO ACCEPT A NEW CHAR
+   fed3   a7 01                STAA   1,X      ;NOW READY - SEND IT
+   fed5   20 06                BRA    OUTCH3
+                        
+                        ;OUTCLF = 2: MEMORY OUTPUT
+   fed7   a7 00         OUTCH2 STAA   ,X       ;SAVE CHAR IN MEMORY
+   fed9   08                   INX
+   feda   ff 00 4b             STX    OUTADR   ; UPDATE OUTPUT ADDRESS
+                        
+   fedd   fe 00 8a      OUTCH3 LDX    XTEMP    ;RESTORE IX
+   fee0   33                   PULB            ;RESTORE ACCB
+   fee1   39                   RTS
+                        
+                        ;OUTFLG = 0: TERMINAL ACIA OUTPUT
+                        ;IGNORE LINE FEEDS
+   fee2   81 0a         OUTCH4 CMPA   #LF
+   fee4   26 02                BNE    OUTCH5
+   fee6   33                   PULB
+   fee7   39                   RTS
+                        
+   fee8   81 0d         OUTCH5 CMPA   #CR      ;TEST FOR CARRIAGE RETURN
+   feea   26 04                BNE    OUTCH6
+   feec   8d 1e                BSR    DOCRLF
+   feee   33                   PULB
+   feef   39                   RTS
+                        
+   fef0   f6 00 51      OUTCH6 LDAB   CPLCNT   ;GET "CHARACTERS PER LINE" COUNT
+   fef3   f1 00 54             CMPB   CPLMAX   ;COMPARE TO MAX PERMISSIBLE
+   fef6   2c 0b                BGE    OUTCH7   ;SEND CR-LF IF GREATER
+                        ;LESS THAN MAX, BUT ALSO SEND CR-LF IF 10 FROM END AND PRINTING A SPACE
+   fef8   cb 0a                ADDB   #10
+   fefa   f1 00 54             CMPB   CPLMAX
+   fefd   2d 06                BLT    OUTCH8
+   feff   81 20                CMPA   #$20     ;NEAR END, TEST IF ABOUT TO PRINT A SPACE
+   ff01   26 02                BNE    OUTCH8
+                        
+                        ;TERMINAL LINE FULL OR NEARLY FULL - INTERJECT A CR-LF
+   ff03   8d 07         OUTCH7 BSR    DOCRLF
+   ff05   7c 00 51      OUTCH8 INC    CPLCNT   ;BUMP COUNTER
+   ff08   8d 20                BSR    TOACIA   ;SEND IT TO ACIA1
+   ff0a   33                   PULB
+   ff0b   39                   RTS
+                        
+                        ;======================================================
+                        ;SEND A CARRIAGE RETURN-LINE FEED TO THE TERMINAL
+                        ;ACCA, ACCB, & IX ARE PRESERVED
+   ff0c   36            DOCRLF PSHA
+   ff0d   37                   PSHB
+   ff0e   86 0d                LDAA   #CR
+   ff10   8d 18                BSR    TOACIA
+   ff12   86 0a                LDAA   #LF
+   ff14   8d 14                BSR    TOACIA
+                        
+                        ;ALLOW TIMER FOR THE CARRIAGE TO RETURN BY SENDING NULL CHARACTERS
+                        ;SEND 1 NULL PER 16 CHARACTERS
+                        ;DIVIDE CPLCNT BY 16
+   ff16   f6 00 51             LDAB   CPLCNT
+   ff19   54                   LSRB
+   ff1a   54                   LSRB
+   ff1b   54                   LSRB
+   ff1c   54                   LSRB
+   ff1d   5c                   INCB            ;ALWAYS SEND AT LEAST 1 NULL
+   ff1e   4f            DOCRL1 CLRA            ;GET A NULL
+   ff1f   8d 09                BSR    TOACIA   ;SEND IT
+   ff21   5a                   DECB
+   ff22   26 fa                BNE    DOCRL1
+   ff24   7f 00 51             CLR    CPLCNT   ;ZERO "CHARACTERS PER LINE" COUNT
+   ff27   33                   PULB
+   ff28   32                   PULA
+   ff29   39                   RTS
+                        
+                        ;======================================================
+                        ;PUT CHAR IN ACCA INTO TERMINAL ACIA
+                        ;ACCA, ACCB, & IX ARE PRESERVED
+   ff2a   36            TOACIA PSHA            ;SAVE CHAR
+   ff2b   86 02                LDAA   #2       ;GET ACIA TRANSMIT REG STATUS BIT
+   ff2d   b5 7f 42      TOACI1 BITA   ACIA1-1  ;REGISTER EMPTY?
+   ff30   27 fb                BEQ    TOACI1   ;IF NOT, LOOP BACK
+   ff32   32                   PULA            ;YES, RESTORE CHARACTER
+   ff33   b7 7f 43             STAA   ACIA1    ;SEND IT
+   ff36   39                   RTS
+                        
+                        ;======================================================
+                        ;MISC TEST
+O  ff37   01 01 01      MSGHED ASC    "MONDEB 1.00" ;MONITOR HEADER TYPEOUT
+O  ff3a   01 01 01             DB     CR,4
+                        
+O  ff3d   01 01 01      MSGPRM DB     '*',4    ;PROMPT STRING
+                        
+O  ff40   01 01 01      MSGSWI DB     CR
+O  ff43   01 01 01             ASC    "SWI:"
+O  ff46   01 01 01             DB     4
+                        
+O  ff49   01 01 01      MSGLTL ASC    "TOO LONG" ; TYPED IF INPUT LINE IS TOO LONG
+O  ff4c   01 01 01             DB     4
+                        
+O  ff4f   01 01 01      MSGNBR ASC    "NOT SET" ; BREAK NOT SET
+O  ff52   01 01 01             DB     4
+                        
+O  ff55   01 01 01      MSGBAT ASC    "SET @ " ; BREAK AT -
+O  ff58   01 01 01             DB     4
+                        
+O  ff5b   01 01 01      MSGVER ASC    "OK"     ;CHECKSUM VERIFIES
+O  ff5e   01 01 01             DB     4
+                        
+O  ff61   01 01 01      MSGNVE ASC    "CHECKSUM ERROR " ; FOR VERIFY & LOAD COMMANDS
+O  ff64   01 01 01             DB     4
+                        
+O  ff67   01 01 01      MSGCCL ASC    "CANT CLEAR" ; TEST COMMAND
+O  ff6a   01 01 01             DB     4
+                        
+O  ff6d   01 01 01      MSGCSO ASC    "CANT SET TO ONES" ; TEST COMMAND
+O  ff70   01 01 01             DB     4
+                        
+O  ff73   01 01 01      MSGSIS ASC    "SUM IS " ; COMPARE COMMAND
+O  ff76   01 01 01             DB     4
+                        
+O  ff79   01 01 01      MSGDIS ASC    ", DIF IS " ; COMPARE COMMAND
+O  ff7c   01 01 01             DB     4
+                        
+O  ff7f   01 01 01      MSGS0  DB     CR,LF,0
+O  ff82   01 01 01             ASC    "S00600004844521B"
+O  ff85   01 01 01             DB     4
+                        
+O  ff88   01 01 01      MSGS1  DB     CR,LF,0,0,'S','1',4
+                        
+O  ff8b   01 01 01      MSGS9  DB     CR,LF,0
+O  ff8e   01 01 01             ASC    "S9030000FC"
+O  ff91   01 01 01             DB     CR,LF,4
+                        
+O  ff94   01 01 01      MSGCNH ASC    "CHAR NOT HEX" ;USE IN LOAD COMMAND
+O  ff97   01 01 01             DB     CR,4
+                        
+                        ;======================================================
+                        ;INTERRUPT HANDLING CODE
+   ff9a   fe 00 00      INTADR LDX    INTVEC
+   ff9d   6e 00                JMP    ,X
+                        ;*****
+   ff9f   fe 00 03      NMIADR LDX    NMIVEC
+   ffa2   6e 00                JMP    ,X
+                        ;*****
+   ffa4   7e f4 00      RESADR JMP    START
+                        ;*****
+   ffa7   bf 00 09      SWIADR STS    SP       ;SAVE STACK POINTER OF PROGRAM BEING DEBUGGED
+   ffaa   fe 00 06             LDX    SWIVEC
+   ffad   6e 00                JMP    ,X
+                        ;*****
+                        ;      RMB    START+$c00-8-63-* ;BLANK SPACE TO INTERRUPT VECTORS
+S  ffaf   01 01 01             * =    $FFB9    ;AS CALCULATED BY PREVIOUS LINE
+                        ;**************************************************
+                        
+   ffb2   7e f9 c5             JMP    TIMDEL   ;TIME DELAY FOR # OF MS SPECIFIED BY IX
+   ffb5   7e f7 5f             JMP    CKSUM    ;RETURN CHECKSUM OF AN ADDRESS RANGE IN ACCA
+   ffb8   7e fc cd             JMP    GETCHR   ;RETURN (IN ACCB) CHAR POINTED TO BY LINPTR
+   ffbb   7e fc da             JMP    GETLST   ;RETURN (IN ACCA) CHAR POINTED TO BY LISPTR
+   ffbe   7e fb 04             JMP    GTRANG   ;PICK UP AN ADDRESS RANGE IN RANGLO & RANGHI
+   ffc1   7e fb 4f             JMP    NUMBER   ;PICK UP A NUMBER & RETURN IT IN NBRHI & NBRLO
+   ffc4   7e fa 71             JMP    SKPDLM   ;SKIP OVER INPUT LINE DELIMITERS
+   ffc7   7e fa 9c             JMP    TSTDLM   ;TEST CHAR IN ACCB FOR A DELIMITER
+   ffca   7e fa 91             JMP    TSTEOL   ;TEST CHAR IN ACCA FOR END-OF-LINE
+   ffcd   7e f9 cf             JMP    COMAND   ;SEARCH SPECIFIED COMMAND LIST FOR A COMMAND
+   ffd0   7e fa 36             JMP    TYPCMD   ;TYPES OUT COMMAND NUMBER "COMNUM" IN LIST ACCA
+   ffd3   7e fc 05             JMP    OUT1BY   ;DISPLAY THE 1 BYTE NUMBER POINTED AT BY IX
+   ffd6   7e fc 0c             JMP    OUT2BY   ;DISPLAY THE 2 BYTE NUMBER POINTED AT BY IX
+   ffd9   7e fd d1             JMP    GETLIN   ;GET A LINE OF INPUT INTO THE TTY BUFFER
+   ffdc   7e fe 90             JMP    OUTSTR   ;OUTPUT CHAR STRING IX POINTS TO
+   ffdf   7e ff 0c             JMP    DOCRLF   ;SEND CR-LF WITH DELAY & ZERO LINE COUNT
+   ffe2   7e fe bb             JMP    OUTCHR   ;LIKE TOACIA, BUT WITH FOLDING, CR DELAY, & LF INSERTION
+   ffe5   7e ff 2a             JMP    TOACIA   ;SEND ACCA TO ACIA1
+   ffe8   7e fe 9e             JMP    INPCHR   ;GET A CHAR FROM AN ACIA & RETURN IT IN ACCA
+   ffeb   7e f4 25             JMP    PROMPT   ;TO PROMPT FOR A NEW COMMAND
+   ffee   7e f4 00             JMP    START    ;START OF MONDEB
+                        ;**************************************************
+                        ;INTERRUPT VECTORS
+O  fff1   01 01 01             DW    INTADR    ;REGULAR INTERRUPT
+O  fff4   01 01 01             DW    SWIADR    ;SOFTWARE INTERRUPT
+O  fff7   01 01 01             DW    NMIADR    ;NON-MASKABLE INTERRUPT
+O  fffa   01 01 01             DW    RESADR    ;RESET INTERRUPT
+                        
+                        ;**************************************************
+                        ;VARIABLES FOR INTER-ROUTINE COMMUNICATION
+S  fffd   01 01 01             * =    $7000
+O  0000   01 01 01      INTVEC DS     2        ;INTERRUPT ADDRESS POINTER
+O  0003   01 01 01      NMIVEC DS     2        ;NON-MASKABLE INTERRUPT ADDRESS POINTER
+O  0006   01 01 01      SWIVEC DS     2        ;SOFTWARE INTERRUPT ADDRESS POINTER
+O  0009   01 01 01      SP     DS     2        ;SAVED STACK POINTER
+O  000c   01 01 01      COMADR DS     2        ;ADDRESS OF BEGINNING OF COMMAND LISTS FOR COMMAND
+O  000f   01 01 01      SYNPTR DS     2        ;INPUT LINE CHARACTER POINTER FOR GOOD SYNTAX
+O  0012   01 01 01      LINPTR DS     2        ;INPUT LINE CHARACTER POINTER (CONTENT = OR > CONTENT OF SYNPTR)
+O  0015   01 01 01      BOLFLG DS     1        ;"BEGINNING OF LINE" FLAG
+O  0018   01 01 01      DELIM  DS     1        ;CHARACTER(S) PERMITTTED AS VALID COMMAND/MODIFIER DELIMITER
+O  001b   01 01 01      IBCODE DS     1        ;INPUT BASE (1=HEX, 2=DEC, 3=OCT)
+O  001e   01 01 01      DBCODE DS     1        ;DISPLAY BASE (1=HEX, 2=DEC, 3=OCT, 4=BIN)
+O  0021   01 01 01      DBNBR  DS     1        ;DISPLAY BASE NUMBER (E.G., 16,10M8M OR 2)
+                        
+O  0024   01 01 01      NBRHI  DS     1        ;MOST SIGNIFICANT BYTE OF SCANNED NUMBER
+O  0027   01 01 01      NBRLO  DS     1        ;LEAST SIGNIFICANT BYTE OF SCANNED NUMBER
+                        
+O  002a   01 01 01      RANGLO DS     2        ;RANGE LOWER LIMIT PICKED UP BY GTRANG
+O  002d   01 01 01      RANGHI DS     2        ;RANGE UPPER LIMIT PICKED UP BY GTRANG
+                        
+O  0030   01 01 01      LASTGO DS     2        ;LAST SPECIFIED GOTO ADDRESS
+                        
+O  0033   01 01 01      VERFRM DS     2        ;BEGINNING ADDRESS OF RANGE TO CHECKSUM VERIFY
+O  0036   01 01 01      VERTO  DS     2        ;ENDING ADDRESS OF RANGE TO CHECKSUM VERIFY
+                        
+O  0039   01 01 01      CHKSUM DS     1        ;CHECKSUM OF RANGE GIVEN IN THE VERIFY COMMAND
+                        
+O  003c   01 01 01      BRKADR DS     2        ;ADDRESS OF INSERTED BREAKPOINT
+O  003f   01 01 01      BRKINS DS     1        ;INSTRUCTION WHICH SHOULD BE THERE NORMALLY
+                        
+O  0042   01 01 01      INPFLG DS     1        ;ALTERNATE INPUT DESTINATION FLAG
+O  0045   01 01 01      INPADR DS     2        ;ALTERNATE ADDRESS THAT THE INPUT CHARACTERS ARE TO COME FROM
+                        
+O  0048   01 01 01      OUTFLG DS     1        ;ALTERNATE OUTPUT DESTINATION FLAG
+O  004b   01 01 01      OUTADR DS     2        ;ALTERNATE ADDRESS THAT THE OUTPUT CHARACTERS ARE TO GO TO
+                        
+O  004e   01 01 01      HDXFLG DS     1        ;HALF-DUPLEX TERMINAL FLAG (IF NON-ZERO, NO ECHO)
+                        
+O  0051   01 01 01      CPLCNT DS     1        ;"CHARACTERS PER LINE" COUNT
+O  0054   01 01 01      CPLMAX DS     1        ;"CHARACTERS PER LINE" MAXIMUM
+O  0057   01 01 01      BUFBEG DS     2        ;INPUT LINE START OF BUFFER
+O  005a   01 01 01      BUFEND DS     2        ;INPUT LINE END OF BUFFER
+O  005d   01 01 01      TTYBUF DS     72       ;START OF INPUT LINE BUFFER
+O  0060   01 01 01      TTYEND DS     1        ;END OF INPUT LINE BUFFER
+O  0063   01 01 01             DS     56       ;MAIN STACK STORAGE
+O  0066   01 01 01      STACK  DS     7        ;STACK STORAGE FOR RTI INSTRUCTION
+                        
+                        ;TEMPORARY (LOCALLY USED) VARIABLES
+O  0069   01 01 01      TEMP1  DS     2        ;IN: MAIN
+O  006c   01 01 01      TEMP2  DS     2        ;IN: MAIN
+O  006f   01 01 01      TEMP3  DS     2        ;IN: FNDSTR,MAIN
+O  0072   01 01 01      TEMP4  DS     2        ;IN: MAIN
+O  0075   01 01 01      TEMP5  DS     2        ;IN: MAIN
+O  0078   01 01 01      TEMP6  DS     2        ;IN: MAIN
+O  007b   01 01 01      TEMP7  DS     2        ;IN: MAIN
+O  007e   01 01 01      TEMP8  DS     2        ;IN: MAIN
+O  0081   01 01 01      TEMP9  DS     2        ;IN: MAIN
+O  0084   01 01 01      TEMP10 DS     2        ;IN: MAIN
+O  0087   01 01 01      TEMP11 DS     2        ;IN: MAIN
+                        
+                        ;XTEMP IS NOT TO BE USED TO SAVE IX BETWEEN ROUTINES
+O  008a   01 01 01      XTEMP  DS     2        ;USED BY DUMP,TYPCMD,OUTNUM
+O  008d   01 01 01      XTEMP1 DS     2        ;USED BY OUTNUM
+O  0090   01 01 01      XTEMP2 DS     2        ;USED BY NUMBER
+O  0093   01 01 01      NUMMAT DS     1        ;USED IN COMMAND
+O  0096   01 01 01      LISNUM DS     1        ;USED ON COMMAND
+O  0099   01 01 01      COMNUM DS     1        ;USED IN COMMAND
+O  009c   01 01 01      LISPTR DS     2        ;USED IN COMMAND
+O  009f   01 01 01      DECDIG DS     1        ;DECIMAL DIGIT BEING BUILT (DECIMAL OUTPUT BASE)
+O  00a2   01 01 01      NUMBHI DS     1        ;USED BY OUTNUM
+O  00a5   01 01 01      NUMBLO DS     1        ;USED BY OUTNUM
+O  00a8   01 01 01      NBR2X  DS     2        ;USED BY NUMBER
+O  00ab   01 01 01      TIMCON DS     2        ;DELAY TIME CONSTANT
+O  00ae   01 01 01      BYTECT DS     1        ;RECORD BYTE COUNT USED IN LOAD COMMAND
+O  00b1   01 01 01      CKSM   DS     1        ;RECORD CHECKSUM USED IN LOAD COMMAND
+                        
+                        ;CONVENIENT EQUIVALENCES FOR LOCAL VARIABLES
+   0069                 MEMADR EQU    TEMP1    ;DISPLAY,SET,SEARCH,TEST
+   006c                 STRNUM EQU    TEMP2    ;FNDSTR
+   006d                 EOSCHR EQU    TEMP2+1  ;FNDSTR
+                        
+                        ;FOR "SEARCH" COMMAND
+   006c                 BYTPTR EQU    TEMP2
+   006f                 NBYTES EQU    TEMP3
+   0070                 NBRMAT EQU    TEMP3+1
+   0072                 BYTSTR EQU    TEMP4
+                        
+                        ;      END
+                        
+*                       	END
+7f43  ACIA1         7f45  ACIA2         f45a  BADS1         f465  BADS2     
+f457  BADSYN        005c  BAKSLA        f980  BLDADR        0015  BOLFLG    
+f558  BREAK         f56d  BREAK1        f57e  BREAK2        f58e  BREAK3    
+f5a6  BREAK4        f5b2  BREAK5        f5b5  BREAK6        003c  BRKADR    
+003f  BRKINS        0057  BUFBEG        005a  BUFEND        00ae  BYTECT    
+006c  BYTPTR        0072  BYTSTR        fc85  C100          fc7f  C10K      
+0039  CHKSUM        00b1  CKSM          f75f  CKSUM         f764  CKSUM1    
+f9eb  CMD3          f9f4  CMD4          000c  COMADR        f9cf  COMAND    
+fce4  COMLST        0099  COMNUM        f880  COMPA1        f864  COMPAR    
+fbe1  CONERR        f60c  CONTIN        f52c  COPY          f539  COPY1     
+f552  COPY2         f555  COPY3         0051  CPLCNT        0054  CPLMAX    
+000d  CR            f5ce  DBASE         f5d9  DBASE1        f5df  DBASE2    
+f5f6  DBASE3        f5fa  DBASE4        001e  DBCODE        0021  DBNBR     
+f5ea  DBTBL         009f  DECDIG        fb9d  DECNUM        f9bd  DELAY     
+007f  DELETE        0018  DELIM         faf1  DIFNUM        fc30  DISNU1    
+fc3e  DISNU2        fc9f  DISNU3        fcaf  DISNU4        f678  DISP10    
+f628  DISPL1        f63f  DISPL2        f64c  DISPL3        f655  DISPL4    
+f657  DISPL5        f65c  DISPL6        f667  DISPL7        f66a  DISPL8    
+f675  DISPL9        f610  DISPLA        f4c7  DISREG        fadb  DLMNO     
+fad8  DLMYES        ff1e  DOCRL1        ff0c  DOCRLF        f88d  DUMP      
+f893  DUMP1         f918  DUMP10        f89a  DUMP2         f8a2  DUMP3     
+f8ad  DUMP4         f8b5  DUMP5         f8bd  DUMP6         f8cf  DUMP7     
+f8d1  DUMP8         f8f1  DUMP9         fe2e  ECHO          fe36  ECHO1     
+006d  EOSCHR        fadd  ERROR         fa60  FNDST1        fa66  FNDST2    
+fa70  FNDST3        fa59  FNDSTR        fccd  GETCHR        f44e  GETCMD    
+fde3  GETIT         fdd1  GETLIN        fcda  GETLST        f514  GOTO      
+f521  GOTO1         fb0b  GTRAN1        fb13  GTRAN2        fb20  GTRAN3    
+fb28  GTRAN4        fb2e  GTRAN5        fb2f  GTRAN6        fb35  GTRAN7    
+fb38  GTRAN8        fb04  GTRANG        fbd5  GUDNUM        004e  HDXFLG    
+fb91  HEXN1         fb83  HEXNUM        f5b8  IBASE         f5c3  IBASE1    
+f5c8  IBASE2        001b  IBCODE        f9a0  INHEX         f9b5  INHEX1    
+f9b6  INHEX2        f9d9  INILST        fe4d  INITAL        0045  INPADR    
+feab  INPCH1        feae  INPCH2        feaf  INPCH3        fe9e  INPCHR    
+0042  INPFLG        f84c  INT           ff9a  INTADR        0000  INTVEC    
+fab0  ISDLM2        faba  ISDLM3        fac4  ISDLM4        f400  JMP256    
+f476  JMPCMD        00f4  JMPHI         0085  JMPLO         f485  JMPTBL    
+0030  LASTGO        fe47  LASWAS        f529  LCLI          fcc5  LEFSHF    
+000a  LF            0012  LINPTR        0096  LISNUM        009c  LISPTR    
+f92c  LOAD          f93e  LOAD1         f95d  LOAD2         f969  LOAD3     
+f97a  LOAD4         f526  LSEI          fcc0  LSH2          f85c  LSWI      
+fa0f  MATCH         0069  MEMADR        fa33  MFAIL         ff55  MSGBAT    
+ff67  MSGCCL        ff94  MSGCNH        ff6d  MSGCSO        ff79  MSGDIS    
+ff37  MSGHED        ff49  MSGLTL        ff4f  MSGNBR        ff61  MSGNVE    
+ff3d  MSGPRM        ff7f  MSGS0         ff88  MSGS1         ff8b  MSGS9     
+ff73  MSGSIS        ff40  MSGSWI        ff5b  MSGVER        00a8  NBR2X     
+0024  NBRHI         0027  NBRLO         0070  NBRMAT        006f  NBYTES    
+fa23  NEXCOM        fa19  NMATCH        f854  NMI           ff9f  NMIADR    
+0003  NMIVEC        f46f  NOMORE        fe0f  NOTCTC        fe04  NOTEOL    
+f91b  NULLS         f91e  NULLS1        fb4f  NUMBER        00a2  NUMBHI    
+00a5  NUMBLO        fb4b  NUMIN1        fb44  NUMINX        fb68  NUMLUP    
+0093  NUMMAT        fdd5  NXTCHR        fbc4  OCTNUM        fc05  OUT1BY    
+f4e3  OUT2          f4f2  OUT2A4        fc0c  OUT2BY        f4ea  OUT4      
+004b  OUTADR        fe27  OUTBAK        fcac  OUTBIN        fecf  OUTCH1    
+fed7  OUTCH2        fedd  OUTCH3        fee2  OUTCH4        fee8  OUTCH5    
+fef0  OUTCH6        ff03  OUTCH7        ff05  OUTCH8        febb  OUTCHR    
+fc53  OUTDE1        fc5a  OUTDE2        fc5d  OUTDE3        fc68  OUTDE4    
+fc7a  OUTDE5        fc45  OUTDEC        fe9c  OUTEND        fbff  OUTEQ     
+0048  OUTFLG        fc2f  OUTHEX        fcba  OUTIT         fc13  OUTNUM    
+fc9a  OUTOC1        fc8e  OUTOCT        f925  OUTP2         f883  OUTSD     
+fbf9  OUTSP         fe91  OUTST1        fe90  OUTSTR        f434  PROMP1    
+f425  PROMPT        002d  RANGHI        002a  RANGLO        f98e  RDBYTE    
+f4c7  REG           ffa4  RESADR        fe38  RUBNOW        f7f2  SEAR10    
+f77c  SEARC1        f79b  SEARC2        f7a7  SEARC3        f7b3  SEARC4    
+f7c0  SEARC5        f7c3  SEARC6        f7d7  SEARC7        f7e4  SEARC8    
+f7ef  SEARC9        f76e  SEARCH        f67b  SET           f692  SET1      
+f716  SET10         f722  SET11         f725  SET12         f69c  SET2      
+f69f  SET3          f6b1  SET4          f6ce  SET5          f6ec  SET6      
+f6f4  SET7          f6fc  SET8          f709  SET9          fbf5  SHFTER    
+fbec  SHIFT         fbe7  SHIFT2        fa77  SKPDL1        fa82  SKPDL2    
+fa89  SKPDL3        fa71  SKPDLM        0009  SP            0066  STACK     
+f400  START         fe1d  STORIT        006c  STRNUM        fade  SUMNUM    
+ffa7  SWIADR        0006  SWIVEC        000f  SYNPTR        0069  TEMP1     
+0084  TEMP10        0087  TEMP11        006c  TEMP2         006f  TEMP3     
+0072  TEMP4         0075  TEMP5         0078  TEMP6         007b  TEMP7     
+007e  TEMP8         0081  TEMP9         f7f5  TEST          f800  TEST1     
+f80e  TEST2         f81b  TEST3         f82c  TEST4         00ab  TIMCON    
+f9c8  TIMDE1        f9c5  TIMDEL        ff2d  TOACI1        ff2a  TOACIA    
+fab4  TSTCMA        fdf0  TSTCR         fdf8  TSTCR1        fe03  TSTCR2    
+fa9c  TSTDLM        fa9b  TSTEO1        fa91  TSTEOL        005d  TTYBUF    
+0060  TTYEND        fa48  TYPCM1        fa54  TYPCM2        fa36  TYPCMD    
+f510  TYPSW1        f501  TYPSWI        0033  VERFRM        f748  VERIF1    
+f757  VERIF2        f728  VERIFY        0036  VERTO         008a  XTEMP     
+008d  XTEMP1        0090  XTEMP2        
+

@@ -1,0 +1,182 @@
+CONSOLE_DATA =      $12 
+CONSOLE_ADDRESS =   $10 
+
+
+                    ; ---- print data after JSR, http://6502.org/source/io/primm.htm
+PRIMM:              
+            PHA     ; save A
+            TYA     ; copy Y
+            PHA     ; save Y
+            TXA     ; copy X
+            PHA     ; save X
+            TSX     ; get stack pointer
+            LDA     $0104,X ; get return address low byte (+4 to
+                    ;   correct pointer)
+            STA     $00 ; save in page zero
+            LDA     $0105,X ; get return address high byte (+5 to
+                    ;   correct pointer)
+            STA     $01 ; save in page zero
+            LDY     #$01 ; set index (+1 to allow for return
+                    ;   address offset)
+PRIM2:              
+            LDA     ($00),Y ; get byte from string
+            BEQ     PRIM3 ; exit if null (end of text)
+
+            STA     serial_data 
+            JSR     serial_out ; else display character
+            INY     ; increment index
+            BNE     PRIM2 ; loop (exit if 256th character)
+
+PRIM3:              
+            TYA     ; copy index
+            CLC     ; clear carry
+            ADC     $00 ; add string pointer low byte to index
+            STA     $0104,X ; put on stack as return address low byte
+                    ; (+4 to correct pointer, X is unchanged)
+            LDA     #$00 ; clear A
+            ADC     $01 ; add string pointer high byte
+            STA     $0105,X ; put on stack as return address high byte
+                    ; (+5 to correct pointer, X is unchanged)
+
+            PLA     ; pull value
+            TAX     ; restore X
+            PLA     ; pull value
+            TAY     ; restore Y
+            PLA     ; restore A
+            RTS     
+
+
+                    ; ---- Print new line
+@PRINT_NL:          
+            JSR     primm 
+            DB      $0D,$0A,$00 
+
+            RTS     
+
+                    ; ----- Read one character => console_data
+@READ_CHAR:         
+            JSR     serial_in 
+            LDA     serial_data 
+            STA     console_data 
+            JSR     serial_out 
+
+            RTS     
+
+                    ; ----- Read one number in hex => A
+READ_NUMBER:        
+            JSR     serial_in 
+            LDA     serial_data 
+
+                    ; hex character is valid - > 0x2f && < 0x3A || > 0x40 && < 0x47
+            CMP     #$2F ; < 0x2f
+            BMI     read_number 
+
+            CMP     #$47 ; >= 0x46
+            BCS     read_number 
+
+            CMP     #$3A ; < 0x3a
+            BCC     rn_num 
+
+            CMP     #$41 ; >= 0x41
+            BCS     rn_char 
+
+            JMP     read_number 
+
+RN_NUM:             
+            SEC     
+            SBC     #$30 
+            RTS     
+
+RN_CHAR:            
+            SEC     
+            SBC     #$37 
+            RTS     
+
+
+                    ; ----- read two numbers representing byte to console_data
+@READ_BYTE:         
+            PHA     ; save A
+            TYA     ; copy Y
+            PHA     ; save Y
+            TXA     ; copy X
+            PHA     ; save X
+
+            JSR     read_number ; read higher nibble
+            ASL     ; shift it
+            ASL     
+            ASL     
+            ASL     
+            STA     console_data ; store it
+            JSR     serial_out ; and print back
+
+            JSR     read_number ; read lower nibble
+            ORA     console_data ; add it
+            STA     console_data ; store it
+            JSR     serial_out ; and print it
+
+            PLA     ; pull value
+            TAX     ; restore X
+            PLA     ; pull value
+            TAY     ; restore Y
+            PLA     ; restore A
+            RTS     
+                    ; ----- Print number in A
+PRINT_NUMBER:       
+            CMP     #$A ; < 0xa
+            BCC     pn_num 
+
+            CLC     
+            ADC     #$37 
+            JMP     pn_done 
+
+PN_NUM:             
+            CLC     
+            ADC     #$30 
+
+PN_DONE:            
+            STA     serial_data 
+            JSR     serial_out 
+
+            RTS     
+
+
+@PRINT_BYTE:        ; -----  Print two numbers rpresenting byte in console_data
+            PHA     ; save A
+            TYA     ; copy Y
+            PHA     ; save Y
+            TXA     ; copy X
+            PHA     ; save X
+
+                    ; print higher nibble
+            LDA     console_data 
+            LSR     
+            LSR     
+            LSR     
+            LSR     
+            JSR     print_number 
+
+                    ; print lower nibble
+            LDA     console_data 
+            AND     #$F 
+            JSR     print_number 
+
+            PLA     ; pull value
+            TAX     ; restore X
+            PLA     ; pull value
+            TAY     ; restore Y
+            PLA     ; restore A
+
+            RTS     
+
+                    ; ---- Read Address - 4 bytes => ADDRESS + 1, ADDRESS
+@READ_ADDRESS:      
+            JSR     read_byte 
+            LDA     console_data 
+            STA     console_address+1 
+
+            JSR     read_byte 
+            LDA     console_data 
+            STA     console_address 
+
+            RTS
+

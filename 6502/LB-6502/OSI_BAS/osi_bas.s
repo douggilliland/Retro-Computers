@@ -5779,8 +5779,11 @@ ACIAData := ACIA+1
 Reset:
 	LDX     #STACK_TOP
 	TXS
-
-	LDA 	#$95		; Set ACIA baud rate, word size and Rx interrupt (to control RTS)
+	CLD					; Turn decimal mode off
+	SEI 				; Disable interrupts (set interrupt disable flag)
+	LDA 	#$03		; Master Reset ACIA
+	STA	ACIAControl
+	LDA 	#$15		; Set ACIA baud rate, word size and Rx interrupt (to control RTS)
 	STA	ACIAControl
 
 ; Display startup message
@@ -5803,7 +5806,13 @@ WaitForKeypress:
 
 	CMP	#'C'			; compare with [C]old start
 	BNE	Reset
-
+	LDY #0
+LoopColdMsg:
+	LDA	GotColdMsg,Y
+	JSR	MONCOUT
+	INY
+	BNE	LoopColdMsg
+	
 	JMP	COLD_START	; BASIC cold start
 
 WarmStart:
@@ -5844,7 +5853,9 @@ NotCTRLC:
 	RTS
 
 StartupMessage:
-	.byte	$0C,"Cold [C] or warm [W] start?",$0D,$0A,$00
+	.byte	"Cold [C] or warm [W] start?",$0D,$0A,$00
+GotColdMsg:
+	.byte	"Got Cold key",$0D,$0A,$00
 
 LOAD:
 	RTS
