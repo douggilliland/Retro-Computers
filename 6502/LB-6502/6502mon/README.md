@@ -14,8 +14,8 @@ associated hardware.
 
 ## 2.0 Assembly
 
-Assembled with [CA65](http://www.cc65.org/doc/ca65.html). Just
-type `make`!
+Assembled with [CA65](http://www.cc65.org/doc/ca65.html) under Windows. rUN MAKEMON.BAT
+to make to ROM file moncode.hex.
 
 ## 3.0 To Do
 
