@@ -1,4 +1,6 @@
-# Loomcom 6502 ROM Monitor
+# Enhanced BASIC
+
+Loomcom 6502 ROM Monitor plus Enhanced BASIC
 
 **Version:** 1.0
 
