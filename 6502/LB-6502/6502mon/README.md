@@ -2,6 +2,8 @@
 
 ## Loomcom 6502 ROM Monitor plus Enhanced BASIC
 
+monitor.asm includes basic.asm.
+
 **Version:** 1.0
 
 **Last Updated:** July 27, 2014
