@@ -1,0 +1,216 @@
+0001   0000             ;==================================================================================
+0002   0000             ; Contents of this file are copyright Grant Searle
+0003   0000             ;
+0004   0000             ; You have permission to use this for NON COMMERCIAL USE ONLY
+0005   0000             ; If you wish to use it elsewhere, please include an acknowledgement to myself.
+0006   0000             ;
+0007   0000             ; http://searle.hostei.com/grant/index.html
+0008   0000             ;
+0009   0000             ; eMail: home.micros01@btinternet.com
+0010   0000             ;
+0011   0000             ; If the above don't work, please perform an Internet search to see if I have
+0012   0000             ; updated the web page hosting service.
+0013   0000             ;
+0014   0000             ;==================================================================================
+0015   0000             
+0016   0000             ; Minimum 6850 ACIA interrupt driven serial I/O to run modified NASCOM Basic 4.7
+0017   0000             ; Full input buffering with incoming data hardware handshaking
+0018   0000             ; Handshake shows full before the buffer is totally filled to allow run-on from the sender
+0019   0000             
+0020   0000             SER_BUFSIZE     .EQU     3FH
+0021   0000             SER_FULLSIZE    .EQU     30H
+0022   0000             SER_EMPTYSIZE   .EQU     5
+0023   0000             
+0024   0000             RTS_HIGH        .EQU     0D6H
+0025   0000             RTS_LOW         .EQU     096H
+0026   0000             
+0027   0000             serBuf          .EQU     $2000
+0028   0000             serInPtr        .EQU     serBuf+SER_BUFSIZE
+0029   0000             serRdPtr        .EQU     serInPtr+2
+0030   0000             serBufUsed      .EQU     serRdPtr+2
+0031   0000             basicStarted    .EQU     serBufUsed+1
+0032   0000             TEMPSTACK       .EQU     $20ED ; Top of BASIC line input buffer so is "free ram" when BASIC resets
+0033   0000             
+0034   0000             CR              .EQU     0DH
+0035   0000             LF              .EQU     0AH
+0036   0000             CS              .EQU     0CH             ; Clear screen
+0037   0000             
+0038   0000                             .ORG $0000
+0039   0000             ;------------------------------------------------------------------------------
+0040   0000             ; Reset
+0041   0000             
+0042   0000 F3          RST00           DI                       ;Disable interrupts
+0043   0001 C3 B8 00                    JP       INIT            ;Initialize Hardware and go
+0044   0004             
+0045   0004             ;------------------------------------------------------------------------------
+0046   0004             ; TX a character over RS232 
+0047   0004             
+0048   0008                             .ORG     0008H
+0049   0008 C3 9F 00    RST08            JP      TXA
+0050   000B             
+0051   000B             ;------------------------------------------------------------------------------
+0052   000B             ; RX a character over RS232 Channel A [Console], hold here until char ready.
+0053   000B             
+0054   0010                             .ORG 0010H
+0055   0010 C3 74 00    RST10            JP      RXA
+0056   0013             
+0057   0013             ;------------------------------------------------------------------------------
+0058   0013             ; Check serial status
+0059   0013             
+0060   0018                             .ORG 0018H
+0061   0018 C3 AA 00    RST18            JP      CKINCHAR
+0062   001B             
+0063   001B             ;------------------------------------------------------------------------------
+0064   001B             ; RST 38 - INTERRUPT VECTOR [ for IM 1 ]
+0065   001B             
+0066   0038                             .ORG     0038H
+0067   0038 18 00       RST38            JR      serialInt       
+0068   003A             
+0069   003A             ;------------------------------------------------------------------------------
+0070   003A F5          serialInt:      PUSH     AF
+0071   003B E5                          PUSH     HL
+0072   003C             
+0073   003C DB 80                       IN       A,($80)
+0074   003E E6 01                       AND      $01             ; Check if interupt due to read buffer full
+0075   0040 28 2D                       JR       Z,rts0          ; if not, ignore
+0076   0042             
+0077   0042 DB 81                       IN       A,($81)
+0078   0044 F5                          PUSH     AF
+0079   0045 3A 43 20                    LD       A,(serBufUsed)
+0080   0048 FE 3F                       CP       SER_BUFSIZE     ; If full then ignore
+0081   004A 20 03                       JR       NZ,notFull
+0082   004C F1                          POP      AF
+0083   004D 18 20                       JR       rts0
+0084   004F             
+0085   004F 2A 3F 20    notFull:        LD       HL,(serInPtr)
+0086   0052 23                          INC      HL
+0087   0053 7D                          LD       A,L             ; Only need to check low byte becasuse buffer<256 bytes
+0088   0054 FE 3F                       CP       (serBuf+SER_BUFSIZE) & $FF
+0089   0056 20 03                       JR       NZ, notWrap
+0090   0058 21 00 20                    LD       HL,serBuf
+0091   005B 22 3F 20    notWrap:        LD       (serInPtr),HL
+0092   005E F1                          POP      AF
+0093   005F 77                          LD       (HL),A
+0094   0060 3A 43 20                    LD       A,(serBufUsed)
+0095   0063 3C                          INC      A
+0096   0064 32 43 20                    LD       (serBufUsed),A
+0097   0067 FE 30                       CP       SER_FULLSIZE
+0098   0069 38 04                       JR       C,rts0
+0099   006B 3E D6                       LD       A,RTS_HIGH
+0100   006D D3 80                       OUT      ($80),A
+0101   006F E1          rts0:           POP      HL
+0102   0070 F1                          POP      AF
+0103   0071 FB                          EI
+0104   0072 ED 4D                       RETI
+0105   0074             
+0106   0074             ;------------------------------------------------------------------------------
+0107   0074             RXA:
+0108   0074 3A 43 20    waitForChar:    LD       A,(serBufUsed)
+0109   0077 FE 00                       CP       $00
+0110   0079 28 F9                       JR       Z, waitForChar
+0111   007B E5                          PUSH     HL
+0112   007C 2A 41 20                    LD       HL,(serRdPtr)
+0113   007F 23                          INC      HL
+0114   0080 7D                          LD       A,L             ; Only need to check low byte becasuse buffer<256 bytes
+0115   0081 FE 3F                       CP       (serBuf+SER_BUFSIZE) & $FF
+0116   0083 20 03                       JR       NZ, notRdWrap
+0117   0085 21 00 20                    LD       HL,serBuf
+0118   0088 F3          notRdWrap:      DI
+0119   0089 22 41 20                    LD       (serRdPtr),HL
+0120   008C 3A 43 20                    LD       A,(serBufUsed)
+0121   008F 3D                          DEC      A
+0122   0090 32 43 20                    LD       (serBufUsed),A
+0123   0093 FE 05                       CP       SER_EMPTYSIZE
+0124   0095 30 04                       JR       NC,rts1
+0125   0097 3E 96                       LD       A,RTS_LOW
+0126   0099 D3 80                       OUT      ($80),A
+0127   009B             rts1:
+0128   009B 7E                          LD       A,(HL)
+0129   009C FB                          EI
+0130   009D E1                          POP      HL
+0131   009E C9                          RET                      ; Char ready in A
+0132   009F             
+0133   009F             ;------------------------------------------------------------------------------
+0134   009F F5          TXA:            PUSH     AF              ; Store character
+0135   00A0 DB 80       conout1:        IN       A,($80)         ; Status byte       
+0136   00A2 CB 4F                       BIT      1,A             ; Set Zero flag if still transmitting character       
+0137   00A4 28 FA                       JR       Z,conout1       ; Loop until flag signals ready
+0138   00A6 F1                          POP      AF              ; Retrieve character
+0139   00A7 D3 81                       OUT      ($81),A         ; Output the character
+0140   00A9 C9                          RET
+0141   00AA             
+0142   00AA             ;------------------------------------------------------------------------------
+0143   00AA 3A 43 20    CKINCHAR        LD       A,(serBufUsed)
+0144   00AD FE 00                       CP       $0
+0145   00AF C9                          RET
+0146   00B0             
+0147   00B0 7E          PRINT:          LD       A,(HL)          ; Get character
+0148   00B1 B7                          OR       A               ; Is it $00 ?
+0149   00B2 C8                          RET      Z               ; Then RETurn on terminator
+0150   00B3 CF                          RST      08H             ; Print it
+0151   00B4 23                          INC      HL              ; Next Character
+0152   00B5 18 F9                       JR       PRINT           ; Continue until $00
+0153   00B7 C9                          RET
+0154   00B8             ;------------------------------------------------------------------------------
+0155   00B8             INIT:
+0156   00B8 21 ED 20                   LD        HL,TEMPSTACK    ; Temp stack
+0157   00BB F9                         LD        SP,HL           ; Set up a temporary stack
+0158   00BC 21 00 20                   LD        HL,serBuf
+0159   00BF 22 3F 20                   LD        (serInPtr),HL
+0160   00C2 22 41 20                   LD        (serRdPtr),HL
+0161   00C5 AF                         XOR       A               ;0 to accumulator
+0162   00C6 32 43 20                   LD        (serBufUsed),A
+0163   00C9 3E 96                      LD        A,RTS_LOW
+0164   00CB D3 80                      OUT       ($80),A         ; Initialise ACIA
+0165   00CD ED 56                      IM        1
+0166   00CF FB                         EI
+0167   00D0 21 09 01                   LD        HL,SIGNON1      ; Sign-on message
+0168   00D3 CD B0 00                   CALL      PRINT           ; Output string
+0169   00D6 3A 44 20                   LD        A,(basicStarted); Check the BASIC STARTED flag
+0170   00D9 FE 59                      CP        'Y'             ; to see if this is power-up
+0171   00DB 20 16                      JR        NZ,COLDSTART    ; If not BASIC started then always do cold start
+0172   00DD 21 24 01                   LD        HL,SIGNON2      ; Cold/warm message
+0173   00E0 CD B0 00                   CALL      PRINT           ; Output string
+0174   00E3             CORW:
+0175   00E3 CD 74 00                   CALL      RXA
+0176   00E6 E6 DF                      AND       %11011111       ; lower to uppercase
+0177   00E8 FE 43                      CP        'C'
+0178   00EA 20 0F                      JR        NZ, CHECKWARM
+0179   00EC CF                         RST       08H
+0180   00ED 3E 0D                      LD        A,$0D
+0181   00EF CF                         RST       08H
+0182   00F0 3E 0A                      LD        A,$0A
+0183   00F2 CF                         RST       08H
+0184   00F3 3E 59       COLDSTART:     LD        A,'Y'           ; Set the BASIC STARTED flag
+0185   00F5 32 44 20                   LD        (basicStarted),A
+0186   00F8 C3 50 01                   JP        $0150           ; Start BASIC COLD
+0187   00FB             CHECKWARM:
+0188   00FB FE 57                      CP        'W'
+0189   00FD 20 E4                      JR        NZ, CORW
+0190   00FF CF                         RST       08H
+0191   0100 3E 0D                      LD        A,$0D
+0192   0102 CF                         RST       08H
+0193   0103 3E 0A                      LD        A,$0A
+0194   0105 CF                         RST       08H
+0195   0106 C3 53 01                   JP        $0153           ; Start BASIC WARM
+0196   0109                           
+0197   0109 0C          SIGNON1:       .BYTE     CS
+0198   010A 5A 38 30 20                .BYTE     "Z80 SBC By Grant Searle",CR,LF,0
+0198   010E 53 42 43 20 
+0198   0112 42 79 20 47 
+0198   0116 72 61 6E 74 
+0198   011A 20 53 65 61 
+0198   011E 72 6C 65 0D 
+0198   0122 0A 00 
+0199   0124 0D 0A       SIGNON2:       .BYTE     CR,LF
+0200   0126 43 6F 6C 64                .BYTE     "Cold or warm start (C or W)? ",0
+0200   012A 20 6F 72 20 
+0200   012E 77 61 72 6D 
+0200   0132 20 73 74 61 
+0200   0136 72 74 20 28 
+0200   013A 43 20 6F 72 
+0200   013E 20 57 29 3F 
+0200   0142 20 00 
+0201   0144                           
+0202   0144             .END
+tasm: Number of errors = 0
