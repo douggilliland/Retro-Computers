@@ -21,8 +21,16 @@ SER_BUFSIZE     .EQU     3FH
 SER_FULLSIZE    .EQU     30H
 SER_EMPTYSIZE   .EQU     5
 
-RTS_HIGH        .EQU     0D6H
-RTS_LOW         .EQU     096H
+RTS_HIGH        .EQU     0D6H	; RX Interrupt Enable
+								; RTS High, Tx Interrupt Disabled
+								; 8-Data Bits, 1-Stop Bit
+								; 115,200 Baud
+RTS_LOW         .EQU     096H	; RX Interrupt Enable
+								; RTS Low, Tx Interrupt Disabled
+								; 8-Data Bits, 1-Stop Bit
+								; 115,200 Baud
+ACIA_CTST		.EQU	 080H	; Control/Status Register
+ACIA_DATA		.EQU	 081H	; Data Register
 
 serBuf          .EQU     $8000
 serInPtr        .EQU     serBuf+SER_BUFSIZE
@@ -70,11 +78,11 @@ RST38            JR      serialInt
 serialInt:      PUSH     AF
                 PUSH     HL
 
-                IN       A,($80)
+                IN       A,(ACIA_CTST)
                 AND      $01             ; Check if interupt due to read buffer full
                 JR       Z,rts0          ; if not, ignore
 
-                IN       A,($81)
+                IN       A,(ACIA_DATA)
                 PUSH     AF
                 LD       A,(serBufUsed)
                 CP       SER_BUFSIZE     ; If full then ignore
@@ -97,7 +105,7 @@ notWrap:        LD       (serInPtr),HL
                 CP       SER_FULLSIZE
                 JR       C,rts0
                 LD       A,RTS_HIGH
-                OUT      ($80),A
+                OUT      (ACIA_CTST),A
 rts0:           POP      HL
                 POP      AF
                 EI
@@ -123,7 +131,7 @@ notRdWrap:      DI
                 CP       SER_EMPTYSIZE
                 JR       NC,rts1
                 LD       A,RTS_LOW
-                OUT      ($80),A
+                OUT      (ACIA_CTST),A
 rts1:
                 LD       A,(HL)
                 EI
@@ -132,11 +140,11 @@ rts1:
 
 ;------------------------------------------------------------------------------
 TXA:            PUSH     AF              ; Store character
-conout1:        IN       A,($80)         ; Status byte       
+conout1:        IN       A,(ACIA_CTST)   ; Status byte       
                 BIT      1,A             ; Set Zero flag if still transmitting character       
                 JR       Z,conout1       ; Loop until flag signals ready
                 POP      AF              ; Retrieve character
-                OUT      ($81),A         ; Output the character
+                OUT      (ACIA_DATA),A         ; Output the character
                 RET
 
 ;------------------------------------------------------------------------------
@@ -161,7 +169,7 @@ INIT:
                XOR       A               ;0 to accumulator
                LD        (serBufUsed),A
                LD        A,RTS_LOW
-               OUT       ($80),A         ; Initialise ACIA
+               OUT       (ACIA_CTST),A   ; Initialise ACIA
                IM        1
                EI
                LD        HL,SIGNON1      ; Sign-on message
