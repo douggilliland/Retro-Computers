@@ -21,14 +21,14 @@ SER_BUFSIZE     .EQU     3FH
 SER_FULLSIZE    .EQU     30H
 SER_EMPTYSIZE   .EQU     5
 
-RTS_HIGH        .EQU     0D6H	; RX Interrupt Enable
-								; RTS High, Tx Interrupt Disabled
-								; 8-Data Bits, 1-Stop Bit
-								; 115,200 Baud
-RTS_LOW         .EQU     096H	; RX Interrupt Enable
-								; RTS Low, Tx Interrupt Disabled
-								; 8-Data Bits, 1-Stop Bit
-								; 115,200 Baud
+RTS_HIGH        .EQU     0D5H	; D7=1, 	RX Interrupt Enable
+								; D6,D5=10, RTS High, Tx Interrupt Disabled
+								; D4-D2=101,8-Data Bits, 1-Stop Bit
+								; D1,D0=01, 115,200 Baud
+RTS_LOW         .EQU     095H	; D7=1, 	RX Interrupt Enable
+								; D6,D5=00, RTS Low, Tx Interrupt Disabled
+								; D4-D2=101,8-Data Bits, 1-Stop Bit
+								; D1,D0=01,	115,200 Baud
 ACIA_CTST		.EQU	 080H	; Control/Status Register
 ACIA_DATA		.EQU	 081H	; Data Register
 
