@@ -47,6 +47,8 @@ INTERP_LP:
 	LD A, (DE)
 	CP 'D'				; Dump Command Routine
 	JR Z, DUMP_RTN
+	CP 'L'				; LED Control Routine
+	JR Z, LED_RTN
 	CP 'X'				; X Command
 	JR Z, X_RTN
 	CP '?'				; Help Command
@@ -61,6 +63,14 @@ MAIN_LOOP:
 	CALL WRITE_CHAR		; Write the character that was read
 	JR INTERP_LP		; Repeat the loop
 
+LED_RTN:
+    LD DE, IN_BUFF+1    ; Load the address of the buffer into DE
+	LD A, (DE)			; GET THE 2ND CHAR IN THE INPUT STRING
+	LD HL, 00000H		; STORE THE CHAR TO THE LED
+	LD (HL), A
+	JR	INTERP_LP
+
+
 DUMP_RTN:
 	LD HL, DUMP_MSG		; Load the address of the message into HL
 	CALL PRINT			; Call the print subroutine
@@ -69,12 +79,12 @@ DUMP_RTN:
 X_RTN:
 	LD HL, XRTN_MSG		; Load the address of the message into HL
 	CALL PRINT			; Call the print subroutine
-	JR	MAIN_LOOP
+	JR	INTERP_LP
 
 HLP_RTN:
 	LD HL, HELP_MSG		; Load the address of the message into HL
 	CALL PRINT			; Call the print subroutine
-	JR	MAIN_LOOP
+	JR	INTERP_LP
 
 ; Routine to read a string into buffer
 READ_STRING:
@@ -132,7 +142,7 @@ XRTN_MSG:
 UNK_MSG:
     .BYTE	"UNKNOWN CMD",CR,LF,0
 HELP_MSG:
-    .BYTE	"D-Dump, X-X_routine, ?-Help",CR,LF,0
+    .BYTE	"D-Dump, X-X_routine, L#-SetLED, ?-Help",CR,LF,0
 CRLF_MSG:
     .BYTE	CR,LF,0
 
