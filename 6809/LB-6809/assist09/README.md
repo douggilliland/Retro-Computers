@@ -4,7 +4,7 @@ assist09-orig.asm - The original version that used a 6820 PIA for serial i/o and
 
 assist09-6522.asm - A version that was ported by A VD Horst to run on a system using a 6522 VIA.
 
-assist09-6850.asm - A port that runs on my single board computer that uses a 6850 ACIA. The trace command is not supported.
+assist09-6850.asm - A port that runs on Jeff Tranter's single board computer that uses a 6850 ACIA. The trace command is not supported.
 
 The files will assemble with the as9 assembler found at http://home.hccnet.nl/a.w.m.van.der.horst/m6809.html
 
