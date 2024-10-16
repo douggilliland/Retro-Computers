@@ -1,8 +1,5 @@
 ; ReadStringTest.asm
-; Read in a string
-
-CR          .EQU     0DH
-LF          .EQU     0AH
+; Minimal monitor program used for hardware testing
 
 ; Define the ACIA control and data register addresses
 ACIA_CTRL   .EQU 80H  ; Control register address
@@ -20,10 +17,14 @@ ACIA_INIT   .EQU 15H	; Disable receive interrupt
 ; Define the reset vector address
 RESET_VECTOR .EQU 0000H
 
-; Start of the program
+CR          .EQU     0DH
+LF          .EQU     0AH
+
+; RESET VECTOR GOES TO JUMP TO START
 	.ORG RESET_VECTOR
 	JP START          ; Jump to the start of the program
 
+; START OF THE CODE
 START:
 	DI                	; Disable interrupts
 
@@ -35,9 +36,11 @@ START:
 	LD A, ACIA_INIT		; Load the initialization value into register A
 	OUT (ACIA_CTRL), A	; Write to the control register
 
+; Print the banner/prompt
 	LD HL, MESSAGE		; Load the address of the message into HL
 	CALL PRINT			; Call the print subroutine
-	
+
+; Interpreter loop
 INTERP_LP:
     LD DE, IN_BUFF      ; Load the address of the buffer into DE
     CALL READ_STRING    ; Call the routine to read the string	
@@ -56,13 +59,10 @@ INTERP_LP:
 	LD HL, UNK_MSG		; Load the address of the message into HL
 	CALL PRINT			; Call the print subroutine
 	JR	INTERP_LP
-		
-; Loop forever to read and write characters
-MAIN_LOOP:
-	CALL READ_CHAR		; Read a character
-	CALL WRITE_CHAR		; Write the character that was read
-	JR INTERP_LP		; Repeat the loop
-
+	
+; Turn LED On/Off Command
+;	L0 - Turn off LED
+;	L1 - Turn on LED
 LED_RTN:
     LD DE, IN_BUFF+1    ; Load the address of the buffer into DE
 	LD A, (DE)			; GET THE 2ND CHAR IN THE INPUT STRING
@@ -70,21 +70,89 @@ LED_RTN:
 	LD (HL), A
 	JR	INTERP_LP
 
-
+; Dump memory block
+; D PP - Dump page PP to the serial port
 DUMP_RTN:
 	LD HL, DUMP_MSG		; Load the address of the message into HL
 	CALL PRINT			; Call the print subroutine
+	CALL GET_DUMP_ADDR
 	JR	INTERP_LP
 
+; X Example function
 X_RTN:
 	LD HL, XRTN_MSG		; Load the address of the message into HL
 	CALL PRINT			; Call the print subroutine
+	LD A, 05AH
+	CALL PRINT_HEX
+	LD A, ' '
+	CALL WRITE_CHAR
+	LD A, 0A5H
+	CALL PRINT_HEX
+	LD HL, CRLF_MSG		; Load the address of the message into HL
+	CALL PRINT			; Call the print subroutine
 	JR	INTERP_LP
 
+; Print the commands
 HLP_RTN:
 	LD HL, HELP_MSG		; Load the address of the message into HL
 	CALL PRINT			; Call the print subroutine
 	JR	INTERP_LP
+
+; Pull the two ascii hex digits from the input buffer
+GET_DUMP_ADDR:
+	LD	HL, IN_BUFF+2
+	LD A, (HL)
+	CALL CONVERT_CHAR
+	LD B, A
+	LD	HL, IN_BUFF+3
+	LD A, (HL)
+	CALL CONVERT_CHAR
+	LD C, A
+	RET
+
+; CONVERT_CHAR - Convert an ASCII character (0-9,A-F) into a nibble value
+CONVERT_CHAR:
+    CP '0'               ; Compare with '0'
+    JR C, INVALID_CHAR   ; Jump if less than '0'
+    CP '9' + 1           ; Compare with '9' + 1
+    JR NC, CHECK_A_F     ; Jump if not less than '9' + 1
+    SUB '0'              ; Convert '0'-'9' to 0-9
+    RET
+CHECK_A_F:
+    CP 'A'               ; Compare with 'A'
+    JR C, INVALID_CHAR   ; Jump if less than 'A'
+    CP 'F' + 1           ; Compare with 'F' + 1
+    JR NC, INVALID_CHAR  ; Jump if not less than 'F' + 1
+    SUB 'A' - 10         ; Convert 'A'-'F' to 10-15
+    RET
+INVALID_CHAR:
+    LD A, 0              ; Invalid character, set A to 0
+    RET
+
+; Print a byte as two hexadecimal ASCII digits
+PRINT_HEX:
+    LD D, A             ; Save the byte in D
+    SRL A               ; Shift right 4 times to get the high nibble
+    SRL A
+    SRL A
+    SRL A
+    CALL NIBBLE_TO_HEX  ; Convert high nibble to ASCII
+    CALL WRITE_CHAR     ; Print the high nibble
+
+    LD A, D             ; Restore the byte
+    AND 00FH            ; Mask out the high nibble to get the low nibble
+    CALL NIBBLE_TO_HEX  ; Convert low nibble to ASCII
+    CALL WRITE_CHAR     ; Print the low nibble
+
+    RET
+
+NIBBLE_TO_HEX:
+    ADD A, '0'          ; Convert 0-9 to ASCII
+    CP '9' + 1          ; If greater than '9'
+    JR C, DONE          ; If less than or equal to '9', done
+    ADD A, 7            ; Convert A-F to ASCII
+DONE:
+    RET
 
 ; Routine to read a string into buffer
 READ_STRING:
